@@ -7,7 +7,7 @@ import numpy as np
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import FakeRecorder
-from secret_pond.config import AppSettings, AudioFormatSettings, VoiceStackSettings
+from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings, VoiceStackSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.runtime import build_runtime
 from secret_pond.services.settings_store import SettingsState, SettingsStore
@@ -77,3 +77,27 @@ def test_build_runtime_creates_default_settings_file_when_missing(tmp_path: Path
     assert paths.settings_file.exists()
     assert runtime.settings_state.active == AppSettings()
     assert runtime.settings_state.draft == AppSettings()
+
+
+def test_build_runtime_promotes_restart_required_draft_settings_on_startup(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    active = small_settings()
+    draft = active.model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id="mic-2",
+                output_device_id="speaker-2",
+            )
+        },
+        deep=True,
+    )
+    SettingsStore(paths).save(SettingsState(active=active, draft=draft))
+
+    runtime = build_runtime(tmp_path, recorder=fake_recorder(), output=FakeOutput())
+
+    assert runtime.settings_state.active.devices.input_device_id == "mic-2"
+    assert runtime.settings_state.active.devices.output_device_id == "speaker-2"
+    assert runtime.controller.settings.devices.input_device_id == "mic-2"
+    assert SettingsStore(paths).load().active.devices.output_device_id == "speaker-2"

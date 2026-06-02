@@ -68,7 +68,7 @@ def build_runtime(
     paths.ensure_directories()
 
     settings_store = SettingsStore(paths)
-    settings_state = settings_store.load()
+    settings_state = settings_store.load_for_startup()
     active_settings = settings_state.active
 
     voice_stack = VoiceStackStore(paths)

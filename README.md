@@ -36,7 +36,7 @@ secret-pond serve
 - `low`, `mid`, `voice` 3레이어 렌더링과 staged EQ/필터 적용
 - 단일 출력 엔진용 레이어 믹서와 `sounddevice` 출력 스트림 래퍼
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
-- FastAPI 기반 로컬 API와 운영자 웹 대시보드
+- FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 선택 초안 UI
 
 아직 구현하지 않은 범위:
 
@@ -58,7 +58,7 @@ secret-pond serve
 현재 MVP 제약:
 
 - 출력 중에는 `Apply and Restart`가 막힙니다. 먼저 `Stop Output`을 누른 뒤 적용하세요.
-- `sample_rate`, `channels`, `output_device_id` 변경은 현재 UI Apply로 처리하지 않습니다. 설정 파일을 바꾼 뒤 앱을 재시작하는 방식으로 다룹니다.
+- `sample_rate`, `channels`, `input_device_id`, `output_device_id` 변경은 현재 UI Apply로 처리하지 않습니다. 대시보드에서 장치 초안을 고른 뒤 앱을 재시작하면 시작 설정으로 승격됩니다.
 - 준비 음원 파일이 없으면 `Apply and Restart`가 실패합니다.
 
 ## 커밋 규칙

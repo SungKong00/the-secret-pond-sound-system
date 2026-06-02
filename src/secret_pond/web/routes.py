@@ -139,12 +139,11 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
     current = runtime.settings_store.load()
     draft = current.draft
-    if _output_configuration_changed(current.active, draft):
+    if _runtime_configuration_changed(current.active, draft):
         raise HTTPException(
             status_code=409,
             detail=(
-                "output sample rate, channel count, and device changes require "
-                "a restart in this MVP"
+                "audio output format and device changes require an app restart in this MVP"
             ),
         )
 
@@ -278,9 +277,10 @@ def _device_warnings(
     return warnings
 
 
-def _output_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:
+def _runtime_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:
     return (
         active.audio.sample_rate != draft.audio.sample_rate
         or active.audio.channels != draft.audio.channels
+        or active.devices.input_device_id != draft.devices.input_device_id
         or active.devices.output_device_id != draft.devices.output_device_id
     )

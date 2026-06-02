@@ -86,6 +86,7 @@ const requestDevices = async () => {
     state.devices = await api("/api/devices");
     state.deviceError = null;
   } catch (error) {
+    state.devices = null;
     state.deviceError = error.message;
   }
   renderDevices();
@@ -102,6 +103,7 @@ const applyState = (payload) => {
   state.draft = clone(payload.settings.draft);
   renderState();
   renderControls();
+  renderDevices();
 };
 
 const renderState = () => {
@@ -130,10 +132,13 @@ const renderState = () => {
   $("stopButton").disabled = !snapshot.is_recording;
   $("startOutputButton").disabled = snapshot.playback.output_running;
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
-  $("applyButton").disabled = snapshot.playback.output_running;
+  const deviceChanges = hasDraftDeviceChanges(snapshot);
+  $("applyButton").disabled = snapshot.playback.output_running || deviceChanges;
   $("applyButton").title = snapshot.playback.output_running
     ? "Stop output before applying staged settings."
-    : "";
+    : deviceChanges
+      ? "Restart the app to use staged device changes."
+      : "";
   renderErrors();
 };
 
@@ -152,12 +157,29 @@ const renderDevices = () => {
   if (!devices) {
     $("inputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
     $("outputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
+    renderDeviceSelect("inputDeviceSelect", [], null);
+    renderDeviceSelect("outputDeviceSelect", [], null);
+    $("deviceRestartNotice").textContent = state.deviceError
+      ? "Audio devices are unavailable."
+      : "Checking audio devices...";
     $("deviceWarnings").innerHTML = "";
     return;
   }
 
   $("inputDeviceName").textContent = devices.selected_input_device?.name || "No input device";
   $("outputDeviceName").textContent = devices.selected_output_device?.name || "No output device";
+  renderDeviceSelect(
+    "inputDeviceSelect",
+    devices.input_devices,
+    state.draft?.devices.input_device_id ?? null,
+  );
+  renderDeviceSelect(
+    "outputDeviceSelect",
+    devices.output_devices,
+    state.draft?.devices.output_device_id ?? null,
+    Boolean(state.snapshot?.playback.output_running),
+  );
+  renderDeviceRestartNotice();
   const warningList = $("deviceWarnings");
   warningList.innerHTML = "";
   devices.warnings.forEach((warning) => {
@@ -165,6 +187,52 @@ const renderDevices = () => {
     item.textContent = warning;
     warningList.appendChild(item);
   });
+};
+
+const renderDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
+  const select = $(selectId);
+  select.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "System default";
+  select.appendChild(defaultOption);
+
+  devices.forEach((device) => {
+    const option = document.createElement("option");
+    option.value = device.id;
+    option.textContent = `${device.name} (${device.default_sample_rate || "unknown"} Hz)`;
+    select.appendChild(option);
+  });
+
+  if (selectedId && !devices.some((device) => device.id === selectedId)) {
+    const missingOption = document.createElement("option");
+    missingOption.value = selectedId;
+    missingOption.textContent = `Unavailable: ${selectedId}`;
+    select.appendChild(missingOption);
+  }
+
+  select.value = selectedId || "";
+  select.disabled = forceDisabled || !state.draft || !state.devices;
+};
+
+const renderDeviceRestartNotice = () => {
+  const outputRunning = Boolean(state.snapshot?.playback.output_running);
+  const changed = hasDraftDeviceChanges();
+  if (outputRunning) {
+    $("deviceRestartNotice").textContent = "Stop Output before changing output device.";
+  } else if (changed) {
+    $("deviceRestartNotice").textContent = "Device changes are staged. Restart the app to use them.";
+  } else {
+    $("deviceRestartNotice").textContent = "Device changes require app restart.";
+  }
+};
+
+const hasDraftDeviceChanges = (snapshot = state.snapshot) => {
+  if (!snapshot || !state.draft) return false;
+  return (
+    snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id ||
+    snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id
+  );
 };
 
 const hasPendingChanges = (snapshot) =>
@@ -261,6 +329,7 @@ const saveDraft = async () => {
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
     renderState();
+    renderDevices();
   } catch (error) {
     showError(error.message);
     throw error;
@@ -297,9 +366,18 @@ const resetDraft = async () => {
     state.draft = clone(payload.settings.draft);
     renderState();
     renderControls();
+    renderDevices();
   } catch (error) {
     showError(error.message);
   }
+};
+
+const changeDraftDevice = (key, value) => {
+  if (!state.draft) return;
+  state.draft.devices[key] = value || null;
+  renderState();
+  renderDevices();
+  scheduleDraftSave();
 };
 
 const shouldIgnoreSpace = () => {
@@ -388,6 +466,12 @@ const bindEvents = () => {
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);
+  $("inputDeviceSelect").addEventListener("change", (event) => {
+    changeDraftDevice("input_device_id", event.target.value);
+  });
+  $("outputDeviceSelect").addEventListener("change", (event) => {
+    changeDraftDevice("output_device_id", event.target.value);
+  });
   document.addEventListener("keydown", startFromSpace);
   document.addEventListener("keyup", stopFromSpace);
   window.addEventListener("blur", stopIfRecording);

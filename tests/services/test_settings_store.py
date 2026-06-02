@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from secret_pond.config import AppSettings
+from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
@@ -17,6 +17,22 @@ def settings_with_voice_volume(volume_db: float) -> AppSettings:
         "voice": settings.layers["voice"].model_copy(update={"volume_db": volume_db}),
     }
     return settings.model_copy(update={"layers": layers}, deep=True)
+
+
+def settings_with_devices(
+    *,
+    input_device_id: str | None,
+    output_device_id: str | None,
+) -> AppSettings:
+    return AppSettings().model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id=input_device_id,
+                output_device_id=output_device_id,
+            )
+        },
+        deep=True,
+    )
 
 
 def test_settings_store_initializes_missing_file_with_defaults(tmp_path: Path) -> None:
@@ -89,6 +105,56 @@ def test_settings_store_apply_draft_promotes_draft_to_active(tmp_path: Path) -> 
 
     assert state.active.layers["voice"].volume_db == -9.0
     assert state.draft.layers["voice"].volume_db == -9.0
+
+
+def test_settings_store_load_for_startup_promotes_restart_required_draft(
+    tmp_path: Path,
+) -> None:
+    store = SettingsStore(ProjectPaths(tmp_path))
+    draft = settings_with_devices(input_device_id="mic-2", output_device_id="speaker-2")
+    store.set_draft(draft)
+
+    state = store.load_for_startup()
+
+    assert state.active.devices.input_device_id == "mic-2"
+    assert state.active.devices.output_device_id == "speaker-2"
+    assert state.draft.devices.input_device_id == "mic-2"
+    assert store.load().active.devices.output_device_id == "speaker-2"
+
+
+def test_settings_store_load_for_startup_keeps_non_runtime_draft_pending(
+    tmp_path: Path,
+) -> None:
+    store = SettingsStore(ProjectPaths(tmp_path))
+    store.set_draft(settings_with_voice_volume(-9.0))
+
+    state = store.load_for_startup()
+
+    assert state.active.layers["voice"].volume_db == -18.0
+    assert state.draft.layers["voice"].volume_db == -9.0
+    assert store.load().active.layers["voice"].volume_db == -18.0
+
+
+def test_settings_store_load_for_startup_promotes_only_restart_required_fields(
+    tmp_path: Path,
+) -> None:
+    store = SettingsStore(ProjectPaths(tmp_path))
+    active = AppSettings()
+    draft = settings_with_devices(input_device_id="mic-2", output_device_id="speaker-2")
+    layers = {
+        **draft.layers,
+        "voice": draft.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    draft = draft.model_copy(update={"layers": layers}, deep=True)
+    store.save(SettingsState(active=active, draft=draft))
+
+    state = store.load_for_startup()
+
+    assert state.active.devices.input_device_id == "mic-2"
+    assert state.active.devices.output_device_id == "speaker-2"
+    assert state.active.layers["voice"].volume_db == -18.0
+    assert state.draft.layers["voice"].volume_db == -9.0
+    assert store.load().draft.layers["voice"].volume_db == -9.0
 
 
 def test_settings_store_reset_draft_discards_unapplied_changes(tmp_path: Path) -> None:

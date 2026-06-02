@@ -50,14 +50,23 @@
           </div>
           <p class="hint">Spacebar hold-to-record is active only while armed.</p>
           <div id="deviceStatus" class="diagnostic-stack" aria-label="audio devices">
-            <div class="diagnostic-row">
+            <div class="diagnostic-row device-summary">
               <span>Input</span>
               <strong id="inputDeviceName">Checking...</strong>
             </div>
-            <div class="diagnostic-row">
+            <label class="device-select-row" for="inputDeviceSelect">
+              <span>Input draft</span>
+              <select id="inputDeviceSelect" disabled></select>
+            </label>
+            <div class="diagnostic-row device-summary">
               <span>Output</span>
               <strong id="outputDeviceName">Checking...</strong>
             </div>
+            <label class="device-select-row" for="outputDeviceSelect">
+              <span>Output draft</span>
+              <select id="outputDeviceSelect" disabled></select>
+            </label>
+            <p id="deviceRestartNotice" class="device-note">Device changes require app restart.</p>
             <ul id="deviceWarnings" class="warning-list"></ul>
           </div>
         </section>

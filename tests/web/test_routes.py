@@ -137,6 +137,18 @@ def draft_with_sample_rate(sample_rate: int) -> dict:
     ).model_dump(mode="json")
 
 
+def draft_with_devices(*, input_device_id: str | None, output_device_id: str | None) -> dict:
+    return api_settings().model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id=input_device_id,
+                output_device_id=output_device_id,
+            )
+        },
+        deep=True,
+    ).model_dump(mode="json")
+
+
 def fake_device_registry() -> FakeDeviceRegistry:
     return FakeDeviceRegistry(
         [
@@ -201,6 +213,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
+    assert 'id="inputDeviceSelect"' in response.text
+    assert 'id="outputDeviceSelect"' in response.text
+    assert 'id="deviceRestartNotice"' in response.text
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:
@@ -213,6 +228,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "text/css" in styles.headers["content-type"]
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
+    assert "hasDraftDeviceChanges(snapshot)" in script.text
+    assert "state.devices = null" in script.text
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
@@ -307,6 +324,22 @@ def test_api_settings_draft_update_does_not_change_active(tmp_path: Path) -> Non
     settings = response.json()["settings"]
     assert settings["active"]["layers"]["voice"]["volume_db"] == -18.0
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -9.0
+
+
+def test_api_settings_draft_device_update_does_not_change_active(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.put(
+        "/api/settings/draft",
+        json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
+    )
+
+    assert response.status_code == 200
+    settings = response.json()["settings"]
+    assert settings["active"]["devices"]["input_device_id"] is None
+    assert settings["active"]["devices"]["output_device_id"] is None
+    assert settings["draft"]["devices"]["input_device_id"] == "mic-2"
+    assert settings["draft"]["devices"]["output_device_id"] == "speaker-2"
 
 
 def test_api_settings_reset_discards_draft_changes(tmp_path: Path) -> None:
@@ -416,3 +449,38 @@ def test_api_settings_apply_rejects_output_format_changes_without_changing_activ
     assert "output" in response.json()["detail"]
     state = client.get("/api/state").json()
     assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000
+
+
+def test_api_settings_apply_rejects_device_changes_without_changing_active(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put(
+        "/api/settings/draft",
+        json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
+    )
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "device" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["devices"]["input_device_id"] is None
+    assert state["settings"]["active"]["devices"]["output_device_id"] is None
+
+
+def test_api_settings_apply_rejects_input_device_changes_without_changing_active(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put(
+        "/api/settings/draft",
+        json=draft_with_devices(input_device_id="mic-2", output_device_id=None),
+    )
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "device" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["devices"]["input_device_id"] is None
