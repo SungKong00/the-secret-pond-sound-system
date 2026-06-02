@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any, Protocol
 
 import numpy as np
@@ -68,25 +69,29 @@ class SoundDeviceOutput:
 
         self._statuses = []
         self._latest_error = None
-        stream = self._stream_factory(
-            samplerate=self._sample_rate,
-            channels=self._channels,
-            device=_normalize_device_id(self._device_id),
-            dtype="float32",
-            blocksize=self._block_size,
-            callback=self._callback,
-        )
-        self._stream = stream
+        stream: Any | None = None
         player_started = False
         try:
             self._player.start()
             player_started = True
+            stream = self._stream_factory(
+                samplerate=self._sample_rate,
+                channels=self._channels,
+                device=_normalize_device_id(self._device_id),
+                dtype="float32",
+                blocksize=self._block_size,
+                callback=self._callback,
+            )
+            self._stream = stream
             stream.start()
         except Exception as exc:
             self._latest_error = str(exc)
             if player_started:
-                self._player.stop()
-            stream.close()
+                with suppress(Exception):
+                    self._player.stop()
+            if stream is not None:
+                with suppress(Exception):
+                    stream.close()
             self._stream = None
             self._is_running = False
             raise

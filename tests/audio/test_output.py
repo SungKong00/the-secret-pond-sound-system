@@ -69,7 +69,14 @@ class FakeOutputStream:
 
 
 class CapturingOutputStreamFactory:
-    def __init__(self, *, fail_start: bool = False, fail_stop: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_create: bool = False,
+        fail_start: bool = False,
+        fail_stop: bool = False,
+    ) -> None:
+        self.fail_create = fail_create
         self.fail_start = fail_start
         self.fail_stop = fail_stop
         self.calls: list[dict] = []
@@ -77,6 +84,8 @@ class CapturingOutputStreamFactory:
 
     def __call__(self, **kwargs) -> FakeOutputStream:
         self.calls.append(kwargs)
+        if self.fail_create:
+            raise OSError("stream create failed")
         stream = FakeOutputStream(
             kwargs["callback"],
             fail_start=self.fail_start,
@@ -179,7 +188,7 @@ def test_sounddevice_output_closes_stream_and_stops_player_when_stream_start_fai
     assert output.latest_error == "stream start failed"
 
 
-def test_sounddevice_output_closes_stream_when_player_start_fails() -> None:
+def test_sounddevice_output_does_not_create_stream_when_player_start_fails() -> None:
     factory = CapturingOutputStreamFactory()
     player = ScriptedPlayer(fail_start=True)
     output = SoundDeviceOutput(
@@ -192,10 +201,29 @@ def test_sounddevice_output_closes_stream_when_player_start_fails() -> None:
     with pytest.raises(RuntimeError, match="player start failed"):
         output.start()
 
-    assert factory.streams[0].closed is True
-    assert factory.streams[0].started is False
+    assert factory.calls == []
+    assert factory.streams == []
     assert output.is_running is False
     assert output.latest_error == "player start failed"
+
+
+def test_sounddevice_output_stops_player_when_stream_factory_fails() -> None:
+    factory = CapturingOutputStreamFactory(fail_create=True)
+    player = ScriptedPlayer()
+    output = SoundDeviceOutput(
+        sample_rate=48_000,
+        channels=2,
+        player=player,
+        stream_factory=factory,
+    )
+
+    with pytest.raises(OSError, match="create failed"):
+        output.start()
+
+    assert player.start_calls == 1
+    assert player.stop_calls == 1
+    assert output.is_running is False
+    assert output.latest_error == "stream create failed"
 
 
 def test_sounddevice_output_rejects_double_start_and_stop_before_start() -> None:
