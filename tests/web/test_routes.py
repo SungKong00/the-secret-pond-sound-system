@@ -36,13 +36,40 @@ def recorder_take() -> AudioBuffer:
     return AudioBuffer(samples=samples, sample_rate=48_000)
 
 
-def create_test_client(tmp_path: Path, *, with_sources: bool = False) -> TestClient:
+class FakeOutput:
+    def __init__(self, *, fail_start: Exception | None = None) -> None:
+        self.fail_start = fail_start
+        self.is_running = False
+        self.latest_status = None
+        self.statuses = []
+        self.latest_error = None
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self) -> None:
+        self.start_calls += 1
+        if self.fail_start is not None:
+            self.latest_error = str(self.fail_start)
+            raise self.fail_start
+        self.is_running = True
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self.is_running = False
+
+
+def create_test_client(
+    tmp_path: Path,
+    *,
+    with_sources: bool = False,
+    output: FakeOutput | None = None,
+) -> TestClient:
     paths = ProjectPaths(tmp_path)
     settings = api_settings()
     if with_sources:
         write_source_files(paths, settings)
     SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
-    runtime = build_runtime(tmp_path, recorder=FakeRecorder(recorder_take()))
+    runtime = build_runtime(tmp_path, recorder=FakeRecorder(recorder_take()), output=output)
     return TestClient(create_app(runtime=runtime))
 
 
@@ -71,6 +98,13 @@ def draft_with_low_layer_disabled() -> dict:
         "low": settings.layers["low"].model_copy(update={"enabled": False}),
     }
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
+def draft_with_sample_rate(sample_rate: int) -> dict:
+    return api_settings().model_copy(
+        update={"audio": api_settings().audio.model_copy(update={"sample_rate": sample_rate})},
+        deep=True,
+    ).model_dump(mode="json")
 
 
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
@@ -117,6 +151,8 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["is_recording"] is False
     assert payload["participant_count"] == 0
     assert payload["playback"]["is_playing"] is False
+    assert payload["playback"]["output_running"] is False
+    assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
 
@@ -196,6 +232,7 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
     assert payload["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
     assert payload["state"]["playback"]["is_playing"] is True
+    assert payload["state"]["playback"]["output_running"] is False
     paths = ProjectPaths(tmp_path)
     assert paths.low_playback.exists()
     assert paths.mid_playback.exists()
@@ -224,3 +261,56 @@ def test_api_settings_apply_and_restart_is_blocked_while_recording(tmp_path: Pat
 
     assert response.status_code == 409
     assert "recording" in response.json()["detail"]
+
+
+def test_api_playback_start_before_layers_are_loaded_returns_conflict(tmp_path: Path) -> None:
+    output = FakeOutput(fail_start=ValueError("rendered layers must be loaded before playback"))
+    client = create_test_client(tmp_path, output=output)
+
+    response = client.post("/api/playback/start")
+
+    assert response.status_code == 409
+    assert "loaded" in response.json()["detail"]
+
+
+def test_api_playback_start_and_stop_controls_output_after_apply(tmp_path: Path) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+
+    start_response = client.post("/api/playback/start")
+    stop_response = client.post("/api/playback/stop")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["state"]["playback"]["output_running"] is True
+    assert output.start_calls == 1
+    assert stop_response.status_code == 200
+    assert stop_response.json()["state"]["playback"]["output_running"] is False
+    assert output.stop_calls == 1
+
+
+def test_api_settings_apply_and_restart_is_blocked_while_output_is_running(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    output.is_running = True
+    client = create_test_client(tmp_path, output=output)
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "playback" in response.json()["detail"]
+
+
+def test_api_settings_apply_rejects_output_format_changes_without_changing_active(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_sample_rate(16_000))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "output" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000

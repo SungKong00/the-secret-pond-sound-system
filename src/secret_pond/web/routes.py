@@ -62,6 +62,20 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     }
 
 
+@router.post("/playback/start")
+def start_playback(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    _run_playback_control(runtime.output.start)
+    return {"state": _state_payload(runtime)}
+
+
+@router.post("/playback/stop")
+def stop_playback(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    _run_playback_control(runtime.output.stop)
+    return {"state": _state_payload(runtime)}
+
+
 @router.get("/settings")
 def get_settings(request: Request) -> dict[str, Any]:
     return {"settings": _settings_payload(_runtime(request))}
@@ -92,13 +106,29 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     if runtime.controller.is_recording:
         raise HTTPException(status_code=409, detail="cannot apply settings while recording")
+    if runtime.output.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="cannot apply settings while playback is running",
+        )
 
     current = runtime.settings_store.load()
     draft = current.draft
+    if _output_configuration_changed(current.active, draft):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "output sample rate, channel count, and device changes require "
+                "a restart in this MVP"
+            ),
+        )
+
     try:
         runtime.renderer.render_all(draft)
         runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
     except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
@@ -124,6 +154,13 @@ def _run_control(fn):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _run_playback_control(fn):
+    try:
+        return fn()
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     return {
         "armed": runtime.controller.armed,
@@ -135,6 +172,9 @@ def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
+            "output_running": runtime.output.is_running,
+            "output_latest_status": runtime.output.latest_status,
+            "output_latest_error": runtime.output.latest_error,
             "layers": {
                 layer_id: {
                     "enabled": layer_state.enabled,
@@ -170,3 +210,11 @@ def _outcome_payload(outcome: RecordingOutcome | None) -> dict[str, Any] | None:
 def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
     for layer_id, layer_settings in settings.layers.items():
         runtime.player.set_enabled(layer_id, layer_settings.enabled)
+
+
+def _output_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:
+    return (
+        active.audio.sample_rate != draft.audio.sample_rate
+        or active.audio.channels != draft.audio.channels
+        or active.devices.output_device_id != draft.devices.output_device_id
+    )

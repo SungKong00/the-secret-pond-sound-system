@@ -25,6 +25,19 @@ def fake_recorder() -> FakeRecorder:
     return FakeRecorder(AudioBuffer(samples=samples, sample_rate=8_000))
 
 
+class FakeOutput:
+    is_running = False
+    latest_status = None
+    statuses: list = []
+    latest_error = None
+
+    def start(self) -> None:
+        self.is_running = True
+
+    def stop(self) -> None:
+        self.is_running = False
+
+
 def test_build_runtime_wires_services_without_sounddevice_when_recorder_is_injected(
     tmp_path: Path,
 ) -> None:
@@ -33,12 +46,15 @@ def test_build_runtime_wires_services_without_sounddevice_when_recorder_is_injec
     SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
     player = LayeredLoopPlayer()
 
-    runtime = build_runtime(tmp_path, recorder=fake_recorder(), player=player)
+    output = FakeOutput()
+
+    runtime = build_runtime(tmp_path, recorder=fake_recorder(), player=player, output=output)
 
     assert runtime.paths == paths
     assert runtime.settings_state.active == settings
     assert runtime.controller.settings == settings
     assert runtime.player is player
+    assert runtime.output is output
     assert runtime.participants.get_count() == 0
 
 
