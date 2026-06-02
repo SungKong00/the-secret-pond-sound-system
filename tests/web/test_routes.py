@@ -64,6 +64,15 @@ def draft_with_voice_volume(volume_db: float) -> dict:
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
 
 
+def draft_with_low_layer_disabled() -> dict:
+    settings = api_settings()
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False}),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -191,6 +200,18 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     assert paths.low_playback.exists()
     assert paths.mid_playback.exists()
     assert paths.voice_playback.exists()
+
+
+def test_api_settings_apply_and_restart_applies_layer_enabled_state(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_low_layer_disabled())
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    assert response.json()["state"]["playback"]["layers"]["low"]["enabled"] is False
 
 
 def test_api_settings_apply_and_restart_is_blocked_while_recording(tmp_path: Path) -> None:

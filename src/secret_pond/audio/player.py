@@ -43,6 +43,10 @@ class LayeredLoopPlayer:
     def frame_cursor(self) -> int:
         return self._frame_cursor
 
+    @property
+    def layer_states(self) -> dict[LayerId, LayerPlaybackState]:
+        return dict(self._states)
+
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)

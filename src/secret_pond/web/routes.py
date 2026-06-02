@@ -103,6 +103,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
     state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
     runtime.apply_settings_state(state)
+    _apply_player_layer_settings(runtime, state.active)
     return {
         "settings": _settings_payload(runtime),
         "state": _state_payload(runtime),
@@ -134,6 +135,13 @@ def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
+            "layers": {
+                layer_id: {
+                    "enabled": layer_state.enabled,
+                    "realtime_trim_db": layer_state.realtime_trim_db,
+                }
+                for layer_id, layer_state in runtime.player.layer_states.items()
+            },
         },
         "settings": _settings_payload(runtime),
     }
@@ -157,3 +165,8 @@ def _outcome_payload(outcome: RecordingOutcome | None) -> dict[str, Any] | None:
         "reason": outcome.reason,
         "participant_count": outcome.participant_count,
     }
+
+
+def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
+    for layer_id, layer_settings in settings.layers.items():
+        runtime.player.set_enabled(layer_id, layer_settings.enabled)
