@@ -22,7 +22,7 @@
   - repeated keydown events are ignored.
   - browser blur, tab visibility loss, WebSocket disconnect, or disarm stops an active recording.
   - minimum duration is 3 seconds.
-  - maximum duration is 60 seconds.
+  - maximum duration is 120 seconds.
 - Three loop layers:
   - `low`: prepared low-frequency droning source.
   - `mid`: prepared middle-frequency/directional source.
@@ -41,10 +41,12 @@
   - reverb amount.
   - optional delay amount.
   - fade in/out.
-- Voice accumulation keeps accepted recordings, a manifest, and rebuildable cache files:
-  - `data/processed/accepted/*.wav`: processed individual voice clips after ingest EQ/filter/reverb.
-  - `data/voice/voice_stack_manifest.json`: placement, gain, duration, source file, processing preset, and render revision metadata for each accepted clip.
-  - `data/voice/voice_stack_raw.wav`: rebuildable accumulated voice cache without playback EQ repeatedly baked in.
+- Voice accumulation supports two modes:
+  - `test_library` mode stores processed individual voice clips under `data/processed/accepted/*.wav` so tests and rehearsal imports can rebuild a voice stack from a folder.
+  - `live_ephemeral` mode does not persist individual single-voice WAV files after they are mixed into the stack.
+- Voice stack artifacts:
+  - `data/voice/voice_stack_manifest.json`: placement, gain, duration, processing preset, source mode, and render revision metadata.
+  - `data/voice/voice_stack_raw.wav`: current accumulated voice stack, also usable as a starting point when an exhibition begins with a prebuilt stack.
   - `data/rendered/layers/voice_playback.wav`: voice layer after current playback EQ/filter settings.
 - EQ slider changes are staged first. They do not change audio until the operator clicks `Apply and Restart`.
 - Participant count and operation logs are persisted.
@@ -85,16 +87,23 @@
 
 ### Loop Duration
 
-- MVP loop duration: 300 seconds.
+- Prepared low/mid loop duration remains configurable.
+- Voice stack default loop duration: 60 seconds.
+- Voice stack loop duration is configurable through settings, as long as the implementation stays simple.
 - `low`, `mid`, and `voice` rendered playback layers must have the same exact frame count.
 - The player uses one shared frame cursor for all layers so the three layers stay phase-aligned.
+- A source voice WAV longer than the voice stack duration is split into duration-sized chunks.
+- Each chunk is mixed as a separate stack addition.
+- A final short chunk is looped/tiled to fill the configured voice stack duration before it is mixed.
 
 ### Non-Destructive Rendering
 
 - Never apply playback EQ repeatedly to `voice_stack_raw.wav`.
-- Treat `voice_stack_raw.wav` and `data/rendered/layers/*.wav` as caches.
-- The authoritative record of accepted voices is `data/processed/accepted/*.wav` plus `data/voice/voice_stack_manifest.json`.
-- The app must be able to rebuild `voice_stack_raw.wav` from accepted clips and the manifest.
+- Treat `data/rendered/layers/*.wav` as playback caches.
+- In `test_library` mode, the authoritative record is `data/processed/accepted/*.wav` plus `data/voice/voice_stack_manifest.json`.
+- In `test_library` mode, `voice_stack_raw.wav` is a rebuildable cache derived from accepted clips and the manifest.
+- In `live_ephemeral` mode, `voice_stack_raw.wav` is the authoritative accumulated stack and individual voice WAV files are removed after mixing.
+- The app must be able to start from an existing `voice_stack_raw.wav`.
 - Render playback EQ/filter settings from raw/source files into `data/rendered/layers/*.wav`.
 - Write rendered files atomically:
   - render to `*.tmp.wav`.
@@ -181,6 +190,15 @@
   - restore previous render.
 - Show a pending-changes badge whenever draft settings differ from active settings.
 - UI copy must say that MVP EQ sliders are staged and apply only after `Apply and Restart`.
+
+### Review Gates
+
+- Before each small implementation slice, dispatch a subagent to review the local plan for contradictions and unnecessary complexity.
+- Do not implement the slice until blocking review findings are resolved.
+- After each slice implementation, dispatch a subagent for spec compliance and code-quality review.
+- Do not commit with unresolved blocking or important review findings.
+- Run tests and lint before every commit.
+- Use `type;한글 설명` commit messages, for example `feat;오프라인 오디오 효과 추가`.
 
 ### Error Handling
 
@@ -280,7 +298,7 @@ Responsibilities:
 - `audio/player.py`: layered loop playback engine.
 - `audio/recorder.py`: recorder interface, fake recorder, sounddevice recorder.
 - `audio/renderer.py`: render prepared sources and voice stack into playback layers.
-- `audio/voice_stack.py`: append accepted recordings to manifest and rebuild `voice_stack_raw.wav`.
+- `audio/voice_stack.py`: build/update `voice_stack_raw.wav` from test-library files or live ephemeral recordings.
 - `services/controller.py`: orchestration for record, stop, process, render, apply, playback.
 - `services/logging_service.py`: rotating text logs and structured event logs.
 - `services/participants.py`: participant count persistence.
@@ -322,9 +340,11 @@ browser Space keyup or max-duration timeout
 → Controller stops Recorder
 → if duration < 3 seconds, discard
 → process recording with recording pre-mix settings
-→ save processed accepted clip
-→ append clip placement metadata to voice_stack_manifest.json
-→ rebuild voice_stack_raw.wav cache from accepted clips and manifest
+→ split processed voice into voice-stack-duration chunks
+→ in test_library mode, save processed chunks to the accepted folder
+→ in live_ephemeral mode, keep processed chunks in memory/temp only
+→ mix chunks into voice_stack_raw.wav
+→ update voice_stack_manifest.json with source mode and placement metadata
 → render voice_playback.wav from raw stack and active voice layer settings
 → increment participant count
 → restart or continue playback according to operator setting
@@ -586,18 +606,24 @@ error
 
 ### Phase 4: Voice Stack Accumulation
 
-**Purpose:** Store every accepted processed recording and rebuild the accumulated voice source non-destructively.
+**Purpose:** Build and update the accumulated voice source while separating rehearsal/test persistence from live ephemeral operation.
 
 **Files:**
 - Create: `src/secret_pond/audio/voice_stack.py`
 - Test: `tests/audio/test_voice_stack.py`
 
 - [ ] Initialize an empty silent `voice_stack_raw.wav` when it does not exist.
-- [ ] Save accepted processed recordings under `data/processed/accepted`.
-- [ ] Append one manifest entry to `data/voice/voice_stack_manifest.json` per accepted recording.
+- [ ] Load an existing `voice_stack_raw.wav` when present and normalize it to the configured voice stack duration.
+- [ ] Add `VoiceStackMode` values:
+  - `test_library`
+  - `live_ephemeral`
+- [ ] In `test_library` mode, save processed voice chunks under `data/processed/accepted`.
+- [ ] In `live_ephemeral` mode, do not persist individual single-voice WAV files after they are mixed.
+- [ ] Append one manifest entry to `data/voice/voice_stack_manifest.json` per stack addition.
 - [ ] Manifest entry fields:
   - `id`
-  - `accepted_clip_path`
+  - `source_mode`
+  - `accepted_clip_path` when mode is `test_library`
   - `duration_seconds`
   - `offset_frames`
   - `gain_db`
@@ -605,8 +631,9 @@ error
   - `created_at`
   - `source_sample_rate`
   - `source_channels`
-- [ ] Rebuild `voice_stack_raw.wav` by loading all accepted clips and mixing them according to the manifest.
-- [ ] Wrap recording audio around the end of the loop if needed.
+- [ ] Split source WAVs longer than the configured voice stack duration into duration-sized chunks.
+- [ ] Tile a final short chunk to the configured voice stack duration before mixing.
+- [ ] Wrap chunk audio around the end of the loop if needed.
 - [ ] Apply peak guard after rebuilding the stack.
 - [ ] Return metadata:
   - recording duration.
@@ -615,12 +642,14 @@ error
   - peak after guard.
   - gain reduction applied.
 - [ ] Tests should verify:
-  - a manifest entry is created for an accepted clip.
-  - rebuilding from manifest is deterministic.
+  - `test_library` mode persists accepted chunks.
+  - `live_ephemeral` mode leaves no individual accepted WAV file.
+  - existing `voice_stack_raw.wav` can be used as the starting stack.
+  - long WAVs split into multiple stack additions.
+  - final short chunks tile to the configured stack duration.
   - inserted samples appear at expected offset.
   - wraparound works.
   - too-loud inserts are guarded.
-  - deleting `voice_stack_raw.wav` and rebuilding recreates the same stack from accepted clips.
 
 ### Phase 5: Layer Rendering
 
@@ -721,9 +750,12 @@ error
 - [ ] Implement too-short recording discard.
 - [ ] Implement accepted recording processing:
   - process recording.
-  - save accepted processed clip.
-  - append manifest entry.
-  - rebuild voice stack raw cache.
+  - split the processed recording into configured voice-stack chunks.
+  - pass chunks to `voice_stack.py` with the active stack mode.
+  - persist individual chunks only in `test_library` mode.
+  - keep no individual single-voice WAV after mixing in `live_ephemeral` mode.
+  - append manifest entries with source mode and placement metadata.
+  - update `voice_stack_raw.wav`.
   - render voice playback layer.
   - increment participant count.
   - log event.
@@ -869,9 +901,11 @@ Docs must include:
 - Difference between active settings and pending settings.
 - How to recover from errors.
 - What files can be deleted between rehearsals.
-- What files should be backed up:
+- What files should be backed up in `test_library` mode:
   - `data/processed/accepted`
   - `data/voice/voice_stack_manifest.json`
+- What files should be backed up in `live_ephemeral` mode:
+  - `data/voice/voice_stack_raw.wav`
   - `data/config/settings.json`
   - `data/logs`
 
@@ -891,13 +925,15 @@ Manual verification checklist:
 11. Browser blur or tab hidden stops an active recording.
 12. A recording shorter than 3 seconds is discarded.
 13. A valid recording increments participant count.
-14. A valid recording creates an accepted clip and manifest entry.
-15. Deleting voice_stack_raw.wav and rebuilding from manifest restores the stack.
-16. A valid recording changes the voice stack playback layer.
-17. EQ slider movement shows dirty state.
-18. Apply and Restart renders new audio and restarts playback.
-19. A failed render keeps the previous good playback layer.
-20. Restarting the app preserves participant count and settings.
+14. A valid recording in test_library mode creates accepted chunks and manifest entries.
+15. A valid recording in live_ephemeral mode leaves no individual accepted voice WAV.
+16. test_library mode can rebuild voice_stack_raw.wav from accepted chunks and manifest.
+17. live_ephemeral mode can start from an existing voice_stack_raw.wav.
+18. A valid recording changes the voice stack playback layer.
+19. EQ slider movement shows dirty state.
+20. Apply and Restart renders new audio and restarts playback.
+21. A failed render keeps the previous good playback layer.
+22. Restarting the app preserves participant count and settings.
 ```
 
 Cross-platform manual checks:
@@ -978,26 +1014,28 @@ This plan incorporates three independent critiques:
   - no ffmpeg dependency for MVP.
   - `doctor` diagnostics before show operation.
 
+During implementation, run a fresh pre-review before each small slice and a fresh post-review before committing. Phase 10 must include a fresh LazyWeb MCP pass for the final dashboard, not only the notes captured during planning.
+
 ---
 
 ## 8. Commit Strategy
 
-This workspace is not currently a git repository. If git is initialized later, commit after each phase:
+Use small commits. Commit messages use a semicolon after the type and Korean description:
 
 ```text
-feat: 프로젝트 기본 세팅
-feat: 설정과 경로 모델 추가
-feat: 오디오 장치 진단 추가
-feat: 오디오 버퍼와 파일 입출력 추가
-feat: 오프라인 오디오 효과 추가
-feat: 매니페스트 기반 목소리 스택 추가
-feat: 레이어 렌더러 추가
-feat: 레이어 재생 엔진 추가
-feat: 녹음 엔진 추가
-feat: 애플리케이션 컨트롤러 추가
-feat: 로컬 웹 API 추가
-feat: 운영자 대시보드 추가
-docs: 운영자 안내 문서와 설정 체크리스트 추가
+feat;프로젝트 기본 세팅
+feat;설정과 경로 모델 추가
+feat;오디오 장치 진단 추가
+feat;오디오 버퍼와 파일 입출력 추가
+feat;오프라인 오디오 효과 추가
+feat;목소리 스택 모드 추가
+feat;레이어 렌더러 추가
+feat;레이어 재생 엔진 추가
+feat;녹음 엔진 추가
+feat;애플리케이션 컨트롤러 추가
+feat;로컬 웹 API 추가
+feat;운영자 대시보드 추가
+docs;운영자 안내 문서와 설정 체크리스트 추가
 ```
 
 ---

@@ -38,3 +38,6 @@ data/sources/*
 *.local.json
 *.tmp
 *.tmp.wav
+
+# IDE
+.idea/
