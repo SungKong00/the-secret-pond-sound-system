@@ -36,7 +36,7 @@ class AudioFormatSettings(BaseModel):
 class InputControlSettings(BaseModel):
     armed: bool = False
     minimum_recording_seconds: float = Field(default=3.0, ge=0.0, le=30.0)
-    maximum_recording_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+    maximum_recording_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
 
     @model_validator(mode="after")
     def validate_recording_window(self) -> InputControlSettings:
@@ -75,6 +75,8 @@ class PlaybackSettings(BaseModel):
 
 
 class VoiceStackSettings(BaseModel):
+    mode: Literal["test_library", "live_ephemeral"] = "live_ephemeral"
+    loop_seconds: int = Field(default=60, ge=1, le=600)
     placement: Literal["random"] = "random"
     insert_gain_db: float = Field(default=-12.0, ge=-60.0, le=6.0)
 
