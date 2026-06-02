@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
 
+from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.config import AppSettings
 from secret_pond.services.controller import RecordingOutcome
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
@@ -59,6 +60,30 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     return {
         "outcome": _outcome_payload(outcome),
         "state": _state_payload(runtime),
+    }
+
+
+@router.get("/devices")
+def get_devices(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        settings = runtime.settings_store.load().active
+        input_devices = runtime.device_registry.list_input_devices()
+        output_devices = runtime.device_registry.list_output_devices()
+        selected_input = runtime.device_registry.validate_input(settings.devices.input_device_id)
+        selected_output = runtime.device_registry.validate_output(settings.devices.output_device_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"audio devices unavailable: {exc}",
+        ) from exc
+
+    return {
+        "input_devices": [_device_payload(device) for device in input_devices],
+        "output_devices": [_device_payload(device) for device in output_devices],
+        "selected_input_device": _device_payload(selected_input),
+        "selected_output_device": _device_payload(selected_output),
+        "warnings": _device_warnings(selected_input, selected_output, settings),
     }
 
 
@@ -210,6 +235,47 @@ def _outcome_payload(outcome: RecordingOutcome | None) -> dict[str, Any] | None:
 def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
     for layer_id, layer_settings in settings.layers.items():
         runtime.player.set_enabled(layer_id, layer_settings.enabled)
+
+
+def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
+    if device is None:
+        return None
+    return {
+        "id": device.id,
+        "name": device.name,
+        "kind": device.kind,
+        "max_input_channels": device.max_input_channels,
+        "max_output_channels": device.max_output_channels,
+        "default_sample_rate": device.default_sample_rate,
+    }
+
+
+def _device_warnings(
+    input_device: AudioDeviceInfo | None,
+    output_device: AudioDeviceInfo | None,
+    settings: AppSettings,
+) -> list[str]:
+    warnings: list[str] = []
+    if settings.devices.input_device_id is not None and input_device is None:
+        warnings.append("Configured input device is unavailable.")
+    if settings.devices.output_device_id is not None and output_device is None:
+        warnings.append("Configured output device is unavailable.")
+    if output_device and output_device.max_output_channels < settings.audio.channels:
+        warnings.append(
+            "Selected output supports "
+            f"{output_device.max_output_channels} channels, "
+            f"but settings request {settings.audio.channels}."
+        )
+    if output_device and output_device.default_sample_rate not in (
+        None,
+        settings.audio.sample_rate,
+    ):
+        warnings.append(
+            "Selected output default sample rate is "
+            f"{output_device.default_sample_rate}, "
+            f"but settings request {settings.audio.sample_rate}."
+        )
+    return warnings
 
 
 def _output_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:

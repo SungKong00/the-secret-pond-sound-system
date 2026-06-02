@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from secret_pond.audio.devices import AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.layers import LayerId
 from secret_pond.audio.output import SoundDeviceOutput
 from secret_pond.audio.player import LayeredLoopPlayer
@@ -45,6 +46,7 @@ class SecretPondRuntime:
     renderer: LayerRenderer
     participants: ParticipantCounter
     logger: EventLogger
+    device_registry: AudioDeviceRegistry
     controller: RecordingController
     player: LayeredLoopPlayer
     output: PlaybackOutput
@@ -60,6 +62,7 @@ def build_runtime(
     recorder: Recorder | None = None,
     player: LayeredLoopPlayer | None = None,
     output: PlaybackOutput | None = None,
+    device_registry: AudioDeviceRegistry | None = None,
 ) -> SecretPondRuntime:
     paths = ProjectPaths(root)
     paths.ensure_directories()
@@ -86,6 +89,7 @@ def build_runtime(
     renderer = LayerRenderer(paths)
     participants = ParticipantCounter(paths)
     logger = EventLogger(paths)
+    resolved_device_registry = device_registry or SoundDeviceRegistry()
     controller = RecordingController(
         settings=active_settings,
         recorder=resolved_recorder,
@@ -104,6 +108,7 @@ def build_runtime(
         renderer=renderer,
         participants=participants,
         logger=logger,
+        device_registry=resolved_device_registry,
         controller=controller,
         player=resolved_player,
         output=resolved_output,

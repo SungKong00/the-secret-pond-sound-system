@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 
 from secret_pond.app import create_app
 from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
 from secret_pond.audio.file_io import write_wav_atomic
 from secret_pond.audio.recorder import FakeRecorder
 from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
+    DeviceSettings,
     InputControlSettings,
     VoiceStackSettings,
 )
@@ -28,6 +30,13 @@ def api_settings() -> AppSettings:
             maximum_recording_seconds=1.0,
         ),
         voice_stack=VoiceStackSettings(loop_seconds=1),
+    )
+
+
+def api_settings_with_devices() -> AppSettings:
+    return api_settings().model_copy(
+        update={"devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2")},
+        deep=True,
     )
 
 
@@ -58,18 +67,39 @@ class FakeOutput:
         self.is_running = False
 
 
+class FailingDeviceRegistry:
+    def list_input_devices(self):
+        raise OSError("device stack unavailable")
+
+    def list_output_devices(self):
+        raise OSError("device stack unavailable")
+
+    def validate_input(self, device_id):
+        raise OSError("device stack unavailable")
+
+    def validate_output(self, device_id):
+        raise OSError("device stack unavailable")
+
+
 def create_test_client(
     tmp_path: Path,
     *,
     with_sources: bool = False,
     output: FakeOutput | None = None,
+    settings: AppSettings | None = None,
+    device_registry=None,
 ) -> TestClient:
     paths = ProjectPaths(tmp_path)
-    settings = api_settings()
+    resolved_settings = settings or api_settings()
     if with_sources:
-        write_source_files(paths, settings)
-    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
-    runtime = build_runtime(tmp_path, recorder=FakeRecorder(recorder_take()), output=output)
+        write_source_files(paths, resolved_settings)
+    SettingsStore(paths).save(SettingsState(active=resolved_settings, draft=resolved_settings))
+    runtime = build_runtime(
+        tmp_path,
+        recorder=FakeRecorder(recorder_take()),
+        output=output,
+        device_registry=device_registry,
+    )
     return TestClient(create_app(runtime=runtime))
 
 
@@ -105,6 +135,45 @@ def draft_with_sample_rate(sample_rate: int) -> dict:
         update={"audio": api_settings().audio.model_copy(update={"sample_rate": sample_rate})},
         deep=True,
     ).model_dump(mode="json")
+
+
+def fake_device_registry() -> FakeDeviceRegistry:
+    return FakeDeviceRegistry(
+        [
+            AudioDeviceInfo(
+                id="mic-1",
+                name="Mic 1",
+                kind="input",
+                max_input_channels=1,
+                max_output_channels=0,
+                default_sample_rate=48_000,
+            ),
+            AudioDeviceInfo(
+                id="mic-2",
+                name="Mic 2",
+                kind="input",
+                max_input_channels=2,
+                max_output_channels=0,
+                default_sample_rate=48_000,
+            ),
+            AudioDeviceInfo(
+                id="speaker-1",
+                name="Speaker 1",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=1,
+                default_sample_rate=48_000,
+            ),
+            AudioDeviceInfo(
+                id="speaker-2",
+                name="Speaker 2",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=2,
+                default_sample_rate=8_000,
+            ),
+        ]
+    )
 
 
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
@@ -158,6 +227,33 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
+
+
+def test_api_devices_returns_device_lists_and_selected_devices(tmp_path: Path) -> None:
+    client = create_test_client(
+        tmp_path,
+        settings=api_settings_with_devices(),
+        device_registry=fake_device_registry(),
+    )
+
+    response = client.get("/api/devices")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [device["id"] for device in payload["input_devices"]] == ["mic-1", "mic-2"]
+    assert [device["id"] for device in payload["output_devices"]] == ["speaker-1", "speaker-2"]
+    assert payload["selected_input_device"]["id"] == "mic-2"
+    assert payload["selected_output_device"]["id"] == "speaker-2"
+    assert payload["warnings"] == []
+
+
+def test_api_devices_maps_device_registry_failure_to_503(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, device_registry=FailingDeviceRegistry())
+
+    response = client.get("/api/devices")
+
+    assert response.status_code == 503
+    assert "device stack unavailable" in response.json()["detail"]
 
 
 def test_api_start_recording_rejects_disarmed_input(tmp_path: Path) -> None:
