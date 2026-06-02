@@ -6,13 +6,16 @@ from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
+from scipy.signal import butter, sosfilt
 
 from secret_pond.audio.buffers import AudioBuffer
-from secret_pond.audio.effects import apply_highpass, apply_lowpass
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.layers import LAYER_IDS, LayerId
-from secret_pond.config import AppSettings, LayerSettings
+from secret_pond.config import AppSettings, EqSettings, LayerSettings
 from secret_pond.paths import ProjectPaths
+
+_LOW_BAND_HZ = 250.0
+_HIGH_BAND_HZ = 2_000.0
 
 
 @dataclass(frozen=True)
@@ -24,17 +27,23 @@ class RenderResult:
     gain_reduction_db: float
 
 
+@dataclass(frozen=True)
+class _RenderedAudio:
+    samples: np.ndarray
+    sample_rate: int
+
+
 class LayerRenderer:
     def __init__(self, paths: ProjectPaths) -> None:
         self._paths = paths
 
     def render_layer(self, layer_id: str, settings: AppSettings) -> RenderResult:
         normalized_layer_id = _validate_layer_id(layer_id)
-        buffer = self._render_buffer(normalized_layer_id, settings)
+        rendered_audio = self._render_audio(normalized_layer_id, settings)
         result, guarded = _guard_rendered_buffer(
             normalized_layer_id,
             self._output_path(normalized_layer_id),
-            buffer,
+            rendered_audio,
             settings.audio.peak_ceiling,
         )
         write_wav_atomic(result.output_path, guarded)
@@ -46,11 +55,11 @@ class LayerRenderer:
         temp_paths: dict[LayerId, Path] = {}
         try:
             for layer_id in LAYER_IDS:
-                buffer = self._render_buffer(layer_id, settings)
+                rendered_audio = self._render_audio(layer_id, settings)
                 result, guarded = _guard_rendered_buffer(
                     layer_id,
                     self._output_path(layer_id),
-                    buffer,
+                    rendered_audio,
                     settings.audio.peak_ceiling,
                 )
                 temp_path = _temp_render_path(result.output_path)
@@ -71,7 +80,7 @@ class LayerRenderer:
 
         return {layer_id: rendered[layer_id][0] for layer_id in LAYER_IDS}
 
-    def _render_buffer(self, layer_id: LayerId, settings: AppSettings) -> AudioBuffer:
+    def _render_audio(self, layer_id: LayerId, settings: AppSettings) -> _RenderedAudio:
         source_path = self._source_path(layer_id)
         if not source_path.exists():
             msg = f"{layer_id} source file does not exist: {source_path}"
@@ -84,7 +93,10 @@ class LayerRenderer:
         )
         source = source.to_frame_count(target_frames)
         layer_settings = settings.layers[layer_id]
-        return _apply_playback_filters(source, layer_settings)
+        samples = _apply_playback_filters(source.samples, source.sample_rate, layer_settings)
+        samples = _apply_three_band_eq(samples, source.sample_rate, layer_settings.eq)
+        samples = _apply_gain(samples, layer_settings.volume_db)
+        return _RenderedAudio(samples=samples, sample_rate=source.sample_rate)
 
     def _source_path(self, layer_id: LayerId) -> Path:
         if layer_id == "low":
@@ -108,28 +120,76 @@ def _validate_layer_id(layer_id: str) -> LayerId:
     return layer_id  # type: ignore[return-value]
 
 
-def _apply_playback_filters(buffer: AudioBuffer, layer_settings: LayerSettings) -> AudioBuffer:
-    filtered = apply_highpass(buffer, layer_settings.eq.highpass_hz)
-    nyquist = filtered.sample_rate / 2
+def _apply_playback_filters(
+    samples: np.ndarray,
+    sample_rate: int,
+    layer_settings: LayerSettings,
+) -> np.ndarray:
+    filtered = _apply_filter(samples, sample_rate, layer_settings.eq.highpass_hz, "highpass")
+    nyquist = sample_rate / 2
     if layer_settings.eq.lowpass_hz >= nyquist:
         return filtered
-    return apply_lowpass(filtered, layer_settings.eq.lowpass_hz)
+    return _apply_filter(filtered, sample_rate, layer_settings.eq.lowpass_hz, "lowpass")
+
+
+def _apply_three_band_eq(samples: np.ndarray, sample_rate: int, eq: EqSettings) -> np.ndarray:
+    if eq.low_gain_db == 0.0 and eq.mid_gain_db == 0.0 and eq.high_gain_db == 0.0:
+        return samples.astype(np.float32, copy=True)
+
+    low = _apply_filter(samples, sample_rate, _LOW_BAND_HZ, "lowpass")
+    high = _apply_filter(samples, sample_rate, _HIGH_BAND_HZ, "highpass")
+    mid = samples - low - high
+    return (
+        _apply_gain(low, eq.low_gain_db)
+        + _apply_gain(mid, eq.mid_gain_db)
+        + _apply_gain(high, eq.high_gain_db)
+    ).astype(np.float32)
+
+
+def _apply_filter(
+    samples: np.ndarray,
+    sample_rate: int,
+    cutoff_hz: float,
+    btype: str,
+    order: int = 4,
+) -> np.ndarray:
+    _validate_cutoff(cutoff_hz, sample_rate)
+    sos = butter(order, cutoff_hz, btype=btype, fs=sample_rate, output="sos")
+    return sosfilt(sos, samples, axis=0).astype(np.float32)
+
+
+def _validate_cutoff(cutoff_hz: float, sample_rate: int) -> None:
+    nyquist = sample_rate / 2
+    if not np.isfinite(cutoff_hz) or cutoff_hz <= 0 or cutoff_hz >= nyquist:
+        msg = f"cutoff_hz must be greater than 0 and less than Nyquist ({nyquist})"
+        raise ValueError(msg)
+
+
+def _apply_gain(samples: np.ndarray, gain_db: float) -> np.ndarray:
+    gain = 10 ** (gain_db / 20.0)
+    return (samples.astype(np.float32, copy=False) * gain).astype(np.float32)
 
 
 def _guard_rendered_buffer(
     layer_id: LayerId,
     output_path: Path,
-    buffer: AudioBuffer,
+    rendered_audio: _RenderedAudio,
     peak_ceiling: float,
 ) -> tuple[RenderResult, AudioBuffer]:
-    peak_before = _peak(buffer.samples)
+    peak_before = _peak(rendered_audio.samples)
     if peak_before > peak_ceiling:
         scale = peak_ceiling / peak_before
-        guarded = AudioBuffer(samples=buffer.samples * scale, sample_rate=buffer.sample_rate)
+        guarded = AudioBuffer(
+            samples=rendered_audio.samples * scale,
+            sample_rate=rendered_audio.sample_rate,
+        )
         peak_after = _peak(guarded.samples)
         gain_reduction_db = 20 * log10(peak_before / peak_after)
     else:
-        guarded = buffer
+        guarded = AudioBuffer(
+            samples=rendered_audio.samples,
+            sample_rate=rendered_audio.sample_rate,
+        )
         peak_after = peak_before
         gain_reduction_db = 0.0
 

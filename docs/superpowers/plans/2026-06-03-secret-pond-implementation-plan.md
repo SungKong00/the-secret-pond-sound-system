@@ -120,7 +120,7 @@
 - `AppController` sends playback changes through explicit player methods or a thread-safe command queue.
 - The sounddevice callback must do only predictable lightweight work:
   - read layer sample blocks from memory.
-  - apply enabled flags and volume gains.
+  - apply enabled flags and optional realtime trim only.
   - sum layers.
   - apply final peak guard.
   - write output block.
@@ -372,7 +372,7 @@ LayeredLoopPlayer
 → loads low/mid/voice rendered WAV files into memory
 → sounddevice OutputStream requests blocks
 → player reads same frame range from each enabled layer
-→ player sums layers with volume gain
+→ player sums layers with `LayerSettings.volume_db` already baked into rendered files
 → player applies final safety limiter/clip guard if needed
 → output block is sent to the selected audio device
 ```
@@ -665,6 +665,8 @@ error
 - [ ] Render `mid` from `data/sources/mid.wav`.
 - [ ] Render `voice` from `data/voice/voice_stack_raw.wav`.
 - [ ] Apply each layer's playback EQ/filter/volume to its rendered file.
+  - Phase 5 treats `LayerSettings.volume_db` as baked base gain in the rendered playback cache.
+  - Phase 6 must not apply the same `LayerSettings.volume_db` a second time; any later real-time trim must use a separate control defaulting to 0 dB.
 - [ ] Render all layers to exact same frame count.
 - [ ] Validate every rendered layer before replacing old files:
   - canonical sample rate.
@@ -687,7 +689,7 @@ error
 - Test: `tests/audio/test_player_mixer.py`
 
 - [ ] Implement a pure mixer function first:
-  - input: layer buffers, enabled flags, volume values, frame cursor, block size.
+  - input: rendered layer buffers, enabled flags, optional realtime trim values, frame cursor, block size.
   - output: mixed stereo block.
 - [ ] Test pure mixer behavior without sounddevice:
   - disabled layers are silent.
@@ -700,7 +702,7 @@ error
   - stop.
   - reload and restart.
   - set enabled flags.
-  - set layer volume.
+  - set optional realtime trim. This must not reuse `LayerSettings.volume_db`, because that value is already baked during rendering.
   - report callback errors.
 - [ ] Keep the sounddevice callback small:
   - no file IO.

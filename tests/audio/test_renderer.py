@@ -31,6 +31,13 @@ def rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
 
 
+def tone_magnitude(samples: np.ndarray, sample_rate: int, frequency: float) -> float:
+    mono = samples[:, 0] if samples.ndim == 2 else samples
+    spectrum = np.abs(np.fft.rfft(mono[1_000:]))
+    bin_index = int(round(frequency * len(mono[1_000:]) / sample_rate))
+    return float(spectrum[bin_index])
+
+
 def write_required_sources(paths: ProjectPaths) -> None:
     paths.ensure_directories()
     write_wav_atomic(
@@ -129,6 +136,7 @@ def test_renderer_scales_peak_to_configured_ceiling(tmp_path: Path) -> None:
     paths.ensure_directories()
     settings = renderer_settings()
     settings.audio.peak_ceiling = 0.5
+    settings.layers["low"].volume_db = 0.0
     write_wav_atomic(
         paths.low_source,
         AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.9, sample_rate=8_000),
@@ -138,6 +146,91 @@ def test_renderer_scales_peak_to_configured_ceiling(tmp_path: Path) -> None:
     rendered = read_wav(result.output_path)
 
     assert result.peak_before_guard > settings.audio.peak_ceiling
+    assert result.peak_after_guard == pytest.approx(0.5, abs=1e-4)
+    assert float(np.max(np.abs(rendered.samples))) == pytest.approx(0.5, abs=1e-4)
+
+
+def test_renderer_applies_volume_db_as_baked_base_gain(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    write_wav_atomic(
+        paths.low_source,
+        AudioBuffer(samples=sine_wave(500.0) * 0.2, sample_rate=8_000),
+    )
+    settings.layers["low"].volume_db = -6.0
+    quiet = LayerRenderer(paths).render_layer("low", settings)
+    quiet_samples = read_wav(quiet.output_path).samples
+    settings.layers["low"].volume_db = 0.0
+    full = LayerRenderer(paths).render_layer("low", settings)
+    full_samples = read_wav(full.output_path).samples
+
+    assert rms(quiet_samples) == pytest.approx(rms(full_samples) * (10 ** (-6.0 / 20.0)), rel=0.02)
+
+
+def test_renderer_zero_three_band_eq_gains_preserve_filtered_signal(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["low"].volume_db = 0.0
+    source = sine_wave(500.0) * 0.2
+    write_wav_atomic(paths.low_source, AudioBuffer(samples=source, sample_rate=8_000))
+
+    LayerRenderer(paths).render_layer("low", settings)
+    rendered = read_wav(paths.low_playback)
+
+    assert tone_magnitude(rendered.samples, 8_000, 500.0) == pytest.approx(
+        tone_magnitude(source, 8_000, 500.0),
+        rel=0.03,
+    )
+
+
+@pytest.mark.parametrize(
+    ("gain_name", "frequency"),
+    [
+        ("low_gain_db", 100.0),
+        ("mid_gain_db", 1_000.0),
+        ("high_gain_db", 3_000.0),
+    ],
+)
+def test_renderer_three_band_eq_boosts_target_band(
+    tmp_path: Path,
+    gain_name: str,
+    frequency: float,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["low"].volume_db = 0.0
+    source = (sine_wave(100.0) + sine_wave(1_000.0) + sine_wave(3_000.0)) * 0.1
+    write_wav_atomic(paths.low_source, AudioBuffer(samples=source, sample_rate=8_000))
+    baseline_result = LayerRenderer(paths).render_layer("low", settings)
+    baseline = read_wav(baseline_result.output_path).samples
+    setattr(settings.layers["low"].eq, gain_name, 6.0)
+
+    boosted_result = LayerRenderer(paths).render_layer("low", settings)
+    boosted = read_wav(boosted_result.output_path).samples
+
+    assert tone_magnitude(boosted, 8_000, frequency) > (
+        tone_magnitude(baseline, 8_000, frequency) * 1.5
+    )
+
+
+def test_renderer_boost_peak_guard_uses_preclip_peak(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.audio.peak_ceiling = 0.5
+    settings.layers["low"].volume_db = 6.0
+    write_wav_atomic(
+        paths.low_source,
+        AudioBuffer(samples=sine_wave(500.0) * 0.8, sample_rate=8_000),
+    )
+
+    result = LayerRenderer(paths).render_layer("low", settings)
+    rendered = read_wav(result.output_path)
+
+    assert result.peak_before_guard > 1.0
     assert result.peak_after_guard == pytest.approx(0.5, abs=1e-4)
     assert float(np.max(np.abs(rendered.samples))) == pytest.approx(0.5, abs=1e-4)
 
