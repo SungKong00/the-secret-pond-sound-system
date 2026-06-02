@@ -76,6 +76,15 @@ class RecordingController:
     def last_error(self) -> str | None:
         return self._last_error
 
+    @property
+    def recording_elapsed_seconds(self) -> float:
+        return self._elapsed_since(self._recording_started_at)
+
+    @property
+    def recording_remaining_seconds(self) -> float:
+        maximum = self._settings.input_control.maximum_recording_seconds
+        return max(0.0, maximum - self.recording_elapsed_seconds)
+
     def arm_input(self) -> None:
         self._armed = True
         self._last_error = None
@@ -169,6 +178,13 @@ class RecordingController:
             stack_result=stack_result,
             render_result=render_result,
         )
+
+    def poll_auto_stop(self) -> RecordingOutcome | None:
+        if not self.is_recording:
+            return None
+        if self.recording_elapsed_seconds < self._settings.input_control.maximum_recording_seconds:
+            return None
+        return self.stop_recording()
 
     def _elapsed_since(self, started_at: float | None) -> float:
         if started_at is None:

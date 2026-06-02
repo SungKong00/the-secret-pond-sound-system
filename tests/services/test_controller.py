@@ -107,6 +107,8 @@ def controller_fixture(
     voice_stack: SpyVoiceStack | None = None,
     renderer: SpyRenderer | None = None,
     participants: FakeParticipants | None = None,
+    minimum_seconds: float = 1.0,
+    maximum_seconds: float = 120.0,
 ) -> tuple[
     RecordingController,
     ScriptedRecorder,
@@ -115,7 +117,12 @@ def controller_fixture(
     FakeParticipants,
     FakeClock,
 ]:
-    settings = AppSettings(input_control=InputControlSettings(minimum_recording_seconds=1.0))
+    settings = AppSettings(
+        input_control=InputControlSettings(
+            minimum_recording_seconds=minimum_seconds,
+            maximum_recording_seconds=maximum_seconds,
+        ),
+    )
     recorder = recorder or ScriptedRecorder()
     voice_stack = voice_stack or SpyVoiceStack()
     renderer = renderer or SpyRenderer()
@@ -316,3 +323,107 @@ def test_controller_accepts_recording_when_participant_counter_fails() -> None:
     assert controller.last_error == "count failed"
     assert len(voice_stack.calls) == 1
     assert renderer.rendered_layers == ["voice"]
+
+
+def test_controller_reports_elapsed_and_remaining_recording_time() -> None:
+    controller, *_rest, clock = controller_fixture(minimum_seconds=0.1, maximum_seconds=1.0)
+
+    assert controller.recording_elapsed_seconds == 0.0
+    assert controller.recording_remaining_seconds == 1.0
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(0.4)
+
+    assert controller.recording_elapsed_seconds == pytest.approx(0.4)
+    assert controller.recording_remaining_seconds == pytest.approx(0.6)
+
+    clock.advance(0.8)
+
+    assert controller.recording_elapsed_seconds == pytest.approx(1.2)
+    assert controller.recording_remaining_seconds == 0.0
+
+
+def test_controller_auto_stop_poll_ignores_idle_controller() -> None:
+    controller, recorder, *_ = controller_fixture(minimum_seconds=0.1, maximum_seconds=1.0)
+
+    assert controller.poll_auto_stop() is None
+    assert recorder.stop_calls == 0
+
+
+def test_controller_auto_stop_poll_keeps_recording_before_maximum_duration() -> None:
+    controller, recorder, *_rest, clock = controller_fixture(
+        minimum_seconds=0.1,
+        maximum_seconds=1.0,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(0.9)
+
+    assert controller.poll_auto_stop() is None
+    assert controller.is_recording is True
+    assert recorder.stop_calls == 0
+
+
+def test_controller_auto_stop_poll_stops_at_maximum_duration() -> None:
+    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture(
+        minimum_seconds=0.1,
+        maximum_seconds=1.0,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.0)
+    outcome = controller.poll_auto_stop()
+
+    assert outcome is not None
+    assert outcome.accepted is True
+    assert outcome.duration_seconds == pytest.approx(1.0)
+    assert controller.is_recording is False
+    assert recorder.stop_calls == 1
+    assert len(voice_stack.calls) == 1
+    assert renderer.rendered_layers == ["voice"]
+    assert participants.count == 1
+
+
+def test_controller_auto_stop_poll_discards_empty_recording() -> None:
+    recorder = ScriptedRecorder(empty_take())
+    controller, _, voice_stack, renderer, participants, clock = controller_fixture(
+        recorder=recorder,
+        minimum_seconds=0.1,
+        maximum_seconds=1.0,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.poll_auto_stop()
+
+    assert outcome is not None
+    assert outcome.accepted is False
+    assert outcome.reason == "empty"
+    assert controller.is_recording is False
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+
+
+def test_controller_auto_stop_poll_clears_state_when_stop_fails() -> None:
+    recorder = ScriptedRecorder(stop_error=RuntimeError("stop failed"))
+    controller, _, _, _, participants, clock = controller_fixture(
+        recorder=recorder,
+        minimum_seconds=0.1,
+        maximum_seconds=1.0,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.1)
+
+    with pytest.raises(RuntimeError, match="stop failed"):
+        controller.poll_auto_stop()
+
+    assert controller.is_recording is False
+    assert controller.last_error == "stop failed"
+    assert participants.count == 0
