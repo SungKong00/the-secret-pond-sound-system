@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LAYER_IDS, LayerId
 
 
@@ -21,6 +23,91 @@ class MixerBlock:
     next_frame_cursor: int
     peak_before_guard: float
     peak_after_guard: float
+
+
+class LayeredLoopPlayer:
+    def __init__(self, peak_ceiling: float = 0.98) -> None:
+        self._layers: dict[LayerId, AudioBuffer] | None = None
+        self._states: dict[LayerId, LayerPlaybackState] = {
+            layer_id: LayerPlaybackState() for layer_id in LAYER_IDS
+        }
+        self._frame_cursor = 0
+        self._playing = False
+        self._peak_ceiling = peak_ceiling
+
+    @property
+    def is_playing(self) -> bool:
+        return self._playing
+
+    @property
+    def frame_cursor(self) -> int:
+        return self._frame_cursor
+
+    def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
+        layers = _load_rendered_layers(paths)
+        _validate_loaded_layers(layers)
+        self._layers = layers
+        self._frame_cursor = 0
+        self._playing = False
+
+    def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
+        layers = _load_rendered_layers(paths)
+        _validate_loaded_layers(layers)
+        self._layers = layers
+        self._frame_cursor = 0
+        self._playing = True
+
+    def start(self) -> None:
+        self._require_loaded()
+        self._playing = True
+
+    def stop(self) -> None:
+        self._playing = False
+
+    def next_block(self, block_size: int) -> MixerBlock:
+        layers = self._require_loaded()
+        if block_size <= 0:
+            msg = "block_size must be greater than 0"
+            raise ValueError(msg)
+        if not self._playing:
+            return MixerBlock(
+                samples=np.zeros((block_size, _channel_count(layers)), dtype=np.float32),
+                next_frame_cursor=self._frame_cursor,
+                peak_before_guard=0.0,
+                peak_after_guard=0.0,
+            )
+
+        block = mix_layer_blocks(
+            layers,
+            self._states,
+            frame_cursor=self._frame_cursor,
+            block_size=block_size,
+            peak_ceiling=self._peak_ceiling,
+        )
+        self._frame_cursor = block.next_frame_cursor
+        return block
+
+    def set_enabled(self, layer_id: str, enabled: bool) -> None:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        current = self._states[normalized_layer_id]
+        self._states[normalized_layer_id] = LayerPlaybackState(
+            enabled=enabled,
+            realtime_trim_db=current.realtime_trim_db,
+        )
+
+    def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        current = self._states[normalized_layer_id]
+        self._states[normalized_layer_id] = LayerPlaybackState(
+            enabled=current.enabled,
+            realtime_trim_db=realtime_trim_db,
+        )
+
+    def _require_loaded(self) -> dict[LayerId, AudioBuffer]:
+        if self._layers is None:
+            msg = "rendered layers must be loaded before playback"
+            raise ValueError(msg)
+        return self._layers
 
 
 def mix_layer_blocks(
@@ -52,6 +139,33 @@ def mix_layer_blocks(
         peak_before_guard=peak_before,
         peak_after_guard=peak_after,
     )
+
+
+def _load_rendered_layers(paths: Mapping[LayerId, Path]) -> dict[LayerId, AudioBuffer]:
+    missing = [layer_id for layer_id in LAYER_IDS if layer_id not in paths]
+    if missing:
+        msg = f"missing rendered layer paths: {', '.join(missing)}"
+        raise ValueError(msg)
+    missing_files = [layer_id for layer_id in LAYER_IDS if not paths[layer_id].exists()]
+    if missing_files:
+        msg = f"missing rendered layer files: {', '.join(missing_files)}"
+        raise FileNotFoundError(msg)
+    return {layer_id: read_wav(paths[layer_id]) for layer_id in LAYER_IDS}
+
+
+def _validate_loaded_layers(layers: Mapping[LayerId, AudioBuffer]) -> None:
+    _validate_mix_inputs(layers, frame_cursor=0, block_size=1, peak_ceiling=0.98)
+
+
+def _channel_count(layers: Mapping[LayerId, AudioBuffer]) -> int:
+    return layers[LAYER_IDS[0]].channels
+
+
+def _validate_layer_id(layer_id: str) -> LayerId:
+    if layer_id not in LAYER_IDS:
+        msg = f"unknown layer id: {layer_id}"
+        raise ValueError(msg)
+    return layer_id  # type: ignore[return-value]
 
 
 def _validate_mix_inputs(
