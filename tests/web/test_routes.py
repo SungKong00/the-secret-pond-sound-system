@@ -126,6 +126,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="secret-pond-app"' in response.text
     assert 'href="/static/styles.css"' in response.text
     assert 'src="/static/app.js"' in response.text
+    assert 'id="outputBadge"' in response.text
+    assert 'id="startOutputButton"' in response.text
+    assert 'id="stopOutputButton"' in response.text
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:

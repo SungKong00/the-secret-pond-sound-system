@@ -94,6 +94,8 @@ const renderState = () => {
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
   $("recordingBadge").textContent = snapshot.is_recording ? "Recording" : "Idle";
   $("recordingBadge").className = `status-pill ${snapshot.is_recording ? "hot" : ""}`;
+  $("outputBadge").textContent = snapshot.playback.output_running ? "Output Live" : "Output Off";
+  $("outputBadge").className = `status-pill ${snapshot.playback.output_running ? "safe" : "muted"}`;
   $("participantCount").textContent = snapshot.participant_count;
   $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
   $("remainingTime").textContent =
@@ -108,7 +110,13 @@ const renderState = () => {
   $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
   $("startButton").disabled = !snapshot.armed || snapshot.is_recording;
   $("stopButton").disabled = !snapshot.is_recording;
-  showError(snapshot.last_error);
+  $("startOutputButton").disabled = snapshot.playback.output_running;
+  $("stopOutputButton").disabled = !snapshot.playback.output_running;
+  $("applyButton").disabled = snapshot.playback.output_running;
+  $("applyButton").title = snapshot.playback.output_running
+    ? "Stop output before applying staged settings."
+    : "";
+  showError([snapshot.last_error, snapshot.playback.output_latest_error].filter(Boolean).join(" · "));
 };
 
 const hasPendingChanges = (snapshot) =>
@@ -327,6 +335,8 @@ const bindEvents = () => {
   $("disarmButton").addEventListener("click", () => control("/api/input/disarm"));
   $("startButton").addEventListener("click", () => control("/api/recording/start"));
   $("stopButton").addEventListener("click", () => control("/api/recording/stop"));
+  $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
+  $("stopOutputButton").addEventListener("click", () => control("/api/playback/stop"));
   $("refreshButton").addEventListener("click", requestState);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);
