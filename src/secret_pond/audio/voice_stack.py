@@ -38,6 +38,15 @@ class VoiceStackAddResult:
     gain_reduction_db: float
 
 
+@dataclass(frozen=True)
+class VoiceStackRebuildResult:
+    added_chunks: int
+    entries: list[dict[str, Any]]
+    peak_before_guard: float
+    peak_after_guard: float
+    gain_reduction_db: float
+
+
 class VoiceStackStore:
     def __init__(self, paths: ProjectPaths) -> None:
         self._paths = paths
@@ -178,6 +187,59 @@ class VoiceStackStore:
             gain_reduction_db=gain_reduction_db,
         )
 
+    def rebuild_from_test_library(self, settings: AppSettings) -> VoiceStackRebuildResult:
+        self._paths.ensure_directories()
+        if not self._paths.voice_manifest.exists():
+            msg = "voice stack manifest does not exist"
+            raise ValueError(msg)
+
+        target_frames = settings.audio.sample_rate * settings.voice_stack.loop_seconds
+        manifest = _read_manifest(self._paths.voice_manifest)
+        test_entries = _test_library_entries(manifest)
+        stack_samples = np.zeros(
+            (target_frames, settings.audio.channels),
+            dtype=np.float32,
+        )
+
+        prepared: list[tuple[dict[str, Any], AudioBuffer]] = []
+        for entry in test_entries:
+            accepted_clip_path = entry.get("accepted_clip_path")
+            if not accepted_clip_path:
+                msg = "test_library manifest entry is missing accepted_clip_path"
+                raise ValueError(msg)
+
+            accepted_path = _accepted_clip_path(self._paths, str(accepted_clip_path))
+            if not accepted_path.exists():
+                msg = f"accepted clip does not exist: {accepted_clip_path}"
+                raise ValueError(msg)
+
+            accepted = read_wav(accepted_path).to_canonical(
+                sample_rate=settings.audio.sample_rate,
+                channels=settings.audio.channels,
+            )
+            prepared.append((entry, accepted.to_frame_count(target_frames)))
+
+        for entry, accepted in prepared:
+            offset_frames = _entry_offset(entry, target_frames)
+            gain_db = float(entry.get("gain_db", 0.0))
+            mixed_chunk = _apply_gain(accepted.samples, gain_db)
+            _mix_wrapped(stack_samples, mixed_chunk, offset_frames)
+
+        peak_before_guard = _peak(stack_samples)
+        guarded_samples, peak_after_guard, gain_reduction_db = _apply_peak_guard(stack_samples)
+        write_wav_atomic(
+            self._paths.voice_stack_raw,
+            AudioBuffer(samples=guarded_samples, sample_rate=settings.audio.sample_rate),
+        )
+
+        return VoiceStackRebuildResult(
+            added_chunks=len(prepared),
+            entries=test_entries,
+            peak_before_guard=peak_before_guard,
+            peak_after_guard=peak_after_guard,
+            gain_reduction_db=gain_reduction_db,
+        )
+
     def _ensure_manifest(self) -> bool:
         if self._paths.voice_manifest.exists():
             return False
@@ -235,6 +297,33 @@ def _silent_buffer(frames: int, sample_rate: int, channels: int) -> AudioBuffer:
 
 def _read_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _test_library_entries(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = manifest.get("entries", [])
+    return [entry for entry in entries if entry.get("source_mode") == "test_library"]
+
+
+def _accepted_clip_path(paths: ProjectPaths, accepted_clip_path: str) -> Path:
+    path = Path(accepted_clip_path)
+    if path.is_absolute():
+        msg = "accepted_clip_path must be relative to the project root"
+        raise ValueError(msg)
+
+    resolved = (paths.root / path).resolve()
+    accepted_root = paths.accepted_dir.resolve()
+    if not resolved.is_relative_to(accepted_root):
+        msg = "accepted_clip_path must stay under data/processed/accepted"
+        raise ValueError(msg)
+    return resolved
+
+
+def _entry_offset(entry: dict[str, Any], target_frames: int) -> int:
+    offset_frames = int(entry.get("offset_frames", 0))
+    if not 0 <= offset_frames < target_frames:
+        msg = "manifest offset_frames must be greater than or equal to 0 and less than loop length"
+        raise ValueError(msg)
+    return offset_frames
 
 
 def _json_safe_snapshot(snapshot: Mapping[str, Any] | BaseModel | None) -> dict[str, Any]:

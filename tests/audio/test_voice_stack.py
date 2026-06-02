@@ -347,3 +347,219 @@ def test_voice_stack_add_applies_insert_gain_and_canonicalizes_mono_input(tmp_pa
     assert loaded.samples.shape == (8_000, 2)
     np.testing.assert_allclose(loaded.samples[:, 0], loaded.samples[:, 1], atol=1e-4)
     assert float(np.max(np.abs(loaded.samples))) == pytest.approx(expected_peak, rel=1e-3)
+
+
+def test_voice_stack_rebuilds_raw_from_test_library_manifest(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    settings.voice_stack.mode = "test_library"
+    settings.voice_stack.insert_gain_db = 0.0
+    store = VoiceStackStore(paths)
+    first = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.1, sample_rate=8_000)
+    second = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000)
+    store.add_processed_voice(first, settings, offset_frames=0)
+    store.add_processed_voice(second, settings, offset_frames=4_000)
+    original_manifest = paths.voice_manifest.read_text(encoding="utf-8")
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.zeros((8_000, 2), dtype=np.float32), sample_rate=8_000),
+    )
+
+    result = store.rebuild_from_test_library(settings)
+    loaded = read_wav(paths.voice_stack_raw)
+
+    assert result.added_chunks == 2
+    assert paths.voice_manifest.read_text(encoding="utf-8") == original_manifest
+    np.testing.assert_allclose(loaded.samples[:4_000], 0.3, atol=1e-4)
+    np.testing.assert_allclose(loaded.samples[4_000:], 0.3, atol=1e-4)
+
+
+def test_voice_stack_rebuild_preserves_raw_when_accepted_file_is_missing(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    settings.voice_stack.mode = "test_library"
+    store = VoiceStackStore(paths)
+    store.add_processed_voice(
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.1, sample_rate=8_000),
+        settings,
+        offset_frames=0,
+    )
+    manifest = load_manifest(paths)
+    missing_path = tmp_path / manifest["entries"][0]["accepted_clip_path"]
+    missing_path.unlink()
+    before_raw = read_wav(paths.voice_stack_raw).samples.copy()
+    before_manifest = paths.voice_manifest.read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match="accepted"):
+        store.rebuild_from_test_library(settings)
+
+    np.testing.assert_allclose(read_wav(paths.voice_stack_raw).samples, before_raw, atol=1e-4)
+    assert paths.voice_manifest.read_text(encoding="utf-8") == before_manifest
+
+
+def test_voice_stack_rebuild_rejects_test_library_entry_without_path(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [{"id": "missing-path", "source_mode": "test_library"}],
+            },
+        ),
+        encoding="utf-8",
+    )
+    before_raw = read_wav(paths.voice_stack_raw).samples.copy()
+
+    with pytest.raises(ValueError, match="accepted_clip_path"):
+        VoiceStackStore(paths).rebuild_from_test_library(settings)
+
+    np.testing.assert_allclose(read_wav(paths.voice_stack_raw).samples, before_raw, atol=1e-4)
+
+
+def test_voice_stack_rebuild_ignores_live_ephemeral_entries(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    accepted = paths.accepted_dir / "accepted.wav"
+    write_wav_atomic(
+        accepted,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 2,
+                "entries": [
+                    {"id": "live", "source_mode": "live_ephemeral", "offset_frames": 0},
+                    {
+                        "id": "test",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/accepted.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    VoiceStackStore(paths).rebuild_from_test_library(settings)
+    loaded = read_wav(paths.voice_stack_raw)
+
+    np.testing.assert_allclose(loaded.samples, 0.2, atol=1e-4)
+
+
+def test_voice_stack_rebuild_applies_wrap_gain_and_peak_guard(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    accepted = paths.accepted_dir / "loud.wav"
+    samples = np.ones((8_000, 2), dtype=np.float32) * 0.7
+    samples[4_000:] = 0.2
+    write_wav_atomic(accepted, AudioBuffer(samples=samples, sample_rate=8_000))
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 5,
+                "entries": [
+                    {
+                        "id": "loud",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/loud.wav",
+                        "offset_frames": 6_000,
+                        "gain_db": 6.0,
+                    },
+                    {
+                        "id": "also-loud",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/loud.wav",
+                        "offset_frames": 6_000,
+                        "gain_db": 6.0,
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    result = VoiceStackStore(paths).rebuild_from_test_library(settings)
+    loaded = read_wav(paths.voice_stack_raw)
+
+    assert result.peak_before_guard > 1.0
+    assert result.peak_after_guard == pytest.approx(0.98, rel=1e-4)
+    assert float(np.max(np.abs(loaded.samples))) == pytest.approx(0.98, abs=1e-4)
+
+
+def test_voice_stack_rebuild_canonicalizes_accepted_wavs(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings(sample_rate=8_000, channels=2)
+    paths.ensure_directories()
+    accepted = paths.accepted_dir / "mono.wav"
+    write_wav_atomic(
+        accepted,
+        AudioBuffer(samples=np.ones(16_000, dtype=np.float32) * 0.1, sample_rate=16_000),
+    )
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": "mono",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/mono.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    VoiceStackStore(paths).rebuild_from_test_library(settings)
+    loaded = read_wav(paths.voice_stack_raw)
+
+    assert loaded.sample_rate == 8_000
+    assert loaded.samples.shape == (8_000, 2)
+    np.testing.assert_allclose(loaded.samples[:, 0], loaded.samples[:, 1], atol=1e-4)
+
+
+def test_voice_stack_rebuild_rejects_accepted_path_outside_accepted_dir(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": "escape",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "../outside.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="accepted_clip_path"):
+        VoiceStackStore(paths).rebuild_from_test_library(settings)
