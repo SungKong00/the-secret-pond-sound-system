@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from secret_pond.audio.layers import LayerId
 from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import Recorder, SoundDeviceRecorder
 from secret_pond.audio.renderer import LayerRenderer
@@ -14,7 +15,7 @@ from secret_pond.services.participants import ParticipantCounter
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
-@dataclass(frozen=True)
+@dataclass
 class SecretPondRuntime:
     paths: ProjectPaths
     settings_store: SettingsStore
@@ -26,6 +27,10 @@ class SecretPondRuntime:
     logger: EventLogger
     controller: RecordingController
     player: LayeredLoopPlayer
+
+    def apply_settings_state(self, settings_state: SettingsState) -> None:
+        self.controller.update_settings(settings_state.active)
+        self.settings_state = settings_state
 
 
 def build_runtime(
@@ -74,3 +79,11 @@ def build_runtime(
         controller=controller,
         player=resolved_player,
     )
+
+
+def rendered_layer_paths(paths: ProjectPaths) -> dict[LayerId, Path]:
+    return {
+        "low": paths.low_playback,
+        "mid": paths.mid_playback,
+        "voice": paths.voice_playback,
+    }

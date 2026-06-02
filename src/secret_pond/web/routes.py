@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import ValidationError
 
+from secret_pond.config import AppSettings
 from secret_pond.services.controller import RecordingOutcome
-from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
+from secret_pond.services.settings_store import SettingsState
 
 router = APIRouter(prefix="/api")
 
@@ -59,6 +62,53 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("/settings")
+def get_settings(request: Request) -> dict[str, Any]:
+    return {"settings": _settings_payload(_runtime(request))}
+
+
+@router.put("/settings/draft")
+def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        draft = AppSettings.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    state = runtime.settings_store.set_draft(draft)
+    runtime.settings_state = state
+    return {"settings": _settings_payload(runtime)}
+
+
+@router.post("/settings/reset")
+def reset_draft_settings(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    state = runtime.settings_store.reset_draft()
+    runtime.settings_state = state
+    return {"settings": _settings_payload(runtime)}
+
+
+@router.post("/settings/apply-and-restart")
+def apply_and_restart(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    if runtime.controller.is_recording:
+        raise HTTPException(status_code=409, detail="cannot apply settings while recording")
+
+    current = runtime.settings_store.load()
+    draft = current.draft
+    try:
+        runtime.renderer.render_all(draft)
+        runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
+    runtime.apply_settings_state(state)
+    return {
+        "settings": _settings_payload(runtime),
+        "state": _state_payload(runtime),
+    }
+
+
 def _runtime(request: Request) -> SecretPondRuntime:
     runtime = getattr(request.app.state, "runtime", None)
     if runtime is None:
@@ -74,7 +124,6 @@ def _run_control(fn):
 
 
 def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
-    settings_state = runtime.settings_store.load()
     return {
         "armed": runtime.controller.armed,
         "is_recording": runtime.controller.is_recording,
@@ -86,10 +135,16 @@ def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
         },
-        "settings": {
-            "active": settings_state.active.model_dump(mode="json"),
-            "draft": settings_state.draft.model_dump(mode="json"),
-        },
+        "settings": _settings_payload(runtime),
+    }
+
+
+def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    settings_state = runtime.settings_store.load()
+    runtime.settings_state = settings_state
+    return {
+        "active": settings_state.active.model_dump(mode="json"),
+        "draft": settings_state.draft.model_dump(mode="json"),
     }
 
 

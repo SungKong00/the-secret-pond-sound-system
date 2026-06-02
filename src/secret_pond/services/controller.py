@@ -99,6 +99,13 @@ class RecordingController:
         self._armed = True
         self._last_error = None
 
+    def update_settings(self, settings: AppSettings) -> None:
+        if self.is_recording:
+            msg = "cannot update settings while recording"
+            raise RuntimeError(msg)
+        self._settings = settings
+        self._last_error = None
+
     def disarm_input(self) -> RecordingOutcome | None:
         self._armed = False
         if not self.is_recording:
