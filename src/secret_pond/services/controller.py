@@ -29,6 +29,14 @@ class Participants(Protocol):
     def increment(self) -> int: ...
 
 
+class EventSink(Protocol):
+    def log_event(
+        self,
+        event_type: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True)
 class RecordingOutcome:
     accepted: bool
@@ -48,6 +56,7 @@ class RecordingController:
         voice_stack: VoiceStack,
         renderer: VoiceLayerRenderer,
         participants: Participants,
+        logger: EventSink | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
@@ -55,6 +64,7 @@ class RecordingController:
         self._voice_stack = voice_stack
         self._renderer = renderer
         self._participants = participants
+        self._logger = logger
         self._clock = clock
         self._armed = False
         self._recording_started_at: float | None = None
@@ -96,13 +106,16 @@ class RecordingController:
 
         started_at = self._recording_started_at
         try:
-            self._recorder.stop()
+            recorded = self._recorder.stop()
         except Exception as exc:
             self._clear_recording_state(exc)
+            self._log_event("recording.stop_failed", {"error": str(exc)})
             raise
 
         duration_seconds = self._elapsed_since(started_at)
+        self._log_stop(recorded, duration_seconds)
         self._clear_recording_state()
+        self._log_discard("disarmed", duration_seconds)
         return RecordingOutcome(
             accepted=False,
             duration_seconds=duration_seconds,
@@ -123,10 +136,22 @@ class RecordingController:
         except Exception as exc:
             self._recording_started_at = None
             self._last_error = str(exc)
+            self._log_event("recording.start_failed", {"error": str(exc)})
             raise
 
         self._recording_started_at = started_at
         self._last_error = None
+        self._log_event(
+            "recording.start",
+            {
+                "maximum_recording_seconds": (
+                    self._settings.input_control.maximum_recording_seconds
+                ),
+                "minimum_recording_seconds": (
+                    self._settings.input_control.minimum_recording_seconds
+                ),
+            },
+        )
 
     def stop_recording(self) -> RecordingOutcome:
         if not self.is_recording:
@@ -138,18 +163,22 @@ class RecordingController:
             recorded = self._recorder.stop()
         except Exception as exc:
             self._clear_recording_state(exc)
+            self._log_event("recording.stop_failed", {"error": str(exc)})
             raise
 
         duration_seconds = self._elapsed_since(started_at)
+        self._log_stop(recorded, duration_seconds)
         self._clear_recording_state()
 
         if duration_seconds < self._settings.input_control.minimum_recording_seconds:
+            self._log_discard("too_short", duration_seconds)
             return RecordingOutcome(
                 accepted=False,
                 duration_seconds=duration_seconds,
                 reason="too_short",
             )
         if recorded.frames == 0:
+            self._log_discard("empty", duration_seconds)
             return RecordingOutcome(
                 accepted=False,
                 duration_seconds=duration_seconds,
@@ -158,19 +187,49 @@ class RecordingController:
 
         try:
             processed = apply_recording_processing(recorded, self._settings.recording)
+        except Exception as exc:
+            self._last_error = str(exc)
+            self._log_event(
+                "recording.processing_failed",
+                {"duration_seconds": duration_seconds, "error": str(exc)},
+            )
+            raise
+
+        try:
             stack_result = self._voice_stack.add_processed_voice(
                 processed,
                 self._settings,
                 processing_settings_snapshot=self._settings.recording.model_dump(mode="json"),
             )
-            participant_count = self._increment_participants_best_effort()
+        except Exception as exc:
+            self._last_error = str(exc)
+            self._log_event(
+                "recording.stack_failed",
+                {"duration_seconds": duration_seconds, "error": str(exc)},
+            )
+            raise
+
+        participant_count = self._increment_participants_best_effort()
+        try:
             render_result = self._renderer.render_layer("voice", self._settings)
         except Exception as exc:
             self._last_error = str(exc)
+            self._log_event(
+                "recording.render_failed",
+                {"duration_seconds": duration_seconds, "error": str(exc)},
+            )
             raise
 
         if participant_count is not None:
             self._last_error = None
+        self._log_event(
+            "recording.accepted",
+            {
+                "added_chunks": _added_chunks(stack_result),
+                "duration_seconds": duration_seconds,
+                "participant_count": participant_count,
+            },
+        )
         return RecordingOutcome(
             accepted=True,
             duration_seconds=duration_seconds,
@@ -197,7 +256,41 @@ class RecordingController:
 
     def _increment_participants_best_effort(self) -> int | None:
         try:
-            return self._participants.increment()
+            participant_count = self._participants.increment()
         except Exception as exc:
             self._last_error = str(exc)
+            self._log_event("participant.increment_failed", {"error": str(exc)})
             return None
+        self._log_event("participant.incremented", {"count": participant_count})
+        return participant_count
+
+    def _log_stop(self, recorded: AudioBuffer, duration_seconds: float) -> None:
+        self._log_event(
+            "recording.stop",
+            {
+                "duration_seconds": duration_seconds,
+                "frames": recorded.frames,
+            },
+        )
+
+    def _log_discard(self, reason: str, duration_seconds: float) -> None:
+        self._log_event(
+            "recording.discarded",
+            {
+                "duration_seconds": duration_seconds,
+                "reason": reason,
+            },
+        )
+
+    def _log_event(self, event_type: str, payload: Mapping[str, Any] | None = None) -> None:
+        if self._logger is None:
+            return
+        try:
+            self._logger.log_event(event_type, payload)
+        except Exception:
+            return
+
+
+def _added_chunks(stack_result: Any) -> int | None:
+    added_chunks = getattr(stack_result, "added_chunks", None)
+    return added_chunks if isinstance(added_chunks, int) else None

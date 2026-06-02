@@ -92,6 +92,19 @@ class FakeParticipants:
         return self.count
 
 
+class SpyLogger:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.events: list[dict] = []
+
+    def log_event(self, event_type: str, payload=None):
+        if self.fail:
+            raise RuntimeError("log failed")
+        event = {"event_type": event_type, "payload": payload or {}}
+        self.events.append(event)
+        return event
+
+
 def voice_take(frames: int = 2_000) -> AudioBuffer:
     samples = np.ones((frames, 2), dtype=np.float32) * 0.05
     return AudioBuffer(samples=samples, sample_rate=48_000)
@@ -107,6 +120,7 @@ def controller_fixture(
     voice_stack: SpyVoiceStack | None = None,
     renderer: SpyRenderer | None = None,
     participants: FakeParticipants | None = None,
+    logger: SpyLogger | None = None,
     minimum_seconds: float = 1.0,
     maximum_seconds: float = 120.0,
 ) -> tuple[
@@ -115,6 +129,7 @@ def controller_fixture(
     SpyVoiceStack,
     SpyRenderer,
     FakeParticipants,
+    SpyLogger | None,
     FakeClock,
 ]:
     settings = AppSettings(
@@ -134,9 +149,10 @@ def controller_fixture(
         voice_stack=voice_stack,
         renderer=renderer,
         participants=participants,
+        logger=logger,
         clock=clock,
     )
-    return controller, recorder, voice_stack, renderer, participants, clock
+    return controller, recorder, voice_stack, renderer, participants, logger, clock
 
 
 def test_controller_rejects_start_when_disarmed() -> None:
@@ -150,7 +166,7 @@ def test_controller_rejects_start_when_disarmed() -> None:
 
 
 def test_controller_discards_too_short_recording() -> None:
-    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture()
+    controller, recorder, voice_stack, renderer, participants, _, clock = controller_fixture()
 
     controller.arm_input()
     controller.start_recording()
@@ -168,7 +184,7 @@ def test_controller_discards_too_short_recording() -> None:
 
 def test_controller_discards_empty_recording_even_when_duration_is_long_enough() -> None:
     recorder = ScriptedRecorder(empty_take())
-    controller, _, voice_stack, renderer, participants, clock = controller_fixture(
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture(
         recorder=recorder,
     )
 
@@ -185,7 +201,7 @@ def test_controller_discards_empty_recording_even_when_duration_is_long_enough()
 
 
 def test_controller_processes_adds_renders_and_counts_accepted_recording() -> None:
-    controller, _, voice_stack, renderer, participants, clock = controller_fixture()
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture()
 
     controller.arm_input()
     controller.start_recording()
@@ -227,7 +243,7 @@ def test_controller_rejects_stop_when_not_recording() -> None:
 
 
 def test_controller_cancels_active_recording_when_disarmed() -> None:
-    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture()
+    controller, recorder, voice_stack, renderer, participants, _, clock = controller_fixture()
 
     controller.arm_input()
     controller.start_recording()
@@ -260,7 +276,7 @@ def test_controller_clears_recording_state_when_recorder_start_fails() -> None:
 
 def test_controller_clears_recording_state_when_recorder_stop_fails() -> None:
     recorder = ScriptedRecorder(stop_error=RuntimeError("stop failed"))
-    controller, _, _, _, participants, clock = controller_fixture(recorder=recorder)
+    controller, _, _, _, participants, _, clock = controller_fixture(recorder=recorder)
 
     controller.arm_input()
     controller.start_recording()
@@ -276,7 +292,9 @@ def test_controller_clears_recording_state_when_recorder_stop_fails() -> None:
 
 def test_controller_does_not_increment_participants_when_stack_add_fails() -> None:
     voice_stack = SpyVoiceStack(add_error=RuntimeError("stack failed"))
-    controller, _, _, renderer, participants, clock = controller_fixture(voice_stack=voice_stack)
+    controller, _, _, renderer, participants, _, clock = controller_fixture(
+        voice_stack=voice_stack,
+    )
 
     controller.arm_input()
     controller.start_recording()
@@ -293,7 +311,7 @@ def test_controller_does_not_increment_participants_when_stack_add_fails() -> No
 
 def test_controller_counts_accepted_stack_when_render_fails() -> None:
     renderer = SpyRenderer(render_error=RuntimeError("render failed"))
-    controller, _, voice_stack, _, participants, clock = controller_fixture(renderer=renderer)
+    controller, _, voice_stack, _, participants, _, clock = controller_fixture(renderer=renderer)
 
     controller.arm_input()
     controller.start_recording()
@@ -311,7 +329,9 @@ def test_controller_counts_accepted_stack_when_render_fails() -> None:
 
 def test_controller_accepts_recording_when_participant_counter_fails() -> None:
     participants = FakeParticipants(increment_error=RuntimeError("count failed"))
-    controller, _, voice_stack, renderer, _, clock = controller_fixture(participants=participants)
+    controller, _, voice_stack, renderer, _, _, clock = controller_fixture(
+        participants=participants,
+    )
 
     controller.arm_input()
     controller.start_recording()
@@ -367,7 +387,7 @@ def test_controller_auto_stop_poll_keeps_recording_before_maximum_duration() -> 
 
 
 def test_controller_auto_stop_poll_stops_at_maximum_duration() -> None:
-    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture(
+    controller, recorder, voice_stack, renderer, participants, _, clock = controller_fixture(
         minimum_seconds=0.1,
         maximum_seconds=1.0,
     )
@@ -389,7 +409,7 @@ def test_controller_auto_stop_poll_stops_at_maximum_duration() -> None:
 
 def test_controller_auto_stop_poll_discards_empty_recording() -> None:
     recorder = ScriptedRecorder(empty_take())
-    controller, _, voice_stack, renderer, participants, clock = controller_fixture(
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture(
         recorder=recorder,
         minimum_seconds=0.1,
         maximum_seconds=1.0,
@@ -411,7 +431,7 @@ def test_controller_auto_stop_poll_discards_empty_recording() -> None:
 
 def test_controller_auto_stop_poll_clears_state_when_stop_fails() -> None:
     recorder = ScriptedRecorder(stop_error=RuntimeError("stop failed"))
-    controller, _, _, _, participants, clock = controller_fixture(
+    controller, _, _, _, participants, _, clock = controller_fixture(
         recorder=recorder,
         minimum_seconds=0.1,
         maximum_seconds=1.0,
@@ -427,3 +447,118 @@ def test_controller_auto_stop_poll_clears_state_when_stop_fails() -> None:
     assert controller.is_recording is False
     assert controller.last_error == "stop failed"
     assert participants.count == 0
+
+
+def test_controller_logs_accepted_recording_lifecycle() -> None:
+    logger = SpyLogger()
+    controller, _, _, _, _, _, clock = controller_fixture(logger=logger)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    controller.stop_recording()
+
+    assert [event["event_type"] for event in logger.events] == [
+        "recording.start",
+        "recording.stop",
+        "participant.incremented",
+        "recording.accepted",
+    ]
+    assert logger.events[1]["payload"]["duration_seconds"] == pytest.approx(1.2)
+    assert logger.events[1]["payload"]["frames"] == 2_000
+    assert logger.events[3]["payload"]["participant_count"] == 1
+    assert logger.events[3]["payload"]["added_chunks"] == 1
+
+
+def test_controller_logs_too_short_discard() -> None:
+    logger = SpyLogger()
+    controller, _, _, _, _, _, clock = controller_fixture(logger=logger)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(0.2)
+    controller.stop_recording()
+
+    assert [event["event_type"] for event in logger.events] == [
+        "recording.start",
+        "recording.stop",
+        "recording.discarded",
+    ]
+    assert logger.events[2]["payload"]["reason"] == "too_short"
+
+
+def test_controller_logs_start_failure_without_preserving_recording_state() -> None:
+    logger = SpyLogger()
+    recorder = ScriptedRecorder(start_error=RuntimeError("stream unavailable"))
+    controller, *_ = controller_fixture(recorder=recorder, logger=logger)
+
+    controller.arm_input()
+
+    with pytest.raises(RuntimeError, match="stream unavailable"):
+        controller.start_recording()
+
+    assert controller.is_recording is False
+    assert [event["event_type"] for event in logger.events] == ["recording.start_failed"]
+    assert logger.events[0]["payload"]["error"] == "stream unavailable"
+
+
+def test_controller_logs_render_failure_after_participant_increment() -> None:
+    logger = SpyLogger()
+    renderer = SpyRenderer(render_error=RuntimeError("render failed"))
+    controller, _, _, _, participants, _, clock = controller_fixture(
+        renderer=renderer,
+        logger=logger,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+
+    with pytest.raises(RuntimeError, match="render failed"):
+        controller.stop_recording()
+
+    assert participants.count == 1
+    assert [event["event_type"] for event in logger.events] == [
+        "recording.start",
+        "recording.stop",
+        "participant.incremented",
+        "recording.render_failed",
+    ]
+    assert logger.events[3]["payload"]["error"] == "render failed"
+
+
+def test_controller_logs_participant_failure_but_still_accepts_recording() -> None:
+    logger = SpyLogger()
+    participants = FakeParticipants(increment_error=RuntimeError("count failed"))
+    controller, _, _, _, _, _, clock = controller_fixture(
+        participants=participants,
+        logger=logger,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert [event["event_type"] for event in logger.events] == [
+        "recording.start",
+        "recording.stop",
+        "participant.increment_failed",
+        "recording.accepted",
+    ]
+    assert logger.events[2]["payload"]["error"] == "count failed"
+    assert logger.events[3]["payload"]["participant_count"] is None
+
+
+def test_controller_ignores_logger_failure_without_overwriting_last_error() -> None:
+    logger = SpyLogger(fail=True)
+    controller, _, _, _, _, _, clock = controller_fixture(logger=logger)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert controller.last_error is None
