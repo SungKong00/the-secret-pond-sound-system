@@ -254,6 +254,48 @@ body::before {
   font-size: 13px;
 }
 
+.diagnostic-stack {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.diagnostic-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 250, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.diagnostic-row span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.diagnostic-row strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  color: var(--amber);
+  font-size: 12px;
+  list-style: none;
+}
+
 .control-stack {
   display: grid;
   gap: 10px;

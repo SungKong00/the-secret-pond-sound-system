@@ -13,6 +13,8 @@ const api = async (path, options = {}) => {
 const state = {
   snapshot: null,
   draft: null,
+  devices: null,
+  deviceError: null,
   saveTimer: null,
   spaceRecording: false,
 };
@@ -79,6 +81,22 @@ const requestState = async () => {
   applyState(payload);
 };
 
+const requestDevices = async () => {
+  try {
+    state.devices = await api("/api/devices");
+    state.deviceError = null;
+  } catch (error) {
+    state.deviceError = error.message;
+  }
+  renderDevices();
+  renderErrors();
+};
+
+const refreshAll = async () => {
+  await requestState().catch((error) => showError(error.message));
+  await requestDevices();
+};
+
 const applyState = (payload) => {
   state.snapshot = payload;
   state.draft = clone(payload.settings.draft);
@@ -116,7 +134,37 @@ const renderState = () => {
   $("applyButton").title = snapshot.playback.output_running
     ? "Stop output before applying staged settings."
     : "";
-  showError([snapshot.last_error, snapshot.playback.output_latest_error].filter(Boolean).join(" · "));
+  renderErrors();
+};
+
+const renderErrors = () => {
+  const snapshot = state.snapshot;
+  const messages = [
+    snapshot?.last_error,
+    snapshot?.playback.output_latest_error,
+    state.deviceError,
+  ].filter(Boolean);
+  showError(messages.join(" · "));
+};
+
+const renderDevices = () => {
+  const devices = state.devices;
+  if (!devices) {
+    $("inputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
+    $("outputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
+    $("deviceWarnings").innerHTML = "";
+    return;
+  }
+
+  $("inputDeviceName").textContent = devices.selected_input_device?.name || "No input device";
+  $("outputDeviceName").textContent = devices.selected_output_device?.name || "No output device";
+  const warningList = $("deviceWarnings");
+  warningList.innerHTML = "";
+  devices.warnings.forEach((warning) => {
+    const item = document.createElement("li");
+    item.textContent = warning;
+    warningList.appendChild(item);
+  });
 };
 
 const hasPendingChanges = (snapshot) =>
@@ -337,7 +385,7 @@ const bindEvents = () => {
   $("stopButton").addEventListener("click", () => control("/api/recording/stop"));
   $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
   $("stopOutputButton").addEventListener("click", () => control("/api/playback/stop"));
-  $("refreshButton").addEventListener("click", requestState);
+  $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);
   document.addEventListener("keydown", startFromSpace);
@@ -357,4 +405,4 @@ const bindEvents = () => {
 
 bindEvents();
 drawCanvas();
-requestState().catch((error) => showError(error.message));
+refreshAll();

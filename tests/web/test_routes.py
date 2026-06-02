@@ -198,6 +198,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="outputBadge"' in response.text
     assert 'id="startOutputButton"' in response.text
     assert 'id="stopOutputButton"' in response.text
+    assert 'id="deviceStatus"' in response.text
+    assert 'id="inputDeviceName"' in response.text
+    assert 'id="outputDeviceName"' in response.text
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:

@@ -49,6 +49,17 @@
             <button id="stopButton" class="button" type="button">Stop</button>
           </div>
           <p class="hint">Spacebar hold-to-record is active only while armed.</p>
+          <div id="deviceStatus" class="diagnostic-stack" aria-label="audio devices">
+            <div class="diagnostic-row">
+              <span>Input</span>
+              <strong id="inputDeviceName">Checking...</strong>
+            </div>
+            <div class="diagnostic-row">
+              <span>Output</span>
+              <strong id="outputDeviceName">Checking...</strong>
+            </div>
+            <ul id="deviceWarnings" class="warning-list"></ul>
+          </div>
         </section>
 
         <section class="panel mixer-panel" aria-label="layer mixer">
