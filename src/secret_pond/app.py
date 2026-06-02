@@ -5,10 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from secret_pond.services.runtime import SecretPondRuntime, build_runtime
 from secret_pond.web.routes import router as api_router
+
+STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
 
 def create_app(
@@ -25,13 +28,15 @@ def create_app(
     app.state.runtime = runtime
     app.state.root = root or Path.cwd()
 
-    @app.get("/", include_in_schema=False)
-    def root() -> RedirectResponse:
-        return RedirectResponse(url="/health")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/health")
     def health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/", include_in_schema=False)
+    def root() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
 
     app.include_router(api_router)
     return app

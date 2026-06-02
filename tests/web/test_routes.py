@@ -73,6 +73,30 @@ def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
     assert response.json() == {"ok": True}
 
 
+def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert 'id="secret-pond-app"' in response.text
+    assert 'href="/static/styles.css"' in response.text
+    assert 'src="/static/app.js"' in response.text
+
+
+def test_static_ui_assets_are_served(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    styles = client.get("/static/styles.css")
+    script = client.get("/static/app.js")
+
+    assert styles.status_code == 200
+    assert "text/css" in styles.headers["content-type"]
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+
+
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 

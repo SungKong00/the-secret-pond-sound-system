@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Secret Pond Sound System</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <canvas id="pondCanvas" aria-hidden="true"></canvas>
+    <main id="secret-pond-app" class="app-shell">
+      <header class="topbar">
+        <section class="brand-block" aria-label="system identity">
+          <p class="eyebrow">THE SECRET POND</p>
+          <h1>Sound System</h1>
+        </section>
+        <section class="status-strip" aria-label="runtime status">
+          <span id="armedBadge" class="status-pill">Disarmed</span>
+          <span id="recordingBadge" class="status-pill">Idle</span>
+          <span class="status-pill">Participants <strong id="participantCount">0</strong></span>
+          <span id="pendingBadge" class="status-pill muted">No pending changes</span>
+        </section>
+        <section class="top-actions" aria-label="input controls">
+          <button id="armButton" class="button primary" type="button">Arm</button>
+          <button id="disarmButton" class="button" type="button">Disarm</button>
+        </section>
+      </header>
+
+      <section id="errorBanner" class="error-banner" hidden></section>
+
+      <section class="dashboard-grid">
+        <section class="panel record-panel" aria-label="recording controls">
+          <div class="panel-heading">
+            <p class="eyebrow">Input</p>
+            <h2>Voice Capture</h2>
+          </div>
+          <div class="record-orbit">
+            <div class="record-core">
+              <span id="recordCoreStatus">Ready</span>
+              <strong id="elapsedTime">0.0s</strong>
+              <small id="remainingTime">120.0s remaining</small>
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="startButton" class="button primary" type="button">Start</button>
+            <button id="stopButton" class="button" type="button">Stop</button>
+          </div>
+          <p class="hint">Spacebar hold-to-record is active only while armed.</p>
+        </section>
+
+        <section class="panel mixer-panel" aria-label="layer mixer">
+          <div class="panel-heading inline">
+            <div>
+              <p class="eyebrow">Layers</p>
+              <h2>Loop Mixer</h2>
+            </div>
+            <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh state">↻</button>
+          </div>
+          <div id="layerControls" class="control-stack"></div>
+        </section>
+
+        <section class="panel settings-panel" aria-label="recording processing settings">
+          <div class="panel-heading">
+            <p class="eyebrow">Pre-process</p>
+            <h2>Voice Treatment</h2>
+          </div>
+          <div id="recordingControls" class="control-stack compact"></div>
+          <div class="button-row">
+            <button id="applyButton" class="button primary" type="button">Apply and Restart</button>
+            <button id="resetButton" class="button" type="button">Reset Draft</button>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
