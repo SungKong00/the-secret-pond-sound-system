@@ -48,6 +48,18 @@ class ProjectPaths:
         return self.data_dir / "rendered" / "layers"
 
     @property
+    def low_playback(self) -> Path:
+        return self.rendered_layers_dir / "low_playback.wav"
+
+    @property
+    def mid_playback(self) -> Path:
+        return self.rendered_layers_dir / "mid_playback.wav"
+
+    @property
+    def voice_playback(self) -> Path:
+        return self.rendered_layers_dir / "voice_playback.wav"
+
+    @property
     def recordings_temp_dir(self) -> Path:
         return self.data_dir / "recordings_temp"
 

@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from secret_pond.config import AppSettings, EqSettings, InputControlSettings, VoiceStackSettings
+from secret_pond.config import (
+    AppSettings,
+    AudioFormatSettings,
+    EqSettings,
+    InputControlSettings,
+    VoiceStackSettings,
+)
 from secret_pond.state import RuntimeStatus
 
 
@@ -51,6 +57,15 @@ def test_voice_stack_loop_seconds_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         VoiceStackSettings(loop_seconds=601)
+
+
+def test_audio_loop_seconds_can_be_short_for_setup_or_tests() -> None:
+    settings = AudioFormatSettings(loop_seconds=1)
+
+    assert settings.loop_seconds == 1
+
+    with pytest.raises(ValidationError):
+        AudioFormatSettings(loop_seconds=0)
 
 
 def test_runtime_status_values_are_stable() -> None:

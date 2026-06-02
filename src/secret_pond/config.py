@@ -29,7 +29,7 @@ class LayerSettings(BaseModel):
 class AudioFormatSettings(BaseModel):
     sample_rate: int = Field(default=48_000, ge=8_000, le=192_000)
     channels: int = Field(default=2, ge=1, le=2)
-    loop_seconds: int = Field(default=300, ge=30, le=600)
+    loop_seconds: int = Field(default=300, ge=1, le=600)
     peak_ceiling: float = Field(default=0.98, gt=0.0, le=1.0)
 
 
