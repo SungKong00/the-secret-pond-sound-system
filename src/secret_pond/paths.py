@@ -72,6 +72,10 @@ class ProjectPaths:
         return self.logs_dir / "participants.json"
 
     @property
+    def event_log_file(self) -> Path:
+        return self.logs_dir / "events.jsonl"
+
+    @property
     def config_dir(self) -> Path:
         return self.data_dir / "config"
 
