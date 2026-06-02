@@ -1,0 +1,318 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.config import AppSettings, InputControlSettings
+from secret_pond.services.controller import RecordingController
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class ScriptedRecorder:
+    def __init__(
+        self,
+        take: AudioBuffer | None = None,
+        *,
+        start_error: Exception | None = None,
+        stop_error: Exception | None = None,
+    ) -> None:
+        self.take = take or voice_take()
+        self.start_error = start_error
+        self.stop_error = stop_error
+        self.is_recording = False
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self) -> None:
+        self.start_calls += 1
+        if self.start_error is not None:
+            raise self.start_error
+        self.is_recording = True
+
+    def stop(self) -> AudioBuffer:
+        self.stop_calls += 1
+        self.is_recording = False
+        if self.stop_error is not None:
+            raise self.stop_error
+        return self.take
+
+
+class SpyVoiceStack:
+    def __init__(self, *, add_error: Exception | None = None) -> None:
+        self.add_error = add_error
+        self.calls: list[dict] = []
+
+    def add_processed_voice(self, buffer, settings, processing_settings_snapshot):
+        self.calls.append(
+            {
+                "buffer": buffer,
+                "settings": settings,
+                "processing_settings_snapshot": processing_settings_snapshot,
+            },
+        )
+        if self.add_error is not None:
+            raise self.add_error
+        return SimpleNamespace(added_chunks=1)
+
+
+class SpyRenderer:
+    def __init__(self, *, render_error: Exception | None = None) -> None:
+        self.render_error = render_error
+        self.rendered_layers: list[str] = []
+
+    def render_layer(self, layer_id: str, settings):
+        self.rendered_layers.append(layer_id)
+        if self.render_error is not None:
+            raise self.render_error
+        return SimpleNamespace(layer_id=layer_id)
+
+
+class FakeParticipants:
+    def __init__(self, *, increment_error: Exception | None = None) -> None:
+        self.increment_error = increment_error
+        self.count = 0
+
+    def increment(self) -> int:
+        if self.increment_error is not None:
+            raise self.increment_error
+        self.count += 1
+        return self.count
+
+
+def voice_take(frames: int = 2_000) -> AudioBuffer:
+    samples = np.ones((frames, 2), dtype=np.float32) * 0.05
+    return AudioBuffer(samples=samples, sample_rate=48_000)
+
+
+def empty_take() -> AudioBuffer:
+    return AudioBuffer(samples=np.zeros((0, 2), dtype=np.float32), sample_rate=48_000)
+
+
+def controller_fixture(
+    *,
+    recorder: ScriptedRecorder | None = None,
+    voice_stack: SpyVoiceStack | None = None,
+    renderer: SpyRenderer | None = None,
+    participants: FakeParticipants | None = None,
+) -> tuple[
+    RecordingController,
+    ScriptedRecorder,
+    SpyVoiceStack,
+    SpyRenderer,
+    FakeParticipants,
+    FakeClock,
+]:
+    settings = AppSettings(input_control=InputControlSettings(minimum_recording_seconds=1.0))
+    recorder = recorder or ScriptedRecorder()
+    voice_stack = voice_stack or SpyVoiceStack()
+    renderer = renderer or SpyRenderer()
+    participants = participants or FakeParticipants()
+    clock = FakeClock()
+    controller = RecordingController(
+        settings=settings,
+        recorder=recorder,
+        voice_stack=voice_stack,
+        renderer=renderer,
+        participants=participants,
+        clock=clock,
+    )
+    return controller, recorder, voice_stack, renderer, participants, clock
+
+
+def test_controller_rejects_start_when_disarmed() -> None:
+    controller, recorder, *_ = controller_fixture()
+
+    with pytest.raises(RuntimeError, match="armed"):
+        controller.start_recording()
+
+    assert controller.is_recording is False
+    assert recorder.start_calls == 0
+
+
+def test_controller_discards_too_short_recording() -> None:
+    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture()
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(0.25)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is False
+    assert outcome.reason == "too_short"
+    assert controller.is_recording is False
+    assert recorder.stop_calls == 1
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+
+
+def test_controller_discards_empty_recording_even_when_duration_is_long_enough() -> None:
+    recorder = ScriptedRecorder(empty_take())
+    controller, _, voice_stack, renderer, participants, clock = controller_fixture(
+        recorder=recorder,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is False
+    assert outcome.reason == "empty"
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+
+
+def test_controller_processes_adds_renders_and_counts_accepted_recording() -> None:
+    controller, _, voice_stack, renderer, participants, clock = controller_fixture()
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert outcome.reason is None
+    assert outcome.duration_seconds == pytest.approx(1.2)
+    assert outcome.participant_count == 1
+    assert participants.count == 1
+    assert len(voice_stack.calls) == 1
+    assert voice_stack.calls[0]["buffer"].sample_rate == 48_000
+    assert (
+        voice_stack.calls[0]["processing_settings_snapshot"]
+        == controller.settings.recording.model_dump(mode="json")
+    )
+    assert renderer.rendered_layers == ["voice"]
+
+
+def test_controller_rejects_double_start_and_preserves_active_recording() -> None:
+    controller, recorder, *_ = controller_fixture()
+
+    controller.arm_input()
+    controller.start_recording()
+
+    with pytest.raises(RuntimeError, match="already recording"):
+        controller.start_recording()
+
+    assert controller.is_recording is True
+    assert recorder.start_calls == 1
+
+
+def test_controller_rejects_stop_when_not_recording() -> None:
+    controller, *_ = controller_fixture()
+
+    with pytest.raises(RuntimeError, match="not recording"):
+        controller.stop_recording()
+
+
+def test_controller_cancels_active_recording_when_disarmed() -> None:
+    controller, recorder, voice_stack, renderer, participants, clock = controller_fixture()
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+    outcome = controller.disarm_input()
+
+    assert controller.armed is False
+    assert controller.is_recording is False
+    assert outcome is not None
+    assert outcome.accepted is False
+    assert outcome.reason == "disarmed"
+    assert recorder.stop_calls == 1
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+
+
+def test_controller_clears_recording_state_when_recorder_start_fails() -> None:
+    recorder = ScriptedRecorder(start_error=RuntimeError("stream unavailable"))
+    controller, *_ = controller_fixture(recorder=recorder)
+
+    controller.arm_input()
+
+    with pytest.raises(RuntimeError, match="stream unavailable"):
+        controller.start_recording()
+
+    assert controller.is_recording is False
+    assert controller.last_error == "stream unavailable"
+
+
+def test_controller_clears_recording_state_when_recorder_stop_fails() -> None:
+    recorder = ScriptedRecorder(stop_error=RuntimeError("stop failed"))
+    controller, _, _, _, participants, clock = controller_fixture(recorder=recorder)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+
+    with pytest.raises(RuntimeError, match="stop failed"):
+        controller.stop_recording()
+
+    assert controller.is_recording is False
+    assert controller.last_error == "stop failed"
+    assert participants.count == 0
+
+
+def test_controller_does_not_increment_participants_when_stack_add_fails() -> None:
+    voice_stack = SpyVoiceStack(add_error=RuntimeError("stack failed"))
+    controller, _, _, renderer, participants, clock = controller_fixture(voice_stack=voice_stack)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+
+    with pytest.raises(RuntimeError, match="stack failed"):
+        controller.stop_recording()
+
+    assert controller.is_recording is False
+    assert controller.last_error == "stack failed"
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+
+
+def test_controller_counts_accepted_stack_when_render_fails() -> None:
+    renderer = SpyRenderer(render_error=RuntimeError("render failed"))
+    controller, _, voice_stack, _, participants, clock = controller_fixture(renderer=renderer)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+
+    with pytest.raises(RuntimeError, match="render failed"):
+        controller.stop_recording()
+
+    assert controller.is_recording is False
+    assert controller.last_error == "render failed"
+    assert len(voice_stack.calls) == 1
+    assert renderer.rendered_layers == ["voice"]
+    assert participants.count == 1
+
+
+def test_controller_accepts_recording_when_participant_counter_fails() -> None:
+    participants = FakeParticipants(increment_error=RuntimeError("count failed"))
+    controller, _, voice_stack, renderer, _, clock = controller_fixture(participants=participants)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert outcome.participant_count is None
+    assert controller.last_error == "count failed"
+    assert len(voice_stack.calls) == 1
+    assert renderer.rendered_layers == ["voice"]
