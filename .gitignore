@@ -1,0 +1,40 @@
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime data
+data/config/*.json
+data/logs/*
+!data/logs/.gitkeep
+data/recordings_temp/*
+!data/recordings_temp/.gitkeep
+data/rendered/layers/*
+!data/rendered/layers/.gitkeep
+data/voice/*
+!data/voice/.gitkeep
+data/processed/accepted/*
+!data/processed/accepted/.gitkeep
+data/sources/*
+!data/sources/.gitkeep
+
+# Local operator files
+*.local.json
+*.tmp
+*.tmp.wav

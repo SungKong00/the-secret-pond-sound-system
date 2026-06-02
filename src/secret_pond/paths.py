@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class ProjectPaths:
+    root: Path
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "root", Path(self.root))
+
+    @property
+    def data_dir(self) -> Path:
+        return self.root / "data"
+
+    @property
+    def sources_dir(self) -> Path:
+        return self.data_dir / "sources"
+
+    @property
+    def low_source(self) -> Path:
+        return self.sources_dir / "low.wav"
+
+    @property
+    def mid_source(self) -> Path:
+        return self.sources_dir / "mid.wav"
+
+    @property
+    def accepted_dir(self) -> Path:
+        return self.data_dir / "processed" / "accepted"
+
+    @property
+    def voice_dir(self) -> Path:
+        return self.data_dir / "voice"
+
+    @property
+    def voice_manifest(self) -> Path:
+        return self.voice_dir / "voice_stack_manifest.json"
+
+    @property
+    def voice_stack_raw(self) -> Path:
+        return self.voice_dir / "voice_stack_raw.wav"
+
+    @property
+    def rendered_layers_dir(self) -> Path:
+        return self.data_dir / "rendered" / "layers"
+
+    @property
+    def recordings_temp_dir(self) -> Path:
+        return self.data_dir / "recordings_temp"
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.data_dir / "logs"
+
+    @property
+    def config_dir(self) -> Path:
+        return self.data_dir / "config"
+
+    @property
+    def settings_file(self) -> Path:
+        return self.config_dir / "settings.json"
+
+    def ensure_directories(self) -> None:
+        for directory in (
+            self.sources_dir,
+            self.accepted_dir,
+            self.voice_dir,
+            self.rendered_layers_dir,
+            self.recordings_temp_dir,
+            self.logs_dir,
+            self.config_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)

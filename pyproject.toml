@@ -1,0 +1,46 @@
+[project]
+name = "secret-pond"
+version = "0.1.0"
+description = "Interactive recording and layered loop playback system for The Secret Pond."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "numpy>=1.26",
+  "scipy>=1.13",
+  "sounddevice>=0.4.7",
+  "soundfile>=0.12",
+  "pedalboard>=0.9",
+  "platformdirs>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.27",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+secret-pond = "secret_pond.cli:main"
+
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
