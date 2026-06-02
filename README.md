@@ -37,10 +37,10 @@ secret-pond serve
 - 단일 출력 엔진용 레이어 믹서와 `sounddevice` 출력 스트림 래퍼
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
 - FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 선택 초안 UI
+- WebSocket 기반 상태 push와 연결 종료 시 활성 녹음 정지
 
 아직 구현하지 않은 범위:
 
-- WebSocket 기반 실시간 상태 push
 - 하드웨어 버튼/터치 센서/시리얼 연동
 - 출력 중 안전한 Apply-and-Restart 재시작
 - 실시간 EQ. 현재 EQ 슬라이더는 초안으로 저장한 뒤 `Apply and Restart`로 적용

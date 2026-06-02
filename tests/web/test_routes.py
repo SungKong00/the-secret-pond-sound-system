@@ -230,6 +230,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "javascript" in script.headers["content-type"]
     assert "hasDraftDeviceChanges(snapshot)" in script.text
     assert "state.devices = null" in script.text
+    assert "new WebSocket" in script.text
+    assert "syncDraft: false" in script.text
+    assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
+    assert "requestState({ syncDraft: false })" in script.text
+    assert 'control("/api/recording/poll-auto-stop", { syncDraft: false })' in script.text
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
@@ -247,6 +252,45 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
+
+
+def test_ws_state_sends_initial_runtime_state(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    with client.websocket_connect("/ws/state") as websocket:
+        payload = websocket.receive_json()
+
+    assert payload["armed"] is False
+    assert payload["is_recording"] is False
+    assert payload["participant_count"] == 0
+    assert payload["playback"]["output_running"] is False
+    assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
+
+
+def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    with client.websocket_connect("/ws/state") as websocket:
+        assert websocket.receive_json()["is_recording"] is True
+
+    state = client.get("/api/state").json()
+    assert state["is_recording"] is False
+    assert state["participant_count"] == 1
+
+
+def test_ws_state_polls_recording_auto_stop_before_sending_state(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    client.app.state.runtime.controller._recording_started_at -= 2.0
+
+    with client.websocket_connect("/ws/state") as websocket:
+        payload = websocket.receive_json()
+
+    assert payload["is_recording"] is False
+    assert payload["participant_count"] == 1
 
 
 def test_api_devices_returns_device_lists_and_selected_devices(tmp_path: Path) -> None:

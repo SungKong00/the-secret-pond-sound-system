@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from secret_pond.services.runtime import SecretPondRuntime, build_runtime
 from secret_pond.web.routes import router as api_router
+from secret_pond.web.websocket import router as websocket_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
@@ -39,6 +40,7 @@ def create_app(
         return FileResponse(STATIC_DIR / "index.html")
 
     app.include_router(api_router)
+    app.include_router(websocket_router)
     return app
 
 

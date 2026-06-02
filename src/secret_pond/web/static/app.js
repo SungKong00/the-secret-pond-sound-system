@@ -17,6 +17,9 @@ const state = {
   deviceError: null,
   saveTimer: null,
   spaceRecording: false,
+  stateSocket: null,
+  websocketConnected: false,
+  websocketReconnectTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -76,9 +79,9 @@ const showError = (message) => {
   banner.textContent = message;
 };
 
-const requestState = async () => {
+const requestState = async (options = {}) => {
   const payload = await api("/api/state");
-  applyState(payload);
+  applyState(payload, options);
 };
 
 const requestDevices = async () => {
@@ -98,11 +101,16 @@ const refreshAll = async () => {
   await requestDevices();
 };
 
-const applyState = (payload) => {
+const applyState = (payload, options = {}) => {
+  const syncDraft = options.syncDraft ?? true;
   state.snapshot = payload;
-  state.draft = clone(payload.settings.draft);
+  if (syncDraft || !state.draft) {
+    state.draft = clone(payload.settings.draft);
+    renderControls();
+  } else {
+    state.snapshot.settings.draft = clone(state.draft);
+  }
   renderState();
-  renderControls();
   renderDevices();
 };
 
@@ -336,13 +344,13 @@ const saveDraft = async () => {
   }
 };
 
-const control = async (path) => {
+const control = async (path, options = {}) => {
   try {
     const payload = await api(path, { method: "POST" });
     if (payload.state) {
-      applyState(payload.state);
+      applyState(payload.state, options);
     } else {
-      await requestState();
+      await requestState(options);
     }
   } catch (error) {
     showError(error.message);
@@ -417,6 +425,38 @@ const stopIfRecording = async () => {
   await control("/api/recording/stop");
 };
 
+const stateSocketUrl = () => {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/state`;
+};
+
+const connectStateSocket = () => {
+  if (!("WebSocket" in window) || state.stateSocket) return;
+
+  const socket = new WebSocket(stateSocketUrl());
+  state.stateSocket = socket;
+  socket.addEventListener("open", () => {
+    state.websocketConnected = true;
+    clearTimeout(state.websocketReconnectTimer);
+  });
+  socket.addEventListener("message", (event) => {
+    try {
+      applyState(JSON.parse(event.data), { syncDraft: false });
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (state.stateSocket !== socket) return;
+    state.stateSocket = null;
+    state.websocketConnected = false;
+    state.websocketReconnectTimer = setTimeout(connectStateSocket, 1500);
+  });
+  socket.addEventListener("error", () => {
+    socket.close();
+  });
+};
+
 const drawCanvas = () => {
   const canvas = $("pondCanvas");
   const context = canvas.getContext("2d");
@@ -479,14 +519,15 @@ const bindEvents = () => {
     if (document.hidden) stopIfRecording();
   });
   setInterval(async () => {
-    if (state.snapshot?.is_recording) {
-      await control("/api/recording/poll-auto-stop");
-    } else {
-      await requestState().catch(() => {});
+    if (!state.websocketConnected && state.snapshot?.is_recording) {
+      await control("/api/recording/poll-auto-stop", { syncDraft: false });
+    } else if (!state.websocketConnected) {
+      await requestState({ syncDraft: false }).catch(() => {});
     }
   }, 900);
 };
 
 bindEvents();
 drawCanvas();
+connectStateSocket();
 refreshAll();
