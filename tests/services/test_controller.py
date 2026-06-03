@@ -51,11 +51,19 @@ class ScriptedRecorder:
 
 
 class SpyVoiceStack:
-    def __init__(self, *, add_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        add_error: Exception | None = None,
+        call_order: list[str] | None = None,
+    ) -> None:
         self.add_error = add_error
+        self.call_order = call_order
         self.calls: list[dict] = []
 
     def add_processed_voice(self, buffer, settings, processing_settings_snapshot):
+        if self.call_order is not None:
+            self.call_order.append("stack")
         self.calls.append(
             {
                 "buffer": buffer,
@@ -69,11 +77,19 @@ class SpyVoiceStack:
 
 
 class SpyRenderer:
-    def __init__(self, *, render_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        render_error: Exception | None = None,
+        call_order: list[str] | None = None,
+    ) -> None:
         self.render_error = render_error
+        self.call_order = call_order
         self.rendered_layers: list[str] = []
 
     def render_layer(self, layer_id: str, settings):
+        if self.call_order is not None:
+            self.call_order.append("render")
         self.rendered_layers.append(layer_id)
         if self.render_error is not None:
             raise self.render_error
@@ -81,11 +97,19 @@ class SpyRenderer:
 
 
 class FakeParticipants:
-    def __init__(self, *, increment_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        increment_error: Exception | None = None,
+        call_order: list[str] | None = None,
+    ) -> None:
         self.increment_error = increment_error
+        self.call_order = call_order
         self.count = 0
 
     def increment(self) -> int:
+        if self.call_order is not None:
+            self.call_order.append("participants")
         if self.increment_error is not None:
             raise self.increment_error
         self.count += 1
@@ -222,6 +246,26 @@ def test_controller_processes_adds_renders_and_counts_accepted_recording() -> No
     assert renderer.rendered_layers == ["voice"]
 
 
+def test_controller_counts_after_voice_render_succeeds() -> None:
+    call_order: list[str] = []
+    voice_stack = SpyVoiceStack(call_order=call_order)
+    renderer = SpyRenderer(call_order=call_order)
+    participants = FakeParticipants(call_order=call_order)
+    controller, _, _, _, _, _, clock = controller_fixture(
+        voice_stack=voice_stack,
+        renderer=renderer,
+        participants=participants,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert call_order == ["stack", "render", "participants"]
+
+
 def test_controller_rejects_double_start_and_preserves_active_recording() -> None:
     controller, recorder, *_ = controller_fixture()
 
@@ -309,7 +353,7 @@ def test_controller_does_not_increment_participants_when_stack_add_fails() -> No
     assert participants.count == 0
 
 
-def test_controller_counts_accepted_stack_when_render_fails() -> None:
+def test_controller_does_not_increment_participants_when_render_fails() -> None:
     renderer = SpyRenderer(render_error=RuntimeError("render failed"))
     controller, _, voice_stack, _, participants, _, clock = controller_fixture(renderer=renderer)
 
@@ -324,7 +368,7 @@ def test_controller_counts_accepted_stack_when_render_fails() -> None:
     assert controller.last_error == "render failed"
     assert len(voice_stack.calls) == 1
     assert renderer.rendered_layers == ["voice"]
-    assert participants.count == 1
+    assert participants.count == 0
 
 
 def test_controller_accepts_recording_when_participant_counter_fails() -> None:
@@ -502,7 +546,7 @@ def test_controller_logs_start_failure_without_preserving_recording_state() -> N
     assert logger.events[0]["payload"]["error"] == "stream unavailable"
 
 
-def test_controller_logs_render_failure_after_participant_increment() -> None:
+def test_controller_logs_render_failure_without_participant_increment() -> None:
     logger = SpyLogger()
     renderer = SpyRenderer(render_error=RuntimeError("render failed"))
     controller, _, _, _, participants, _, clock = controller_fixture(
@@ -517,14 +561,13 @@ def test_controller_logs_render_failure_after_participant_increment() -> None:
     with pytest.raises(RuntimeError, match="render failed"):
         controller.stop_recording()
 
-    assert participants.count == 1
+    assert participants.count == 0
     assert [event["event_type"] for event in logger.events] == [
         "recording.start",
         "recording.stop",
-        "participant.incremented",
         "recording.render_failed",
     ]
-    assert logger.events[3]["payload"]["error"] == "render failed"
+    assert logger.events[2]["payload"]["error"] == "render failed"
 
 
 def test_controller_logs_participant_failure_but_still_accepts_recording() -> None:

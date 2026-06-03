@@ -216,7 +216,6 @@ class RecordingController:
             )
             raise
 
-        participant_count = self._increment_participants_best_effort()
         try:
             render_result = self._renderer.render_layer("voice", self._settings)
         except Exception as exc:
@@ -227,6 +226,7 @@ class RecordingController:
             )
             raise
 
+        participant_count = self._increment_participants_best_effort()
         if participant_count is not None:
             self._last_error = None
         self._log_event(

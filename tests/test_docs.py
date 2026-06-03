@@ -134,3 +134,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "Reset Participants" in request
     assert "Apply and Restart가 실행 중일 때" in request
     assert "Applying..." in request
+    assert "목소리 렌더링까지 성공한 뒤에만 증가" in request
