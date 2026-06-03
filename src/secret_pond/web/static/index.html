@@ -109,16 +109,28 @@
           </div>
         </section>
 
-        <section class="panel mixer-panel" aria-label="layer mixer">
-          <div class="panel-heading inline">
-            <div>
-              <p class="eyebrow">Layers</p>
-              <h2>Loop Mixer</h2>
+        <div class="layer-stack-panel">
+          <section class="panel mixer-panel" aria-label="layer mixer">
+            <div class="panel-heading inline">
+              <div>
+                <p class="eyebrow">Layers</p>
+                <h2>Loop Mixer</h2>
+              </div>
+              <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh state">
+                ↻
+              </button>
             </div>
-            <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh state">↻</button>
-          </div>
-          <div id="layerControls" class="control-stack"></div>
-        </section>
+            <div id="layerControls" class="control-stack"></div>
+          </section>
+
+          <section class="panel voice-panel" aria-labelledby="voiceStackPanelTitle">
+            <div class="panel-heading">
+              <p class="eyebrow">Stack</p>
+              <h2 id="voiceStackPanelTitle">Voice Stack</h2>
+            </div>
+            <div id="voiceLayerControls" class="control-stack"></div>
+          </section>
+        </div>
 
         <section class="panel settings-panel" aria-label="recording processing settings">
           <div class="panel-heading">

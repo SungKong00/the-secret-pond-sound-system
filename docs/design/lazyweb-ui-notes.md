@@ -8,6 +8,7 @@ Useful patterns found:
 - DAW-style dark mixer layouts work well for dense audio controls.
 - Persistent status bars are important for operational dashboards.
 - Mixer rows should expose layer enable, volume, and detailed controls without hiding system state.
+- A primary or featured audio channel can be separated from supporting mixer rows if it keeps the same compact controls and stays in the dashboard grid.
 - Diagnostic dashboards should make device/browser/system checks visible before operation.
 - Source and service health reads best as dense rows with severity status, not a separate landing page.
 - Recent event summaries should stay short and newest-first so operators can scan the latest state.
@@ -19,7 +20,8 @@ MVP UI direction:
 - Use a dark, dreamy cyberpunk layout: black/near-black base, cyan/magenta accent lines, restrained glow, and no decorative clutter that competes with controls.
 - Place `Arm / Disarm`, recording status, participant count, device health, and last error in the persistent top bar.
 - Keep source-file health, selected devices, and recent event logs in a System panel on the first dashboard view.
-- Represent `Low`, `Mid`, and `Voice Stack` as mixer rows.
+- Represent `Low` and `Mid` as supporting mixer rows.
+- Represent `Voice Stack` as a featured stack panel with the same compact playback EQ/filter controls.
 - Group transport, `Apply and Restart`, and dirty-state feedback in a compact Playback panel.
 - Treat EQ sliders as staged controls until `Apply and Restart`.
 - Keep critical controls legible under exhibition pressure; visual mood must never hide whether recording is armed, recording, rendering, or failed.

@@ -214,8 +214,12 @@ body::before {
   grid-area: playback;
 }
 
-.mixer-panel {
+.layer-stack-panel {
+  display: grid;
   grid-area: mixer;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
 }
 
 .settings-panel {
@@ -633,6 +637,13 @@ select:disabled {
   background: var(--surface-strong);
 }
 
+.voice-panel .layer-card {
+  border-color: rgba(255, 79, 216, 0.24);
+  background:
+    linear-gradient(135deg, rgba(255, 79, 216, 0.1), transparent 38%),
+    var(--surface-strong);
+}
+
 .layer-head {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -729,7 +740,9 @@ input[type="checkbox"] {
 
   .record-panel,
   .playback-panel,
+  .layer-stack-panel,
   .mixer-panel,
+  .voice-panel,
   .settings-panel,
   .system-panel {
     grid-area: auto;

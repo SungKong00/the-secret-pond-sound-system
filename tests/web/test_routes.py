@@ -468,6 +468,24 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
     assert 'id="applyButton"' in playback_panel
     assert "Apply and Restart" in playback_panel
+    assert 'class="layer-stack-panel"' in response.text
+    assert 'class="panel voice-panel"' in response.text
+    assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
+    mixer_panel = slice_between(
+        response.text,
+        '<section class="panel mixer-panel"',
+        '<section class="panel voice-panel"',
+    )
+    voice_panel = slice_between(
+        response.text,
+        '<section class="panel voice-panel"',
+        '<section class="panel settings-panel"',
+    )
+    assert 'id="layerControls"' in mixer_panel
+    assert 'id="voiceLayerControls"' not in mixer_panel
+    assert 'id="voiceLayerControls"' in voice_panel
+    assert 'id="voiceStackPanelTitle"' in voice_panel
+    assert "Voice Stack" in voice_panel
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
@@ -507,6 +525,11 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
         '<section class="panel playback-panel"',
         '<section class="panel mixer-panel"',
     )
+    voice_panel = slice_between(
+        response.text,
+        '<section class="panel voice-panel"',
+        '<section class="panel settings-panel"',
+    )
     settings_panel = slice_between(
         response.text,
         '<section class="panel settings-panel"',
@@ -519,6 +542,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     )
     assert "Apply and Restart" in playback_panel
     assert "Apply and Restart" not in settings_panel
+    assert "Apply and Restart" not in voice_panel
     assert "Reset Draft" not in playback_panel
     assert "<summary>Maintenance</summary>" in maintenance_panel
     assert 'id="resetButton"' in maintenance_panel
@@ -550,6 +574,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".playback-panel" in styles.text
     assert ".playback-actions" in styles.text
     assert ".playback-apply-strip" in styles.text
+    assert ".layer-stack-panel" in styles.text
+    assert ".voice-panel" in styles.text
     assert ".settings-panel .control-row" in styles.text
     assert (
         "grid-template-columns: minmax(76px, 0.7fr) minmax(90px, 1fr) "
@@ -688,6 +714,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".capture-mode-actions" in styles.text
     assert "layerPendingBadge" in script.text
     assert "updateLayerPendingBadge" in script.text
+    assert "renderLayerCard" in script.text
+    assert "renderLayerGroup(\"layerControls\", [\"low\", \"mid\"])" in script.text
+    assert "renderLayerGroup(\"voiceLayerControls\", [\"voice\"])" in script.text
+    assert "voiceLayerControls" in script.text
     assert "Pending Draft" in script.text
     assert "Active" in script.text
     assert "renderDraftValue" in script.text

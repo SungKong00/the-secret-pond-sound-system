@@ -629,54 +629,63 @@ const renderControls = () => {
 };
 
 const renderLayerControls = () => {
-  const container = $("layerControls");
-  container.innerHTML = "";
-  Object.keys(layerLabels).forEach((layerId) => {
-    const layer = state.draft.layers[layerId];
-    const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
-    const card = document.createElement("section");
-    card.className = "layer-card";
-    card.innerHTML = `
-      <div class="layer-head">
-        <h3 class="layer-title">${layerLabels[layerId]}</h3>
-        <div class="layer-head-actions">
-          ${layerPendingBadge(layerId)}
-          <input type="checkbox" aria-label="${layerLabels[layerId]} enabled" ${
-            layer.enabled ? "checked" : ""
-          } />
-        </div>
-      </div>
-      <div class="layer-controls"></div>
-    `;
-    card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
-      state.draft.layers[layerId].enabled = event.target.checked;
-      updateLayerPendingBadge(layerId, card);
-      renderState();
-      scheduleDraftSave();
-    });
+  renderLayerGroup("layerControls", ["low", "mid"]);
+  renderLayerGroup("voiceLayerControls", ["voice"]);
+};
 
-    const controls = card.querySelector(".layer-controls");
-    layerControlDefs.forEach(([path, label, min, max, step, suffix]) => {
-      controls.appendChild(
-        rangeControl(
-          label,
-          getPath(layer, path),
-          min,
-          max,
-          step,
-          suffix,
-          (value) => {
-            setPath(state.draft.layers[layerId], path, value);
-            updateLayerPendingBadge(layerId, card);
-            renderState();
-            scheduleDraftSave();
-          },
-          getPath(activeLayer, path),
-        ),
-      );
-    });
-    container.appendChild(card);
+const renderLayerGroup = (containerId, layerIds) => {
+  const container = $(containerId);
+  container.innerHTML = "";
+  layerIds.forEach((layerId) => {
+    container.appendChild(renderLayerCard(layerId));
   });
+};
+
+const renderLayerCard = (layerId) => {
+  const layer = state.draft.layers[layerId];
+  const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
+  const card = document.createElement("section");
+  card.className = "layer-card";
+  card.innerHTML = `
+    <div class="layer-head">
+      <h3 class="layer-title">${layerLabels[layerId]}</h3>
+      <div class="layer-head-actions">
+        ${layerPendingBadge(layerId)}
+        <input type="checkbox" aria-label="${layerLabels[layerId]} enabled" ${
+          layer.enabled ? "checked" : ""
+        } />
+      </div>
+    </div>
+    <div class="layer-controls"></div>
+  `;
+  card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
+    state.draft.layers[layerId].enabled = event.target.checked;
+    updateLayerPendingBadge(layerId, card);
+    renderState();
+    scheduleDraftSave();
+  });
+
+  const controls = card.querySelector(".layer-controls");
+  layerControlDefs.forEach(([path, label, min, max, step, suffix]) => {
+    controls.appendChild(
+      rangeControl(
+        label,
+        getPath(layer, path),
+        min,
+        max,
+        step,
+        suffix,
+        (value) => {
+          setPath(state.draft.layers[layerId], path, value);
+          updateLayerPendingBadge(layerId, card);
+          renderState();
+          scheduleDraftSave();
+        },
+        getPath(activeLayer, path),
+      ),
+    );
+  });
+  return card;
 };
 
 const renderRecordingControls = () => {

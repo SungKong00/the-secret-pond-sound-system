@@ -102,7 +102,7 @@ The header shows `Error None` during normal operation and `Error Active` wheneve
 
 ## Settings
 
-Sliders edit draft settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show Active or Pending Draft values.
+Sliders edit draft settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show Active or Pending Draft values. The Loop Mixer panel contains the Low and Mid supporting layers; the Voice Stack panel contains the voice playback layer EQ/filter controls.
 
 Use `Apply and Restart` to render the current draft audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
 
