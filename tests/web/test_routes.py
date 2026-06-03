@@ -597,10 +597,21 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
-    assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
-    assert '"resetButton").disabled = snapshot.is_recording' in script.text
+    assert "applyInFlight: false" in script.text
+    assert (
+        '"applyButton").disabled = state.applyInFlight || snapshot.is_recording || '
+        "runtimeConfigChanges"
+        in script.text
+    )
+    assert '"applyButton").textContent = state.applyInFlight' in script.text
+    assert "Applying..." in script.text
+    assert "Rendering and reloading staged audio settings." in script.text
+    assert '"resetButton").disabled = state.applyInFlight || snapshot.is_recording' in script.text
     assert "Stop recording before resetting draft settings." in script.text
-    assert '"resetParticipantsButton").disabled = snapshot.is_recording' in script.text
+    assert (
+        '"resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording'
+        in script.text
+    )
     assert "Stop recording before resetting participant count." in script.text
     assert "Will stop and restart output while applying staged audio settings." in script.text
     assert (
@@ -617,6 +628,17 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
+    apply_body = slice_between(
+        script.text,
+        "const applyAndRestart = async () => {",
+        "};\n\nconst resetDraft",
+    )
+    assert "if (state.applyInFlight) return" in apply_body
+    assert "state.applyInFlight = true" in apply_body
+    assert "state.applyInFlight = false" in apply_body
+    assert "let applyError = null" in apply_body
+    assert "applyError = error" in apply_body
+    assert "showError(applyError.message)" in apply_body
     assert "const resetDraft = async () => {" in script.text
     assert 'const payload = await api("/api/settings/reset"' in script.text
     reset_draft_body = slice_between(

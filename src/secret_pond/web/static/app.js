@@ -23,6 +23,7 @@ const state = {
   websocketConnected: false,
   websocketReconnectTimer: null,
   recordingStopInFlight: false,
+  applyInFlight: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -240,18 +241,21 @@ const renderState = () => {
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
   $("restartOutputButton").disabled = !snapshot.playback.output_running;
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
-  $("applyButton").disabled = snapshot.is_recording || runtimeConfigChanges;
-  $("resetButton").disabled = snapshot.is_recording;
+  $("applyButton").disabled = state.applyInFlight || snapshot.is_recording || runtimeConfigChanges;
+  $("applyButton").textContent = state.applyInFlight ? "Applying..." : "Apply and Restart";
+  $("resetButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetButton").title = snapshot.is_recording
     ? "Stop recording before resetting draft settings."
     : "";
-  $("resetParticipantsButton").disabled = snapshot.is_recording;
+  $("resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetParticipantsButton").title = snapshot.is_recording
     ? "Stop recording before resetting participant count."
     : "";
   $("applyButton").title = snapshot.is_recording
     ? "Stop recording before applying staged settings."
-    : runtimeConfigChanges
+    : state.applyInFlight
+      ? "Rendering and reloading staged audio settings."
+      : runtimeConfigChanges
       ? "Restart the app to use staged device changes."
       : snapshot.playback.output_running
         ? "Will stop and restart output while applying staged audio settings."
@@ -742,15 +746,23 @@ const control = async (path, options = {}) => {
 };
 
 const applyAndRestart = async () => {
+  if (state.applyInFlight) return;
+  let applyError = null;
+  state.applyInFlight = true;
+  renderState();
   try {
     await saveDraft();
     const payload = await api("/api/settings/apply-and-restart", { method: "POST" });
     applyState(payload.state);
     await requestDiagnostics();
   } catch (error) {
+    applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
     await requestDiagnostics().catch(() => {});
-    showError(error.message);
+  } finally {
+    state.applyInFlight = false;
+    renderState();
+    if (applyError) showError(applyError.message);
   }
 };
 

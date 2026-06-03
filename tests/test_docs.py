@@ -28,6 +28,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Spacebar",
         "browser blur",
         "Apply and Restart",
+        "Applying...",
         "Unsaved audio changes",
         "Restart Output",
         "Soft",
@@ -132,3 +133,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "녹음 중에는 Reset Draft" in request
     assert "Reset Participants" in request
     assert "Apply and Restart가 실행 중일 때" in request
+    assert "Applying..." in request
