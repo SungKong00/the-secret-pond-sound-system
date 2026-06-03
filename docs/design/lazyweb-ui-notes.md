@@ -20,5 +20,6 @@ MVP UI direction:
 - Place `Arm / Disarm`, recording status, participant count, device health, and last error in the persistent top bar.
 - Keep source-file health, selected devices, and recent event logs in a System panel on the first dashboard view.
 - Represent `Low`, `Mid`, and `Voice Stack` as mixer rows.
+- Group transport, `Apply and Restart`, and dirty-state feedback in a compact Playback panel.
 - Treat EQ sliders as staged controls until `Apply and Restart`.
 - Keep critical controls legible under exhibition pressure; visual mood must never hide whether recording is armed, recording, rendering, or failed.

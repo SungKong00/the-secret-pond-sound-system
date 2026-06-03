@@ -268,6 +268,13 @@ const renderState = () => {
     ? "Unsaved audio changes"
     : "No unsaved changes";
   $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
+  $("outputControlSummary").textContent = state.applyInFlight
+    ? "Rendering staged audio settings."
+    : snapshot.playback.output_running
+      ? "Output stream is live."
+      : hasPendingChanges(snapshot)
+        ? "Unsaved audio changes are staged for Apply and Restart."
+        : "Render staged audio, then start output.";
   $("armButton").disabled = recordingStopBusy || snapshot.armed || snapshot.is_recording;
   $("disarmButton").disabled =
     recordingStopBusy || (!snapshot.armed && !snapshot.is_recording);

@@ -430,11 +430,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="syncBadge"' in response.text
     assert "No unsaved changes" in response.text
     assert "No pending changes" not in response.text
-    assert 'id="startOutputButton"' in response.text
-    assert 'id="stopOutputButton"' in response.text
-    assert 'id="restartOutputButton"' in response.text
-    assert 'id="restartOutputButton" class="button" type="button" disabled' in response.text
-    assert 'aria-label="runtime controls"' in response.text
+    assert 'aria-label="capture controls"' in response.text
+    assert 'aria-label="runtime controls"' not in response.text
     assert 'aria-label="spacebar capture mode"' in response.text
     assert (
         'id="armButton" class="button primary" type="button" aria-pressed="false"'
@@ -444,6 +441,33 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         'id="disarmButton" class="button" type="button" aria-pressed="true" disabled'
         in response.text
     )
+    top_actions = slice_between(
+        response.text,
+        '<section class="top-actions" aria-label="capture controls">',
+        "</section>",
+    )
+    assert "Start Output" not in top_actions
+    assert "Stop Output" not in top_actions
+    assert "Restart Output" not in top_actions
+    assert 'class="panel playback-panel"' in response.text
+    assert 'aria-labelledby="playbackPanelTitle"' in response.text
+    playback_panel = slice_between(
+        response.text,
+        '<section class="panel playback-panel"',
+        '<section class="panel mixer-panel"',
+    )
+    assert 'id="playbackPanelTitle"' in playback_panel
+    assert "Playback" in playback_panel
+    assert 'id="outputControlSummary"' in playback_panel
+    assert 'id="pendingBadge" class="status-pill muted" role="status" aria-live="polite"' in (
+        playback_panel
+    )
+    assert 'id="startOutputButton"' in playback_panel
+    assert 'id="stopOutputButton"' in playback_panel
+    assert 'id="restartOutputButton"' in playback_panel
+    assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
+    assert 'id="applyButton"' in playback_panel
+    assert "Apply and Restart" in playback_panel
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
@@ -478,23 +502,24 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     response = client.get("/")
 
     assert response.status_code == 200
+    playback_panel = slice_between(
+        response.text,
+        '<section class="panel playback-panel"',
+        '<section class="panel mixer-panel"',
+    )
     settings_panel = slice_between(
         response.text,
         '<section class="panel settings-panel"',
         '<section class="panel system-panel"',
-    )
-    primary_actions = slice_between(
-        settings_panel,
-        '<div class="button-row settings-primary-actions">',
-        "</div>",
     )
     maintenance_panel = slice_between(
         settings_panel,
         '<details class="maintenance-panel">',
         "</details>",
     )
-    assert "Apply and Restart" in primary_actions
-    assert "Reset Draft" not in primary_actions
+    assert "Apply and Restart" in playback_panel
+    assert "Apply and Restart" not in settings_panel
+    assert "Reset Draft" not in playback_panel
     assert "<summary>Maintenance</summary>" in maintenance_panel
     assert 'id="resetButton"' in maintenance_panel
     assert 'id="resetParticipantsButton"' in maintenance_panel
@@ -512,11 +537,25 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "text/css" in styles.headers["content-type"]
     normalized_styles = " ".join(styles.text.split())
     assert (
-        "grid-template-columns: minmax(240px, 0.72fr) minmax(340px, 1.2fr) "
-        "minmax(280px, 0.86fr) minmax(260px, 0.78fr);"
+        "grid-template-columns: minmax(240px, 0.72fr) minmax(260px, 0.78fr) "
+        "minmax(340px, 1.2fr) minmax(280px, 0.86fr);"
+        in normalized_styles
+    )
+    assert (
+        'grid-template-areas: "record playback mixer settings" '
+        '"record system mixer settings";'
         in normalized_styles
     )
     assert "@media (max-width: 1240px)" in styles.text
+    assert ".playback-panel" in styles.text
+    assert ".playback-actions" in styles.text
+    assert ".playback-apply-strip" in styles.text
+    assert ".settings-panel .control-row" in styles.text
+    assert (
+        "grid-template-columns: minmax(76px, 0.7fr) minmax(90px, 1fr) "
+        "minmax(44px, auto);"
+        in normalized_styles
+    )
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
     normalized_script = " ".join(script.text.split())
@@ -545,6 +584,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '"syncBadge").className = "status-pill muted"' in script.text
     assert '!("WebSocket" in window)' in script.text
     assert "renderSyncBadge();\n  const snapshot = state.snapshot;" in script.text
+    assert "outputControlSummary" in script.text
+    assert "Output stream is live." in script.text
+    assert "Unsaved audio changes are staged for Apply and Restart." in script.text
     assert "renderDeviceHealthBadge" in script.text
     assert "Devices Checking" in script.text
     assert "Devices OK" in script.text

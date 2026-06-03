@@ -179,8 +179,11 @@ body::before {
 .dashboard-grid {
   display: grid;
   grid-template-columns:
-    minmax(240px, 0.72fr) minmax(340px, 1.2fr) minmax(280px, 0.86fr)
-    minmax(260px, 0.78fr);
+    minmax(240px, 0.72fr) minmax(260px, 0.78fr) minmax(340px, 1.2fr)
+    minmax(280px, 0.86fr);
+  grid-template-areas:
+    "record playback mixer settings"
+    "record system mixer settings";
   gap: 14px;
   margin-top: 14px;
 }
@@ -203,11 +206,24 @@ body::before {
 }
 
 .record-panel {
+  grid-area: record;
   min-height: 520px;
 }
 
+.playback-panel {
+  grid-area: playback;
+}
+
+.mixer-panel {
+  grid-area: mixer;
+}
+
+.settings-panel {
+  grid-area: settings;
+}
+
 .system-panel {
-  min-height: 520px;
+  grid-area: system;
 }
 
 .record-orbit {
@@ -344,6 +360,42 @@ body::before {
 .hint {
   margin: 12px 0 0;
   font-size: 13px;
+}
+
+.playback-status-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.playback-status-stack .status-pill {
+  width: fit-content;
+}
+
+.playback-summary {
+  min-height: 48px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 250, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(101, 247, 255, 0.05);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.playback-actions {
+  margin-top: 14px;
+}
+
+.playback-actions .button,
+.playback-apply-strip .button {
+  width: 100%;
+}
+
+.playback-apply-strip {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(239, 250, 255, 0.1);
 }
 
 .preset-row {
@@ -566,6 +618,10 @@ select:disabled {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.settings-panel .control-row {
+  grid-template-columns: minmax(76px, 0.7fr) minmax(90px, 1fr) minmax(44px, auto);
+}
+
 .layer-card {
   border: 1px solid rgba(239, 250, 255, 0.12);
   border-radius: 8px;
@@ -660,6 +716,19 @@ input[type="checkbox"] {
   .topbar,
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-grid {
+    grid-template-areas: none;
+  }
+
+  .record-panel,
+  .playback-panel,
+  .mixer-panel,
+  .settings-panel,
+  .system-panel {
+    grid-area: auto;
+    min-height: auto;
   }
 
   .top-actions {
