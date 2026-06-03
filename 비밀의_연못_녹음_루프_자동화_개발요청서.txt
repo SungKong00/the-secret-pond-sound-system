@@ -331,3 +331,4 @@
 - 운영자 안내 문서는 `docs/operator-guide.md`, 현장 점검표는 `docs/audio-setup-checklist.md`에 둡니다.
 - `secret-pond doctor --json`은 현장 로그용 기계 판독 readiness 보고서를 출력하고, `secret-pond doctor --strict`는 준비 음원/장치/의존성/쓰기 권한 같은 기본 현장 준비 상태가 실패하면 비정상 종료합니다.
 - 단, doctor strict는 마이크 권한, 실제 녹음/출력 스트림, 브라우저 동작, Windows 파일 교체까지 증명하지 않으므로 현장 점검표의 수동 확인을 유지합니다.
+- `Reset Draft`는 기본 동작 버튼 줄에 노출하지 않고 `Maintenance` 안에 배치해, 초안 폐기 동작이 `Apply and Restart`와 같은 주요 운영 동작으로 오인되지 않게 합니다.

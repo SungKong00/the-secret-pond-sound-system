@@ -352,6 +352,12 @@ def fake_device_registry() -> FakeDeviceRegistry:
     )
 
 
+def slice_between(text: str, start: str, end: str) -> str:
+    start_index = text.index(start)
+    end_index = text.index(end, start_index)
+    return text[start_index:end_index]
+
+
 def wait_for_state(client: TestClient, predicate, *, timeout_seconds: float = 1.0) -> dict:
     deadline = time.monotonic() + timeout_seconds
     state = client.get("/api/state").json()
@@ -417,6 +423,34 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="eventLogSummary"' in response.text
     assert 'id="systemInputDeviceName"' in response.text
     assert 'id="systemOutputDeviceName"' in response.text
+
+
+def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    settings_panel = slice_between(
+        response.text,
+        '<section class="panel settings-panel"',
+        '<section class="panel system-panel"',
+    )
+    primary_actions = slice_between(
+        settings_panel,
+        '<div class="button-row settings-primary-actions">',
+        "</div>",
+    )
+    maintenance_panel = slice_between(
+        settings_panel,
+        '<details class="maintenance-panel">',
+        "</details>",
+    )
+    assert "Apply and Restart" in primary_actions
+    assert "Reset Draft" not in primary_actions
+    assert "<summary>Maintenance</summary>" in maintenance_panel
+    assert 'id="resetButton"' in maintenance_panel
+    assert "Reset Draft" in maintenance_panel
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:
@@ -500,6 +534,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
             assert key in script.text
             assert str(value) in script.text
     assert ".preset-row" in styles.text
+    assert ".maintenance-panel" in styles.text
+    assert ".maintenance-panel summary:focus-visible" in styles.text
     assert (
         "formatSeconds( snapshot.settings.active.input_control.minimum_recording_seconds, )"
         in normalized_script

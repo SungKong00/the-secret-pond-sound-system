@@ -366,6 +366,34 @@ body::before {
   background: rgba(120, 255, 159, 0.1);
 }
 
+.maintenance-panel {
+  margin-top: 12px;
+  border: 1px solid rgba(239, 250, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.maintenance-panel summary {
+  min-height: 38px;
+  padding: 10px 12px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.maintenance-panel summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(101, 247, 255, 0.14);
+}
+
+.maintenance-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
 .diagnostic-stack {
   display: grid;
   gap: 8px;
