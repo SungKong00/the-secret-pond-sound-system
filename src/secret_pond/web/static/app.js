@@ -142,8 +142,19 @@ const setPath = (object, path, value) => {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const renderErrorBadge = (message) => {
+  if (message) {
+    $("errorBadge").textContent = "Error Active";
+    $("errorBadge").className = "status-pill hot";
+  } else {
+    $("errorBadge").textContent = "Error None";
+    $("errorBadge").className = "status-pill muted";
+  }
+};
+
 const showError = (message) => {
   const banner = $("errorBanner");
+  renderErrorBadge(message);
   if (!message) {
     banner.hidden = true;
     banner.textContent = "";
@@ -330,14 +341,18 @@ const renderRecordingOutcome = (outcome) => {
   }
 };
 
-const renderErrors = () => {
+const currentErrorMessages = () => {
   const snapshot = state.snapshot;
-  const messages = [
+  return [
     snapshot?.last_error,
     snapshot?.playback.output_latest_error,
     state.deviceError,
     state.diagnosticsError,
   ].filter(Boolean);
+};
+
+const renderErrors = () => {
+  const messages = currentErrorMessages();
   showError(messages.join(" · "));
 };
 

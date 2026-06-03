@@ -424,6 +424,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="outputBadge"' in response.text
     assert 'id="modeBadge"' in response.text
     assert 'id="lastEventBadge"' in response.text
+    assert 'id="errorBadge"' in response.text
+    assert "Error None" in response.text
     assert 'id="deviceHealthBadge"' in response.text
     assert 'id="syncBadge"' in response.text
     assert "No unsaved changes" in response.text
@@ -520,6 +522,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Last Event None" in script.text
     assert "Last Event Unavailable" in script.text
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
+    assert "currentErrorMessages" in script.text
+    assert "renderErrorBadge" in script.text
+    assert "Error Active" in script.text
+    assert "Error None" in script.text
+    assert '"errorBadge").className = "status-pill hot"' in script.text
+    assert '"errorBadge").className = "status-pill muted"' in script.text
     assert "renderSyncBadge" in script.text
     assert "Sync Live" in script.text
     assert "Sync Connecting" in script.text
@@ -762,7 +770,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
         (
             "\nglobalThis.__secretPondTest = "
             "{ state, renderState, renderSyncBadge, "
-            "connectStateSocket, control, startFromSpace };\n"
+            "connectStateSocket, showError, renderErrors, control, startFromSpace };\n"
         ),
     )
     harness = f"""
@@ -819,6 +827,30 @@ globalThis.setTimeout = (callback, delay) => {{
 }};
 globalThis.clearTimeout = () => {{}};
 vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+globalThis.__secretPondTest.showError("action failed");
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.textContent, "action failed");
+assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+assert.strictEqual(elements.errorBadge.className, "status-pill hot");
+
+globalThis.__secretPondTest.showError("");
+assert.strictEqual(elements.errorBanner.hidden, true);
+assert.strictEqual(elements.errorBanner.textContent, "");
+assert.strictEqual(elements.errorBadge.textContent, "Error None");
+assert.strictEqual(elements.errorBadge.className, "status-pill muted");
+
+globalThis.__secretPondTest.state.snapshot = null;
+globalThis.__secretPondTest.state.deviceError = "devices failed";
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.textContent, "devices failed");
+assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+
+globalThis.__secretPondTest.state.deviceError = null;
+globalThis.__secretPondTest.state.diagnosticsError = null;
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, true);
+assert.strictEqual(elements.errorBadge.textContent, "Error None");
 
 delete window.WebSocket;
 delete globalThis.WebSocket;
@@ -903,10 +935,10 @@ const snapshot = {{
   recording_elapsed_seconds: 4.2,
   recording_remaining_seconds: 115.8,
   participant_count: 7,
-  last_error: null,
+  last_error: "stack failed",
   playback: {{
     output_running: false,
-    output_latest_error: null,
+    output_latest_error: "stream failed",
     layers: {{}},
   }},
   settings: {{ active: activeSettings, draft: activeSettings }},
@@ -914,6 +946,19 @@ const snapshot = {{
 
 globalThis.__secretPondTest.state.snapshot = snapshot;
 globalThis.__secretPondTest.state.draft = activeSettings;
+globalThis.__secretPondTest.state.diagnosticsError = "diagnostics failed";
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(
+  elements.errorBanner.textContent,
+  "stack failed · stream failed · diagnostics failed",
+);
+assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+assert.strictEqual(elements.errorBadge.className, "status-pill hot");
+globalThis.__secretPondTest.state.snapshot.last_error = null;
+globalThis.__secretPondTest.state.snapshot.playback.output_latest_error = null;
+globalThis.__secretPondTest.state.diagnosticsError = null;
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBadge.textContent, "Error None");
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopButton.disabled, false);

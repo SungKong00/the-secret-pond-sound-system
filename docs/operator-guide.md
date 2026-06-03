@@ -93,6 +93,8 @@ If browser blur happens, the tab becomes hidden, or the UI disconnects while rec
 
 The header shows `Sync Live` when WebSocket state updates are active. If it shows `Sync Polling`, the dashboard is using HTTP fallback; recording controls still work, but check the status strip after the connection recovers.
 
+The header shows `Error None` during normal operation and `Error Active` whenever the visible error banner has a current action, device, diagnostics, recording, or playback error.
+
 ## Settings
 
 Sliders edit draft settings first. Draft changes are shown with `Unsaved audio changes`. Layer rows also show Active or Pending Draft values.
