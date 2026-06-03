@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from secret_pond.app import create_app
@@ -597,6 +601,24 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
+    render_state_body = slice_between(
+        script.text,
+        "const renderState = () => {",
+        "};\n\nconst renderModeBadge",
+    )
+    assert "const recordingStopBusy = state.recordingStopInFlight" in render_state_body
+    assert '"armButton").disabled = recordingStopBusy' in render_state_body
+    assert '"disarmButton").disabled = recordingStopBusy' in render_state_body
+    assert (
+        '"startButton").disabled = recordingStopBusy || !snapshot.armed || '
+        "snapshot.is_recording"
+        in render_state_body
+    )
+    assert (
+        '"stopButton").disabled = recordingStopBusy || !snapshot.is_recording'
+        in render_state_body
+    )
+    assert 'recordingStopBusy\n    ? "Processing"' in render_state_body
     assert "applyInFlight: false" in script.text
     assert (
         '"applyButton").disabled = state.applyInFlight || snapshot.is_recording || '
@@ -662,6 +684,26 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const control = async (path, options = {}) => {",
         "};\n\nconst applyAndRestart",
     )
+    assert "let controlError = null" in control_body
+    assert "controlError = error" in control_body
+    assert "const pollAutoStopRequest =" in control_body
+    assert 'path === "/api/recording/poll-auto-stop"' in control_body
+    assert "Number(state.snapshot?.recording_remaining_seconds || 0) <= 0" not in control_body
+    assert "pollAutoStopRequest" in slice_between(
+        control_body,
+        "const startsStopRequest =",
+        ";\n  if (path === \"/api/recording/poll-auto-stop\"",
+    )
+    assert "state.recordingStopInFlight = true;\n    renderState();" in control_body
+    assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
+    assert "if (controlError) showError(controlError.message);" in control_body
+    assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
+        "setRecordStatus(\"processing\", \"Processing recording...\")",
+    )
+    final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
+    final_render = control_body.index("renderState();", final_recording_stop_reset)
+    final_error = control_body.index("if (controlError) showError(controlError.message);")
+    assert final_recording_stop_reset < final_render < final_error
     recording_error_branch = slice_between(
         control_body,
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
@@ -685,10 +727,172 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "await requestDiagnostics().catch(() => {})",
         recording_branch_start,
     )
-    show_error = control_body.index("showError(error.message)")
+    show_error = control_body.index("showError(controlError.message)")
     assert recording_branch_start < recording_failed_status < recording_state_refresh
     assert recording_state_refresh < recording_diagnostics_refresh
     assert recording_diagnostics_refresh < show_error
+    start_from_space_body = slice_between(
+        script.text,
+        "const startFromSpace = async (event) => {",
+        "};\n\nconst stopFromSpace",
+    )
+    assert (
+        "state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording"
+        in start_from_space_body
+    )
+
+
+def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        "\nglobalThis.__secretPondTest = { state, renderState, control, startFromSpace };\n",
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+const elements = {{}};
+const makeElement = () => ({{
+  children: [],
+  innerHTML: "",
+  value: "",
+  textContent: "",
+  className: "",
+  hidden: false,
+  disabled: false,
+  title: "",
+  classList: {{ toggle() {{}} }},
+  appendChild(child) {{
+    this.children.push(child);
+  }},
+  append(...children) {{
+    this.children.push(...children);
+  }},
+  addEventListener() {{}},
+  querySelector() {{
+    return makeElement();
+  }},
+}});
+const recordCore = makeElement();
+globalThis.document = {{
+  getElementById(id) {{
+    if (!elements[id]) elements[id] = makeElement();
+    return elements[id];
+  }},
+  querySelector(selector) {{
+    return selector === ".record-core" ? recordCore : makeElement();
+  }},
+  querySelectorAll() {{
+    return [];
+  }},
+  createElement() {{
+    return makeElement();
+  }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const activeSettings = {{
+  voice_stack: {{ mode: "live_ephemeral" }},
+  input_control: {{
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  }},
+  audio: {{ sample_rate: 48000, channels: 2 }},
+  devices: {{ input_device_id: null, output_device_id: null }},
+  layers: {{}},
+}};
+const snapshot = {{
+  armed: true,
+  is_recording: true,
+  recording_elapsed_seconds: 4.2,
+  recording_remaining_seconds: 115.8,
+  participant_count: 7,
+  last_error: null,
+  playback: {{
+    output_running: false,
+    output_latest_error: null,
+    layers: {{}},
+  }},
+  settings: {{ active: activeSettings, draft: activeSettings }},
+}};
+
+globalThis.__secretPondTest.state.snapshot = snapshot;
+globalThis.__secretPondTest.state.draft = activeSettings;
+globalThis.__secretPondTest.state.recordingStopInFlight = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.stopButton.disabled, false);
+assert.strictEqual(elements.recordCoreStatus.textContent, "Capturing");
+
+globalThis.__secretPondTest.state.recordingStopInFlight = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.armButton.disabled, true);
+assert.strictEqual(elements.disarmButton.disabled, true);
+assert.strictEqual(elements.startButton.disabled, true);
+assert.strictEqual(elements.stopButton.disabled, true);
+assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
+assert.strictEqual(elements.recordingBadge.textContent, "Recording");
+
+(async () => {{
+  const busySpaceEvent = {{
+    code: "Space",
+    repeat: false,
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  await globalThis.__secretPondTest.startFromSpace(busySpaceEvent);
+  assert.strictEqual(busySpaceEvent.defaultPrevented, true);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+
+  let resolvePoll = null;
+  globalThis.fetch = (path) => {{
+    if (path === "/api/recording/poll-auto-stop") {{
+      return new Promise((resolve) => {{
+        resolvePoll = () =>
+          resolve({{
+            ok: true,
+            json: async () => ({{ outcome: null, state: snapshot }}),
+          }});
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  globalThis.__secretPondTest.state.snapshot.is_recording = true;
+  globalThis.__secretPondTest.state.snapshot.recording_remaining_seconds = 12.3;
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  const pollPromise = globalThis.__secretPondTest.control("/api/recording/poll-auto-stop", {{
+    syncDraft: false,
+  }});
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, true);
+  assert.strictEqual(elements.stopButton.disabled, true);
+  resolvePoll();
+  await pollPromise;
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, false);
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
 
 
 def test_recording_presets_match_processing_bounds() -> None:

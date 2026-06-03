@@ -136,3 +136,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "Applying..." in request
     assert "목소리 렌더링까지 성공한 뒤에만 증가" in request
     assert "녹음 제어 실패 후에도 백엔드 상태를 다시 불러오도록 시도해" in request
+    assert "녹음 종료 처리가 진행 중일 때" in request

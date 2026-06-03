@@ -207,6 +207,7 @@ const applyState = (payload, options = {}) => {
 const renderState = () => {
   const snapshot = state.snapshot;
   if (!snapshot) return;
+  const recordingStopBusy = state.recordingStopInFlight;
 
   $("armedBadge").textContent = snapshot.armed ? "Armed" : "Disarmed";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
@@ -225,18 +226,22 @@ const renderState = () => {
   $("maximumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.maximum_recording_seconds,
   );
-  $("recordCoreStatus").textContent = snapshot.is_recording
-    ? "Capturing"
-    : snapshot.armed
-      ? "Armed"
-      : "Safe";
+  $("recordCoreStatus").textContent = recordingStopBusy
+    ? "Processing"
+    : snapshot.is_recording
+      ? "Capturing"
+      : snapshot.armed
+        ? "Armed"
+        : "Safe";
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
   $("pendingBadge").textContent = hasPendingChanges(snapshot)
     ? "Unsaved audio changes"
     : "No unsaved changes";
   $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
-  $("startButton").disabled = !snapshot.armed || snapshot.is_recording;
-  $("stopButton").disabled = !snapshot.is_recording;
+  $("armButton").disabled = recordingStopBusy;
+  $("disarmButton").disabled = recordingStopBusy;
+  $("startButton").disabled = recordingStopBusy || !snapshot.armed || snapshot.is_recording;
+  $("stopButton").disabled = recordingStopBusy || !snapshot.is_recording;
   $("startOutputButton").disabled = snapshot.playback.output_running;
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
   $("restartOutputButton").disabled = !snapshot.playback.output_running;
@@ -698,6 +703,7 @@ const saveDraft = async () => {
 };
 
 const control = async (path, options = {}) => {
+  let controlError = null;
   const expectsRecordingOutcome =
     path === "/api/recording/stop" ||
     path === "/api/recording/poll-auto-stop" ||
@@ -706,13 +712,18 @@ const control = async (path, options = {}) => {
   if (path === "/api/input/disarm" && !state.snapshot?.is_recording && !state.snapshot?.armed) {
     return;
   }
-  const startsStopRequest =
-    (path === "/api/recording/stop" || path === "/api/input/disarm") &&
+  const pollAutoStopRequest =
+    path === "/api/recording/poll-auto-stop" &&
     state.snapshot?.is_recording;
+  const startsStopRequest =
+    ((path === "/api/recording/stop" || path === "/api/input/disarm") &&
+      state.snapshot?.is_recording) ||
+    pollAutoStopRequest;
   if (path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight) return;
   if (startsStopRequest && state.recordingStopInFlight) return;
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
+    renderState();
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
     setRecordStatus("processing", "Processing recording...");
@@ -731,6 +742,7 @@ const control = async (path, options = {}) => {
     }
     await requestDiagnostics();
   } catch (error) {
+    controlError = error;
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
       setRecordStatus("failed", "Recording Failed", error.message);
       await requestState({ syncDraft: false }).catch(() => {});
@@ -739,11 +751,12 @@ const control = async (path, options = {}) => {
     if (path.startsWith("/api/playback/")) {
       await requestState({ syncDraft: false }).catch(() => {});
     }
-    showError(error.message);
   } finally {
     if (startsStopRequest) {
       state.recordingStopInFlight = false;
+      renderState();
     }
+    if (controlError) showError(controlError.message);
   }
 };
 
@@ -819,7 +832,9 @@ const startFromSpace = async (event) => {
   if (event.code !== "Space" || event.repeat || shouldIgnoreSpace()) return;
   releaseButtonFocusForSpace();
   event.preventDefault();
-  if (!state.snapshot?.armed || state.snapshot?.is_recording) return;
+  if (state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording) {
+    return;
+  }
   state.spaceRecording = true;
   await control("/api/recording/start");
 };
