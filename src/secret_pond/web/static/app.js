@@ -58,6 +58,49 @@ const recordingControlDefs = [
   ["fade_ms", "Fade", 0, 5000, 10, " ms"],
 ];
 
+const recordingPresetDefs = {
+  Soft: {
+    gain_db: -3.0,
+    normalize_peak: 0.3,
+    highpass_hz: 80.0,
+    lowpass_hz: 9000.0,
+    presence_gain_db: -4.0,
+    reverb_mix: 0.18,
+    delay_mix: 0.0,
+    fade_ms: 80,
+  },
+  Misty: {
+    gain_db: -1.0,
+    normalize_peak: 0.32,
+    highpass_hz: 90.0,
+    lowpass_hz: 7000.0,
+    presence_gain_db: -5.0,
+    reverb_mix: 0.45,
+    delay_mix: 0.12,
+    fade_ms: 120,
+  },
+  Dense: {
+    gain_db: 1.5,
+    normalize_peak: 0.45,
+    highpass_hz: 120.0,
+    lowpass_hz: 6500.0,
+    presence_gain_db: -2.0,
+    reverb_mix: 0.3,
+    delay_mix: 0.08,
+    fade_ms: 60,
+  },
+  "Clearer Voice": {
+    gain_db: 0.0,
+    normalize_peak: 0.4,
+    highpass_hz: 140.0,
+    lowpass_hz: 10000.0,
+    presence_gain_db: 3.0,
+    reverb_mix: 0.12,
+    delay_mix: 0.0,
+    fade_ms: 40,
+  },
+};
+
 const formatValue = (value, suffix) => {
   const number = Number(value);
   const rounded = Number.isInteger(number) ? number.toString() : number.toFixed(2);
@@ -494,6 +537,7 @@ const updateLayerPendingBadge = (layerId, card) => {
 const renderControls = () => {
   if (!state.draft) return;
   renderLayerControls();
+  renderRecordingPresets();
   renderRecordingControls();
 };
 
@@ -555,10 +599,36 @@ const renderRecordingControls = () => {
     container.appendChild(
       rangeControl(label, getPath(state.draft.recording, path), min, max, step, suffix, (value) => {
         setPath(state.draft.recording, path, value);
+        renderRecordingPresets();
         scheduleDraftSave();
       }),
     );
   });
+};
+
+const renderRecordingPresets = () => {
+  document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
+    const active = recordingPresetMatches(button.dataset.preset);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+};
+
+const recordingPresetMatches = (name) => {
+  const settings = recordingPresetDefs[name];
+  if (!settings || !state.draft) return false;
+  return Object.entries(settings).every(([key, value]) => state.draft.recording[key] === value);
+};
+
+const applyRecordingPreset = (name) => {
+  const settings = recordingPresetDefs[name];
+  if (!settings || !state.draft) return;
+  state.draft.recording = { ...state.draft.recording, ...settings };
+  state.snapshot.settings.draft = clone(state.draft);
+  renderRecordingPresets();
+  renderRecordingControls();
+  renderState();
+  scheduleDraftSave();
 };
 
 const renderDraftValue = (draftValue, activeValue, suffix) => {
@@ -817,6 +887,9 @@ const bindEvents = () => {
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);
+  document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
+    button.addEventListener("click", () => applyRecordingPreset(button.dataset.preset));
+  });
   $("inputDeviceSelect").addEventListener("change", (event) => {
     changeDraftDevice("input_device_id", event.target.value);
   });

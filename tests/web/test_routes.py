@@ -18,6 +18,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     DeviceSettings,
     InputControlSettings,
+    RecordingProcessingSettings,
     VoiceStackSettings,
 )
 from secret_pond.paths import ProjectPaths
@@ -41,6 +42,50 @@ def api_settings_with_devices() -> AppSettings:
         update={"devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2")},
         deep=True,
     )
+
+
+RECORDING_PRESETS = {
+    "Soft": {
+        "gain_db": -3.0,
+        "normalize_peak": 0.3,
+        "highpass_hz": 80.0,
+        "lowpass_hz": 9000.0,
+        "presence_gain_db": -4.0,
+        "reverb_mix": 0.18,
+        "delay_mix": 0.0,
+        "fade_ms": 80,
+    },
+    "Misty": {
+        "gain_db": -1.0,
+        "normalize_peak": 0.32,
+        "highpass_hz": 90.0,
+        "lowpass_hz": 7000.0,
+        "presence_gain_db": -5.0,
+        "reverb_mix": 0.45,
+        "delay_mix": 0.12,
+        "fade_ms": 120,
+    },
+    "Dense": {
+        "gain_db": 1.5,
+        "normalize_peak": 0.45,
+        "highpass_hz": 120.0,
+        "lowpass_hz": 6500.0,
+        "presence_gain_db": -2.0,
+        "reverb_mix": 0.3,
+        "delay_mix": 0.08,
+        "fade_ms": 60,
+    },
+    "Clearer Voice": {
+        "gain_db": 0.0,
+        "normalize_peak": 0.4,
+        "highpass_hz": 140.0,
+        "lowpass_hz": 10000.0,
+        "presence_gain_db": 3.0,
+        "reverb_mix": 0.12,
+        "delay_mix": 0.0,
+        "fade_ms": 40,
+    },
+}
 
 
 def recorder_take() -> AudioBuffer:
@@ -357,6 +402,15 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'class="record-limits"' in response.text
     assert 'id="minimumRecordingTime"' in response.text
     assert 'id="maximumRecordingTime"' in response.text
+    assert 'id="recordingPresets"' in response.text
+    assert 'role="group"' in response.text
+    assert 'aria-label="recording treatment presets"' in response.text
+    assert 'aria-pressed="false"' in response.text
+    assert response.text.count('class="preset-button"') == 4
+    assert "Soft" in response.text
+    assert "Misty" in response.text
+    assert "Dense" in response.text
+    assert "Clearer Voice" in response.text
     assert 'aria-label="system diagnostics"' in response.text
     assert 'id="systemStatus"' in response.text
     assert 'id="sourceHealthList"' in response.text
@@ -429,6 +483,23 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "renderRecordingOutcome(payload.outcome)" in script.text
+    assert "recordingPresetDefs" in script.text
+    assert "applyRecordingPreset" in script.text
+    assert "renderRecordingPresets" in script.text
+    assert 'button.setAttribute("aria-pressed", active ? "true" : "false")' in script.text
+    assert "state.draft.recording = { ...state.draft.recording, ...settings }" in script.text
+    assert "state.snapshot.settings.draft = clone(state.draft)" in script.text
+    assert "renderRecordingControls()" in script.text
+    assert "scheduleDraftSave()" in script.text
+    assert "Soft" in script.text
+    assert "Misty" in script.text
+    assert "Dense" in script.text
+    assert "Clearer Voice" in script.text
+    for preset in RECORDING_PRESETS.values():
+        for key, value in preset.items():
+            assert key in script.text
+            assert str(value) in script.text
+    assert ".preset-row" in styles.text
     assert (
         "formatSeconds( snapshot.settings.active.input_control.minimum_recording_seconds, )"
         in normalized_script
@@ -474,6 +545,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     assert "showError(error.message)" in script.text
+
+
+def test_recording_presets_match_processing_bounds() -> None:
+    for preset in RECORDING_PRESETS.values():
+        RecordingProcessingSettings.model_validate(preset)
 
 
 def test_api_diagnostics_reports_source_health_and_recent_events(tmp_path: Path) -> None:
