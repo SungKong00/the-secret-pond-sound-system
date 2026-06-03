@@ -460,6 +460,26 @@ const hasDraftRuntimeConfigChanges = (snapshot = state.snapshot) => {
 const hasPendingChanges = (snapshot) =>
   JSON.stringify(snapshot.settings.active) !== JSON.stringify(snapshot.settings.draft);
 
+const hasLayerDraftChanges = (layerId) => {
+  if (!state.snapshot || !state.draft) return false;
+  return (
+    JSON.stringify(state.snapshot.settings.active.layers[layerId]) !==
+    JSON.stringify(state.draft.layers[layerId])
+  );
+};
+
+const layerPendingBadge = (layerId) =>
+  `<span class="layer-status ${hasLayerDraftChanges(layerId) ? "pending" : ""}">${
+    hasLayerDraftChanges(layerId) ? "Pending Draft" : "Active"
+  }</span>`;
+
+const updateLayerPendingBadge = (layerId, card) => {
+  const badge = card.querySelector(".layer-status");
+  const pending = hasLayerDraftChanges(layerId);
+  badge.textContent = pending ? "Pending Draft" : "Active";
+  badge.classList.toggle("pending", pending);
+};
+
 const renderControls = () => {
   if (!state.draft) return;
   renderLayerControls();
@@ -471,29 +491,46 @@ const renderLayerControls = () => {
   container.innerHTML = "";
   Object.keys(layerLabels).forEach((layerId) => {
     const layer = state.draft.layers[layerId];
+    const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
     const card = document.createElement("section");
     card.className = "layer-card";
     card.innerHTML = `
       <div class="layer-head">
         <h3 class="layer-title">${layerLabels[layerId]}</h3>
-        <input type="checkbox" aria-label="${layerLabels[layerId]} enabled" ${
-          layer.enabled ? "checked" : ""
-        } />
+        <div class="layer-head-actions">
+          ${layerPendingBadge(layerId)}
+          <input type="checkbox" aria-label="${layerLabels[layerId]} enabled" ${
+            layer.enabled ? "checked" : ""
+          } />
+        </div>
       </div>
       <div class="layer-controls"></div>
     `;
     card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
       state.draft.layers[layerId].enabled = event.target.checked;
+      updateLayerPendingBadge(layerId, card);
+      renderState();
       scheduleDraftSave();
     });
 
     const controls = card.querySelector(".layer-controls");
     layerControlDefs.forEach(([path, label, min, max, step, suffix]) => {
       controls.appendChild(
-        rangeControl(label, getPath(layer, path), min, max, step, suffix, (value) => {
-          setPath(state.draft.layers[layerId], path, value);
-          scheduleDraftSave();
-        }),
+        rangeControl(
+          label,
+          getPath(layer, path),
+          min,
+          max,
+          step,
+          suffix,
+          (value) => {
+            setPath(state.draft.layers[layerId], path, value);
+            updateLayerPendingBadge(layerId, card);
+            renderState();
+            scheduleDraftSave();
+          },
+          getPath(activeLayer, path),
+        ),
       );
     });
     container.appendChild(card);
@@ -513,7 +550,16 @@ const renderRecordingControls = () => {
   });
 };
 
-const rangeControl = (label, value, min, max, step, suffix, onInput) => {
+const renderDraftValue = (draftValue, activeValue, suffix) => {
+  if (activeValue === undefined) return formatValue(draftValue, suffix);
+  const activeChanged = activeValue !== undefined && Number(activeValue) !== Number(draftValue);
+  const activeMarkup = activeChanged
+    ? `<small class="active-value">Active ${formatValue(activeValue, suffix)}</small>`
+    : "";
+  return `<strong>Draft ${formatValue(draftValue, suffix)}</strong>${activeMarkup}`;
+};
+
+const rangeControl = (label, value, min, max, step, suffix, onInput, activeValue = undefined) => {
   const row = document.createElement("div");
   row.className = "control-row";
   const safeId = `control-${label.toLowerCase().replaceAll(" ", "-")}-${Math.random()
@@ -522,13 +568,13 @@ const rangeControl = (label, value, min, max, step, suffix, onInput) => {
   row.innerHTML = `
     <label for="${safeId}">${label}</label>
     <input id="${safeId}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" />
-    <span class="value">${formatValue(value, suffix)}</span>
+    <span class="value">${renderDraftValue(value, activeValue, suffix)}</span>
   `;
   const input = row.querySelector("input");
   const output = row.querySelector(".value");
   input.addEventListener("input", () => {
     const numericValue = Number(input.value);
-    output.textContent = formatValue(numericValue, suffix);
+    output.innerHTML = renderDraftValue(numericValue, activeValue, suffix);
     onInput(numericValue);
   });
   return row;

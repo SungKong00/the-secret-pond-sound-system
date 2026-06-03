@@ -490,6 +490,32 @@ select:disabled {
   font-size: 18px;
 }
 
+.layer-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.layer-status {
+  min-height: 26px;
+  padding: 5px 8px;
+  border: 1px solid rgba(120, 255, 159, 0.32);
+  border-radius: 999px;
+  background: rgba(120, 255, 159, 0.08);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.layer-status.pending {
+  border-color: rgba(255, 211, 106, 0.42);
+  background: rgba(255, 211, 106, 0.1);
+  color: var(--amber);
+}
+
 .layer-controls {
   display: grid;
   gap: 8px;
@@ -506,6 +532,21 @@ label {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
+  text-align: right;
+}
+
+.value strong {
+  display: block;
+  font: inherit;
+  font-weight: 760;
+}
+
+.active-value {
+  display: block;
+  margin-top: 2px;
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 input[type="range"] {
