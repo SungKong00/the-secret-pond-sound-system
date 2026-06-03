@@ -22,6 +22,7 @@ const state = {
   stateSocket: null,
   websocketConnected: false,
   websocketReconnectTimer: null,
+  recordingStopInFlight: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -212,6 +213,32 @@ const renderLastEventBadge = () => {
   } else {
     $("lastEventBadge").textContent = "Last Event None";
     $("lastEventBadge").className = "status-pill muted";
+  }
+};
+
+const setRecordStatus = (kind, label, detail = "") => {
+  const container = $("recordOutcomeStatus").parentElement;
+  container.className = `record-outcome ${kind}`;
+  $("recordOutcomeStatus").textContent = label;
+  $("recordOutcomeDetail").textContent = detail;
+};
+
+const renderRecordingOutcome = (outcome) => {
+  if (!outcome) return;
+  const duration = `${Number(outcome.duration_seconds || 0).toFixed(1)}s`;
+  if (outcome.accepted) {
+    const participant = outcome.participant_count
+      ? `Participant ${outcome.participant_count}`
+      : "Participant count unchanged";
+    setRecordStatus("added", "Recording Added", `${participant} · ${duration}`);
+  } else if (outcome.reason === "too_short") {
+    setRecordStatus("discarded", "Too Short", `${duration} captured. Minimum not met.`);
+  } else if (outcome.reason === "empty") {
+    setRecordStatus("discarded", "Empty Recording", `${duration} captured.`);
+  } else if (outcome.reason === "disarmed") {
+    setRecordStatus("discarded", "Recording Disarmed", `${duration} captured.`);
+  } else {
+    setRecordStatus("discarded", "Recording Discarded", outcome.reason || duration);
   }
 };
 
@@ -515,6 +542,25 @@ const saveDraft = async () => {
 };
 
 const control = async (path, options = {}) => {
+  const expectsRecordingOutcome =
+    path === "/api/recording/stop" ||
+    path === "/api/recording/poll-auto-stop" ||
+    (path === "/api/input/disarm" && state.snapshot?.is_recording);
+  if (path === "/api/recording/stop" && !state.snapshot?.is_recording) return;
+  if (path === "/api/input/disarm" && !state.snapshot?.is_recording && !state.snapshot?.armed) {
+    return;
+  }
+  const startsStopRequest =
+    (path === "/api/recording/stop" || path === "/api/input/disarm") &&
+    state.snapshot?.is_recording;
+  if (path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight) return;
+  if (startsStopRequest && state.recordingStopInFlight) return;
+  if (startsStopRequest) {
+    state.recordingStopInFlight = true;
+  }
+  if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
+    setRecordStatus("processing", "Processing recording...");
+  }
   try {
     const payload = await api(path, { method: "POST" });
     if (payload.state) {
@@ -522,9 +568,21 @@ const control = async (path, options = {}) => {
     } else {
       await requestState(options);
     }
+    if (payload.outcome !== undefined) {
+      renderRecordingOutcome(payload.outcome);
+    } else if (path === "/api/recording/start") {
+      setRecordStatus("recording", "Recording", "Release Space to stop.");
+    }
     await requestDiagnostics();
   } catch (error) {
+    if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
+      setRecordStatus("failed", "Recording Failed", error.message);
+    }
     showError(error.message);
+  } finally {
+    if (startsStopRequest) {
+      state.recordingStopInFlight = false;
+    }
   }
 };
 

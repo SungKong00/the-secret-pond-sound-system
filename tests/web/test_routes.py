@@ -313,6 +313,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="inputDeviceSelect"' in response.text
     assert 'id="outputDeviceSelect"' in response.text
     assert 'id="deviceRestartNotice"' in response.text
+    assert 'id="recordOutcomeStatus"' in response.text
+    assert 'id="recordOutcomeDetail"' in response.text
     assert 'aria-label="system diagnostics"' in response.text
     assert 'id="systemStatus"' in response.text
     assert 'id="sourceHealthList"' in response.text
@@ -365,6 +367,22 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
     assert "requestState({ syncDraft: false })" in script.text
     assert 'control("/api/recording/poll-auto-stop", { syncDraft: false })' in script.text
+    assert "setRecordStatus(\"processing\", \"Processing recording...\")" in script.text
+    assert 'path !== "/api/recording/poll-auto-stop"' in script.text
+    assert "recordingStopInFlight" in script.text
+    assert 'path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight' in script.text
+    assert 'path === "/api/recording/stop" && !state.snapshot?.is_recording' in script.text
+    assert (
+        'path === "/api/input/disarm" && !state.snapshot?.is_recording && '
+        "!state.snapshot?.armed"
+        in script.text
+    )
+    assert "renderRecordingOutcome(payload.outcome)" in script.text
+    assert "Recording Added" in script.text
+    assert "Too Short" in script.text
+    assert "Empty Recording" in script.text
+    assert "Recording Disarmed" in script.text
+    assert "Recording Failed" in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
     assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
     assert "Will stop and restart output while applying staged audio settings." in script.text
