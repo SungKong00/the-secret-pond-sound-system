@@ -799,6 +799,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording"
         in start_from_space_body
     )
+    assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
+    assert "if (event.repeat) return;" in start_from_space_body
 
 
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
@@ -1090,6 +1092,53 @@ assert.strictEqual(elements.applyButton.title, "");
   await globalThis.__secretPondTest.startFromSpace(busySpaceEvent);
   assert.strictEqual(busySpaceEvent.defaultPrevented, true);
   assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+
+  let unexpectedStartPath = null;
+  globalThis.fetch = (path) => {{
+    unexpectedStartPath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const repeatSpaceEvent = {{
+    code: "Space",
+    repeat: true,
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  let repeatButtonBlurred = false;
+  globalThis.document.activeElement = {{
+    tagName: "BUTTON",
+    blur() {{
+      repeatButtonBlurred = true;
+    }},
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  globalThis.__secretPondTest.state.snapshot.armed = true;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  await globalThis.__secretPondTest.startFromSpace(repeatSpaceEvent);
+  assert.strictEqual(repeatSpaceEvent.defaultPrevented, true);
+  assert.strictEqual(repeatButtonBlurred, true);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+  assert.strictEqual(unexpectedStartPath, null);
+
+  for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) {{
+    const focusedControlSpaceEvent = {{
+      code: "Space",
+      repeat: true,
+      defaultPrevented: false,
+      preventDefault() {{
+        this.defaultPrevented = true;
+      }},
+    }};
+    globalThis.document.activeElement = {{ tagName }};
+    await globalThis.__secretPondTest.startFromSpace(focusedControlSpaceEvent);
+    assert.strictEqual(focusedControlSpaceEvent.defaultPrevented, false, tagName);
+    assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false, tagName);
+    assert.strictEqual(unexpectedStartPath, null, tagName);
+  }}
+  globalThis.document.activeElement = null;
 
   let resolvePoll = null;
   globalThis.fetch = (path) => {{

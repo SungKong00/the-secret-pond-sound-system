@@ -869,9 +869,10 @@ const releaseButtonFocusForSpace = () => {
 };
 
 const startFromSpace = async (event) => {
-  if (event.code !== "Space" || event.repeat || shouldIgnoreSpace()) return;
+  if (event.code !== "Space" || shouldIgnoreSpace()) return;
   releaseButtonFocusForSpace();
   event.preventDefault();
+  if (event.repeat) return;
   if (state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording) {
     return;
   }

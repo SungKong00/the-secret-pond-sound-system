@@ -29,6 +29,7 @@ Use this checklist before rehearsal and before show operation.
 - [ ] Spacebar does nothing while Disarmed.
 - [ ] Arm enables spacebar capture.
 - [ ] Spacebar starts and stops recording while Armed.
+- [ ] Holding Space does not scroll the page, reactivate a focused button, or send repeat start requests outside text inputs.
 - [ ] Browser blur or hidden tab stops an active recording.
 - [ ] Closing the UI connection does not leave recording stuck.
 - [ ] A recording shorter than 3 seconds is discarded.

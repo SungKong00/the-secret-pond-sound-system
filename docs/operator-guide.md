@@ -87,6 +87,7 @@ Use `Arm` before recording. Spacebar recording only works while Armed.
 - `Disarm`: disables capture and stops an active recording.
 - Disarm is unavailable when already disarmed.
 - `Spacebar`: hold to record, release to stop.
+- Holding Space suppresses key-repeat start requests and browser default Space actions outside text inputs.
 - Recording shorter than 3 seconds is discarded.
 - Maximum recording duration is 120 seconds.
 - The record panel shows elapsed time, remaining time, and min/max duration.
