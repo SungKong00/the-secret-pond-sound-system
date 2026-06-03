@@ -179,7 +179,9 @@ const renderState = () => {
       ? "Armed"
       : "Safe";
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
-  $("pendingBadge").textContent = hasPendingChanges(snapshot) ? "Pending changes" : "No pending changes";
+  $("pendingBadge").textContent = hasPendingChanges(snapshot)
+    ? "Unsaved audio changes"
+    : "No unsaved changes";
   $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
   $("startButton").disabled = !snapshot.armed || snapshot.is_recording;
   $("stopButton").disabled = !snapshot.is_recording;

@@ -306,6 +306,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="modeBadge"' in response.text
     assert 'id="lastEventBadge"' in response.text
     assert 'id="deviceHealthBadge"' in response.text
+    assert "No unsaved changes" in response.text
+    assert "No pending changes" not in response.text
     assert 'id="startOutputButton"' in response.text
     assert 'id="stopOutputButton"' in response.text
     assert 'id="deviceStatus"' in response.text
@@ -396,6 +398,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderDraftValue" in script.text
     assert "active-value" in styles.text
     assert "Draft " in script.text
+    assert "Unsaved audio changes" in script.text
+    assert "No unsaved changes" in script.text
+    assert "Pending changes" not in script.text
+    assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
     assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
     assert "Will stop and restart output while applying staged audio settings." in script.text
