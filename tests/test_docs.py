@@ -65,6 +65,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Error None",
         "Error Active",
         "Spacebar capture is ready",
+        "Hold Space to Record",
         "active recording",
         "key-repeat start requests",
     ]
@@ -158,3 +159,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "상태 동기화 배지" in request
     assert "오류 상태 배지" in request
     assert "Spacebar 캡처 준비 상태" in request
+    assert "Hold Space to Record" in request

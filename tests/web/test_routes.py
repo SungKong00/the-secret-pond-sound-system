@@ -652,6 +652,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "minimumRecordingTime" in script.text
     assert "maximumRecordingTime" in script.text
     assert ".record-limits" in styles.text
+    assert "renderRecordReadiness" in script.text
+    assert "Hold Space to Record" in script.text
+    assert "Arm capture before holding Space." in script.text
+    assert ".record-outcome.armed-ready" in styles.text
+    assert "overflow-wrap: anywhere" in styles.text
     assert "Recording Added" in script.text
     assert "Too Short" in script.text
     assert "Empty Recording" in script.text
@@ -936,6 +941,15 @@ globalThis.setTimeout = (callback, delay) => {{
 globalThis.clearTimeout = () => {{}};
 vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
 
+const recordOutcome = makeTrackedElement();
+recordOutcome.className = "record-outcome ready";
+elements.recordOutcomeStatus = makeTrackedElement();
+elements.recordOutcomeStatus.textContent = "Ready";
+elements.recordOutcomeStatus.parentElement = recordOutcome;
+elements.recordOutcomeDetail = makeTrackedElement();
+elements.recordOutcomeDetail.textContent = "Arm capture before holding Space.";
+elements.recordOutcomeDetail.parentElement = recordOutcome;
+
 globalThis.__secretPondTest.showError("action failed");
 assert.strictEqual(elements.errorBanner.hidden, false);
 assert.strictEqual(elements.errorBanner.textContent, "action failed");
@@ -1073,6 +1087,8 @@ assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, false);
 assert.strictEqual(elements.disarmButton.disabled, false);
 assert.strictEqual(elements.recordCoreStatus.textContent, "Capturing");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop.");
 assert.strictEqual(recordCore.classList.contains("recording"), true);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
@@ -1087,6 +1103,9 @@ globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Hold Space to Record");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop recording.");
+assert.strictEqual(recordOutcome.className, "record-outcome armed-ready");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(recordCore.classList.contains("armed"), true);
 assert.strictEqual(elements.armButton.disabled, true);
@@ -1103,12 +1122,15 @@ assert.strictEqual(elements.stopButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
 assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Processing recording...");
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Safe");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Ready");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "Arm capture before holding Space.");
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
@@ -1117,6 +1139,22 @@ assert.strictEqual(elements.armButton.disabled, false);
 assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
+
+elements.recordOutcomeStatus.textContent = "Recording Added";
+elements.recordOutcomeDetail.textContent = "Participant 8 · 4.2s";
+recordOutcome.className = "record-outcome added";
+globalThis.__secretPondTest.state.snapshot.armed = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording Added");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "Participant 8 · 4.2s");
+assert.strictEqual(recordOutcome.className, "record-outcome added");
+
+globalThis.__secretPondTest.state.snapshot.is_recording = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop.");
+assert.strictEqual(recordOutcome.className, "record-outcome recording");
+globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
   const busySpaceEvent = {{

@@ -152,6 +152,8 @@ const renderErrorBadge = (message) => {
   }
 };
 
+const replaceableRecordOutcomeKinds = new Set(["ready", "armed-ready", "recording", "processing"]);
+
 const showError = (message) => {
   const banner = $("errorBanner");
   renderErrorBadge(message);
@@ -264,6 +266,7 @@ const renderState = () => {
         : "Safe";
   document.querySelector(".record-core").classList.toggle("armed", captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
+  renderRecordReadiness(snapshot, recordingStopBusy);
   $("pendingBadge").textContent = hasPendingChanges(snapshot)
     ? "Unsaved audio changes"
     : "No unsaved changes";
@@ -311,6 +314,25 @@ const renderState = () => {
   renderErrors();
 };
 
+const recordOutcomeKind = () => {
+  const className = $("recordOutcomeStatus").parentElement.className;
+  return className.split(/\s+/).find((name) => replaceableRecordOutcomeKinds.has(name));
+};
+
+const renderRecordReadiness = (snapshot, recordingStopBusy) => {
+  if (recordingStopBusy) {
+    setRecordStatus("processing", "Processing recording...");
+  } else if (snapshot.is_recording) {
+    setRecordStatus("recording", "Recording", "Release Space to stop.");
+  } else if (!replaceableRecordOutcomeKinds.has(recordOutcomeKind())) {
+    return;
+  } else if (snapshot.armed) {
+    setRecordStatus("armed-ready", "Hold Space to Record", "Release Space to stop recording.");
+  } else {
+    setRecordStatus("ready", "Ready", "Arm capture before holding Space.");
+  }
+};
+
 const renderModeBadge = (mode) => {
   $("modeBadge").textContent = modeLabels[mode] || "Mode Unknown";
   $("modeBadge").className = `status-pill ${mode === "live_ephemeral" ? "safe" : "muted"}`;
@@ -332,9 +354,10 @@ const renderLastEventBadge = () => {
 
 const setRecordStatus = (kind, label, detail = "") => {
   const container = $("recordOutcomeStatus").parentElement;
-  container.className = `record-outcome ${kind}`;
-  $("recordOutcomeStatus").textContent = label;
-  $("recordOutcomeDetail").textContent = detail;
+  const nextClassName = `record-outcome ${kind}`;
+  if (container.className !== nextClassName) container.className = nextClassName;
+  if ($("recordOutcomeStatus").textContent !== label) $("recordOutcomeStatus").textContent = label;
+  if ($("recordOutcomeDetail").textContent !== detail) $("recordOutcomeDetail").textContent = detail;
 };
 
 const renderRecordingOutcome = (outcome) => {
