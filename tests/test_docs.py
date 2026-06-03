@@ -17,6 +17,8 @@ def test_operator_guide_covers_required_operations() -> None:
         "macOS",
         "Windows PowerShell",
         "secret-pond doctor",
+        "secret-pond doctor --json",
+        "secret-pond doctor --strict",
         "Microphone",
         "data/sources/low.wav",
         "data/sources/mid.wav",
@@ -45,6 +47,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Python 3.11 or 3.12",
         "press `Apply and Restart` once before `Start Output`",
         "verify `secret-pond doctor` and dashboard warnings",
+        "does not prove microphone permission",
     ]
     for phrase in required:
         assert phrase in guide
@@ -55,6 +58,8 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
 
     required = [
         "secret-pond doctor",
+        "secret-pond doctor --json",
+        "secret-pond doctor --strict",
         "missing-source warning",
         "valid low/mid files",
         "Playback starts",
@@ -91,6 +96,8 @@ def test_readme_links_operator_docs() -> None:
 
     assert "docs/operator-guide.md" in readme
     assert "docs/audio-setup-checklist.md" in readme
+    assert "secret-pond doctor --json" in readme
+    assert "secret-pond doctor --strict" in readme
     assert "Restart Output" in readme
     assert "Soft" in readme
     assert "Misty" in readme
@@ -112,3 +119,5 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "앱 재시작" in request
     assert "docs/operator-guide.md" in request
     assert "docs/audio-setup-checklist.md" in request
+    assert "secret-pond doctor --json" in request
+    assert "secret-pond doctor --strict" in request

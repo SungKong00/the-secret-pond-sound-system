@@ -55,6 +55,16 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
 4. Open `http://127.0.0.1:8000`.
 5. Check the System panel before operation.
 
+For machine-readable preflight logs, run:
+
+```bash
+secret-pond doctor --json
+```
+
+After `data/sources/low.wav` and `data/sources/mid.wav` are prepared, `secret-pond doctor --strict` can be used as a show-readiness gate. It exits with failure when data write access, native dependencies, selected device availability, source files, or basic device compatibility checks fail.
+
+The doctor report does not prove microphone permission, actual stream startup, rendering, browser behavior, or Windows file replacement. Keep the manual checklist for those checks.
+
 ## Device Selection
 
 Input and output devices can be selected in the dashboard as draft settings. Device names and IDs can differ across Mac and Windows, and can also change when an audio interface is unplugged, renamed, or reconnected.

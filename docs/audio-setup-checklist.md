@@ -5,6 +5,8 @@ Use this checklist before rehearsal and before show operation.
 ## Preflight
 
 - [ ] `secret-pond doctor` lists devices and data write access.
+- [ ] `secret-pond doctor --json` produces parseable readiness JSON for logs.
+- [ ] After prepared source files are in place, `secret-pond doctor --strict` exits successfully.
 - [ ] App starts without source files and shows a clear missing-source warning.
 - [ ] App starts with valid low/mid files at `data/sources/low.wav` and `data/sources/mid.wav`.
 - [ ] System panel shows source health, selected devices, and recent events.

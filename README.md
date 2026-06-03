@@ -53,7 +53,7 @@ secret-pond serve
 자세한 운영 절차는 `docs/operator-guide.md`, 점검 목록은 `docs/audio-setup-checklist.md`를 확인합니다.
 
 1. `data/sources/low.wav`, `data/sources/mid.wav`를 준비합니다.
-2. `secret-pond doctor`로 장치와 의존성을 확인합니다.
+2. `secret-pond doctor`로 장치와 의존성을 확인합니다. 로그용 JSON이 필요하면 `secret-pond doctor --json`을 사용하고, 준비 음원이 배치된 뒤에는 `secret-pond doctor --strict`를 현장 준비 상태 게이트로 사용할 수 있습니다.
 3. `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
 4. System 패널에서 `low.wav`, `mid.wav`, `voice_stack_raw.wav` 상태와 선택된 장치를 확인합니다.
 5. 웹 대시보드에서 필요한 EQ/볼륨을 조정합니다.
