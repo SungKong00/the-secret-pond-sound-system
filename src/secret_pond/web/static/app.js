@@ -241,6 +241,10 @@ const renderState = () => {
   $("restartOutputButton").disabled = !snapshot.playback.output_running;
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
   $("applyButton").disabled = snapshot.is_recording || runtimeConfigChanges;
+  $("resetButton").disabled = snapshot.is_recording;
+  $("resetButton").title = snapshot.is_recording
+    ? "Stop recording before resetting draft settings."
+    : "";
   $("applyButton").title = snapshot.is_recording
     ? "Stop recording before applying staged settings."
     : runtimeConfigChanges
@@ -756,6 +760,7 @@ const resetDraft = async () => {
     renderDevices();
     await requestDiagnostics();
   } catch (error) {
+    await requestState({ syncDraft: false }).catch(() => {});
     showError(error.message);
   }
 };

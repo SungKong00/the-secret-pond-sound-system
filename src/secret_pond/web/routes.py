@@ -168,6 +168,11 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
 def reset_draft_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
+        if runtime.controller.is_recording:
+            raise HTTPException(
+                status_code=409,
+                detail="cannot reset draft settings while recording",
+            )
         state = runtime.settings_store.reset_draft()
         runtime.settings_state = state
         return {"settings": settings_payload(runtime)}

@@ -36,6 +36,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Clearer Voice",
         "Maintenance",
         "Reset Draft",
+        "Stop recording before using Reset Draft",
         "test_library",
         "live_ephemeral",
         "data/processed/accepted",
@@ -125,3 +126,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "secret-pond doctor --strict" in request
     assert "Maintenance" in request
     assert "Reset Draft" in request
+    assert "녹음 중에는 Reset Draft" in request

@@ -565,6 +565,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
     assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
+    assert '"resetButton").disabled = snapshot.is_recording' in script.text
+    assert "Stop recording before resetting draft settings." in script.text
     assert "Will stop and restart output while applying staged audio settings." in script.text
     assert (
         "snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate"
@@ -580,6 +582,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
+    assert "const resetDraft = async () => {" in script.text
+    assert 'const payload = await api("/api/settings/reset"' in script.text
+    reset_draft_body = slice_between(
+        script.text,
+        "const resetDraft = async () => {",
+        "};\n\nconst changeDraftDevice",
+    )
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_draft_body
     assert "showError(error.message)" in script.text
 
 
@@ -793,6 +803,22 @@ def test_api_settings_reset_discards_draft_changes(tmp_path: Path) -> None:
     settings = response.json()["settings"]
     assert settings["active"]["layers"]["voice"]["volume_db"] == -18.0
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -18.0
+
+
+def test_api_settings_reset_is_blocked_while_recording(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    response = client.post("/api/settings/reset")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "cannot reset draft settings while recording"
+    state = client.get("/api/state").json()
+    assert state["is_recording"] is True
+    assert state["settings"]["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert state["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
 
 
 def test_api_state_loads_settings_inside_runtime_lock(tmp_path: Path) -> None:

@@ -106,7 +106,7 @@ The Voice Treatment panel has four non-technical presets:
 
 Preset buttons update the recording-treatment draft. They still require the normal draft save/apply flow for persisted settings and for changes that affect rendered playback.
 
-Use `Maintenance` > `Reset Draft` only when you want to discard unsaved draft settings. Reset Draft does not render audio, apply settings, or change the currently active playback settings.
+Use `Maintenance` > `Reset Draft` only when you want to discard unsaved draft settings. Stop recording before using Reset Draft. Reset Draft does not render audio, apply settings, or change the currently active playback settings.
 
 ## Error Recovery
 
