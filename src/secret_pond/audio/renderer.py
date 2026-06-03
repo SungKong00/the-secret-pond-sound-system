@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from contextlib import suppress
+from dataclasses import dataclass, field
 from math import log10
 from pathlib import Path
 from uuid import uuid4
@@ -33,6 +34,34 @@ class _RenderedAudio:
     sample_rate: int
 
 
+@dataclass
+class StagedRenderSet:
+    results: dict[LayerId, RenderResult]
+    paths: dict[LayerId, Path]
+    _replacements: dict[LayerId, tuple[Path, Path]]
+    _committed: list[tuple[Path, Path | None]] = field(default_factory=list)
+    _backups: list[Path] = field(default_factory=list)
+
+    def commit(self) -> None:
+        if self._committed:
+            return
+        self._committed, self._backups = _commit_render_set(self._replacements)
+
+    def rollback(self) -> None:
+        if not self._committed:
+            return
+        _rollback_render_set(self._committed)
+        self._committed = []
+
+    def cleanup(self) -> None:
+        for temp_path, _output_path in self._replacements.values():
+            _safe_unlink(temp_path)
+        for backup_path in self._backups:
+            _safe_unlink(backup_path)
+        self._backups = []
+        self._committed = []
+
+
 class LayerRenderer:
     def __init__(self, paths: ProjectPaths) -> None:
         self._paths = paths
@@ -50,6 +79,14 @@ class LayerRenderer:
         return result
 
     def render_all(self, settings: AppSettings) -> dict[LayerId, RenderResult]:
+        staged = self.stage_all(settings)
+        try:
+            staged.commit()
+            return staged.results
+        finally:
+            staged.cleanup()
+
+    def stage_all(self, settings: AppSettings) -> StagedRenderSet:
         self._paths.ensure_directories()
         rendered: dict[LayerId, tuple[RenderResult, AudioBuffer]] = {}
         temp_paths: dict[LayerId, Path] = {}
@@ -67,18 +104,19 @@ class LayerRenderer:
                 temp_paths[layer_id] = temp_path
                 rendered[layer_id] = (result, guarded)
 
-            _replace_render_set(
-                {
-                    layer_id: (temp_paths[layer_id], rendered[layer_id][0].output_path)
-                    for layer_id in LAYER_IDS
-                },
+            replacements = {
+                layer_id: (temp_paths[layer_id], rendered[layer_id][0].output_path)
+                for layer_id in LAYER_IDS
+            }
+            return StagedRenderSet(
+                results={layer_id: rendered[layer_id][0] for layer_id in LAYER_IDS},
+                paths=dict(temp_paths),
+                _replacements=replacements,
             )
-        finally:
+        except Exception:
             for path in temp_paths.values():
-                if path.exists():
-                    path.unlink()
-
-        return {layer_id: rendered[layer_id][0] for layer_id in LAYER_IDS}
+                _safe_unlink(path)
+            raise
 
     def _render_audio(self, layer_id: LayerId, settings: AppSettings) -> _RenderedAudio:
         source_path = self._source_path(layer_id)
@@ -219,7 +257,9 @@ def _backup_render_path(output_path: Path) -> Path:
     return output_path.with_name(f".{output_path.stem}.{uuid4().hex}.bak.wav")
 
 
-def _replace_render_set(replacements: dict[LayerId, tuple[Path, Path]]) -> None:
+def _commit_render_set(
+    replacements: dict[LayerId, tuple[Path, Path]],
+) -> tuple[list[tuple[Path, Path | None]], list[Path]]:
     committed: list[tuple[Path, Path | None]] = []
     moved_backups: list[tuple[Path, Path]] = []
     backups: list[Path] = []
@@ -237,11 +277,16 @@ def _replace_render_set(replacements: dict[LayerId, tuple[Path, Path]]) -> None:
     except Exception:
         _rollback_render_set(committed)
         _restore_uncommitted_backups(moved_backups, committed)
-        raise
-    finally:
         for backup_path in backups:
-            if backup_path.exists():
-                backup_path.unlink()
+            _safe_unlink(backup_path)
+        raise
+    return committed, backups
+
+
+def _replace_render_set(replacements: dict[LayerId, tuple[Path, Path]]) -> None:
+    _committed, backups = _commit_render_set(replacements)
+    for backup_path in backups:
+        _safe_unlink(backup_path)
 
 
 def _rollback_render_set(committed: list[tuple[Path, Path | None]]) -> None:
@@ -268,3 +313,9 @@ def _restore_uncommitted_backups(
 
 def _replace_file(source: Path, destination: Path) -> None:
     source.replace(destination)
+
+
+def _safe_unlink(path: Path) -> None:
+    with suppress(OSError, FileNotFoundError):
+        if path.exists():
+            path.unlink()

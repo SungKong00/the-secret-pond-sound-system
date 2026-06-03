@@ -141,6 +141,63 @@ def test_player_reload_failure_preserves_existing_runtime_state(tmp_path: Path) 
     np.testing.assert_allclose(block.samples, np.ones((1, 2), dtype=np.float32) * 0.4, atol=1e-6)
 
 
+def test_player_snapshot_restore_recovers_loaded_state_and_peak_ceiling(
+    tmp_path: Path,
+) -> None:
+    first_paths = write_layers(tmp_path / "first", low=0.6, mid=0.6, voice=0.6, frames=6)
+    second_paths = write_layers(tmp_path / "second", low=0.1, mid=0.1, voice=0.1, frames=6)
+    player = LayeredLoopPlayer(peak_ceiling=0.95)
+    player.load_rendered_layers(first_paths)
+    player.set_enabled("mid", False)
+    player.set_realtime_trim("voice", -6.0)
+    player.start()
+    player.next_block(3)
+    snapshot = player.snapshot()
+
+    player.set_enabled("mid", True)
+    player.set_realtime_trim("voice", 0.0)
+    player.set_peak_ceiling(0.25)
+    player.reload_and_restart(second_paths)
+    player.restore(snapshot)
+
+    states = player.layer_states
+    expected_voice = 0.6 * (10 ** (-6.0 / 20.0))
+    assert player.is_playing is True
+    assert player.frame_cursor == 3
+    assert states["mid"].enabled is False
+    assert states["voice"].realtime_trim_db == -6.0
+    block = player.next_block(2)
+    np.testing.assert_allclose(
+        block.samples,
+        np.ones((2, 2), dtype=np.float32) * (0.6 + expected_voice),
+        atol=1e-6,
+    )
+
+
+def test_player_snapshot_restore_can_return_to_unloaded_state(tmp_path: Path) -> None:
+    paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3)
+    player = LayeredLoopPlayer()
+    snapshot = player.snapshot()
+    player.load_rendered_layers(paths)
+    player.start()
+
+    player.restore(snapshot)
+
+    assert player.is_playing is False
+    with pytest.raises(ValueError, match="loaded"):
+        player.next_block(1)
+
+
+def test_player_set_peak_ceiling_validates_range() -> None:
+    player = LayeredLoopPlayer()
+
+    with pytest.raises(ValueError, match="peak_ceiling"):
+        player.set_peak_ceiling(0.0)
+
+    with pytest.raises(ValueError, match="peak_ceiling"):
+        player.set_peak_ceiling(1.5)
+
+
 def test_player_load_rejects_mismatched_rendered_formats(tmp_path: Path) -> None:
     paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3)
     write_wav_atomic(paths["voice"], stereo(0.3, sample_rate=16_000))

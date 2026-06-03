@@ -25,8 +25,18 @@ class MixerBlock:
     peak_after_guard: float
 
 
+@dataclass(frozen=True)
+class LayeredLoopPlayerSnapshot:
+    layers: dict[LayerId, AudioBuffer] | None
+    states: dict[LayerId, LayerPlaybackState]
+    frame_cursor: int
+    playing: bool
+    peak_ceiling: float
+
+
 class LayeredLoopPlayer:
     def __init__(self, peak_ceiling: float = 0.98) -> None:
+        _validate_peak_ceiling(peak_ceiling)
         self._layers: dict[LayerId, AudioBuffer] | None = None
         self._states: dict[LayerId, LayerPlaybackState] = {
             layer_id: LayerPlaybackState() for layer_id in LAYER_IDS
@@ -46,6 +56,22 @@ class LayeredLoopPlayer:
     @property
     def layer_states(self) -> dict[LayerId, LayerPlaybackState]:
         return dict(self._states)
+
+    def snapshot(self) -> LayeredLoopPlayerSnapshot:
+        return LayeredLoopPlayerSnapshot(
+            layers=None if self._layers is None else dict(self._layers),
+            states=dict(self._states),
+            frame_cursor=self._frame_cursor,
+            playing=self._playing,
+            peak_ceiling=self._peak_ceiling,
+        )
+
+    def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
+        self._layers = None if snapshot.layers is None else dict(snapshot.layers)
+        self._states = dict(snapshot.states)
+        self._frame_cursor = snapshot.frame_cursor
+        self._playing = snapshot.playing
+        self._peak_ceiling = snapshot.peak_ceiling
 
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -106,6 +132,10 @@ class LayeredLoopPlayer:
             enabled=current.enabled,
             realtime_trim_db=realtime_trim_db,
         )
+
+    def set_peak_ceiling(self, peak_ceiling: float) -> None:
+        _validate_peak_ceiling(peak_ceiling)
+        self._peak_ceiling = peak_ceiling
 
     def _require_loaded(self) -> dict[LayerId, AudioBuffer]:
         if self._layers is None:
@@ -185,9 +215,7 @@ def _validate_mix_inputs(
     if block_size <= 0:
         msg = "block_size must be greater than 0"
         raise ValueError(msg)
-    if not np.isfinite(peak_ceiling) or peak_ceiling <= 0.0 or peak_ceiling > 1.0:
-        msg = "peak_ceiling must be greater than 0 and less than or equal to 1"
-        raise ValueError(msg)
+    _validate_peak_ceiling(peak_ceiling)
 
     first = layers[LAYER_IDS[0]]
     if first.frames <= 0:
@@ -231,3 +259,9 @@ def _peak(samples: np.ndarray) -> float:
     if samples.shape[0] == 0:
         return 0.0
     return float(np.max(np.abs(samples)))
+
+
+def _validate_peak_ceiling(peak_ceiling: float) -> None:
+    if not np.isfinite(peak_ceiling) or peak_ceiling <= 0.0 or peak_ceiling > 1.0:
+        msg = "peak_ceiling must be greater than 0 and less than or equal to 1"
+        raise ValueError(msg)

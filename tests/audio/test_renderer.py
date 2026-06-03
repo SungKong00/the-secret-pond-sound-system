@@ -7,6 +7,7 @@ import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
+from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.config import AppSettings, AudioFormatSettings
 from secret_pond.paths import ProjectPaths
@@ -52,6 +53,10 @@ def write_required_sources(paths: ProjectPaths) -> None:
         paths.voice_stack_raw,
         AudioBuffer(samples=sine_wave(500.0) * 0.2, sample_rate=8_000),
     )
+
+
+def hidden_render_files(paths: ProjectPaths) -> list[Path]:
+    return list(paths.rendered_layers_dir.glob(".*.wav"))
 
 
 def test_renderer_creates_three_playback_files_with_same_frame_count(tmp_path: Path) -> None:
@@ -257,6 +262,155 @@ def test_renderer_all_keeps_existing_files_when_any_layer_fails(tmp_path: Path) 
 
     for output in (paths.low_playback, paths.mid_playback, paths.voice_playback):
         np.testing.assert_allclose(read_wav(output).samples, previous.samples, atol=1e-4)
+
+
+def test_renderer_stage_all_does_not_replace_outputs_until_commit(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    previous = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.111, sample_rate=8_000)
+    write_wav_atomic(paths.low_playback, previous)
+    write_wav_atomic(paths.mid_playback, previous)
+    write_wav_atomic(paths.voice_playback, previous)
+
+    staged = LayerRenderer(paths).stage_all(settings)
+
+    assert set(staged.results) == set(LAYER_IDS)
+    for output in (paths.low_playback, paths.mid_playback, paths.voice_playback):
+        np.testing.assert_allclose(read_wav(output).samples, previous.samples, atol=1e-4)
+    assert hidden_render_files(paths)
+
+    staged.commit()
+
+    for output in (paths.low_playback, paths.mid_playback, paths.voice_playback):
+        assert read_wav(output).samples.shape == previous.samples.shape
+        assert not np.allclose(read_wav(output).samples, previous.samples, atol=1e-4)
+    staged.cleanup()
+    assert hidden_render_files(paths) == []
+
+
+def test_renderer_staged_rollback_restores_previous_outputs(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    previous = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.111, sample_rate=8_000)
+    write_wav_atomic(paths.low_playback, previous)
+    write_wav_atomic(paths.mid_playback, previous)
+    write_wav_atomic(paths.voice_playback, previous)
+    staged = LayerRenderer(paths).stage_all(settings)
+    staged.commit()
+
+    staged.rollback()
+    staged.cleanup()
+
+    for output in (paths.low_playback, paths.mid_playback, paths.voice_playback):
+        np.testing.assert_allclose(read_wav(output).samples, previous.samples, atol=1e-4)
+    assert hidden_render_files(paths) == []
+
+
+def test_renderer_staged_rollback_removes_outputs_without_previous_files(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    staged = LayerRenderer(paths).stage_all(settings)
+    staged.commit()
+
+    staged.rollback()
+    staged.cleanup()
+
+    assert not paths.low_playback.exists()
+    assert not paths.mid_playback.exists()
+    assert not paths.voice_playback.exists()
+    assert hidden_render_files(paths) == []
+
+
+def test_renderer_stage_all_cleans_partial_temps_when_mid_stage_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    from secret_pond.audio import renderer
+
+    real_write = renderer.write_wav_atomic
+
+    def fail_mid_temp(path: Path, buffer: AudioBuffer) -> None:
+        if path.name.startswith(".mid_playback"):
+            raise OSError("simulated mid temp write failure")
+        real_write(path, buffer)
+
+    monkeypatch.setattr(renderer, "write_wav_atomic", fail_mid_temp)
+
+    with pytest.raises(OSError, match="mid temp"):
+        LayerRenderer(paths).stage_all(settings)
+
+    assert hidden_render_files(paths) == []
+    assert not paths.low_playback.exists()
+    assert not paths.mid_playback.exists()
+    assert not paths.voice_playback.exists()
+
+
+def test_renderer_cleanup_is_best_effort_after_successful_commit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    previous = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.111, sample_rate=8_000)
+    write_wav_atomic(paths.low_playback, previous)
+    write_wav_atomic(paths.mid_playback, previous)
+    write_wav_atomic(paths.voice_playback, previous)
+    from secret_pond.audio import renderer
+
+    original_unlink = Path.unlink
+    real_backup = renderer._backup_render_path
+
+    def locked_backup_path(output_path: Path) -> Path:
+        backup_path = real_backup(output_path)
+        if output_path == paths.low_playback:
+            return backup_path.with_name(".low_playback.locked.bak.wav")
+        return backup_path
+
+    def fail_locked_backup_unlink(path: Path, *args, **kwargs) -> None:
+        if path.name == ".low_playback.locked.bak.wav":
+            raise OSError("simulated backup cleanup failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(renderer, "_backup_render_path", locked_backup_path)
+    monkeypatch.setattr(Path, "unlink", fail_locked_backup_unlink)
+
+    results = LayerRenderer(paths).render_all(settings)
+
+    assert set(results) == set(LAYER_IDS)
+    assert paths.low_playback.exists()
+    assert paths.mid_playback.exists()
+    assert paths.voice_playback.exists()
+
+
+def test_renderer_rollback_after_cleanup_does_not_delete_committed_outputs(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = renderer_settings()
+    write_required_sources(paths)
+    previous = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.111, sample_rate=8_000)
+    write_wav_atomic(paths.low_playback, previous)
+    write_wav_atomic(paths.mid_playback, previous)
+    write_wav_atomic(paths.voice_playback, previous)
+    staged = LayerRenderer(paths).stage_all(settings)
+    staged.commit()
+    staged.cleanup()
+
+    staged.rollback()
+
+    assert paths.low_playback.exists()
+    assert paths.mid_playback.exists()
+    assert paths.voice_playback.exists()
+    assert hidden_render_files(paths) == []
 
 
 def test_renderer_all_rolls_back_when_replace_fails_mid_commit(
