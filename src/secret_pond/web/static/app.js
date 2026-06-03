@@ -733,6 +733,8 @@ const control = async (path, options = {}) => {
   } catch (error) {
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
       setRecordStatus("failed", "Recording Failed", error.message);
+      await requestState({ syncDraft: false }).catch(() => {});
+      await requestDiagnostics().catch(() => {});
     }
     if (path.startsWith("/api/playback/")) {
       await requestState({ syncDraft: false }).catch(() => {});

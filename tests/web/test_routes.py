@@ -657,6 +657,38 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "applyState(payload.state, { syncDraft: false })" in reset_participants_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
     assert "showError(error.message)" in script.text
+    control_body = slice_between(
+        script.text,
+        "const control = async (path, options = {}) => {",
+        "};\n\nconst applyAndRestart",
+    )
+    recording_error_branch = slice_between(
+        control_body,
+        'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
+        "}\n    if (path.startsWith(\"/api/playback/\"))",
+    )
+    assert 'setRecordStatus("failed", "Recording Failed", error.message)' in recording_error_branch
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in recording_error_branch
+    assert "await requestDiagnostics().catch(() => {})" in recording_error_branch
+    recording_branch_start = control_body.index(
+        'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
+    )
+    recording_failed_status = control_body.index(
+        'setRecordStatus("failed", "Recording Failed", error.message)',
+        recording_branch_start,
+    )
+    recording_state_refresh = control_body.index(
+        "await requestState({ syncDraft: false }).catch(() => {})",
+        recording_branch_start,
+    )
+    recording_diagnostics_refresh = control_body.index(
+        "await requestDiagnostics().catch(() => {})",
+        recording_branch_start,
+    )
+    show_error = control_body.index("showError(error.message)")
+    assert recording_branch_start < recording_failed_status < recording_state_refresh
+    assert recording_state_refresh < recording_diagnostics_refresh
+    assert recording_diagnostics_refresh < show_error
 
 
 def test_recording_presets_match_processing_bounds() -> None:
