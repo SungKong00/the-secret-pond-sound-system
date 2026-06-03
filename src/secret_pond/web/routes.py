@@ -145,11 +145,6 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
     with runtime.operation_lock:
         if runtime.controller.is_recording:
             raise HTTPException(status_code=409, detail="cannot apply settings while recording")
-        if runtime.output.is_running:
-            raise HTTPException(
-                status_code=409,
-                detail="cannot apply settings while playback is running",
-            )
 
         current = runtime.settings_store.load()
         draft = current.draft
@@ -161,17 +156,33 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 ),
             )
 
+        was_running = runtime.output.is_running
+        player_snapshot = runtime.player.snapshot()
+        staged = None
         try:
-            runtime.renderer.render_all(draft)
+            if was_running:
+                runtime.output.stop()
+            staged = runtime.renderer.stage_all(draft)
+            staged.commit()
             runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (RuntimeError, OSError, ValueError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            _apply_player_layer_settings(runtime, draft)
+            runtime.player.set_peak_ceiling(draft.audio.peak_ceiling)
+            if was_running:
+                runtime.output.start()
 
-        state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
-        runtime.apply_settings_state(state)
-        _apply_player_layer_settings(runtime, state.active)
+            state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
+            runtime.apply_settings_state(state)
+        except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
+            detail = _rollback_apply_failure(
+                runtime,
+                staged=staged,
+                player_snapshot=player_snapshot,
+                restore_output=was_running,
+                cause=exc,
+            )
+            raise HTTPException(status_code=409, detail=detail) from exc
+        if staged is not None:
+            staged.cleanup()
         return {
             "settings": settings_payload(runtime),
             "state": state_payload(runtime),
@@ -202,6 +213,46 @@ def _run_playback_control(fn):
 def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
     for layer_id, layer_settings in settings.layers.items():
         runtime.player.set_enabled(layer_id, layer_settings.enabled)
+
+
+def _rollback_apply_failure(
+    runtime: SecretPondRuntime,
+    *,
+    staged,
+    player_snapshot,
+    restore_output: bool,
+    cause: Exception,
+) -> str:
+    rollback_errors: list[str] = []
+    if runtime.output.is_running:
+        try:
+            runtime.output.stop()
+        except Exception as exc:
+            rollback_errors.append(f"output stop during rollback failed: {exc}")
+    if staged is not None:
+        try:
+            staged.rollback()
+        except Exception as exc:
+            rollback_errors.append(f"render rollback failed: {exc}")
+    try:
+        runtime.player.restore(player_snapshot)
+    except Exception as exc:
+        rollback_errors.append(f"player rollback failed: {exc}")
+    if restore_output:
+        try:
+            runtime.output.start()
+        except Exception as exc:
+            rollback_errors.append(f"output restore failed: {exc}")
+    if staged is not None:
+        try:
+            staged.cleanup()
+        except Exception as exc:
+            rollback_errors.append(f"render cleanup failed: {exc}")
+
+    detail = str(cause)
+    if rollback_errors:
+        detail = f"{detail}; rollback issues: {'; '.join(rollback_errors)}"
+    return detail
 
 
 def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:

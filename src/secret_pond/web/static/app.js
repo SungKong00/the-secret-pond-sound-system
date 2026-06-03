@@ -140,13 +140,15 @@ const renderState = () => {
   $("stopButton").disabled = !snapshot.is_recording;
   $("startOutputButton").disabled = snapshot.playback.output_running;
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
-  const deviceChanges = hasDraftDeviceChanges(snapshot);
-  $("applyButton").disabled = snapshot.playback.output_running || deviceChanges;
-  $("applyButton").title = snapshot.playback.output_running
-    ? "Stop output before applying staged settings."
-    : deviceChanges
+  const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
+  $("applyButton").disabled = snapshot.is_recording || runtimeConfigChanges;
+  $("applyButton").title = snapshot.is_recording
+    ? "Stop recording before applying staged settings."
+    : runtimeConfigChanges
       ? "Restart the app to use staged device changes."
-      : "";
+      : snapshot.playback.output_running
+        ? "Will stop and restart output while applying staged audio settings."
+        : "";
   renderErrors();
 };
 
@@ -238,6 +240,16 @@ const renderDeviceRestartNotice = () => {
 const hasDraftDeviceChanges = (snapshot = state.snapshot) => {
   if (!snapshot || !state.draft) return false;
   return (
+    snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id ||
+    snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id
+  );
+};
+
+const hasDraftRuntimeConfigChanges = (snapshot = state.snapshot) => {
+  if (!snapshot || !state.draft) return false;
+  return (
+    snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate ||
+    snapshot.settings.active.audio.channels !== state.draft.audio.channels ||
     snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id ||
     snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id
   );
@@ -363,6 +375,7 @@ const applyAndRestart = async () => {
     const payload = await api("/api/settings/apply-and-restart", { method: "POST" });
     applyState(payload.state);
   } catch (error) {
+    await requestState({ syncDraft: false }).catch(() => {});
     showError(error.message);
   }
 };

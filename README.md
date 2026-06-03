@@ -38,11 +38,11 @@ secret-pond serve
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
 - FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 선택 초안 UI
 - WebSocket 기반 상태 push와 연결 종료 시 활성 녹음 정지
+- 출력 중 staged 설정을 적용할 때 렌더/플레이어/출력을 롤백 가능한 순서로 재시작
 
 아직 구현하지 않은 범위:
 
 - 하드웨어 버튼/터치 센서/시리얼 연동
-- 출력 중 안전한 Apply-and-Restart 재시작
 - 실시간 EQ. 현재 EQ 슬라이더는 초안으로 저장한 뒤 `Apply and Restart`로 적용
 
 ## 운영 순서
@@ -57,7 +57,7 @@ secret-pond serve
 
 현재 MVP 제약:
 
-- 출력 중에는 `Apply and Restart`가 막힙니다. 먼저 `Stop Output`을 누른 뒤 적용하세요.
+- 출력 중 `Apply and Restart`를 누르면 출력 스트림을 잠시 멈추고 새 렌더를 검증한 뒤 다시 시작합니다. 적용 실패 시 가능한 범위에서 이전 렌더/플레이어/출력을 복원합니다.
 - `sample_rate`, `channels`, `input_device_id`, `output_device_id` 변경은 현재 UI Apply로 처리하지 않습니다. 대시보드에서 장치 초안을 고른 뒤 앱을 재시작하면 시작 설정으로 승격됩니다.
 - 준비 음원 파일이 없으면 `Apply and Restart`가 실패합니다.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -46,8 +47,16 @@ def recorder_take() -> AudioBuffer:
 
 
 class FakeOutput:
-    def __init__(self, *, fail_start: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_start: Exception | None = None,
+        fail_start_on_call: int | None = None,
+        fail_stop: Exception | None = None,
+    ) -> None:
         self.fail_start = fail_start
+        self.fail_start_on_call = fail_start_on_call
+        self.fail_stop = fail_stop
         self.is_running = False
         self.latest_status = None
         self.statuses = []
@@ -57,14 +66,21 @@ class FakeOutput:
 
     def start(self) -> None:
         self.start_calls += 1
-        if self.fail_start is not None:
+        if self.fail_start is not None and (
+            self.fail_start_on_call is None or self.start_calls == self.fail_start_on_call
+        ):
             self.latest_error = str(self.fail_start)
+            self.is_running = False
             raise self.fail_start
         self.is_running = True
+        self.latest_error = None
 
     def stop(self) -> None:
         self.stop_calls += 1
         self.is_running = False
+        if self.fail_stop is not None:
+            self.latest_error = str(self.fail_stop)
+            raise self.fail_stop
 
 
 class LockAwareRenderer:
@@ -80,6 +96,27 @@ class LockAwareRenderer:
         self.lock_owned_during_render = self.lock._is_owned()
         return self.delegate.render_all(settings)
 
+    def stage_all(self, settings):
+        self.lock_owned_during_render = self.lock._is_owned()
+        return self.delegate.stage_all(settings)
+
+
+class FailingStageRenderer:
+    def __init__(self, delegate, error: Exception) -> None:
+        self.delegate = delegate
+        self.error = error
+        self.stage_calls = 0
+
+    def render_layer(self, layer_id, settings):
+        return self.delegate.render_layer(layer_id, settings)
+
+    def render_all(self, settings):
+        return self.delegate.render_all(settings)
+
+    def stage_all(self, settings):
+        self.stage_calls += 1
+        raise self.error
+
 
 class LockAwareSettingsStore:
     def __init__(self, delegate, lock) -> None:
@@ -90,6 +127,20 @@ class LockAwareSettingsStore:
     def load(self):
         self.lock_owned_during_load = self.lock._is_owned()
         return self.delegate.load()
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
+class FailingSaveSettingsStore:
+    def __init__(self, delegate, error: Exception) -> None:
+        self.delegate = delegate
+        self.error = error
+
+    def save(self, state):
+        if state.active == state.draft:
+            raise self.error
+        return self.delegate.save(state)
 
     def __getattr__(self, name):
         return getattr(self.delegate, name)
@@ -165,6 +216,13 @@ def draft_with_sample_rate(sample_rate: int) -> dict:
     ).model_dump(mode="json")
 
 
+def draft_with_peak_ceiling(peak_ceiling: float) -> dict:
+    return api_settings().model_copy(
+        update={"audio": api_settings().audio.model_copy(update={"peak_ceiling": peak_ceiling})},
+        deep=True,
+    ).model_dump(mode="json")
+
+
 def draft_with_devices(*, input_device_id: str | None, output_device_id: str | None) -> dict:
     return api_settings().model_copy(
         update={
@@ -216,6 +274,15 @@ def fake_device_registry() -> FakeDeviceRegistry:
     )
 
 
+def wait_for_state(client: TestClient, predicate, *, timeout_seconds: float = 1.0) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    state = client.get("/api/state").json()
+    while not predicate(state) and time.monotonic() < deadline:
+        time.sleep(0.01)
+        state = client.get("/api/state").json()
+    return state
+
+
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -256,13 +323,30 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "text/css" in styles.headers["content-type"]
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
-    assert "hasDraftDeviceChanges(snapshot)" in script.text
     assert "state.devices = null" in script.text
     assert "new WebSocket" in script.text
     assert "syncDraft: false" in script.text
     assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
     assert "requestState({ syncDraft: false })" in script.text
     assert 'control("/api/recording/poll-auto-stop", { syncDraft: false })' in script.text
+    assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
+    assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
+    assert "Will stop and restart output while applying staged audio settings." in script.text
+    assert (
+        "snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate"
+        in script.text
+    )
+    assert "snapshot.settings.active.audio.channels !== state.draft.audio.channels" in script.text
+    assert (
+        "snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id"
+        in script.text
+    )
+    assert (
+        "snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id"
+        in script.text
+    )
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
+    assert "showError(error.message)" in script.text
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
@@ -303,7 +387,7 @@ def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:
     with client.websocket_connect("/ws/state") as websocket:
         assert websocket.receive_json()["is_recording"] is True
 
-    state = client.get("/api/state").json()
+    state = wait_for_state(client, lambda payload: payload["is_recording"] is False)
     assert state["is_recording"] is False
     assert state["participant_count"] == 1
 
@@ -525,17 +609,127 @@ def test_api_playback_start_and_stop_controls_output_after_apply(tmp_path: Path)
     assert output.stop_calls == 1
 
 
-def test_api_settings_apply_and_restart_is_blocked_while_output_is_running(
+def test_api_settings_apply_and_restart_restarts_running_output(
     tmp_path: Path,
 ) -> None:
     output = FakeOutput()
-    output.is_running = True
-    client = create_test_client(tmp_path, output=output)
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
+    assert payload["state"]["playback"]["output_running"] is True
+
+
+def test_api_settings_apply_and_restart_applies_peak_ceiling_to_player(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.put("/api/settings/draft", json=draft_with_peak_ceiling(0.5))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    assert client.app.state.runtime.player.snapshot().peak_ceiling == 0.5
+
+
+def test_api_settings_apply_and_restart_restores_output_after_stop_failure(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_stop=OSError("stream stop failed"))
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
 
     response = client.post("/api/settings/apply-and-restart")
 
     assert response.status_code == 409
-    assert "playback" in response.json()["detail"]
+    assert "stream stop failed" in response.json()["detail"]
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert state["playback"]["output_running"] is True
+
+
+def test_api_settings_apply_and_restart_rolls_back_render_failure_after_stop(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    runtime = client.app.state.runtime
+    runtime.renderer = FailingStageRenderer(runtime.renderer, FileNotFoundError("low missing"))
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "low missing" in response.json()["detail"]
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert state["playback"]["output_running"] is True
+
+
+def test_api_settings_apply_and_restart_rolls_back_failed_new_output_start(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_start=OSError("restart failed"), fail_start_on_call=2)
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.put("/api/settings/draft", json=draft_with_peak_ceiling(0.5))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "restart failed" in response.json()["detail"]
+    assert output.stop_calls == 1
+    assert output.start_calls == 3
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["audio"]["peak_ceiling"] == 0.98
+    assert state["playback"]["output_running"] is True
+    assert client.app.state.runtime.player.snapshot().peak_ceiling == 0.98
+
+
+def test_api_settings_apply_and_restart_rolls_back_save_failure_after_restart(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    runtime = client.app.state.runtime
+    runtime.settings_store = FailingSaveSettingsStore(
+        runtime.settings_store,
+        OSError("settings save failed"),
+    )
+    client.put("/api/settings/draft", json=draft_with_peak_ceiling(0.5))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "settings save failed" in response.json()["detail"]
+    assert output.stop_calls == 2
+    assert output.start_calls == 3
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["audio"]["peak_ceiling"] == 0.98
+    assert state["playback"]["output_running"] is True
+    assert client.app.state.runtime.player.snapshot().peak_ceiling == 0.98
 
 
 def test_api_settings_apply_rejects_runtime_config_changes_without_touching_running_output(
