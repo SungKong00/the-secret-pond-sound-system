@@ -39,6 +39,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Reset Participants",
         "Stop recording before using Reset Draft",
         "Stop recording before using Reset Participants",
+        "Apply and Restart is running",
         "test_library",
         "live_ephemeral",
         "data/processed/accepted",
@@ -130,3 +131,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "Reset Draft" in request
     assert "녹음 중에는 Reset Draft" in request
     assert "Reset Participants" in request
+    assert "Apply and Restart가 실행 중일 때" in request

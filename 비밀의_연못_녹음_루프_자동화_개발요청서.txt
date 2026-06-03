@@ -334,3 +334,4 @@
 - `Reset Draft`는 기본 동작 버튼 줄에 노출하지 않고 `Maintenance` 안에 배치해, 초안 폐기 동작이 `Apply and Restart`와 같은 주요 운영 동작으로 오인되지 않게 합니다.
 - 녹음 중에는 Reset Draft를 비활성화하고 API에서도 거부해, 녹음 중인 초안 상태가 우발적으로 폐기되지 않게 합니다.
 - `Reset Participants`도 `Maintenance` 안에 배치하고 녹음 중에는 비활성화/API 거부해, 운영자가 전시 참여자 수만 의도적으로 0으로 되돌릴 수 있게 합니다.
+- `Apply and Restart가 실행 중일 때`는 Reset Draft와 Reset Participants가 기다렸다가 실행되지 않고 즉시 거부되어, 렌더링 완료 뒤 정비 초기화가 뒤늦게 적용되지 않게 합니다.

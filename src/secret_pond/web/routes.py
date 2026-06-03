@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -167,7 +169,7 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
 @router.post("/settings/reset")
 def reset_draft_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    with runtime.operation_lock:
+    with _maintenance_operation(runtime):
         if runtime.controller.is_recording:
             raise HTTPException(
                 status_code=409,
@@ -181,7 +183,7 @@ def reset_draft_settings(request: Request) -> dict[str, Any]:
 @router.post("/participants/reset")
 def reset_participant_count(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    with runtime.operation_lock:
+    with _maintenance_operation(runtime):
         if runtime.controller.is_recording:
             raise HTTPException(
                 status_code=409,
@@ -266,6 +268,20 @@ def _run_playback_control(fn):
         return fn()
     except (RuntimeError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@contextmanager
+def _maintenance_operation(runtime: SecretPondRuntime) -> Iterator[None]:
+    acquired = runtime.operation_lock.acquire(blocking=False)
+    if not acquired:
+        raise HTTPException(
+            status_code=409,
+            detail="maintenance actions are unavailable while another operation is running",
+        )
+    try:
+        yield
+    finally:
+        runtime.operation_lock.release()
 
 
 def _log_event_best_effort(

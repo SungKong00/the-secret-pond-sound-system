@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
+import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -194,6 +197,26 @@ class FailingStageRenderer:
         raise self.error
 
 
+class BlockingStageRenderer:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def render_layer(self, layer_id, settings):
+        return self.delegate.render_layer(layer_id, settings)
+
+    def render_all(self, settings):
+        return self.delegate.render_all(settings)
+
+    def stage_all(self, settings):
+        self.entered.set()
+        if not self.release.wait(timeout=5):
+            msg = "timed out waiting to release blocked render"
+            raise AssertionError(msg)
+        return self.delegate.stage_all(settings)
+
+
 class LockAwareSettingsStore:
     def __init__(self, delegate, lock) -> None:
         self.delegate = delegate
@@ -365,6 +388,14 @@ def wait_for_state(client: TestClient, predicate, *, timeout_seconds: float = 1.
         time.sleep(0.01)
         state = client.get("/api/state").json()
     return state
+
+
+def wait_for_future_response(future) -> Any:
+    try:
+        return future.result(timeout=1.0)
+    except concurrent.futures.TimeoutError as exc:
+        msg = "reset request waited for Apply and Restart instead of returning 409"
+        raise AssertionError(msg) from exc
 
 
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
@@ -863,6 +894,59 @@ def test_api_participants_reset_is_blocked_while_recording(tmp_path: Path) -> No
     state = client.get("/api/state").json()
     assert state["is_recording"] is True
     assert state["participant_count"] == 1
+    assert runtime.participants.get_count() == 1
+
+
+def test_api_settings_reset_is_blocked_during_apply_and_restart(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    renderer = BlockingStageRenderer(runtime.renderer)
+    runtime.renderer = renderer
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        apply_future = executor.submit(client.post, "/api/settings/apply-and-restart")
+        assert renderer.entered.wait(timeout=2)
+        reset_future = executor.submit(client.post, "/api/settings/reset")
+        try:
+            response = wait_for_future_response(reset_future)
+            assert response.status_code == 409
+            assert response.json()["detail"] == (
+                "maintenance actions are unavailable while another operation is running"
+            )
+            assert runtime.settings_state.draft.layers["voice"].volume_db == -9.0
+        finally:
+            renderer.release.set()
+
+        apply_response = apply_future.result(timeout=2)
+
+    assert apply_response.status_code == 200
+
+
+def test_api_participants_reset_is_blocked_during_apply_and_restart(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    renderer = BlockingStageRenderer(runtime.renderer)
+    runtime.renderer = renderer
+    runtime.participants.increment()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        apply_future = executor.submit(client.post, "/api/settings/apply-and-restart")
+        assert renderer.entered.wait(timeout=2)
+        reset_future = executor.submit(client.post, "/api/participants/reset")
+        try:
+            response = wait_for_future_response(reset_future)
+            assert response.status_code == 409
+            assert response.json()["detail"] == (
+                "maintenance actions are unavailable while another operation is running"
+            )
+            assert runtime.participants.get_count() == 1
+        finally:
+            renderer.release.set()
+
+        apply_response = apply_future.result(timeout=2)
+
+    assert apply_response.status_code == 200
     assert runtime.participants.get_count() == 1
 
 
