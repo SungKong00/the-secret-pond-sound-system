@@ -27,6 +27,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Disarm",
         "Spacebar",
         "browser blur",
+        "Arm is unavailable while already armed",
         "Disarm is unavailable when already disarmed",
         "Apply and Restart",
         "Applying...",
@@ -148,6 +149,7 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "녹음 종료 처리가 진행 중일 때" in request
     assert "녹음 종료 처리가 진행 중일 때는 Apply and Restart" in request
     assert "이미 Disarm 상태이고 녹음 중이 아닐 때는 Disarm 버튼" in request
+    assert "이미 Arm 상태이거나 녹음 중일 때는 Arm 버튼" in request
     assert "상태 동기화 배지" in request
     assert "오류 상태 배지" in request
     assert "Spacebar 캡처 준비 상태" in request

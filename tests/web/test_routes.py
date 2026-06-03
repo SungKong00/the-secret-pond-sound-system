@@ -657,7 +657,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst renderModeBadge",
     )
     assert "const recordingStopBusy = state.recordingStopInFlight" in render_state_body
-    assert '"armButton").disabled = recordingStopBusy' in render_state_body
+    assert (
+        '"armButton").disabled = recordingStopBusy || snapshot.armed || '
+        "snapshot.is_recording"
+        in render_state_body
+    )
     assert (
         '"disarmButton").disabled =\n    recordingStopBusy || '
         "(!snapshot.armed && !snapshot.is_recording)"
@@ -1021,6 +1025,7 @@ globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBadge.textContent, "Error None");
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, false);
 assert.strictEqual(elements.disarmButton.disabled, false);
 assert.strictEqual(elements.recordCoreStatus.textContent, "Capturing");
@@ -1040,6 +1045,7 @@ globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(recordCore.classList.contains("armed"), true);
+assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.disarmButton.disabled, false);
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
@@ -1063,6 +1069,7 @@ assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(elements.armButton.disabled, false);
 assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
