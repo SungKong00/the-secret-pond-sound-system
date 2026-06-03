@@ -84,6 +84,7 @@ Use `Arm` before recording. Spacebar recording only works while Armed.
 
 - `Arm`: enables Spacebar capture.
 - `Disarm`: disables capture and stops an active recording.
+- Disarm is unavailable when already disarmed.
 - `Spacebar`: hold to record, release to stop.
 - Recording shorter than 3 seconds is discarded.
 - Maximum recording duration is 120 seconds.

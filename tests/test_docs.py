@@ -27,6 +27,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "Disarm",
         "Spacebar",
         "browser blur",
+        "Disarm is unavailable when already disarmed",
         "Apply and Restart",
         "Applying...",
         "Unsaved audio changes",
@@ -146,6 +147,7 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "녹음 제어 실패 후에도 백엔드 상태를 다시 불러오도록 시도해" in request
     assert "녹음 종료 처리가 진행 중일 때" in request
     assert "녹음 종료 처리가 진행 중일 때는 Apply and Restart" in request
+    assert "이미 Disarm 상태이고 녹음 중이 아닐 때는 Disarm 버튼" in request
     assert "상태 동기화 배지" in request
     assert "오류 상태 배지" in request
     assert "Spacebar 캡처 준비 상태" in request

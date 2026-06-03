@@ -269,7 +269,8 @@ const renderState = () => {
     : "No unsaved changes";
   $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
   $("armButton").disabled = recordingStopBusy;
-  $("disarmButton").disabled = recordingStopBusy;
+  $("disarmButton").disabled =
+    recordingStopBusy || (!snapshot.armed && !snapshot.is_recording);
   $("startButton").disabled = recordingStopBusy || !snapshot.armed || snapshot.is_recording;
   $("stopButton").disabled = recordingStopBusy || !snapshot.is_recording;
   $("startOutputButton").disabled = snapshot.playback.output_running;
