@@ -318,6 +318,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="deviceRestartNotice"' in response.text
     assert 'id="recordOutcomeStatus"' in response.text
     assert 'id="recordOutcomeDetail"' in response.text
+    assert 'class="record-limits"' in response.text
+    assert 'id="minimumRecordingTime"' in response.text
+    assert 'id="maximumRecordingTime"' in response.text
     assert 'aria-label="system diagnostics"' in response.text
     assert 'id="systemStatus"' in response.text
     assert 'id="sourceHealthList"' in response.text
@@ -386,6 +389,17 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "renderRecordingOutcome(payload.outcome)" in script.text
+    assert (
+        "formatSeconds( snapshot.settings.active.input_control.minimum_recording_seconds, )"
+        in normalized_script
+    )
+    assert (
+        "formatSeconds( snapshot.settings.active.input_control.maximum_recording_seconds, )"
+        in normalized_script
+    )
+    assert "minimumRecordingTime" in script.text
+    assert "maximumRecordingTime" in script.text
+    assert ".record-limits" in styles.text
     assert "Recording Added" in script.text
     assert "Too Short" in script.text
     assert "Empty Recording" in script.text

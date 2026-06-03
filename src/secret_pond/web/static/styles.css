@@ -255,6 +255,32 @@ body::before {
   color: var(--muted);
 }
 
+.record-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.record-limits span {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 26px;
+  padding: 5px 8px;
+  border: 1px solid rgba(239, 250, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+
+.record-limits strong {
+  color: var(--text);
+}
+
 .record-outcome {
   display: grid;
   grid-template-columns: minmax(88px, auto) minmax(0, 1fr);

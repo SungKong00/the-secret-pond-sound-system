@@ -64,6 +64,8 @@ const formatValue = (value, suffix) => {
   return `${rounded}${suffix}`;
 };
 
+const formatSeconds = (value) => `${Number(value).toFixed(1)}s`;
+
 const formatBytes = (bytes) => {
   const number = Number(bytes);
   if (!Number.isFinite(number) || number <= 0) return "0 B";
@@ -173,6 +175,12 @@ const renderState = () => {
   $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
   $("remainingTime").textContent =
     `${snapshot.recording_remaining_seconds.toFixed(1)}s remaining`;
+  $("minimumRecordingTime").textContent = formatSeconds(
+    snapshot.settings.active.input_control.minimum_recording_seconds,
+  );
+  $("maximumRecordingTime").textContent = formatSeconds(
+    snapshot.settings.active.input_control.maximum_recording_seconds,
+  );
   $("recordCoreStatus").textContent = snapshot.is_recording
     ? "Capturing"
     : snapshot.armed
