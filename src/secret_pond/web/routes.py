@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -92,6 +94,13 @@ def get_devices(request: Request) -> dict[str, Any]:
         "selected_output_device": _device_payload(selected_output),
         "warnings": _device_warnings(selected_input, selected_output, settings),
     }
+
+
+@router.get("/diagnostics")
+def get_diagnostics(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        return _diagnostics_payload(runtime)
 
 
 @router.post("/playback/start")
@@ -294,6 +303,67 @@ def _device_warnings(
             f"but settings request {settings.audio.sample_rate}."
         )
     return warnings
+
+
+def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    paths = runtime.paths
+    return {
+        "sources": [
+            _file_status_payload(paths.root, "low", "Low Source", paths.low_source),
+            _file_status_payload(paths.root, "mid", "Mid Source", paths.mid_source),
+            _file_status_payload(paths.root, "voice", "Voice Stack", paths.voice_stack_raw),
+        ],
+        "events": _event_log_payload(runtime),
+    }
+
+
+def _file_status_payload(root: Path, file_id: str, label: str, path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "id": file_id,
+            "label": label,
+            "path": _relative_path(root, path),
+            "exists": False,
+            "size_bytes": 0,
+            "modified_at": None,
+        }
+
+    stat = path.stat()
+    return {
+        "id": file_id,
+        "label": label,
+        "path": _relative_path(root, path),
+        "exists": True,
+        "size_bytes": stat.st_size,
+        "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+    }
+
+
+def _event_log_payload(runtime: SecretPondRuntime, limit: int = 5) -> dict[str, Any]:
+    path = runtime.paths.event_log_file
+    try:
+        events = runtime.logger.read_events()
+    except ValueError as exc:
+        return {
+            "path": _relative_path(runtime.paths.root, path),
+            "exists": path.exists(),
+            "recent": [],
+            "error": str(exc),
+        }
+
+    return {
+        "path": _relative_path(runtime.paths.root, path),
+        "exists": path.exists(),
+        "recent": list(reversed(events[-limit:])),
+        "error": None,
+    }
+
+
+def _relative_path(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _runtime_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:

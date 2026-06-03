@@ -37,6 +37,7 @@ secret-pond serve
 - 단일 출력 엔진용 레이어 믹서와 `sounddevice` 출력 스트림 래퍼
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
 - FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 선택 초안 UI
+- 대시보드 System 패널: 준비 음원 파일 상태, 선택된 입출력 장치, 최근 JSONL 이벤트 요약
 - WebSocket 기반 상태 push와 연결 종료 시 활성 녹음 정지
 - 출력 중 staged 설정을 적용할 때 렌더/플레이어/출력을 롤백 가능한 순서로 재시작
 
@@ -50,10 +51,11 @@ secret-pond serve
 1. `data/sources/low.wav`, `data/sources/mid.wav`를 준비합니다.
 2. `secret-pond doctor`로 장치와 의존성을 확인합니다.
 3. `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
-4. 웹 대시보드에서 필요한 EQ/볼륨을 조정합니다.
-5. `Apply and Restart`를 눌러 3개 레이어 렌더를 생성하고 player에 로드합니다.
-6. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.
-7. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
+4. System 패널에서 `low.wav`, `mid.wav`, `voice_stack_raw.wav` 상태와 선택된 장치를 확인합니다.
+5. 웹 대시보드에서 필요한 EQ/볼륨을 조정합니다.
+6. `Apply and Restart`를 눌러 3개 레이어 렌더를 생성하고 player에 로드합니다.
+7. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.
+8. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
 
 현재 MVP 제약:
 

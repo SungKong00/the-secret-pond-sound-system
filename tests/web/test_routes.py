@@ -311,6 +311,12 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="inputDeviceSelect"' in response.text
     assert 'id="outputDeviceSelect"' in response.text
     assert 'id="deviceRestartNotice"' in response.text
+    assert 'aria-label="system diagnostics"' in response.text
+    assert 'id="systemStatus"' in response.text
+    assert 'id="sourceHealthList"' in response.text
+    assert 'id="eventLogSummary"' in response.text
+    assert 'id="systemInputDeviceName"' in response.text
+    assert 'id="systemOutputDeviceName"' in response.text
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:
@@ -321,10 +327,26 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
 
     assert styles.status_code == 200
     assert "text/css" in styles.headers["content-type"]
+    normalized_styles = " ".join(styles.text.split())
+    assert (
+        "grid-template-columns: minmax(240px, 0.72fr) minmax(340px, 1.2fr) "
+        "minmax(280px, 0.86fr) minmax(260px, 0.78fr);"
+        in normalized_styles
+    )
+    assert "@media (max-width: 1240px)" in styles.text
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
+    normalized_script = " ".join(script.text.split())
     assert "state.devices = null" in script.text
+    assert "state.diagnostics = null" in script.text
     assert "new WebSocket" in script.text
+    assert 'api("/api/diagnostics")' in script.text
+    assert "renderSystemStatus" in script.text
+    assert "const systemDeviceName" in script.text
+    assert 'systemDeviceName( "selected_input_device", "No input device", )' in normalized_script
+    assert 'systemDeviceName( "selected_output_device", "No output device", )' in normalized_script
+    assert "sourceHealthList" in script.text
+    assert "eventLogSummary" in script.text
     assert "syncDraft: false" in script.text
     assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
     assert "requestState({ syncDraft: false })" in script.text
@@ -347,6 +369,52 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     assert "showError(error.message)" in script.text
+
+
+def test_api_diagnostics_reports_source_health_and_recent_events(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    runtime.logger.log_event(
+        "recording.accepted",
+        {"participant_count": 1},
+        timestamp="2026-06-03T10:00:00+00:00",
+    )
+    runtime.logger.log_event(
+        "settings.applied",
+        {"changed": ["voice.volume_db"]},
+        timestamp="2026-06-03T10:01:00+00:00",
+    )
+
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    sources = {source["id"]: source for source in payload["sources"]}
+    assert sources["low"]["exists"] is True
+    assert sources["low"]["path"] == "data/sources/low.wav"
+    assert sources["low"]["size_bytes"] > 0
+    assert sources["low"]["modified_at"] is not None
+    assert sources["mid"]["exists"] is True
+    assert sources["voice"]["exists"] is True
+    assert sources["voice"]["path"] == "data/voice/voice_stack_raw.wav"
+    assert payload["events"]["path"] == "data/logs/events.jsonl"
+    assert payload["events"]["exists"] is True
+    assert payload["events"]["recent"][0]["event_type"] == "settings.applied"
+    assert payload["events"]["recent"][1]["event_type"] == "recording.accepted"
+
+
+def test_api_diagnostics_marks_missing_prepared_sources(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    sources = {source["id"]: source for source in response.json()["sources"]}
+    assert sources["low"]["exists"] is False
+    assert sources["low"]["size_bytes"] == 0
+    assert sources["low"]["modified_at"] is None
+    assert sources["mid"]["exists"] is False
+    assert sources["voice"]["exists"] is True
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:

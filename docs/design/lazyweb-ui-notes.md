@@ -1,6 +1,7 @@
 # LazyWeb UI Notes
 
 LazyWeb was used during project setup to inspect desktop dashboard and audio-control patterns.
+A fresh Phase 10 pass checked desktop service-status dashboards for compact diagnostics patterns.
 
 Useful patterns found:
 
@@ -8,6 +9,8 @@ Useful patterns found:
 - Persistent status bars are important for operational dashboards.
 - Mixer rows should expose layer enable, volume, and detailed controls without hiding system state.
 - Diagnostic dashboards should make device/browser/system checks visible before operation.
+- Source and service health reads best as dense rows with severity status, not a separate landing page.
+- Recent event summaries should stay short and newest-first so operators can scan the latest state.
 - Cyberpunk-style dark dashboards can support the artwork mood if status and safety controls remain clear.
 
 MVP UI direction:
@@ -15,6 +18,7 @@ MVP UI direction:
 - First screen is the operator dashboard, not a landing page.
 - Use a dark, dreamy cyberpunk layout: black/near-black base, cyan/magenta accent lines, restrained glow, and no decorative clutter that competes with controls.
 - Place `Arm / Disarm`, recording status, participant count, device health, and last error in the persistent top bar.
+- Keep source-file health, selected devices, and recent event logs in a System panel on the first dashboard view.
 - Represent `Low`, `Mid`, and `Voice Stack` as mixer rows.
 - Treat EQ sliders as staged controls until `Apply and Restart`.
 - Keep critical controls legible under exhibition pressure; visual mood must never hide whether recording is armed, recording, rendering, or failed.

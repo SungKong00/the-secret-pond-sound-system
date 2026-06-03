@@ -93,6 +93,28 @@
             <button id="resetButton" class="button" type="button">Reset Draft</button>
           </div>
         </section>
+
+        <section class="panel system-panel" aria-label="system diagnostics">
+          <div class="panel-heading inline">
+            <div>
+              <p class="eyebrow">Diagnostics</p>
+              <h2>System</h2>
+            </div>
+            <span id="systemStatus" class="status-pill muted">Checking</span>
+          </div>
+          <div id="sourceHealthList" class="diagnostic-stack" aria-label="source file health"></div>
+          <div class="diagnostic-stack" aria-label="selected audio devices">
+            <div class="diagnostic-row device-summary">
+              <span>Input</span>
+              <strong id="systemInputDeviceName">Checking...</strong>
+            </div>
+            <div class="diagnostic-row device-summary">
+              <span>Output</span>
+              <strong id="systemOutputDeviceName">Checking...</strong>
+            </div>
+          </div>
+          <ul id="eventLogSummary" class="event-list" aria-label="recent runtime events"></ul>
+        </section>
       </section>
     </main>
     <script src="/static/app.js" defer></script>

@@ -14,7 +14,9 @@ const state = {
   snapshot: null,
   draft: null,
   devices: null,
+  diagnostics: null,
   deviceError: null,
+  diagnosticsError: null,
   saveTimer: null,
   spaceRecording: false,
   stateSocket: null,
@@ -56,6 +58,26 @@ const formatValue = (value, suffix) => {
   return `${rounded}${suffix}`;
 };
 
+const formatBytes = (bytes) => {
+  const number = Number(bytes);
+  if (!Number.isFinite(number) || number <= 0) return "0 B";
+  if (number < 1024) return `${number} B`;
+  if (number < 1024 * 1024) return `${(number / 1024).toFixed(1)} KB`;
+  return `${(number / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatTimestamp = (value) => {
+  if (!value) return "No timestamp";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 const getPath = (object, path) =>
   path.split(".").reduce((current, segment) => current[segment], object);
 
@@ -93,12 +115,26 @@ const requestDevices = async () => {
     state.deviceError = error.message;
   }
   renderDevices();
+  renderSystemStatus();
+  renderErrors();
+};
+
+const requestDiagnostics = async () => {
+  try {
+    state.diagnostics = await api("/api/diagnostics");
+    state.diagnosticsError = null;
+  } catch (error) {
+    state.diagnostics = null;
+    state.diagnosticsError = error.message;
+  }
+  renderSystemStatus();
   renderErrors();
 };
 
 const refreshAll = async () => {
   await requestState().catch((error) => showError(error.message));
   await requestDevices();
+  await requestDiagnostics();
 };
 
 const applyState = (payload, options = {}) => {
@@ -112,6 +148,7 @@ const applyState = (payload, options = {}) => {
   }
   renderState();
   renderDevices();
+  renderSystemStatus();
 };
 
 const renderState = () => {
@@ -158,6 +195,7 @@ const renderErrors = () => {
     snapshot?.last_error,
     snapshot?.playback.output_latest_error,
     state.deviceError,
+    state.diagnosticsError,
   ].filter(Boolean);
   showError(messages.join(" · "));
 };
@@ -173,6 +211,7 @@ const renderDevices = () => {
       ? "Audio devices are unavailable."
       : "Checking audio devices...";
     $("deviceWarnings").innerHTML = "";
+    renderSystemStatus();
     return;
   }
 
@@ -196,6 +235,99 @@ const renderDevices = () => {
     const item = document.createElement("li");
     item.textContent = warning;
     warningList.appendChild(item);
+  });
+  renderSystemStatus();
+};
+
+const renderSystemStatus = () => {
+  renderSystemDevices();
+
+  if (!state.diagnostics) {
+    $("systemStatus").textContent = state.diagnosticsError ? "Diagnostics offline" : "Checking";
+    $("systemStatus").className = `status-pill ${state.diagnosticsError ? "hot" : "muted"}`;
+    $("sourceHealthList").innerHTML = "";
+    const placeholder = document.createElement("div");
+    placeholder.className = "diagnostic-row";
+    const label = document.createElement("span");
+    label.textContent = "Files";
+    const value = document.createElement("strong");
+    value.textContent = state.diagnosticsError ? "Unavailable" : "Checking...";
+    placeholder.append(label, value);
+    $("sourceHealthList").appendChild(placeholder);
+    renderEventLogSummary([]);
+    return;
+  }
+
+  const missingSources = state.diagnostics.sources.filter((source) => !source.exists);
+  $("systemStatus").textContent = missingSources.length
+    ? `${missingSources.length} missing`
+    : "Sources ready";
+  $("systemStatus").className = `status-pill ${missingSources.length ? "hot" : "safe"}`;
+  renderSourceHealthList(state.diagnostics.sources);
+  renderEventLogSummary(state.diagnostics.events?.recent || [], state.diagnostics.events?.error);
+};
+
+const renderSystemDevices = () => {
+  $("systemInputDeviceName").textContent = systemDeviceName(
+    "selected_input_device",
+    "No input device",
+  );
+  $("systemOutputDeviceName").textContent = systemDeviceName(
+    "selected_output_device",
+    "No output device",
+  );
+};
+
+const systemDeviceName = (key, emptyLabel) => {
+  if (state.deviceError) return "Unavailable";
+  if (!state.devices) return "Checking...";
+  return state.devices[key]?.name || emptyLabel;
+};
+
+const renderSourceHealthList = (sources) => {
+  const container = $("sourceHealthList");
+  container.innerHTML = "";
+  sources.forEach((source) => {
+    const row = document.createElement("div");
+    row.className = `diagnostic-row source-row ${source.exists ? "source-ready" : "source-missing"}`;
+    const label = document.createElement("span");
+    label.textContent = source.label;
+    const value = document.createElement("strong");
+    value.textContent = source.exists
+      ? `Ready · ${formatBytes(source.size_bytes)} · ${formatTimestamp(source.modified_at)}`
+      : `Missing · ${source.path}`;
+    row.append(label, value);
+    container.appendChild(row);
+  });
+};
+
+const renderEventLogSummary = (events, error = null) => {
+  const list = $("eventLogSummary");
+  list.innerHTML = "";
+  if (error) {
+    const item = document.createElement("li");
+    item.className = "event-item event-error";
+    item.textContent = error;
+    list.appendChild(item);
+    return;
+  }
+  if (!events.length) {
+    const item = document.createElement("li");
+    item.className = "event-item muted";
+    item.textContent = "No events yet";
+    list.appendChild(item);
+    return;
+  }
+  events.forEach((event) => {
+    const item = document.createElement("li");
+    item.className = "event-item";
+    const time = document.createElement("span");
+    time.className = "event-time";
+    time.textContent = formatTimestamp(event.timestamp);
+    const label = document.createElement("strong");
+    label.textContent = event.event_type || "event";
+    item.append(time, label);
+    list.appendChild(item);
   });
 };
 
@@ -364,6 +496,7 @@ const control = async (path, options = {}) => {
     } else {
       await requestState(options);
     }
+    await requestDiagnostics();
   } catch (error) {
     showError(error.message);
   }
@@ -374,8 +507,10 @@ const applyAndRestart = async () => {
     await saveDraft();
     const payload = await api("/api/settings/apply-and-restart", { method: "POST" });
     applyState(payload.state);
+    await requestDiagnostics();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
+    await requestDiagnostics().catch(() => {});
     showError(error.message);
   }
 };
@@ -388,6 +523,7 @@ const resetDraft = async () => {
     renderState();
     renderControls();
     renderDevices();
+    await requestDiagnostics();
   } catch (error) {
     showError(error.message);
   }

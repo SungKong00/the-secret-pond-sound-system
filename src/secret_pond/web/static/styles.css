@@ -177,7 +177,9 @@ body::before {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.78fr) minmax(380px, 1.38fr) minmax(300px, 0.94fr);
+  grid-template-columns:
+    minmax(240px, 0.72fr) minmax(340px, 1.2fr) minmax(280px, 0.86fr)
+    minmax(260px, 0.78fr);
   gap: 14px;
   margin-top: 14px;
 }
@@ -200,6 +202,10 @@ body::before {
 }
 
 .record-panel {
+  min-height: 520px;
+}
+
+.system-panel {
   min-height: 520px;
 }
 
@@ -286,6 +292,15 @@ body::before {
   white-space: nowrap;
 }
 
+.source-ready {
+  border-color: rgba(120, 255, 159, 0.22);
+}
+
+.source-missing {
+  border-color: rgba(255, 107, 107, 0.46);
+  background: rgba(255, 107, 107, 0.08);
+}
+
 .device-select-row {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
@@ -338,6 +353,51 @@ select:disabled {
   color: var(--amber);
   font-size: 12px;
   list-style: none;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event-item {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 250, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+}
+
+.event-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-item.muted {
+  grid-template-columns: 1fr;
+  color: var(--muted);
+}
+
+.event-error {
+  grid-template-columns: 1fr;
+  border-color: rgba(255, 107, 107, 0.42);
+  color: #ffe4e4;
+}
+
+.event-time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .control-stack {
@@ -410,7 +470,7 @@ input[type="checkbox"] {
   accent-color: var(--green);
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1240px) {
   .topbar,
   .dashboard-grid {
     grid-template-columns: 1fr;
@@ -436,7 +496,8 @@ input[type="checkbox"] {
     grid-template-columns: 1fr;
   }
 
-  .device-select-row {
+  .device-select-row,
+  .event-item {
     grid-template-columns: 1fr;
   }
 
