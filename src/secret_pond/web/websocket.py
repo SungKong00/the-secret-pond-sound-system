@@ -34,6 +34,8 @@ async def state_socket(websocket: WebSocket) -> None:
             except TimeoutError:
                 continue
     except WebSocketDisconnect:
+        pass
+    finally:
         await _stop_recording_if_active(runtime)
 
 
