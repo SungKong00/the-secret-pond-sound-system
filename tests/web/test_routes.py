@@ -304,6 +304,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'src="/static/app.js"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="modeBadge"' in response.text
+    assert 'id="lastEventBadge"' in response.text
     assert 'id="startOutputButton"' in response.text
     assert 'id="stopOutputButton"' in response.text
     assert 'id="deviceStatus"' in response.text
@@ -345,6 +346,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderModeBadge(snapshot.settings.active.voice_stack.mode)" in script.text
     assert '"live_ephemeral": "Mode Live"' in script.text
     assert '"test_library": "Mode Test"' in script.text
+    assert "renderLastEventBadge" in script.text
+    assert "Last Event None" in script.text
+    assert "Last Event Unavailable" in script.text
+    assert "state.diagnostics?.events?.recent?.[0]" in script.text
+    assert 'socket.addEventListener("message", (event) => {' in script.text
+    assert (
+        'socket.addEventListener("message", (event) => {\n    try {\n      applyState'
+        in script.text
+    )
     assert "renderSystemStatus" in script.text
     assert "const systemDeviceName" in script.text
     assert 'systemDeviceName( "selected_input_device", "No input device", )' in normalized_script

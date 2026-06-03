@@ -132,6 +132,7 @@ const requestDiagnostics = async () => {
     state.diagnostics = null;
     state.diagnosticsError = error.message;
   }
+  renderLastEventBadge();
   renderSystemStatus();
   renderErrors();
 };
@@ -198,6 +199,20 @@ const renderState = () => {
 const renderModeBadge = (mode) => {
   $("modeBadge").textContent = modeLabels[mode] || "Mode Unknown";
   $("modeBadge").className = `status-pill ${mode === "live_ephemeral" ? "safe" : "muted"}`;
+};
+
+const renderLastEventBadge = () => {
+  const lastEvent = state.diagnostics?.events?.recent?.[0];
+  if (state.diagnosticsError || state.diagnostics?.events?.error) {
+    $("lastEventBadge").textContent = "Last Event Unavailable";
+    $("lastEventBadge").className = "status-pill hot";
+  } else if (lastEvent?.event_type) {
+    $("lastEventBadge").textContent = `Last ${lastEvent.event_type}`;
+    $("lastEventBadge").className = "status-pill";
+  } else {
+    $("lastEventBadge").textContent = "Last Event None";
+    $("lastEventBadge").className = "status-pill muted";
+  }
 };
 
 const renderErrors = () => {
