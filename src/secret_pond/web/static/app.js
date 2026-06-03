@@ -255,6 +255,7 @@ const renderErrors = () => {
 
 const renderDevices = () => {
   const devices = state.devices;
+  renderDeviceHealthBadge();
   if (!devices) {
     $("inputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
     $("outputDeviceName").textContent = state.deviceError ? "Unavailable" : "Checking...";
@@ -290,6 +291,22 @@ const renderDevices = () => {
     warningList.appendChild(item);
   });
   renderSystemStatus();
+};
+
+const renderDeviceHealthBadge = () => {
+  if (state.deviceError) {
+    $("deviceHealthBadge").textContent = "Devices Offline";
+    $("deviceHealthBadge").className = "status-pill hot";
+  } else if (!state.devices) {
+    $("deviceHealthBadge").textContent = "Devices Checking";
+    $("deviceHealthBadge").className = "status-pill muted";
+  } else if (state.devices.warnings.length) {
+    $("deviceHealthBadge").textContent = "Device Warning";
+    $("deviceHealthBadge").className = "status-pill hot";
+  } else {
+    $("deviceHealthBadge").textContent = "Devices OK";
+    $("deviceHealthBadge").className = "status-pill safe";
+  }
 };
 
 const renderSystemStatus = () => {

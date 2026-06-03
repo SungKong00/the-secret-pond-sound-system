@@ -305,6 +305,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="outputBadge"' in response.text
     assert 'id="modeBadge"' in response.text
     assert 'id="lastEventBadge"' in response.text
+    assert 'id="deviceHealthBadge"' in response.text
     assert 'id="startOutputButton"' in response.text
     assert 'id="stopOutputButton"' in response.text
     assert 'id="deviceStatus"' in response.text
@@ -352,6 +353,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Last Event None" in script.text
     assert "Last Event Unavailable" in script.text
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
+    assert "renderDeviceHealthBadge" in script.text
+    assert "Devices Checking" in script.text
+    assert "Devices OK" in script.text
+    assert "Device Warning" in script.text
+    assert "Devices Offline" in script.text
     assert 'socket.addEventListener("message", (event) => {' in script.text
     assert (
         'socket.addEventListener("message", (event) => {\n    try {\n      applyState'
