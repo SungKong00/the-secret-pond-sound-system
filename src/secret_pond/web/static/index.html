@@ -27,8 +27,10 @@
           <span id="pendingBadge" class="status-pill muted">No unsaved changes</span>
         </section>
         <section class="top-actions" aria-label="runtime controls">
-          <button id="armButton" class="button primary" type="button">Arm</button>
-          <button id="disarmButton" class="button" type="button">Disarm</button>
+          <div class="capture-mode-actions" role="group" aria-label="spacebar capture mode">
+            <button id="armButton" class="button primary" type="button" aria-pressed="false">Arm</button>
+            <button id="disarmButton" class="button" type="button" aria-pressed="true">Disarm</button>
+          </div>
           <button id="startOutputButton" class="button primary" type="button">Start Output</button>
           <button id="stopOutputButton" class="button" type="button">Stop Output</button>
           <button id="restartOutputButton" class="button" type="button" disabled>

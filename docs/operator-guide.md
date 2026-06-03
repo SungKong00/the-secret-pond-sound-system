@@ -88,6 +88,7 @@ Use `Arm` before recording. Spacebar recording only works while Armed.
 - Recording shorter than 3 seconds is discarded.
 - Maximum recording duration is 120 seconds.
 - The record panel shows elapsed time, remaining time, and min/max duration.
+- A green/cyan ring means Spacebar capture is ready; magenta means active recording.
 
 If browser blur happens, the tab becomes hidden, or the UI disconnects while recording, the app stops the active recording path. Browser blur and hidden-tab handling happen in the UI; WebSocket disconnect handling happens in the backend.
 

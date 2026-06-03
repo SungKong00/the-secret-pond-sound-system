@@ -59,6 +59,8 @@ def test_operator_guide_covers_required_operations() -> None:
         "Sync Polling",
         "Error None",
         "Error Active",
+        "Spacebar capture is ready",
+        "active recording",
     ]
     for phrase in required:
         assert phrase in guide
@@ -143,3 +145,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "녹음 종료 처리가 진행 중일 때" in request
     assert "상태 동기화 배지" in request
     assert "오류 상태 배지" in request
+    assert "Spacebar 캡처 준비 상태" in request

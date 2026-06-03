@@ -435,6 +435,15 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="restartOutputButton"' in response.text
     assert 'id="restartOutputButton" class="button" type="button" disabled' in response.text
     assert 'aria-label="runtime controls"' in response.text
+    assert 'aria-label="spacebar capture mode"' in response.text
+    assert (
+        'id="armButton" class="button primary" type="button" aria-pressed="false"'
+        in response.text
+    )
+    assert (
+        'id="disarmButton" class="button" type="button" aria-pressed="true"'
+        in response.text
+    )
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
@@ -606,6 +615,30 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Empty Recording" in script.text
     assert "Recording Disarmed" in script.text
     assert "Recording Failed" in script.text
+    assert (
+        "const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy"
+        in script.text
+    )
+    assert (
+        'document.querySelector(".record-core").classList.toggle("armed", captureReady)'
+        in script.text
+    )
+    assert (
+        'document.querySelector(".record-core").classList.toggle("recording", '
+        "snapshot.is_recording)"
+        in script.text
+    )
+    assert (
+        '"armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false")'
+        in script.text
+    )
+    assert (
+        '"disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true")'
+        in script.text
+    )
+    assert ".record-core.armed" in styles.text
+    assert ".record-core.recording" in styles.text
+    assert ".capture-mode-actions" in styles.text
     assert "layerPendingBadge" in script.text
     assert "updateLayerPendingBadge" in script.text
     assert "Pending Draft" in script.text
@@ -786,7 +819,23 @@ const makeElement = () => ({{
   hidden: false,
   disabled: false,
   title: "",
-  classList: {{ toggle() {{}} }},
+  attributes: {{}},
+  _classes: new Set(),
+  classList: {{
+    toggle(name, force) {{
+      if (force) this.owner._classes.add(name);
+      else this.owner._classes.delete(name);
+    }},
+    contains(name) {{
+      return this.owner._classes.has(name);
+    }},
+  }},
+  setAttribute(name, value) {{
+    this.attributes[name] = value;
+  }},
+  getAttribute(name) {{
+    return this.attributes[name] || null;
+  }},
   appendChild(child) {{
     this.children.push(child);
   }},
@@ -798,20 +847,26 @@ const makeElement = () => ({{
     return makeElement();
   }},
 }});
+const makeTrackedElement = () => {{
+  const element = makeElement();
+  element.classList.owner = element;
+  return element;
+}};
 const recordCore = makeElement();
+recordCore.classList.owner = recordCore;
 globalThis.document = {{
   getElementById(id) {{
-    if (!elements[id]) elements[id] = makeElement();
+    if (!elements[id]) elements[id] = makeTrackedElement();
     return elements[id];
   }},
   querySelector(selector) {{
-    return selector === ".record-core" ? recordCore : makeElement();
+    return selector === ".record-core" ? recordCore : makeTrackedElement();
   }},
   querySelectorAll() {{
     return [];
   }},
   createElement() {{
-    return makeElement();
+    return makeTrackedElement();
   }},
   addEventListener() {{}},
 }};
@@ -963,6 +1018,16 @@ globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopButton.disabled, false);
 assert.strictEqual(elements.recordCoreStatus.textContent, "Capturing");
+assert.strictEqual(recordCore.classList.contains("recording"), true);
+assert.strictEqual(recordCore.classList.contains("armed"), false);
+assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "false");
+
+globalThis.__secretPondTest.state.snapshot.is_recording = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
+assert.strictEqual(recordCore.classList.contains("recording"), false);
+assert.strictEqual(recordCore.classList.contains("armed"), true);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.renderState();
@@ -971,7 +1036,16 @@ assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.startButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, true);
 assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
-assert.strictEqual(elements.recordingBadge.textContent, "Recording");
+assert.strictEqual(recordCore.classList.contains("armed"), false);
+
+globalThis.__secretPondTest.state.recordingStopInFlight = false;
+globalThis.__secretPondTest.state.snapshot.armed = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.recordCoreStatus.textContent, "Safe");
+assert.strictEqual(recordCore.classList.contains("armed"), false);
+assert.strictEqual(recordCore.classList.contains("recording"), false);
+assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "true");
 
 (async () => {{
   const busySpaceEvent = {{
@@ -983,6 +1057,8 @@ assert.strictEqual(elements.recordingBadge.textContent, "Recording");
     }},
   }};
   globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.recordingStopInFlight = true;
+  globalThis.__secretPondTest.state.snapshot.armed = true;
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await globalThis.__secretPondTest.startFromSpace(busySpaceEvent);
   assert.strictEqual(busySpaceEvent.defaultPrevented, true);

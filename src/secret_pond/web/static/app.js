@@ -236,6 +236,7 @@ const renderState = () => {
   const snapshot = state.snapshot;
   if (!snapshot) return;
   const recordingStopBusy = state.recordingStopInFlight;
+  const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy;
 
   $("armedBadge").textContent = snapshot.armed ? "Armed" : "Disarmed";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
@@ -261,6 +262,7 @@ const renderState = () => {
       : snapshot.armed
         ? "Armed"
         : "Safe";
+  document.querySelector(".record-core").classList.toggle("armed", captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
   $("pendingBadge").textContent = hasPendingChanges(snapshot)
     ? "Unsaved audio changes"
@@ -273,6 +275,8 @@ const renderState = () => {
   $("startOutputButton").disabled = snapshot.playback.output_running;
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
   $("restartOutputButton").disabled = !snapshot.playback.output_running;
+  $("armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false");
+  $("disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true");
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
   $("applyButton").disabled = state.applyInFlight || snapshot.is_recording || runtimeConfigChanges;
   $("applyButton").textContent = state.applyInFlight ? "Applying..." : "Apply and Restart";
