@@ -87,6 +87,11 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = True
 
+    def restart(self) -> None:
+        self._require_loaded()
+        self._frame_cursor = 0
+        self._playing = True
+
     def start(self) -> None:
         self._require_loaded()
         self._playing = True

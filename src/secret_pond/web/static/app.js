@@ -195,6 +195,7 @@ const renderState = () => {
   $("stopButton").disabled = !snapshot.is_recording;
   $("startOutputButton").disabled = snapshot.playback.output_running;
   $("stopOutputButton").disabled = !snapshot.playback.output_running;
+  $("restartOutputButton").disabled = !snapshot.playback.output_running;
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
   $("applyButton").disabled = snapshot.is_recording || runtimeConfigChanges;
   $("applyButton").title = snapshot.is_recording
@@ -651,6 +652,9 @@ const control = async (path, options = {}) => {
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
       setRecordStatus("failed", "Recording Failed", error.message);
     }
+    if (path.startsWith("/api/playback/")) {
+      await requestState({ syncDraft: false }).catch(() => {});
+    }
     showError(error.message);
   } finally {
     if (startsStopRequest) {
@@ -809,6 +813,7 @@ const bindEvents = () => {
   $("stopButton").addEventListener("click", () => control("/api/recording/stop"));
   $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
   $("stopOutputButton").addEventListener("click", () => control("/api/playback/stop"));
+  $("restartOutputButton").addEventListener("click", () => control("/api/playback/restart"));
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);

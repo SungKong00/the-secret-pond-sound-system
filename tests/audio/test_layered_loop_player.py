@@ -122,6 +122,29 @@ def test_player_reload_and_restart_loads_new_files_and_preserves_states(tmp_path
     np.testing.assert_allclose(block.samples, np.ones((4, 2)) * (0.4 + expected_voice), atol=1e-6)
 
 
+def test_player_restart_requires_loaded_layers_resets_cursor_and_preserves_states(
+    tmp_path: Path,
+) -> None:
+    player = LayeredLoopPlayer()
+    with pytest.raises(ValueError, match="loaded"):
+        player.restart()
+
+    paths = write_layers(tmp_path, low=0.2, mid=0.2, voice=0.2, frames=8)
+    player.load_rendered_layers(paths)
+    player.set_enabled("mid", False)
+    player.set_realtime_trim("voice", -6.0)
+    player.start()
+    player.next_block(3)
+
+    player.restart()
+
+    states = player.layer_states
+    assert player.is_playing is True
+    assert player.frame_cursor == 0
+    assert states["mid"].enabled is False
+    assert states["voice"].realtime_trim_db == -6.0
+
+
 def test_player_reload_failure_preserves_existing_runtime_state(tmp_path: Path) -> None:
     good_paths = write_layers(tmp_path / "good", low=0.1, mid=0.2, voice=0.3)
     bad_paths = write_layers(tmp_path / "bad", low=0.4, mid=0.5, voice=0.6)

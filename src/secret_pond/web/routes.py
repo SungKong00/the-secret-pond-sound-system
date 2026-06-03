@@ -119,6 +119,31 @@ def stop_playback(request: Request) -> dict[str, Any]:
         return {"state": state_payload(runtime)}
 
 
+@router.post("/playback/restart")
+def restart_playback(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        if not runtime.output.is_running:
+            raise HTTPException(status_code=409, detail="output must be running before restart")
+
+        player_snapshot = runtime.player.snapshot()
+        try:
+            runtime.output.stop()
+            runtime.player.restart()
+            runtime.output.start()
+        except (OSError, RuntimeError, ValueError) as exc:
+            runtime.player.restore(player_snapshot)
+            detail = str(exc)
+            try:
+                if not runtime.output.is_running:
+                    runtime.output.start()
+            except Exception as resume_exc:
+                runtime.player.restore(player_snapshot)
+                detail = f"{detail}; rollback resume failed: {resume_exc}"
+            raise HTTPException(status_code=409, detail=detail) from exc
+        return {"state": state_payload(runtime)}
+
+
 @router.get("/settings")
 def get_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)

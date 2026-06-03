@@ -10,6 +10,8 @@ from secret_pond.app import create_app
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
 from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.output import SoundDeviceOutput
+from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import FakeRecorder
 from secret_pond.config import (
     AppSettings,
@@ -19,7 +21,7 @@ from secret_pond.config import (
     VoiceStackSettings,
 )
 from secret_pond.paths import ProjectPaths
-from secret_pond.services.runtime import build_runtime
+from secret_pond.services.runtime import PlaybackOutput, build_runtime
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
@@ -81,6 +83,35 @@ class FakeOutput:
         if self.fail_stop is not None:
             self.latest_error = str(self.fail_stop)
             raise self.fail_stop
+
+
+class RestartFailureStream:
+    def __init__(self, *, fail_start: bool = False) -> None:
+        self.fail_start = fail_start
+        self.started = False
+        self.stopped = False
+        self.closed = False
+
+    def start(self) -> None:
+        if self.fail_start:
+            raise OSError("stream start failed")
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class RestartFailureStreamFactory:
+    def __init__(self, fail_start_on_calls: set[int]) -> None:
+        self.fail_start_on_calls = fail_start_on_calls
+        self.calls = 0
+
+    def __call__(self, **_kwargs) -> RestartFailureStream:
+        self.calls += 1
+        return RestartFailureStream(fail_start=self.calls in self.fail_start_on_calls)
 
 
 class LockAwareRenderer:
@@ -164,7 +195,8 @@ def create_test_client(
     tmp_path: Path,
     *,
     with_sources: bool = False,
-    output: FakeOutput | None = None,
+    player: LayeredLoopPlayer | None = None,
+    output: PlaybackOutput | None = None,
     settings: AppSettings | None = None,
     device_registry=None,
 ) -> TestClient:
@@ -176,6 +208,7 @@ def create_test_client(
     runtime = build_runtime(
         tmp_path,
         recorder=FakeRecorder(recorder_take()),
+        player=player,
         output=output,
         device_registry=device_registry,
     )
@@ -310,6 +343,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "No pending changes" not in response.text
     assert 'id="startOutputButton"' in response.text
     assert 'id="stopOutputButton"' in response.text
+    assert 'id="restartOutputButton"' in response.text
+    assert 'id="restartOutputButton" class="button" type="button" disabled' in response.text
+    assert 'aria-label="runtime controls"' in response.text
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
@@ -363,6 +399,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Devices OK" in script.text
     assert "Device Warning" in script.text
     assert "Devices Offline" in script.text
+    assert '"restartOutputButton").disabled = !snapshot.playback.output_running' in script.text
+    assert 'control("/api/playback/restart")' in script.text
     assert 'socket.addEventListener("message", (event) => {' in script.text
     assert (
         'socket.addEventListener("message", (event) => {\n    try {\n      applyState'
@@ -383,6 +421,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "recordingStopInFlight" in script.text
     assert 'path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight' in script.text
     assert 'path === "/api/recording/stop" && !state.snapshot?.is_recording' in script.text
+    assert 'path.startsWith("/api/playback/")' in script.text
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     assert (
         'path === "/api/input/disarm" && !state.snapshot?.is_recording && '
         "!state.snapshot?.armed"
@@ -740,6 +780,84 @@ def test_api_playback_start_and_stop_controls_output_after_apply(tmp_path: Path)
     assert stop_response.status_code == 200
     assert stop_response.json()["state"]["playback"]["output_running"] is False
     assert output.stop_calls == 1
+
+
+def test_api_playback_restart_requires_running_output(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.post("/api/settings/apply-and-restart")
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 409
+    assert "running" in response.json()["detail"]
+
+
+def test_api_playback_restart_resets_frame_cursor(tmp_path: Path) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.app.state.runtime.player.next_block(10)
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"]["playback"]["frame_cursor"] == 0
+    assert payload["state"]["playback"]["is_playing"] is True
+    assert payload["state"]["playback"]["output_running"] is True
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+
+
+def test_api_playback_restart_restores_running_output_after_start_failure(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_start=OSError("restart failed"), fail_start_on_call=2)
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    runtime = client.app.state.runtime
+    runtime.player.next_block(10)
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 409
+    assert "restart failed" in response.json()["detail"]
+    assert output.stop_calls == 1
+    assert output.start_calls == 3
+    state = client.get("/api/state").json()
+    assert state["playback"]["frame_cursor"] == 10
+    assert state["playback"]["is_playing"] is True
+    assert state["playback"]["output_running"] is True
+
+
+def test_api_playback_restart_restores_player_snapshot_when_resume_fails(
+    tmp_path: Path,
+) -> None:
+    player = LayeredLoopPlayer()
+    stream_factory = RestartFailureStreamFactory(fail_start_on_calls={2, 3})
+    output = SoundDeviceOutput(
+        sample_rate=api_settings().audio.sample_rate,
+        channels=api_settings().audio.channels,
+        player=player,
+        stream_factory=stream_factory,
+    )
+    client = create_test_client(tmp_path, with_sources=True, player=player, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    runtime = client.app.state.runtime
+    runtime.player.next_block(10)
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 409
+    assert "stream start failed" in response.json()["detail"]
+    assert "rollback resume failed" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["playback"]["frame_cursor"] == 10
+    assert state["playback"]["is_playing"] is True
+    assert state["playback"]["output_running"] is False
 
 
 def test_api_settings_apply_and_restart_restarts_running_output(
