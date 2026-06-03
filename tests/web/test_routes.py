@@ -671,12 +671,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'recordingStopBusy\n    ? "Processing"' in render_state_body
     assert "applyInFlight: false" in script.text
     assert (
-        '"applyButton").disabled = state.applyInFlight || snapshot.is_recording || '
-        "runtimeConfigChanges"
-        in script.text
+        '"applyButton").disabled =\n    state.applyInFlight || recordingStopBusy || '
+        "snapshot.is_recording || runtimeConfigChanges"
+        in render_state_body
     )
     assert '"applyButton").textContent = state.applyInFlight' in script.text
     assert "Applying..." in script.text
+    assert "Wait for recording processing to finish." in script.text
     assert "Rendering and reloading staged audio settings." in script.text
     assert '"resetButton").disabled = state.applyInFlight || snapshot.is_recording' in script.text
     assert "Stop recording before resetting draft settings." in script.text
@@ -1023,11 +1024,19 @@ assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
 assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "false");
 
+globalThis.__secretPondTest.state.recordingStopInFlight = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
+
+globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(recordCore.classList.contains("armed"), true);
+assert.strictEqual(elements.applyButton.disabled, false);
+assert.strictEqual(elements.applyButton.title, "");
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.renderState();
@@ -1035,6 +1044,8 @@ assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.startButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, true);
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
 assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 
@@ -1046,6 +1057,8 @@ assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(elements.applyButton.disabled, false);
+assert.strictEqual(elements.applyButton.title, "");
 
 (async () => {{
   const busySpaceEvent = {{

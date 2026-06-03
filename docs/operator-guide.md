@@ -100,7 +100,7 @@ The header shows `Error None` during normal operation and `Error Active` wheneve
 
 Sliders edit draft settings first. Draft changes are shown with `Unsaved audio changes`. Layer rows also show Active or Pending Draft values.
 
-Use `Apply and Restart` to render the current draft audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
+Use `Apply and Restart` to render the current draft audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
 
 The Voice Treatment panel has four non-technical presets:
 

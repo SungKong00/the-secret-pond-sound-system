@@ -278,7 +278,8 @@ const renderState = () => {
   $("armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false");
   $("disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true");
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
-  $("applyButton").disabled = state.applyInFlight || snapshot.is_recording || runtimeConfigChanges;
+  $("applyButton").disabled =
+    state.applyInFlight || recordingStopBusy || snapshot.is_recording || runtimeConfigChanges;
   $("applyButton").textContent = state.applyInFlight ? "Applying..." : "Apply and Restart";
   $("resetButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetButton").title = snapshot.is_recording
@@ -288,15 +289,17 @@ const renderState = () => {
   $("resetParticipantsButton").title = snapshot.is_recording
     ? "Stop recording before resetting participant count."
     : "";
-  $("applyButton").title = snapshot.is_recording
-    ? "Stop recording before applying staged settings."
-    : state.applyInFlight
-      ? "Rendering and reloading staged audio settings."
-      : runtimeConfigChanges
-      ? "Restart the app to use staged device changes."
-      : snapshot.playback.output_running
-        ? "Will stop and restart output while applying staged audio settings."
-        : "";
+  $("applyButton").title = recordingStopBusy
+    ? "Wait for recording processing to finish."
+    : snapshot.is_recording
+      ? "Stop recording before applying staged settings."
+      : state.applyInFlight
+        ? "Rendering and reloading staged audio settings."
+        : runtimeConfigChanges
+          ? "Restart the app to use staged device changes."
+          : snapshot.playback.output_running
+            ? "Will stop and restart output while applying staged audio settings."
+            : "";
   renderErrors();
 };
 
