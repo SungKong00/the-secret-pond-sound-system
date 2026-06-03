@@ -450,7 +450,9 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     assert "Reset Draft" not in primary_actions
     assert "<summary>Maintenance</summary>" in maintenance_panel
     assert 'id="resetButton"' in maintenance_panel
+    assert 'id="resetParticipantsButton"' in maintenance_panel
     assert "Reset Draft" in maintenance_panel
+    assert "Reset Participants" in maintenance_panel
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:
@@ -567,6 +569,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '"applyButton").disabled = snapshot.is_recording || runtimeConfigChanges' in script.text
     assert '"resetButton").disabled = snapshot.is_recording' in script.text
     assert "Stop recording before resetting draft settings." in script.text
+    assert '"resetParticipantsButton").disabled = snapshot.is_recording' in script.text
+    assert "Stop recording before resetting participant count." in script.text
     assert "Will stop and restart output while applying staged audio settings." in script.text
     assert (
         "snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate"
@@ -590,6 +594,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst changeDraftDevice",
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_draft_body
+    assert "const resetParticipants = async () => {" in script.text
+    assert 'const payload = await api("/api/participants/reset"' in script.text
+    reset_participants_body = slice_between(
+        script.text,
+        "const resetParticipants = async () => {",
+        "};\n\nconst changeDraftDevice",
+    )
+    assert "applyState(payload.state, { syncDraft: false })" in reset_participants_body
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
     assert "showError(error.message)" in script.text
 
 
@@ -819,6 +832,38 @@ def test_api_settings_reset_is_blocked_while_recording(tmp_path: Path) -> None:
     assert state["is_recording"] is True
     assert state["settings"]["active"]["layers"]["voice"]["volume_db"] == -18.0
     assert state["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
+
+
+def test_api_participants_reset_zeroes_count(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    runtime = client.app.state.runtime
+    runtime.participants.increment()
+    runtime.participants.increment()
+
+    response = client.post("/api/participants/reset")
+
+    assert response.status_code == 200
+    state = response.json()["state"]
+    assert state["participant_count"] == 0
+    assert state["settings"]["draft"]["layers"]["voice"]["volume_db"] == -18.0
+    assert runtime.participants.get_count() == 0
+
+
+def test_api_participants_reset_is_blocked_while_recording(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    runtime = client.app.state.runtime
+    runtime.participants.increment()
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    response = client.post("/api/participants/reset")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "cannot reset participant count while recording"
+    state = client.get("/api/state").json()
+    assert state["is_recording"] is True
+    assert state["participant_count"] == 1
+    assert runtime.participants.get_count() == 1
 
 
 def test_api_state_loads_settings_inside_runtime_lock(tmp_path: Path) -> None:

@@ -245,6 +245,10 @@ const renderState = () => {
   $("resetButton").title = snapshot.is_recording
     ? "Stop recording before resetting draft settings."
     : "";
+  $("resetParticipantsButton").disabled = snapshot.is_recording;
+  $("resetParticipantsButton").title = snapshot.is_recording
+    ? "Stop recording before resetting participant count."
+    : "";
   $("applyButton").title = snapshot.is_recording
     ? "Stop recording before applying staged settings."
     : runtimeConfigChanges
@@ -765,6 +769,17 @@ const resetDraft = async () => {
   }
 };
 
+const resetParticipants = async () => {
+  try {
+    const payload = await api("/api/participants/reset", { method: "POST" });
+    applyState(payload.state, { syncDraft: false });
+    await requestDiagnostics();
+  } catch (error) {
+    await requestState({ syncDraft: false }).catch(() => {});
+    showError(error.message);
+  }
+};
+
 const changeDraftDevice = (key, value) => {
   if (!state.draft) return;
   state.draft.devices[key] = value || null;
@@ -892,6 +907,7 @@ const bindEvents = () => {
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);
+  $("resetParticipantsButton").addEventListener("click", resetParticipants);
   document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
     button.addEventListener("click", () => applyRecordingPreset(button.dataset.preset));
   });

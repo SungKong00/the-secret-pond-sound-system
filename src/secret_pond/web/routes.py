@@ -178,6 +178,25 @@ def reset_draft_settings(request: Request) -> dict[str, Any]:
         return {"settings": settings_payload(runtime)}
 
 
+@router.post("/participants/reset")
+def reset_participant_count(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        if runtime.controller.is_recording:
+            raise HTTPException(
+                status_code=409,
+                detail="cannot reset participant count while recording",
+            )
+        previous_count = runtime.participants.get_count()
+        participant_count = runtime.participants.reset()
+        _log_event_best_effort(
+            runtime,
+            "participants.reset",
+            {"previous_count": previous_count, "count": participant_count},
+        )
+        return {"state": state_payload(runtime)}
+
+
 @router.post("/settings/apply-and-restart")
 def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -247,6 +266,17 @@ def _run_playback_control(fn):
         return fn()
     except (RuntimeError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _log_event_best_effort(
+    runtime: SecretPondRuntime,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    try:
+        runtime.logger.log_event(event_type, payload)
+    except Exception:
+        return
 
 
 def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:

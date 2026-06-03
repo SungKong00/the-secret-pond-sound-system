@@ -108,6 +108,8 @@ Preset buttons update the recording-treatment draft. They still require the norm
 
 Use `Maintenance` > `Reset Draft` only when you want to discard unsaved draft settings. Stop recording before using Reset Draft. Reset Draft does not render audio, apply settings, or change the currently active playback settings.
 
+Use `Maintenance` > `Reset Participants` only when intentionally zeroing the show participant counter. Stop recording before using Reset Participants. Reset Participants does not delete logs, voice-stack files, rendered audio, or settings.
+
 ## Error Recovery
 
 - If prepared files are missing, add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
