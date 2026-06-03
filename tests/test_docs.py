@@ -55,6 +55,8 @@ def test_operator_guide_covers_required_operations() -> None:
         "press `Apply and Restart` once before `Start Output`",
         "verify `secret-pond doctor` and dashboard warnings",
         "does not prove microphone permission",
+        "Sync Live",
+        "Sync Polling",
     ]
     for phrase in required:
         assert phrase in guide
@@ -137,3 +139,4 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "목소리 렌더링까지 성공한 뒤에만 증가" in request
     assert "녹음 제어 실패 후에도 백엔드 상태를 다시 불러오도록 시도해" in request
     assert "녹음 종료 처리가 진행 중일 때" in request
+    assert "상태 동기화 배지" in request

@@ -91,6 +91,8 @@ Use `Arm` before recording. Spacebar recording only works while Armed.
 
 If browser blur happens, the tab becomes hidden, or the UI disconnects while recording, the app stops the active recording path. Browser blur and hidden-tab handling happen in the UI; WebSocket disconnect handling happens in the backend.
 
+The header shows `Sync Live` when WebSocket state updates are active. If it shows `Sync Polling`, the dashboard is using HTTP fallback; recording controls still work, but check the status strip after the connection recovers.
+
 ## Settings
 
 Sliders edit draft settings first. Draft changes are shown with `Unsaved audio changes`. Layer rows also show Active or Pending Draft values.

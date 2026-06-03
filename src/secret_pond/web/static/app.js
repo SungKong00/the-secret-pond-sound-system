@@ -204,7 +204,24 @@ const applyState = (payload, options = {}) => {
   renderSystemStatus();
 };
 
+const renderSyncBadge = () => {
+  if (!("WebSocket" in window)) {
+    $("syncBadge").textContent = "Sync Polling";
+    $("syncBadge").className = "status-pill muted";
+  } else if (state.websocketConnected) {
+    $("syncBadge").textContent = "Sync Live";
+    $("syncBadge").className = "status-pill safe";
+  } else if (state.stateSocket) {
+    $("syncBadge").textContent = "Sync Connecting";
+    $("syncBadge").className = "status-pill muted";
+  } else {
+    $("syncBadge").textContent = "Sync Polling";
+    $("syncBadge").className = "status-pill muted";
+  }
+};
+
 const renderState = () => {
+  renderSyncBadge();
   const snapshot = state.snapshot;
   if (!snapshot) return;
   const recordingStopBusy = state.recordingStopInFlight;
@@ -860,13 +877,19 @@ const stateSocketUrl = () => {
 };
 
 const connectStateSocket = () => {
-  if (!("WebSocket" in window) || state.stateSocket) return;
+  if (!("WebSocket" in window)) {
+    renderSyncBadge();
+    return;
+  }
+  if (state.stateSocket) return;
 
   const socket = new WebSocket(stateSocketUrl());
   state.stateSocket = socket;
+  renderSyncBadge();
   socket.addEventListener("open", () => {
     state.websocketConnected = true;
     clearTimeout(state.websocketReconnectTimer);
+    renderSyncBadge();
   });
   socket.addEventListener("message", (event) => {
     try {
@@ -879,6 +902,7 @@ const connectStateSocket = () => {
     if (state.stateSocket !== socket) return;
     state.stateSocket = null;
     state.websocketConnected = false;
+    renderSyncBadge();
     state.websocketReconnectTimer = setTimeout(connectStateSocket, 1500);
   });
   socket.addEventListener("error", () => {

@@ -425,6 +425,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="modeBadge"' in response.text
     assert 'id="lastEventBadge"' in response.text
     assert 'id="deviceHealthBadge"' in response.text
+    assert 'id="syncBadge"' in response.text
     assert "No unsaved changes" in response.text
     assert "No pending changes" not in response.text
     assert 'id="startOutputButton"' in response.text
@@ -519,6 +520,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Last Event None" in script.text
     assert "Last Event Unavailable" in script.text
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
+    assert "renderSyncBadge" in script.text
+    assert "Sync Live" in script.text
+    assert "Sync Connecting" in script.text
+    assert "Sync Polling" in script.text
+    assert '"syncBadge").className = "status-pill safe"' in script.text
+    assert '"syncBadge").className = "status-pill muted"' in script.text
+    assert '!("WebSocket" in window)' in script.text
+    assert "renderSyncBadge();\n  const snapshot = state.snapshot;" in script.text
     assert "renderDeviceHealthBadge" in script.text
     assert "Devices Checking" in script.text
     assert "Devices OK" in script.text
@@ -750,7 +759,11 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
     client = create_test_client(tmp_path)
     script = client.get("/static/app.js").text.replace(
         "\nbindEvents();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        "\nglobalThis.__secretPondTest = { state, renderState, control, startFromSpace };\n",
+        (
+            "\nglobalThis.__secretPondTest = "
+            "{ state, renderState, renderSyncBadge, "
+            "connectStateSocket, control, startFromSpace };\n"
+        ),
     )
     harness = f"""
 const assert = require("assert");
@@ -799,7 +812,80 @@ globalThis.window = {{
   location: {{ protocol: "http:", host: "127.0.0.1:8000" }},
 }};
 globalThis.requestAnimationFrame = () => {{}};
+let scheduledReconnect = null;
+globalThis.setTimeout = (callback, delay) => {{
+  scheduledReconnect = {{ callback, delay }};
+  return scheduledReconnect;
+}};
+globalThis.clearTimeout = () => {{}};
 vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+delete window.WebSocket;
+delete globalThis.WebSocket;
+globalThis.__secretPondTest.renderSyncBadge();
+assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(elements.syncBadge.className, "status-pill muted");
+
+window.WebSocket = function FakeWebSocket() {{}};
+globalThis.__secretPondTest.state.stateSocket = {{}};
+globalThis.__secretPondTest.state.websocketConnected = false;
+globalThis.__secretPondTest.renderSyncBadge();
+assert.strictEqual(elements.syncBadge.textContent, "Sync Connecting");
+assert.strictEqual(elements.syncBadge.className, "status-pill muted");
+
+globalThis.__secretPondTest.state.websocketConnected = true;
+globalThis.__secretPondTest.renderSyncBadge();
+assert.strictEqual(elements.syncBadge.textContent, "Sync Live");
+assert.strictEqual(elements.syncBadge.className, "status-pill safe");
+
+globalThis.__secretPondTest.state.stateSocket = null;
+globalThis.__secretPondTest.state.websocketConnected = false;
+globalThis.__secretPondTest.renderSyncBadge();
+assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+
+class FakeStateSocket {{
+  static instances = [];
+
+  constructor(url) {{
+    this.url = url;
+    this.handlers = {{}};
+    FakeStateSocket.instances.push(this);
+  }}
+
+  addEventListener(eventName, handler) {{
+    this.handlers[eventName] = handler;
+  }}
+
+  emit(eventName, payload = {{}}) {{
+    this.handlers[eventName]?.(payload);
+  }}
+
+  close() {{
+    this.emit("close");
+  }}
+}}
+window.WebSocket = FakeStateSocket;
+globalThis.WebSocket = FakeStateSocket;
+globalThis.__secretPondTest.state.snapshot = null;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+
+globalThis.__secretPondTest.connectStateSocket();
+const connectedSocket = FakeStateSocket.instances[0];
+assert.strictEqual(connectedSocket.url, "ws://127.0.0.1:8000/ws/state");
+assert.strictEqual(globalThis.__secretPondTest.state.stateSocket, connectedSocket);
+assert.strictEqual(elements.syncBadge.textContent, "Sync Connecting");
+
+connectedSocket.emit("open");
+assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, true);
+assert.strictEqual(elements.syncBadge.textContent, "Sync Live");
+assert.strictEqual(elements.syncBadge.className, "status-pill safe");
+
+connectedSocket.emit("close");
+assert.strictEqual(globalThis.__secretPondTest.state.stateSocket, null);
+assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, false);
+assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(scheduledReconnect.delay, 1500);
 
 const activeSettings = {{
   voice_stack: {{ mode: "live_ephemeral" }},

@@ -319,6 +319,7 @@
 
 - 운영자 대시보드는 WebSocket으로 상태를 받아오되, 연결이 불가능하면 기존 HTTP polling으로 되돌아갑니다.
 - WebSocket 연결이 끊길 때 활성 녹음이 있으면 `stop_recording`과 같은 방식으로 종료해, 충분히 긴 녹음은 정상 스택에 반영합니다.
+- 헤더에 상태 동기화 배지를 표시해 WebSocket 실시간 동기화(`Sync Live`)와 HTTP polling 대체 동기화(`Sync Polling`) 상태를 운영자가 구분할 수 있게 합니다.
 
 11) 현재 운영자 UI와 문서화 반영
 
