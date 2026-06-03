@@ -32,6 +32,11 @@ const layerLabels = {
   voice: "Voice Stack",
 };
 
+const modeLabels = {
+  "live_ephemeral": "Mode Live",
+  "test_library": "Mode Test",
+};
+
 const layerControlDefs = [
   ["volume_db", "Volume", -60, 6, 0.5, " dB"],
   ["eq.low_gain_db", "Low EQ", -18, 12, 0.5, " dB"],
@@ -161,6 +166,7 @@ const renderState = () => {
   $("recordingBadge").className = `status-pill ${snapshot.is_recording ? "hot" : ""}`;
   $("outputBadge").textContent = snapshot.playback.output_running ? "Output Live" : "Output Off";
   $("outputBadge").className = `status-pill ${snapshot.playback.output_running ? "safe" : "muted"}`;
+  renderModeBadge(snapshot.settings.active.voice_stack.mode);
   $("participantCount").textContent = snapshot.participant_count;
   $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
   $("remainingTime").textContent =
@@ -187,6 +193,11 @@ const renderState = () => {
         ? "Will stop and restart output while applying staged audio settings."
         : "";
   renderErrors();
+};
+
+const renderModeBadge = (mode) => {
+  $("modeBadge").textContent = modeLabels[mode] || "Mode Unknown";
+  $("modeBadge").className = `status-pill ${mode === "live_ephemeral" ? "safe" : "muted"}`;
 };
 
 const renderErrors = () => {
