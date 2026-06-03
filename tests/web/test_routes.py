@@ -67,6 +67,34 @@ class FakeOutput:
         self.is_running = False
 
 
+class LockAwareRenderer:
+    def __init__(self, delegate, lock) -> None:
+        self.delegate = delegate
+        self.lock = lock
+        self.lock_owned_during_render = False
+
+    def render_layer(self, layer_id, settings):
+        return self.delegate.render_layer(layer_id, settings)
+
+    def render_all(self, settings):
+        self.lock_owned_during_render = self.lock._is_owned()
+        return self.delegate.render_all(settings)
+
+
+class LockAwareSettingsStore:
+    def __init__(self, delegate, lock) -> None:
+        self.delegate = delegate
+        self.lock = lock
+        self.lock_owned_during_load = False
+
+    def load(self):
+        self.lock_owned_during_load = self.lock._is_owned()
+        return self.delegate.load()
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
 class FailingDeviceRegistry:
     def list_input_devices(self):
         raise OSError("device stack unavailable")
@@ -398,6 +426,35 @@ def test_api_settings_reset_discards_draft_changes(tmp_path: Path) -> None:
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -18.0
 
 
+def test_api_state_loads_settings_inside_runtime_lock(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    runtime = client.app.state.runtime
+    assert hasattr(runtime, "operation_lock")
+    settings_store = LockAwareSettingsStore(runtime.settings_store, runtime.operation_lock)
+    runtime.settings_store = settings_store
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    assert settings_store.lock_owned_during_load is True
+
+
+def test_api_settings_apply_and_restart_renders_inside_runtime_lock(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    assert hasattr(runtime, "operation_lock")
+    renderer = LockAwareRenderer(runtime.renderer, runtime.operation_lock)
+    runtime.renderer = renderer
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    assert renderer.lock_owned_during_render is True
+
+
 def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     tmp_path: Path,
 ) -> None:
@@ -479,6 +536,23 @@ def test_api_settings_apply_and_restart_is_blocked_while_output_is_running(
 
     assert response.status_code == 409
     assert "playback" in response.json()["detail"]
+
+
+def test_api_settings_apply_rejects_runtime_config_changes_without_touching_running_output(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    output.is_running = True
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.put("/api/settings/draft", json=draft_with_sample_rate(16_000))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert output.stop_calls == 0
+    assert output.start_calls == 0
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000
 
 
 def test_api_settings_apply_rejects_output_format_changes_without_changing_active(

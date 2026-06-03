@@ -16,51 +16,58 @@ router = APIRouter(prefix="/api")
 
 @router.get("/state")
 def get_state(request: Request) -> dict[str, Any]:
-    return state_payload(_runtime(request))
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        return state_payload(runtime)
 
 
 @router.post("/input/arm")
 def arm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    runtime.controller.arm_input()
-    return {"state": state_payload(runtime)}
+    with runtime.operation_lock:
+        runtime.controller.arm_input()
+        return {"state": state_payload(runtime)}
 
 
 @router.post("/input/disarm")
 def disarm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    outcome = _run_control(runtime.controller.disarm_input)
-    return {
-        "outcome": outcome_payload(outcome),
-        "state": state_payload(runtime),
-    }
+    with runtime.operation_lock:
+        outcome = _run_control(runtime.controller.disarm_input)
+        return {
+            "outcome": outcome_payload(outcome),
+            "state": state_payload(runtime),
+        }
 
 
 @router.post("/recording/start")
 def start_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    _run_control(runtime.controller.start_recording)
-    return {"state": state_payload(runtime)}
+    with runtime.operation_lock:
+        _run_control(runtime.controller.start_recording)
+        return {"state": state_payload(runtime)}
 
 
 @router.post("/recording/stop")
 def stop_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    outcome = _run_control(runtime.controller.stop_recording)
-    return {
-        "outcome": outcome_payload(outcome),
-        "state": state_payload(runtime),
-    }
+    with runtime.operation_lock:
+        outcome = _run_control(runtime.controller.stop_recording)
+        return {
+            "outcome": outcome_payload(outcome),
+            "state": state_payload(runtime),
+        }
 
 
 @router.post("/recording/poll-auto-stop")
 def poll_auto_stop(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    outcome = _run_control(runtime.controller.poll_auto_stop)
-    return {
-        "outcome": outcome_payload(outcome),
-        "state": state_payload(runtime),
-    }
+    with runtime.operation_lock:
+        outcome = _run_control(runtime.controller.poll_auto_stop)
+        return {
+            "outcome": outcome_payload(outcome),
+            "state": state_payload(runtime),
+        }
 
 
 @router.get("/devices")
@@ -90,20 +97,24 @@ def get_devices(request: Request) -> dict[str, Any]:
 @router.post("/playback/start")
 def start_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    _run_playback_control(runtime.output.start)
-    return {"state": state_payload(runtime)}
+    with runtime.operation_lock:
+        _run_playback_control(runtime.output.start)
+        return {"state": state_payload(runtime)}
 
 
 @router.post("/playback/stop")
 def stop_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    _run_playback_control(runtime.output.stop)
-    return {"state": state_payload(runtime)}
+    with runtime.operation_lock:
+        _run_playback_control(runtime.output.stop)
+        return {"state": state_payload(runtime)}
 
 
 @router.get("/settings")
 def get_settings(request: Request) -> dict[str, Any]:
-    return {"settings": settings_payload(_runtime(request))}
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        return {"settings": settings_payload(runtime)}
 
 
 @router.put("/settings/draft")
@@ -113,55 +124,58 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
         draft = AppSettings.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
-    state = runtime.settings_store.set_draft(draft)
-    runtime.settings_state = state
-    return {"settings": settings_payload(runtime)}
+    with runtime.operation_lock:
+        state = runtime.settings_store.set_draft(draft)
+        runtime.settings_state = state
+        return {"settings": settings_payload(runtime)}
 
 
 @router.post("/settings/reset")
 def reset_draft_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    state = runtime.settings_store.reset_draft()
-    runtime.settings_state = state
-    return {"settings": settings_payload(runtime)}
+    with runtime.operation_lock:
+        state = runtime.settings_store.reset_draft()
+        runtime.settings_state = state
+        return {"settings": settings_payload(runtime)}
 
 
 @router.post("/settings/apply-and-restart")
 def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    if runtime.controller.is_recording:
-        raise HTTPException(status_code=409, detail="cannot apply settings while recording")
-    if runtime.output.is_running:
-        raise HTTPException(
-            status_code=409,
-            detail="cannot apply settings while playback is running",
-        )
+    with runtime.operation_lock:
+        if runtime.controller.is_recording:
+            raise HTTPException(status_code=409, detail="cannot apply settings while recording")
+        if runtime.output.is_running:
+            raise HTTPException(
+                status_code=409,
+                detail="cannot apply settings while playback is running",
+            )
 
-    current = runtime.settings_store.load()
-    draft = current.draft
-    if _runtime_configuration_changed(current.active, draft):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "audio output format and device changes require an app restart in this MVP"
-            ),
-        )
+        current = runtime.settings_store.load()
+        draft = current.draft
+        if _runtime_configuration_changed(current.active, draft):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "audio output format and device changes require an app restart in this MVP"
+                ),
+            )
 
-    try:
-        runtime.renderer.render_all(draft)
-        runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except (RuntimeError, OSError, ValueError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        try:
+            runtime.renderer.render_all(draft)
+            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
-    runtime.apply_settings_state(state)
-    _apply_player_layer_settings(runtime, state.active)
-    return {
-        "settings": settings_payload(runtime),
-        "state": state_payload(runtime),
-    }
+        state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
+        runtime.apply_settings_state(state)
+        _apply_player_layer_settings(runtime, state.active)
+        return {
+            "settings": settings_payload(runtime),
+            "state": state_payload(runtime),
+        }
 
 
 def _runtime(request: Request) -> SecretPondRuntime:

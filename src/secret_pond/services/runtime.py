@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -50,6 +51,7 @@ class SecretPondRuntime:
     controller: RecordingController
     player: LayeredLoopPlayer
     output: PlaybackOutput
+    operation_lock: Any = field(default_factory=threading.RLock)
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.update_settings(settings_state.active)

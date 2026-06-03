@@ -24,7 +24,7 @@ async def state_socket(websocket: WebSocket) -> None:
     try:
         while True:
             await _poll_auto_stop_best_effort(runtime)
-            payload = await asyncio.to_thread(state_payload, runtime)
+            payload = await asyncio.to_thread(_locked_state_payload, runtime)
             await websocket.send_json(payload)
             try:
                 await asyncio.wait_for(
@@ -42,16 +42,31 @@ def _runtime(websocket: WebSocket) -> SecretPondRuntime | None:
 
 
 async def _poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
+    await asyncio.to_thread(_locked_poll_auto_stop_best_effort, runtime)
+
+
+def _locked_poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
     try:
-        await asyncio.to_thread(runtime.controller.poll_auto_stop)
+        with runtime.operation_lock:
+            runtime.controller.poll_auto_stop()
     except RuntimeError:
         return
 
 
 async def _stop_recording_if_active(runtime: SecretPondRuntime) -> None:
-    if not runtime.controller.is_recording:
-        return
+    await asyncio.to_thread(_locked_stop_recording_if_active, runtime)
+
+
+def _locked_stop_recording_if_active(runtime: SecretPondRuntime) -> None:
     try:
-        await asyncio.to_thread(runtime.controller.stop_recording)
+        with runtime.operation_lock:
+            if not runtime.controller.is_recording:
+                return
+            runtime.controller.stop_recording()
     except RuntimeError:
         return
+
+
+def _locked_state_payload(runtime: SecretPondRuntime) -> dict:
+    with runtime.operation_lock:
+        return state_payload(runtime)
