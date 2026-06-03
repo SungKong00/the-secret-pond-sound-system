@@ -40,6 +40,8 @@ secret-pond serve
 - 대시보드 System 패널: 준비 음원 파일 상태, 선택된 입출력 장치, 최근 JSONL 이벤트 요약
 - WebSocket 기반 상태 push와 연결 종료 시 활성 녹음 정지
 - 출력 중 staged 설정을 적용할 때 렌더/플레이어/출력을 롤백 가능한 순서로 재시작
+- 운영자 UI 상태 보강: `Unsaved audio changes`, 레이어 Active/Pending Draft, 녹음 min/max duration, `Restart Output`
+- Voice Treatment 프리셋: Soft, Misty, Dense, Clearer Voice
 
 아직 구현하지 않은 범위:
 
@@ -48,6 +50,8 @@ secret-pond serve
 
 ## 운영 순서
 
+자세한 운영 절차는 `docs/operator-guide.md`, 점검 목록은 `docs/audio-setup-checklist.md`를 확인합니다.
+
 1. `data/sources/low.wav`, `data/sources/mid.wav`를 준비합니다.
 2. `secret-pond doctor`로 장치와 의존성을 확인합니다.
 3. `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
@@ -55,7 +59,8 @@ secret-pond serve
 5. 웹 대시보드에서 필요한 EQ/볼륨을 조정합니다.
 6. `Apply and Restart`를 눌러 3개 레이어 렌더를 생성하고 player에 로드합니다.
 7. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.
-8. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
+8. 필요하면 `Restart Output`으로 현재 로드된 재생을 처음부터 다시 시작합니다.
+9. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
 
 현재 MVP 제약:
 
