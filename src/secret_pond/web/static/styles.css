@@ -181,9 +181,8 @@ body::before {
   grid-template-columns:
     minmax(240px, 0.72fr) minmax(260px, 0.78fr) minmax(340px, 1.2fr)
     minmax(280px, 0.86fr);
-  grid-template-areas:
-    "record playback mixer settings"
-    "record system mixer settings";
+  grid-template-areas: "record ops mixer settings";
+  align-items: start;
   gap: 14px;
   margin-top: 14px;
 }
@@ -210,24 +209,24 @@ body::before {
   min-height: 520px;
 }
 
-.playback-panel {
-  grid-area: playback;
-}
-
+.ops-stack-panel,
 .layer-stack-panel {
   display: grid;
-  grid-area: mixer;
   gap: 14px;
   align-content: start;
   min-width: 0;
 }
 
-.settings-panel {
-  grid-area: settings;
+.ops-stack-panel {
+  grid-area: ops;
 }
 
-.system-panel {
-  grid-area: system;
+.layer-stack-panel {
+  grid-area: mixer;
+}
+
+.settings-panel {
+  grid-area: settings;
 }
 
 .record-orbit {
@@ -739,6 +738,7 @@ input[type="checkbox"] {
   }
 
   .record-panel,
+  .ops-stack-panel,
   .playback-panel,
   .layer-stack-panel,
   .mixer-panel,

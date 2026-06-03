@@ -451,11 +451,23 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "Restart Output" not in top_actions
     assert 'class="panel playback-panel"' in response.text
     assert 'aria-labelledby="playbackPanelTitle"' in response.text
-    playback_panel = slice_between(
+    assert 'class="ops-stack-panel"' in response.text
+    ops_stack = slice_between(
         response.text,
-        '<section class="panel playback-panel"',
-        '<section class="panel mixer-panel"',
+        '<div class="ops-stack-panel">',
+        '<div class="layer-stack-panel">',
     )
+    playback_panel = slice_between(
+        ops_stack,
+        '<section class="panel playback-panel"',
+        '<section class="panel system-panel"',
+    )
+    system_panel = slice_between(
+        ops_stack,
+        '<section class="panel system-panel"',
+        "</section>",
+    )
+    assert ops_stack.index("Playback") < ops_stack.index("System")
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
     assert 'id="outputControlSummary"' in playback_panel
@@ -468,6 +480,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
     assert 'id="applyButton"' in playback_panel
     assert "Apply and Restart" in playback_panel
+    assert 'id="systemStatus"' in system_panel
+    assert 'id="sourceHealthList"' in system_panel
+    assert 'id="eventLogSummary"' in system_panel
     assert 'class="layer-stack-panel"' in response.text
     assert 'class="panel voice-panel"' in response.text
     assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
@@ -506,12 +521,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "Misty" in response.text
     assert "Dense" in response.text
     assert "Clearer Voice" in response.text
-    assert 'aria-label="system diagnostics"' in response.text
-    assert 'id="systemStatus"' in response.text
-    assert 'id="sourceHealthList"' in response.text
-    assert 'id="eventLogSummary"' in response.text
-    assert 'id="systemInputDeviceName"' in response.text
-    assert 'id="systemOutputDeviceName"' in response.text
+    assert 'aria-label="system diagnostics"' in ops_stack
+    assert 'id="systemInputDeviceName"' in system_panel
+    assert 'id="systemOutputDeviceName"' in system_panel
 
 
 def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> None:
@@ -520,10 +532,15 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     response = client.get("/")
 
     assert response.status_code == 200
-    playback_panel = slice_between(
+    ops_stack = slice_between(
         response.text,
+        '<div class="ops-stack-panel">',
+        '<div class="layer-stack-panel">',
+    )
+    playback_panel = slice_between(
+        ops_stack,
         '<section class="panel playback-panel"',
-        '<section class="panel mixer-panel"',
+        '<section class="panel system-panel"',
     )
     voice_panel = slice_between(
         response.text,
@@ -533,7 +550,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     settings_panel = slice_between(
         response.text,
         '<section class="panel settings-panel"',
-        '<section class="panel system-panel"',
+        "\n\n      </section>",
     )
     maintenance_panel = slice_between(
         settings_panel,
@@ -566,16 +583,20 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in normalized_styles
     )
     assert (
-        'grid-template-areas: "record playback mixer settings" '
-        '"record system mixer settings";'
+        'grid-template-areas: "record ops mixer settings";'
         in normalized_styles
     )
+    assert '"record playback mixer settings"' not in styles.text
+    assert "align-items: start;" in styles.text
     assert "@media (max-width: 1240px)" in styles.text
     assert ".playback-panel" in styles.text
     assert ".playback-actions" in styles.text
     assert ".playback-apply-strip" in styles.text
+    assert ".ops-stack-panel" in styles.text
     assert ".layer-stack-panel" in styles.text
     assert ".voice-panel" in styles.text
+    assert ".ops-stack-panel,\n.layer-stack-panel" in styles.text
+    assert "align-content: start;" in styles.text
     assert ".settings-panel .control-row" in styles.text
     assert (
         "grid-template-columns: minmax(76px, 0.7fr) minmax(90px, 1fr) "

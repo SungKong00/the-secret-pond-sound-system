@@ -83,31 +83,59 @@
           </div>
         </section>
 
-        <section class="panel playback-panel" aria-labelledby="playbackPanelTitle">
-          <div class="panel-heading">
-            <p class="eyebrow">Output</p>
-            <h2 id="playbackPanelTitle">Playback</h2>
-          </div>
-          <div class="playback-status-stack">
-            <span id="pendingBadge" class="status-pill muted" role="status" aria-live="polite">
-              No unsaved changes
-            </span>
-            <p id="outputControlSummary" class="playback-summary">
-              Render staged audio, then start output.
-            </p>
-          </div>
-          <div class="button-row playback-actions">
-            <button id="startOutputButton" class="button primary" type="button">Start Output</button>
-            <button id="stopOutputButton" class="button" type="button">Stop Output</button>
-            <button id="restartOutputButton" class="button" type="button" disabled>
-              Restart Output
-            </button>
-          </div>
-          <div class="playback-apply-strip">
-            <button id="applyButton" class="button primary" type="button">Apply and Restart</button>
-            <p class="hint">Applies staged layer and voice treatment settings.</p>
-          </div>
-        </section>
+        <div class="ops-stack-panel">
+          <section class="panel playback-panel" aria-labelledby="playbackPanelTitle">
+            <div class="panel-heading">
+              <p class="eyebrow">Output</p>
+              <h2 id="playbackPanelTitle">Playback</h2>
+            </div>
+            <div class="playback-status-stack">
+              <span id="pendingBadge" class="status-pill muted" role="status" aria-live="polite">
+                No unsaved changes
+              </span>
+              <p id="outputControlSummary" class="playback-summary">
+                Render staged audio, then start output.
+              </p>
+            </div>
+            <div class="button-row playback-actions">
+              <button id="startOutputButton" class="button primary" type="button">
+                Start Output
+              </button>
+              <button id="stopOutputButton" class="button" type="button">Stop Output</button>
+              <button id="restartOutputButton" class="button" type="button" disabled>
+                Restart Output
+              </button>
+            </div>
+            <div class="playback-apply-strip">
+              <button id="applyButton" class="button primary" type="button">
+                Apply and Restart
+              </button>
+              <p class="hint">Applies staged layer and voice treatment settings.</p>
+            </div>
+          </section>
+
+          <section class="panel system-panel" aria-label="system diagnostics">
+            <div class="panel-heading inline">
+              <div>
+                <p class="eyebrow">Diagnostics</p>
+                <h2>System</h2>
+              </div>
+              <span id="systemStatus" class="status-pill muted">Checking</span>
+            </div>
+            <div id="sourceHealthList" class="diagnostic-stack" aria-label="source file health"></div>
+            <div class="diagnostic-stack" aria-label="selected audio devices">
+              <div class="diagnostic-row device-summary">
+                <span>Input</span>
+                <strong id="systemInputDeviceName">Checking...</strong>
+              </div>
+              <div class="diagnostic-row device-summary">
+                <span>Output</span>
+                <strong id="systemOutputDeviceName">Checking...</strong>
+              </div>
+            </div>
+            <ul id="eventLogSummary" class="event-list" aria-label="recent runtime events"></ul>
+          </section>
+        </div>
 
         <div class="layer-stack-panel">
           <section class="panel mixer-panel" aria-label="layer mixer">
@@ -173,27 +201,6 @@
           </details>
         </section>
 
-        <section class="panel system-panel" aria-label="system diagnostics">
-          <div class="panel-heading inline">
-            <div>
-              <p class="eyebrow">Diagnostics</p>
-              <h2>System</h2>
-            </div>
-            <span id="systemStatus" class="status-pill muted">Checking</span>
-          </div>
-          <div id="sourceHealthList" class="diagnostic-stack" aria-label="source file health"></div>
-          <div class="diagnostic-stack" aria-label="selected audio devices">
-            <div class="diagnostic-row device-summary">
-              <span>Input</span>
-              <strong id="systemInputDeviceName">Checking...</strong>
-            </div>
-            <div class="diagnostic-row device-summary">
-              <span>Output</span>
-              <strong id="systemOutputDeviceName">Checking...</strong>
-            </div>
-          </div>
-          <ul id="eventLogSummary" class="event-list" aria-label="recent runtime events"></ul>
-        </section>
       </section>
     </main>
     <script src="/static/app.js" defer></script>
