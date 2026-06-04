@@ -1834,6 +1834,28 @@ const nextSourceMutationRequestId = () => {
 
 const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutationRequestId;
 
+const applySourceMutationPayload = (payload, options = {}) => {
+  if (payload.settings) {
+    state.snapshot.settings = payload.settings;
+    state.draft = clone(payload.settings.draft);
+  }
+  if (payload.sources) {
+    state.sources = payload.sources;
+  }
+  if (options.clearUploadCategory) {
+    clearSourceUploadFile(options.clearUploadCategory);
+  }
+  if (payload.settings) {
+    renderState();
+  }
+  renderSourceLibrary();
+};
+
+const recoverSourceMutationError = async (error) => {
+  showError(error.message);
+  await requestSources().catch(() => {});
+};
+
 const selectSourceFile = async (category, path) => {
   const requestId = nextSourceMutationRequestId();
   try {
@@ -1842,17 +1864,12 @@ const selectSourceFile = async (category, path) => {
       body: JSON.stringify({ path: path || null }),
     });
     if (!isCurrentSourceMutation(requestId)) return payload;
-    state.snapshot.settings = payload.settings;
-    state.draft = clone(payload.settings.draft);
-    state.sources = payload.sources;
-    renderState();
-    renderSourceLibrary();
+    applySourceMutationPayload(payload);
     await requestDiagnostics();
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(error.message);
-      await requestSources().catch(() => {});
+      await recoverSourceMutationError(error);
     }
     return null;
   }
@@ -1893,21 +1910,13 @@ const uploadSourceFile = async (category, droppedFile = null) => {
       },
     );
     if (!isCurrentSourceMutation(requestId)) return payload;
-    if (payload.settings) {
-      state.snapshot.settings = payload.settings;
-      state.draft = clone(payload.settings.draft);
-    }
-    state.sources = payload.sources;
     if (input) input.value = "";
-    clearSourceUploadFile(category);
-    renderState();
-    renderSourceLibrary();
+    applySourceMutationPayload(payload, { clearUploadCategory: category });
     await requestDiagnostics();
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(error.message);
-      await requestSources().catch(() => {});
+      await recoverSourceMutationError(error);
     }
     return null;
   }
@@ -1935,14 +1944,12 @@ const deleteSourceFile = async (category, path) => {
       { method: "DELETE" },
     );
     if (!isCurrentSourceMutation(requestId)) return payload;
-    state.sources = payload.sources;
-    renderSourceLibrary();
+    applySourceMutationPayload(payload);
     await requestDiagnostics();
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(error.message);
-      await requestSources().catch(() => {});
+      await recoverSourceMutationError(error);
     }
     return null;
   }

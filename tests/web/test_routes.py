@@ -1028,6 +1028,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'api("/api/sources")' in script.text
     assert "requestSources" in script.text
     assert "renderSourceLibrary" in script.text
+    assert "applySourceMutationPayload" in script.text
+    assert "recoverSourceMutationError" in script.text
     assert "selectSourceFile" in script.text
     assert "uploadSourceFile" in script.text
     assert "selectedSourceUploadMode" in script.text
