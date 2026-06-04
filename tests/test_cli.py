@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+import secret_pond.cli as cli
+from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
+from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.cli import (
     build_doctor_report,
     check_native_dependencies,
@@ -14,7 +18,7 @@ from secret_pond.cli import (
     doctor_report_to_payload,
     run_doctor,
 )
-from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings
+from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings, VoiceStackSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
@@ -285,3 +289,162 @@ def test_run_doctor_uses_startup_effective_saved_settings(
     assert payload["settings"]["input_device_id"] == "mic-2"
     assert payload["selected_input_device"]["name"] == "Configured Mic"
     assert payload["selected_output_device"]["name"] == "Configured Speaker"
+
+
+def test_run_rebuild_test_library_rebuilds_raw_and_renders_voice(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = rebuild_settings(mode="test_library")
+    save_settings(paths, settings)
+    write_accepted_clip(paths, "clip.wav", 0.25)
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": "clip",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/clip.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    }
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.zeros((8_000, 2), dtype=np.float32), sample_rate=8_000),
+    )
+
+    result = cli.run_rebuild_test_library(tmp_path)
+
+    output = capsys.readouterr().out
+    raw = read_wav(paths.voice_stack_raw)
+    rendered = read_wav(paths.voice_playback)
+    assert result == 0
+    assert "Rebuilt test_library voice stack" in output
+    assert "added_chunks=1" in output
+    assert paths.voice_stack_raw.as_posix() in output
+    assert paths.voice_playback.as_posix() in output
+    np.testing.assert_allclose(raw.samples, 0.25, atol=1e-4)
+    assert rendered.sample_rate == 8_000
+    assert rendered.samples.shape == (8_000, 2)
+    assert float(np.max(np.abs(rendered.samples))) > 0.0
+
+
+def test_run_rebuild_test_library_rejects_live_mode_without_mutating_files(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = rebuild_settings(mode="live_ephemeral")
+    save_settings(paths, settings)
+    write_accepted_clip(paths, "clip.wav", 0.25)
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": "clip",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/clip.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    }
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.full((8_000, 2), 0.4, dtype=np.float32), sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(samples=np.full((8_000, 2), 0.1, dtype=np.float32), sample_rate=8_000),
+    )
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_rendered = paths.voice_playback.read_bytes()
+
+    result = cli.run_rebuild_test_library(tmp_path)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "test_library" in f"{captured.out}{captured.err}"
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert paths.voice_playback.read_bytes() == before_rendered
+
+
+def test_run_rebuild_test_library_preserves_files_when_manifest_is_invalid(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = rebuild_settings(mode="test_library")
+    save_settings(paths, settings)
+    paths.ensure_directories()
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": "missing",
+                        "source_mode": "test_library",
+                        "accepted_clip_path": "data/processed/accepted/missing.wav",
+                        "offset_frames": 0,
+                        "gain_db": 0.0,
+                    }
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.full((8_000, 2), 0.4, dtype=np.float32), sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(samples=np.full((8_000, 2), 0.1, dtype=np.float32), sample_rate=8_000),
+    )
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_rendered = paths.voice_playback.read_bytes()
+
+    result = cli.run_rebuild_test_library(tmp_path)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "accepted clip does not exist" in f"{captured.out}{captured.err}"
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert paths.voice_playback.read_bytes() == before_rendered
+
+
+def rebuild_settings(*, mode: str) -> AppSettings:
+    return AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+        voice_stack=VoiceStackSettings(mode=mode, loop_seconds=1, insert_gain_db=0.0),
+    )
+
+
+def save_settings(paths: ProjectPaths, settings: AppSettings) -> None:
+    paths.ensure_directories()
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+
+
+def write_accepted_clip(paths: ProjectPaths, filename: str, value: float) -> None:
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.accepted_dir / filename,
+        AudioBuffer(samples=np.full((8_000, 2), value, dtype=np.float32), sample_rate=8_000),
+    )

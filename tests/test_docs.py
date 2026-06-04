@@ -19,6 +19,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "secret-pond doctor",
         "secret-pond doctor --json",
         "secret-pond doctor --strict",
+        "secret-pond rebuild-test-library",
         "Microphone",
         "data/sources/low.wav",
         "data/sources/mid.wav",
@@ -97,7 +98,7 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "test_library",
         "live_ephemeral",
         "voice_stack_raw.wav",
-        "Developer/API-level check",
+        "secret-pond rebuild-test-library",
         "voice_playback.wav",
         "EQ slider",
         "Apply and Restart",
@@ -122,6 +123,7 @@ def test_readme_links_operator_docs() -> None:
     assert "docs/audio-setup-checklist.md" in readme
     assert "secret-pond doctor --json" in readme
     assert "secret-pond doctor --strict" in readme
+    assert "secret-pond rebuild-test-library" in readme
     assert "Restart Output" in readme
     assert "Soft" in readme
     assert "Misty" in readme
@@ -147,6 +149,7 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "docs/audio-setup-checklist.md" in request
     assert "secret-pond doctor --json" in request
     assert "secret-pond doctor --strict" in request
+    assert "secret-pond rebuild-test-library" in request
     assert "Maintenance" in request
     assert "Reset Draft" in request
     assert "녹음 중에는 Reset Draft" in request

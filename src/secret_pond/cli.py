@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.renderer import LayerRenderer
+from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_store import SettingsStore
@@ -61,12 +63,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8000)
 
+    rebuild_parser = subparsers.add_parser(
+        "rebuild-test-library",
+        help="Rebuild the voice stack from test_library accepted clips.",
+    )
+    rebuild_parser.add_argument("--root", type=Path, default=Path.cwd())
+
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
         return run_doctor(args.root, output_json=args.output_json, strict=args.strict)
     if args.command == "serve":
         return run_serve(args.host, args.port)
+    if args.command == "rebuild-test-library":
+        return run_rebuild_test_library(args.root)
 
     parser.error("unknown command")
     return 2
@@ -395,6 +405,40 @@ def run_serve(host: str, port: int) -> int:
     import uvicorn
 
     uvicorn.run("secret_pond.app:app", host=host, port=port)
+    return 0
+
+
+def run_rebuild_test_library(root: Path) -> int:
+    paths = ProjectPaths(root)
+    paths.ensure_directories()
+    try:
+        settings = SettingsStore(paths).load_for_startup().active
+    except Exception as exc:
+        print(f"Rebuild test_library failed: settings unavailable ({exc})", file=sys.stderr)
+        return 1
+
+    if settings.voice_stack.mode != "test_library":
+        print(
+            "Rebuild test_library requires active voice_stack.mode to be test_library "
+            f"(current: {settings.voice_stack.mode}).",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        stack_result = VoiceStackStore(paths).rebuild_from_test_library(settings)
+        render_result = LayerRenderer(paths).render_layer("voice", settings)
+    except Exception as exc:
+        print(f"Rebuild test_library failed: {exc}", file=sys.stderr)
+        return 1
+
+    print("Rebuilt test_library voice stack")
+    print(f"  added_chunks={stack_result.added_chunks}")
+    print(f"  raw_path={paths.voice_stack_raw.as_posix()}")
+    print(f"  rendered_path={render_result.output_path.as_posix()}")
+    print(f"  peak_before_guard={stack_result.peak_before_guard:.6f}")
+    print(f"  peak_after_guard={stack_result.peak_after_guard:.6f}")
+    print(f"  gain_reduction_db={stack_result.gain_reduction_db:.3f}")
     return 0
 
 

@@ -38,6 +38,7 @@ secret-pond serve
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
 - FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 선택 초안 UI
 - 대시보드 System 패널: 준비 음원 파일 상태, 선택된 입출력 장치, 최근 JSONL 이벤트 요약
+- `secret-pond rebuild-test-library`: 리허설용 accepted WAV와 manifest에서 목소리 스택과 voice playback 캐시 재생성
 - WebSocket 기반 상태 push와 연결 종료 시 활성 녹음 정지
 - 앱 시작 시 기존 렌더 캐시를 활성 오디오 설정과 대조해 재생기에 로드하고, 캐시가 없거나 맞지 않으면 준비 음원에서 렌더를 다시 시도
 - 출력 중 staged 설정을 적용할 때 렌더/플레이어/출력을 롤백 가능한 순서로 재시작
@@ -62,6 +63,11 @@ secret-pond serve
 7. Loop Mixer와 Voice Stack panel의 EQ/볼륨을 바꾼 뒤에는 `Apply and Restart`로 새 렌더를 만들고 player에 다시 로드합니다.
 8. 필요하면 `Restart Output`으로 현재 로드된 재생을 처음부터 다시 시작합니다.
 9. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
+
+리허설에서 `test_library` 모드의 `data/processed/accepted/*.wav`와
+`data/voice/voice_stack_manifest.json`를 기준으로 스택을 다시 만들 때는 앱을 멈춘 뒤
+`secret-pond rebuild-test-library --root .`를 실행합니다. 이 명령은 활성 시작 설정이
+`test_library`일 때만 `voice_stack_raw.wav`와 `voice_playback.wav`를 다시 만듭니다.
 
 현재 MVP 제약:
 

@@ -145,6 +145,16 @@ data/processed/accepted
 data/voice/voice_stack_manifest.json
 ```
 
+To rebuild the rehearsal stack from those accepted clips, stop the app and run:
+
+```bash
+secret-pond rebuild-test-library --root .
+```
+
+The command only runs when the active startup settings use `test_library` mode. It rewrites
+`data/voice/voice_stack_raw.wav` from the manifest and renders
+`data/rendered/layers/voice_playback.wav`.
+
 Back up in `live_ephemeral` mode:
 
 ```text

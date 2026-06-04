@@ -41,7 +41,7 @@ Use this checklist before rehearsal and before show operation.
 
 - [ ] A valid recording in test_library mode creates accepted chunks and manifest entries.
 - [ ] A valid recording in live_ephemeral mode leaves no individual accepted voice WAV.
-- [ ] Developer/API-level check: test_library mode can rebuild voice_stack_raw.wav from accepted chunks and manifest.
+- [ ] `secret-pond rebuild-test-library --root .` rebuilds voice_stack_raw.wav and voice_playback.wav from accepted chunks and manifest in test_library mode.
 - [ ] live_ephemeral mode can start from an existing voice_stack_raw.wav.
 - [ ] Restarting the app preserves participant count and settings.
 
