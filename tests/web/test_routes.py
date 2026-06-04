@@ -2106,7 +2106,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "{ state, applyState, renderState, renderSyncBadge, "
             "renderRecordingControls, renderVoiceStackControls, renderWorkspaceTabs, "
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
-            "renderEventLogSummary, "
+            "renderEventLogSummary, draftEditLocked, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
             "releaseInteractiveControl, refreshAll, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
@@ -2845,13 +2845,28 @@ globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.applyInFlight = true;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.renderState();
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
 assert.strictEqual(elements.startOutputButton.disabled, true);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopOutputButton.disabled, true);
 assert.strictEqual(elements.restartOutputButton.disabled, true);
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+const voiceStackControlCountBeforeLockRender = elements.voiceStackControls.children.length;
+globalThis.__secretPondTest.renderVoiceStackControls();
+const lockedVoiceLoopRow =
+  elements.voiceStackControls.children[voiceStackControlCountBeforeLockRender];
+const lockedVoiceLoopInput = lockedVoiceLoopRow.querySelector("input");
+const lockedVoiceLoopValueInput = lockedVoiceLoopRow.querySelector(".value-input");
+assert.strictEqual(lockedVoiceLoopInput.disabled, true);
+assert.strictEqual(lockedVoiceLoopValueInput.disabled, true);
+lockedVoiceLoopInput.value = "90";
+lockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+assert.strictEqual(lockedVoiceLoopInput.value, "60");
 
 globalThis.__secretPondTest.state.applyInFlight = false;
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), false);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
 globalThis.__secretPondTest.renderState();

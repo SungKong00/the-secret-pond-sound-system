@@ -1224,8 +1224,10 @@ const syncDraftSnapshot = () => {
   );
 };
 
+const draftEditLocked = () => state.applyInFlight;
+
 const commitDraftChange = (mutator, options = {}) => {
-  if (!state.draft) return false;
+  if (!state.draft || draftEditLocked()) return false;
   mutator?.();
   syncDraftSnapshot();
   options.afterSync?.();
@@ -2667,12 +2669,24 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
   const valueInput = row.querySelector(".value-input");
   const nudgeDown = row.querySelector(".nudge-down");
   const nudgeUp = row.querySelector(".nudge-up");
+  let currentValue = value;
+  [input, valueInput, nudgeDown, nudgeUp].filter(Boolean).forEach((controlElement) => {
+    controlElement.disabled = draftEditLocked();
+  });
+  const setDisplayedValue = (nextValue) => {
+    input.value = String(nextValue);
+    if (valueInput) valueInput.value = String(nextValue);
+    setRangeProgress(row, nextValue, min, max);
+    output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
+  };
   const updateValue = (nextValue) => {
+    if (draftEditLocked()) {
+      setDisplayedValue(currentValue);
+      return;
+    }
     const numericValue = snappedValue(nextValue, control.step, min, max);
-    input.value = String(numericValue);
-    if (valueInput) valueInput.value = String(numericValue);
-    setRangeProgress(row, numericValue, min, max);
-    output.innerHTML = renderDraftValue(numericValue, activeValue, control.suffix);
+    currentValue = numericValue;
+    setDisplayedValue(numericValue);
     onInput(numericValue);
   };
   input.addEventListener("input", () => {
