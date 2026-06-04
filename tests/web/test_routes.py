@@ -2057,6 +2057,28 @@ def test_api_playback_start_and_stop_controls_output_after_apply(tmp_path: Path)
     assert output.stop_calls == 1
 
 
+def test_api_playback_start_and_stop_log_events(tmp_path: Path) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+
+    client.post("/api/playback/start")
+    client.post("/api/playback/stop")
+
+    started_events = events_by_type(client, "playback.started")
+    stopped_events = events_by_type(client, "playback.stopped")
+    assert len(started_events) == 1
+    assert started_events[0]["payload"] == {
+        "frame_cursor": 0,
+        "output_running": True,
+    }
+    assert len(stopped_events) == 1
+    assert stopped_events[0]["payload"] == {
+        "frame_cursor": 0,
+        "output_running": False,
+    }
+
+
 def test_api_playback_restart_requires_running_output(tmp_path: Path) -> None:
     client = create_test_client(tmp_path, with_sources=True)
     client.post("/api/settings/apply-and-restart")
@@ -2085,6 +2107,40 @@ def test_api_playback_restart_resets_frame_cursor(tmp_path: Path) -> None:
     assert output.start_calls == 2
 
 
+def test_api_playback_restart_logs_success_event(tmp_path: Path) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.app.state.runtime.player.next_block(10)
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 200
+    events = events_by_type(client, "playback.restarted")
+    assert len(events) == 1
+    assert events[0]["payload"] == {
+        "frame_cursor": 0,
+        "output_running": True,
+    }
+
+
+def test_api_playback_start_failure_logs_event(tmp_path: Path) -> None:
+    output = FakeOutput(fail_start=ValueError("rendered layers must be loaded before playback"))
+    client = create_test_client(tmp_path, output=output)
+
+    response = client.post("/api/playback/start")
+
+    assert response.status_code == 409
+    events = events_by_type(client, "playback.start_failed")
+    assert len(events) == 1
+    assert events[0]["payload"] == {
+        "error": "rendered layers must be loaded before playback",
+        "frame_cursor": 0,
+        "output_running": False,
+    }
+
+
 def test_api_playback_restart_restores_running_output_after_start_failure(
     tmp_path: Path,
 ) -> None:
@@ -2105,6 +2161,28 @@ def test_api_playback_restart_restores_running_output_after_start_failure(
     assert state["playback"]["frame_cursor"] == 10
     assert state["playback"]["is_playing"] is True
     assert state["playback"]["output_running"] is True
+
+
+def test_api_playback_restart_failure_logs_final_rollback_state(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_start=OSError("restart failed"), fail_start_on_call=2)
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    runtime = client.app.state.runtime
+    runtime.player.next_block(10)
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 409
+    events = events_by_type(client, "playback.restart_failed")
+    assert len(events) == 1
+    assert events[0]["payload"] == {
+        "error": "restart failed",
+        "frame_cursor": 10,
+        "output_running": True,
+    }
 
 
 def test_api_playback_restart_restores_player_snapshot_when_resume_fails(

@@ -109,7 +109,12 @@ def get_diagnostics(request: Request) -> dict[str, Any]:
 def start_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        _run_playback_control(runtime.output.start)
+        try:
+            runtime.output.start()
+        except (RuntimeError, ValueError, OSError) as exc:
+            _log_playback_event(runtime, "playback.start_failed", error=str(exc))
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _log_playback_event(runtime, "playback.started")
         return {"state": state_payload(runtime)}
 
 
@@ -117,7 +122,12 @@ def start_playback(request: Request) -> dict[str, Any]:
 def stop_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        _run_playback_control(runtime.output.stop)
+        try:
+            runtime.output.stop()
+        except (RuntimeError, ValueError, OSError) as exc:
+            _log_playback_event(runtime, "playback.stop_failed", error=str(exc))
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _log_playback_event(runtime, "playback.stopped")
         return {"state": state_payload(runtime)}
 
 
@@ -142,7 +152,9 @@ def restart_playback(request: Request) -> dict[str, Any]:
             except Exception as resume_exc:
                 runtime.player.restore(player_snapshot)
                 detail = f"{detail}; rollback resume failed: {resume_exc}"
+            _log_playback_event(runtime, "playback.restart_failed", error=detail)
             raise HTTPException(status_code=409, detail=detail) from exc
+        _log_playback_event(runtime, "playback.restarted")
         return {"state": state_payload(runtime)}
 
 
@@ -298,13 +310,6 @@ def _run_control(fn):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-def _run_playback_control(fn):
-    try:
-        return fn()
-    except (RuntimeError, ValueError, OSError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
 @contextmanager
 def _maintenance_operation(runtime: SecretPondRuntime) -> Iterator[None]:
     acquired = runtime.operation_lock.acquire(blocking=False)
@@ -328,6 +333,21 @@ def _log_event_best_effort(
         runtime.logger.log_event(event_type, payload)
     except Exception:
         return
+
+
+def _log_playback_event(
+    runtime: SecretPondRuntime,
+    event_type: str,
+    *,
+    error: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "frame_cursor": runtime.player.frame_cursor,
+        "output_running": runtime.output.is_running,
+    }
+    if error is not None:
+        payload["error"] = error
+    _log_event_best_effort(runtime, event_type, payload)
 
 
 def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
