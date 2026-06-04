@@ -1725,11 +1725,27 @@ const sourceUploadSignature = (category) => {
   ];
 };
 
-const sourceUploadHint = (category) => {
-  const file = sourceUploadState(category).file;
-  return file
-    ? `${file.name} · ${formatBytes(file.size || 0)} 선택됨`
-    : "WAV 파일을 이 폴더로 복사합니다.";
+const deriveSourceUploadActionState = (upload = {}) => {
+  const file = upload.file || null;
+  const hasFile = Boolean(file);
+  return {
+    selectAfterUpload: upload.selectAfterUpload !== false,
+    hasFile,
+    hint: hasFile
+      ? `${file.name} · ${formatBytes(file.size || 0)} 선택됨`
+      : "WAV 파일을 이 폴더로 복사합니다.",
+    uploadDisabled: !hasFile,
+    uploadTitle: hasFile ? "" : "추가할 WAV 파일을 먼저 선택하세요.",
+  };
+};
+
+const deriveSourceFileActionState = (file = {}) => {
+  const active = Boolean(file.active);
+  return {
+    active,
+    deleteDisabled: active,
+    deleteTitle: active ? "현재 선택된 파일은 삭제할 수 없습니다" : "",
+  };
 };
 
 const rememberSourceUploadFile = (category, file) => {
@@ -1750,7 +1766,12 @@ const sourceCategoryCard = (category) => {
     helper: category.directory,
   };
   const upload = sourceUploadState(category.id);
-  const uploadChecked = upload.selectAfterUpload ? " checked" : "";
+  const uploadAction = deriveSourceUploadActionState(upload);
+  const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
+  const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
+  const uploadTitle = uploadAction.uploadTitle
+    ? ` title="${escapeHtml(uploadAction.uploadTitle)}"`
+    : "";
   const card = document.createElement("section");
   card.className = "source-category-card";
   const options = [
@@ -1786,9 +1807,15 @@ const sourceCategoryCard = (category) => {
           data-source-file="${escapeHtml(category.id)}"
         />
         <strong>파일 선택 또는 드롭</strong>
-        <small>${escapeHtml(sourceUploadHint(category.id))}</small>
+        <small>${escapeHtml(uploadAction.hint)}</small>
       </label>
-      <button class="button" type="button" data-source-upload="${escapeHtml(category.id)}">추가</button>
+      <button
+        class="button"
+        type="button"
+        data-source-upload="${escapeHtml(category.id)}"
+        ${uploadDisabled}
+        ${uploadTitle}
+      >추가</button>
       <label class="source-upload-select">
         <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked} />
         <span>업로드 후 바로 선택</span>
@@ -1803,9 +1830,12 @@ const sourceFileRows = (category) => {
     return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
   }
   return category.files.map((file) => {
-    const active = file.active ? `<span class="source-file-badge">사용 중</span>` : "";
-    const disabled = file.active ? " disabled" : "";
-    const deleteTitle = file.active ? ' title="현재 선택된 파일은 삭제할 수 없습니다"' : "";
+    const action = deriveSourceFileActionState(file);
+    const active = action.active ? `<span class="source-file-badge">사용 중</span>` : "";
+    const disabled = action.deleteDisabled ? " disabled" : "";
+    const deleteTitle = action.deleteTitle
+      ? ` title="${escapeHtml(action.deleteTitle)}"`
+      : "";
     return `
       <div class="source-file-row">
         <div>

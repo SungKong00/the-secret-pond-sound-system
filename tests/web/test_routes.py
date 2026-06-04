@@ -1089,6 +1089,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "selectSourceFile" in script.text
     assert "uploadSourceFile" in script.text
     assert "selectedSourceUploadMode" in script.text
+    assert "deriveSourceUploadActionState" in script.text
+    assert "deriveSourceFileActionState" in script.text
     assert "handleSourceFileDrop" in script.text
     assert "deleteSourceFile" in script.text
     assert "source-file-select" in script.text
@@ -2190,6 +2192,59 @@ assert.strictEqual(
     )
 
 
+def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ deriveSourceUploadActionState, deriveSourceFileActionState }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+
+assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{ selectAfterUpload: true, file: null }}),
+  {{
+    selectAfterUpload: true,
+    hasFile: false,
+    hint: "WAV 파일을 이 폴더로 복사합니다.",
+    uploadDisabled: true,
+    uploadTitle: "추가할 WAV 파일을 먼저 선택하세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: false,
+    uploadTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: true }}),
+  {{
+    active: true,
+    deleteDisabled: true,
+    deleteTitle: "현재 선택된 파일은 삭제할 수 없습니다",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}),
+  {{
+    active: false,
+    deleteDisabled: false,
+    deleteTitle: "",
+  }},
+);
+""",
+    )
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -2712,6 +2767,18 @@ assert.strictEqual(
   ),
   true,
 );
+const emptyUploadDisabled = new RegExp(
+  [
+    'data-source-upload="low"',
+    '[\\\\s\\\\S]*disabled',
+    '[\\\\s\\\\S]*title="추가할 WAV 파일을 먼저 선택하세요\\\\."',
+  ].join(""),
+  "u",
+);
+assert.strictEqual(
+  emptyUploadDisabled.test(latestSourceLibraryHtml()),
+  true,
+);
 globalThis.__secretPondTest.state.sourceUploads.low = {{
   selectAfterUpload: false,
   file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
@@ -2726,6 +2793,11 @@ assert.strictEqual(
 assert.strictEqual(
   latestSourceLibraryHtml().includes("picked-low.wav · 4.0 KB 선택됨"),
   true,
+);
+const selectedUploadDisabled = /data-source-upload="low"[\\s\\S]*disabled/u;
+assert.strictEqual(
+  selectedUploadDisabled.test(latestSourceLibraryHtml()),
+  false,
 );
 elements.sourceLibraryList.children = [];
 elements.sourceLibraryList.innerHTML = "";
