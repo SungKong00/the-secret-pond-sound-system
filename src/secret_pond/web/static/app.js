@@ -47,6 +47,7 @@ const state = {
   recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
   applyInFlight: false,
+  resetDraftInFlight: false,
   deviceChangeInFlight: false,
   activeInteractiveControl: null,
   renderSignatures: {
@@ -1268,7 +1269,7 @@ const syncDraftSnapshot = () => {
   );
 };
 
-const draftEditLocked = () => state.applyInFlight;
+const draftEditLocked = () => state.applyInFlight || state.resetDraftInFlight;
 
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
@@ -1304,15 +1305,19 @@ const renderSyncBadge = () => {
 const deriveSettingsActionState = ({
   snapshot,
   applyInFlight = false,
+  resetDraftInFlight = false,
   recordingStopInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
+  const resetBusy = Boolean(resetDraftInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
+    : resetBusy
+      ? "설정 변경 취소가 끝날 때까지 기다리세요."
     : isRecording
       ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
       : applyInFlight
@@ -1324,18 +1329,20 @@ const deriveSettingsActionState = ({
             : outputRunning
               ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
               : "";
-  const resetTitle = isRecording
+  const resetTitle = resetBusy
+    ? "설정 변경 취소가 끝날 때까지 기다리세요."
+    : isRecording
     ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
     : !pendingChanges
       ? "취소할 설정 변경사항이 없습니다."
       : "";
   return {
-    applyDisabled: applyInFlight || recordingStopBusy || isRecording ||
+    applyDisabled: applyInFlight || resetBusy || recordingStopBusy || isRecording ||
       runtimeConfigChanged || !pendingChanges,
     applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
     applyAttention: pendingChanges && !runtimeConfigChanged,
     applyTitle,
-    resetDisabled: applyInFlight || isRecording || !pendingChanges,
+    resetDisabled: applyInFlight || resetBusy || isRecording || !pendingChanges,
     resetTitle,
   };
 };
@@ -1343,6 +1350,7 @@ const deriveSettingsActionState = ({
 const deriveDashboardControlState = ({
   snapshot,
   applyInFlight = false,
+  resetDraftInFlight = false,
   recordingStopInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
@@ -1362,6 +1370,7 @@ const deriveDashboardControlState = ({
   const settingsActionState = deriveSettingsActionState({
     snapshot,
     applyInFlight,
+    resetDraftInFlight,
     recordingStopInFlight,
     pendingChanges,
     runtimeConfigChanged,
@@ -1408,6 +1417,7 @@ const renderState = () => {
   const controlState = deriveDashboardControlState({
     snapshot,
     applyInFlight: state.applyInFlight,
+    resetDraftInFlight: state.resetDraftInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
@@ -2104,6 +2114,7 @@ const deriveStorageModeControlState = ({
   draft = null,
   mode = null,
   applyInFlight = false,
+  resetDraftInFlight = false,
   recordingStopInFlight = false,
 } = {}) => {
   const modeDetails = storageModeDetails[mode];
@@ -2112,13 +2123,22 @@ const deriveStorageModeControlState = ({
   const draftMode = draft?.voice_stack?.mode;
   const active = draftMode === mode;
   const pending = Boolean(activeMode && draftMode && activeMode !== draftMode);
-  const disabled = !ready || applyInFlight || recordingStopInFlight || Boolean(snapshot?.is_recording);
+  const disabled =
+    !ready ||
+    applyInFlight ||
+    resetDraftInFlight ||
+    recordingStopInFlight ||
+    Boolean(snapshot?.is_recording);
   return {
     active,
     ariaPressed: active ? "true" : "false",
     pendingActive: pending && active,
     disabled,
-    title: disabled ? storageModeBusyTitle : modeDetails.idleTitle,
+    title: disabled
+      ? resetDraftInFlight
+        ? "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다."
+        : storageModeBusyTitle
+      : modeDetails.idleTitle,
     canCommit: ready && !disabled,
   };
 };
@@ -2355,6 +2375,7 @@ const currentSettingsActionState = (snapshot = state.snapshot) => {
   return deriveSettingsActionState({
     snapshot,
     applyInFlight: state.applyInFlight,
+    resetDraftInFlight: state.resetDraftInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
@@ -2442,6 +2463,7 @@ const renderStorageModeControls = () => {
       draft: state.draft,
       mode,
       applyInFlight: state.applyInFlight,
+      resetDraftInFlight: state.resetDraftInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
     });
     button.disabled = controlState.disabled;
@@ -2458,6 +2480,7 @@ const setStorageMode = (mode) => {
     draft: state.draft,
     mode,
     applyInFlight: state.applyInFlight,
+    resetDraftInFlight: state.resetDraftInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
   });
   if (!controlState.canCommit) return;
@@ -3163,19 +3186,26 @@ const applyAndRestart = async () => {
 const resetDraft = async () => {
   if (currentSettingsActionState().resetDisabled) return;
   if (!window.confirm("저장하지 않은 설정 변경을 취소할까요?")) return;
+  let resetError = null;
+  state.resetDraftInFlight = true;
   invalidatePendingDraftSaves();
+  renderState();
+  renderControls();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
-    renderState();
-    renderControls();
-    renderDevices();
     await requestDiagnostics();
     await requestSources();
   } catch (error) {
+    resetError = error;
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(error.message);
+  } finally {
+    state.resetDraftInFlight = false;
+    renderState();
+    renderControls();
+    renderDevices();
+    if (resetError) showError(resetError.message);
   }
 };
 

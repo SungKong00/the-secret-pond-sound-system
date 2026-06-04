@@ -1916,6 +1916,23 @@ assert.deepStrictEqual(
   }},
 );
 
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    resetDraftInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다.",
+    canCommit: false,
+  }},
+);
+
 assert.strictEqual(
   deriveStorageMode({{
     snapshot: {{ settings, is_recording: true }},
@@ -2079,6 +2096,7 @@ assert.deepStrictEqual(
   deriveSettingsActions({{
     snapshot,
     applyInFlight: false,
+    resetDraftInFlight: false,
     recordingStopInFlight: false,
     pendingChanges: true,
     runtimeConfigChanged: false,
@@ -2090,6 +2108,25 @@ assert.deepStrictEqual(
     applyTitle: "",
     resetDisabled: false,
     resetTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveSettingsActions({{
+    snapshot,
+    applyInFlight: false,
+    resetDraftInFlight: true,
+    recordingStopInFlight: false,
+    pendingChanges: true,
+    runtimeConfigChanged: false,
+  }}),
+  {{
+    applyDisabled: true,
+    applyLabel: "변경사항 적용 후 재생",
+    applyAttention: true,
+    applyTitle: "설정 변경 취소가 끝날 때까지 기다리세요.",
+    resetDisabled: true,
+    resetTitle: "설정 변경 취소가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -3655,6 +3692,55 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   await staleSaveAfterReset;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+
+  const resetInFlightRequests = [];
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.setStorageMode("test_library");
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  window.confirm = () => true;
+  globalThis.fetch = (path) => {{
+    if (path === "/api/settings/reset-draft") {{
+      return new Promise((resolve) => {{
+        resetInFlightRequests.push(resolve);
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const pendingReset = globalThis.__secretPondTest.resetDraft();
+  assert.strictEqual(resetInFlightRequests.length, 1);
+  assert.strictEqual(globalThis.__secretPondTest.state.resetDraftInFlight, true);
+  assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+  assert.strictEqual(elements.resetButton.disabled, true);
+  assert.strictEqual(elements.resetButton.title, "설정 변경 취소가 끝날 때까지 기다리세요.");
+  globalThis.__secretPondTest.setStorageMode("live_ephemeral");
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  resetInFlightRequests[0]({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(activeSettings),
+      }},
+    }}),
+  }});
+  await pendingReset;
+  assert.strictEqual(globalThis.__secretPondTest.state.resetDraftInFlight, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "live_ephemeral");
 
   const sourceSettingsFor = (lowPath) => {{
     const active = cloneSettings(activeSettings);
