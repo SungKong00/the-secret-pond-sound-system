@@ -2366,6 +2366,20 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}, false, true),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: true,
+    uploadTitle: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileActionState({{ active: true }}),
   {{
     active: true,
@@ -2380,6 +2394,15 @@ assert.deepStrictEqual(
     active: false,
     deleteDisabled: true,
     deleteTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}, false, true),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   }},
 );
 
@@ -2961,6 +2984,22 @@ assert.strictEqual(
   true,
 );
 globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(
+  sourceUploadButtonHtml().includes("disabled"),
+  false,
+);
+globalThis.__secretPondTest.state.applyInFlight = true;
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(
+  sourceUploadButtonHtml().includes("disabled"),
+  true,
+);
+assert.strictEqual(
+  latestSourceLibraryHtml().includes("설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다."),
+  true,
+);
+globalThis.__secretPondTest.state.applyInFlight = false;
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(
   sourceUploadButtonHtml().includes("disabled"),

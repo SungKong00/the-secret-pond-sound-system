@@ -1731,6 +1731,7 @@ const renderSourceLibrary = () => {
 
 const sourceLibrarySignature = (categories) => JSON.stringify([
   state.sourceMutationInFlight,
+  state.applyInFlight,
   categories.map((category) => [
     category.id,
     category.label,
@@ -1769,11 +1770,23 @@ const sourceUploadSignature = (category) => {
 };
 
 const sourceMutationBusyTitle = "소스 파일 작업이 끝날 때까지 기다리세요.";
+const sourceApplyBusyTitle = "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.";
 
-const deriveSourceUploadActionState = (upload = {}, sourceMutationInFlight = false) => {
+const sourceActionBusyTitle = (sourceMutationInFlight = false, applyInFlight = false) => {
+  if (applyInFlight) return sourceApplyBusyTitle;
+  if (sourceMutationInFlight) return sourceMutationBusyTitle;
+  return "";
+};
+
+const deriveSourceUploadActionState = (
+  upload = {},
+  sourceMutationInFlight = false,
+  applyInFlight = false,
+) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
-  const busy = Boolean(sourceMutationInFlight);
+  const busyTitle = sourceActionBusyTitle(sourceMutationInFlight, applyInFlight);
+  const busy = Boolean(busyTitle);
   return {
     selectAfterUpload: upload.selectAfterUpload !== false,
     hasFile,
@@ -1782,20 +1795,25 @@ const deriveSourceUploadActionState = (upload = {}, sourceMutationInFlight = fal
       : "WAV 파일을 이 폴더로 복사합니다.",
     uploadDisabled: busy || !hasFile,
     uploadTitle: busy
-      ? sourceMutationBusyTitle
+      ? busyTitle
       : hasFile ? "" : "추가할 WAV 파일을 먼저 선택하세요.",
   };
 };
 
-const deriveSourceFileActionState = (file = {}, sourceMutationInFlight = false) => {
+const deriveSourceFileActionState = (
+  file = {},
+  sourceMutationInFlight = false,
+  applyInFlight = false,
+) => {
   const active = Boolean(file.active);
-  const busy = Boolean(sourceMutationInFlight);
+  const busyTitle = sourceActionBusyTitle(sourceMutationInFlight, applyInFlight);
+  const busy = Boolean(busyTitle);
   return {
     active,
     deleteDisabled: active || busy,
     deleteTitle: active
       ? "현재 선택된 파일은 삭제할 수 없습니다"
-      : busy ? sourceMutationBusyTitle : "",
+      : busy ? busyTitle : "",
   };
 };
 
@@ -1817,8 +1835,14 @@ const sourceCategoryCard = (category) => {
     helper: category.directory,
   };
   const upload = sourceUploadState(category.id);
-  const sourceMutationDisabled = state.sourceMutationInFlight ? " disabled" : "";
-  const uploadAction = deriveSourceUploadActionState(upload, state.sourceMutationInFlight);
+  const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
+  const sourceActionDisabled = busyTitle ? " disabled" : "";
+  const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
+  const uploadAction = deriveSourceUploadActionState(
+    upload,
+    state.sourceMutationInFlight,
+    state.applyInFlight,
+  );
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
   const uploadTitle = uploadAction.uploadTitle
@@ -1848,7 +1872,8 @@ const sourceCategoryCard = (category) => {
       <select
         class="source-file-select"
         data-source-select="${escapeHtml(category.id)}"
-        ${sourceMutationDisabled}
+        ${sourceActionDisabled}
+        ${sourceActionTitle}
       >${options}</select>
     </label>
     <div class="source-file-list">
@@ -1861,7 +1886,8 @@ const sourceCategoryCard = (category) => {
           type="file"
           accept=".wav,audio/wav,audio/x-wav"
           data-source-file="${escapeHtml(category.id)}"
-          ${sourceMutationDisabled}
+          ${sourceActionDisabled}
+          ${sourceActionTitle}
         />
         <strong>파일 선택 또는 드롭</strong>
         <small>${escapeHtml(uploadAction.hint)}</small>
@@ -1874,7 +1900,7 @@ const sourceCategoryCard = (category) => {
         ${uploadTitle}
       >추가</button>
       <label class="source-upload-select">
-        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked}${sourceMutationDisabled} />
+        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked}${sourceActionDisabled}${sourceActionTitle} />
         <span>업로드 후 바로 선택</span>
       </label>
     </div>
@@ -1887,7 +1913,11 @@ const sourceFileRows = (category) => {
     return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
   }
   return category.files.map((file) => {
-    const action = deriveSourceFileActionState(file, state.sourceMutationInFlight);
+    const action = deriveSourceFileActionState(
+      file,
+      state.sourceMutationInFlight,
+      state.applyInFlight,
+    );
     const active = action.active ? `<span class="source-file-badge">사용 중</span>` : "";
     const disabled = action.deleteDisabled ? " disabled" : "";
     const deleteTitle = action.deleteTitle
@@ -1986,6 +2016,7 @@ const recoverSourceMutationError = async (error) => {
 };
 
 const selectSourceFile = async (category, path) => {
+  if (state.applyInFlight) return null;
   const requestId = beginSourceMutation();
   try {
     const payload = await api(`/api/sources/${encodeURIComponent(category)}/select`, {
@@ -2015,6 +2046,7 @@ const selectedSourceUploadMode = (category) => {
 };
 
 const uploadSourceFile = async (category, droppedFile = null) => {
+  if (state.applyInFlight) return null;
   const input = document.querySelector(`[data-source-file="${category}"]`);
   const selectedFile = input?.files?.[0] || sourceUploadState(category).file;
   const file = droppedFile || selectedFile;
@@ -2069,6 +2101,7 @@ const handleSourceFileDrop = (event, category) => {
 };
 
 const deleteSourceFile = async (category, path) => {
+  if (state.applyInFlight) return null;
   if (!window.confirm("선택한 WAV 파일을 삭제할까요?")) return;
   const requestId = beginSourceMutation();
   try {
@@ -3163,6 +3196,7 @@ const applyAndRestart = async () => {
   state.applyInFlight = true;
   renderState();
   renderDevices();
+  renderSourceLibrary();
   try {
     clearDraftSaveTimer();
     await saveDraft();
@@ -3179,6 +3213,7 @@ const applyAndRestart = async () => {
     state.applyInFlight = false;
     renderState();
     renderDevices();
+    renderSourceLibrary();
     if (applyError) showError(applyError.message);
   }
 };
