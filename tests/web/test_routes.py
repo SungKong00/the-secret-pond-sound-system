@@ -406,6 +406,62 @@ def create_test_client(
     )
 
 
+STATIC_APP_BOOTSTRAP = (
+    "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\n"
+    "connectStateSocket();\nrefreshAll();\n"
+)
+
+STATIC_APP_NULL_DOM_SETUP = """
+globalThis.document = {
+  getElementById() { return null; },
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+  createElement() { return {}; },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.requestAnimationFrame = () => {};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+"""
+
+
+def static_app_test_script(tmp_path: Path, exports: str) -> str:
+    client = create_test_client(tmp_path)
+    return client.get("/static/app.js").text.replace(
+        STATIC_APP_BOOTSTRAP,
+        f"\nglobalThis.__secretPondTest = {exports};\n",
+    )
+
+
+def run_static_app_harness(
+    tmp_path: Path,
+    *,
+    exports: str,
+    body: str,
+    dom_setup: str = STATIC_APP_NULL_DOM_SETUP,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    script = static_app_test_script(tmp_path, exports)
+    body = body.replace("{{", "{").replace("}}", "}")
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+{dom_setup}
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+{body}
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def write_source_files(paths: ProjectPaths, settings: AppSettings) -> None:
     paths.ensure_directories()
     frames = settings.audio.sample_rate * settings.audio.loop_seconds
@@ -1518,13 +1574,9 @@ def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
     if node is None:
         pytest.skip("node is required for static app behavior smoke test")
 
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        (
-            "\nglobalThis.__secretPondTest = "
-            "{ controlGroup, layerControlGroups, setPath, clone };\n"
-        ),
+    script = static_app_test_script(
+        tmp_path,
+        "{ controlGroup, layerControlGroups, setPath, clone }",
     )
     harness = f"""
 const assert = require("assert");
@@ -1642,40 +1694,13 @@ assert.match(lastActionsMarkup, /필터 없음/);
 
 
 def test_static_ui_presets_are_stateful_and_reversible(tmp_path: Path) -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is required for static app behavior smoke test")
-
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        (
-            "\nglobalThis.__secretPondTest = "
+    run_static_app_harness(
+        tmp_path,
+        exports=(
             "{ clone, layerPresetDefs, recordingPresetDefs, reversiblePresetDraft, "
-            "presetSelectionMatches };\n"
+            "presetSelectionMatches }"
         ),
-    )
-    harness = f"""
-const assert = require("assert");
-const vm = require("vm");
-globalThis.document = {{
-  getElementById() {{ return null; }},
-  querySelector() {{ return null; }},
-  querySelectorAll() {{ return []; }},
-  createElement() {{ return {{}}; }},
-  addEventListener() {{}},
-}};
-globalThis.window = {{
-  addEventListener() {{}},
-  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
-}};
-globalThis.requestAnimationFrame = () => {{}};
-globalThis.setTimeout = () => 0;
-globalThis.clearTimeout = () => {{}};
-globalThis.setInterval = () => 0;
-
-vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
-
+        body="""
 const helpers = globalThis.__secretPondTest;
 const customLayer = {{
   enabled: true,
@@ -1763,47 +1788,20 @@ const revertedRecording = helpers.reversiblePresetDraft(
 );
 assert.deepStrictEqual(revertedRecording.draft, customRecording);
 assert.strictEqual(revertedRecording.selection, null);
-"""
-    subprocess.run([node, "-e", harness], check=True, text=True)
+""",
+    )
 
 
 def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
     tmp_path: Path,
 ) -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is required for static app behavior smoke test")
-
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        (
-            "\nglobalThis.__secretPondTest = "
+    run_static_app_harness(
+        tmp_path,
+        exports=(
             "{ deriveDashboardControlState, derivePendingChangeState, "
-            "deriveControlRequestState };\n"
+            "deriveControlRequestState }"
         ),
-    )
-    harness = f"""
-const assert = require("assert");
-const vm = require("vm");
-globalThis.document = {{
-  getElementById() {{ return null; }},
-  querySelector() {{ return null; }},
-  querySelectorAll() {{ return []; }},
-  createElement() {{ return {{}}; }},
-  addEventListener() {{}},
-}};
-globalThis.window = {{
-  addEventListener() {{}},
-  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
-}};
-globalThis.requestAnimationFrame = () => {{}};
-globalThis.setTimeout = () => 0;
-globalThis.clearTimeout = () => {{}};
-globalThis.setInterval = () => 0;
-
-vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
-
+        body="""
 const snapshot = {{
   armed: true,
   is_recording: false,
@@ -2021,47 +2019,20 @@ assert.strictEqual(
   outputRunning.applyTitle,
   "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
 );
-"""
-    subprocess.run([node, "-e", harness], check=True, text=True)
+""",
+    )
 
 
 def test_static_ui_settings_change_plan_uses_server_runtime_field_policy(
     tmp_path: Path,
 ) -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is required for static app behavior smoke test")
-
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        (
-            "\nglobalThis.__secretPondTest = "
+    run_static_app_harness(
+        tmp_path,
+        exports=(
             "{ localSettingsChangePlan, normalizeSettingsChangePlan, "
-            "toServerSettingsChangePayload };\n"
+            "toServerSettingsChangePayload }"
         ),
-    )
-    harness = f"""
-const assert = require("assert");
-const vm = require("vm");
-globalThis.document = {{
-  getElementById() {{ return null; }},
-  querySelector() {{ return null; }},
-  querySelectorAll() {{ return []; }},
-  createElement() {{ return {{}}; }},
-  addEventListener() {{}},
-}};
-globalThis.window = {{
-  addEventListener() {{}},
-  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
-}};
-globalThis.requestAnimationFrame = () => {{}};
-globalThis.setTimeout = () => 0;
-globalThis.clearTimeout = () => {{}};
-globalThis.setInterval = () => 0;
-
-vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
-
+        body="""
 const helpers = globalThis.__secretPondTest;
 const active = {{
   audio: {{ sample_rate: 48000, channels: 2 }},
@@ -2093,41 +2064,15 @@ assert.deepStrictEqual(helpers.toServerSettingsChangePayload(normalized), {{
   changed_sections: ["devices"],
   runtime_config_fields: ["audio.sample_rate"],
 }});
-"""
-    subprocess.run([node, "-e", harness], check=True, text=True)
+""",
+    )
 
 
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is required for static app behavior smoke test")
-
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        "\nglobalThis.__secretPondTest = { sourceSignatureForSettings };\n",
-    )
-    harness = f"""
-const assert = require("assert");
-const vm = require("vm");
-globalThis.document = {{
-  getElementById() {{ return null; }},
-  querySelector() {{ return null; }},
-  querySelectorAll() {{ return []; }},
-  createElement() {{ return {{}}; }},
-  addEventListener() {{}},
-}};
-globalThis.window = {{
-  addEventListener() {{}},
-  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
-}};
-globalThis.requestAnimationFrame = () => {{}};
-globalThis.setTimeout = () => 0;
-globalThis.clearTimeout = () => {{}};
-globalThis.setInterval = () => 0;
-
-vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
-
+    run_static_app_harness(
+        tmp_path,
+        exports="{ sourceSignatureForSettings }",
+        body="""
 const settings = {{
   sources: {{
     low_path: "sources/low/selected.wav",
@@ -2167,8 +2112,8 @@ assert.strictEqual(
   globalThis.__secretPondTest.sourceSignatureForSettings(settings, null),
   null,
 );
-"""
-    subprocess.run([node, "-e", harness], check=True, text=True)
+""",
+    )
 
 
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
@@ -2176,11 +2121,9 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
     if node is None:
         pytest.skip("node is required for static app behavior smoke test")
 
-    client = create_test_client(tmp_path)
-    script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+    script = static_app_test_script(
+        tmp_path,
         (
-            "\nglobalThis.__secretPondTest = "
             "{ state, applyState, renderState, renderSyncBadge, "
             "renderRecordingControls, renderVoiceStackControls, renderWorkspaceTabs, "
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
@@ -2189,7 +2132,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "releaseInteractiveControl, refreshAll, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
-            "uploadSourceFile };\n"
+            "uploadSourceFile }"
         ),
     )
     harness = f"""
