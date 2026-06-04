@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
+from secret_pond.audio.source_library import selected_source_path
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 
@@ -27,6 +28,7 @@ class VoiceStackSnapshot:
     raw_created: bool
     raw_normalized: bool
     manifest_created: bool
+    voice_stack_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,8 @@ class VoiceStackAddResult:
     peak_before_guard: float
     peak_after_guard: float
     gain_reduction_db: float
+    voice_stack_path: str | None = None
+    voice_raw_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,7 @@ class VoiceStackRebuildResult:
     peak_before_guard: float
     peak_after_guard: float
     gain_reduction_db: float
+    voice_stack_path: str | None = None
 
 
 class VoiceStackStore:
@@ -57,9 +62,11 @@ class VoiceStackStore:
         target_frames = settings.audio.sample_rate * settings.voice_stack.loop_seconds
         raw_created = False
         raw_normalized = False
+        voice_stack_path: str | None = settings.sources.voice_stack_path
+        current_stack_path = _current_stack_path(self._paths, settings)
 
-        if self._paths.voice_stack_raw.exists():
-            loaded = read_wav(self._paths.voice_stack_raw)
+        if current_stack_path.exists():
+            loaded = read_wav(current_stack_path)
             buffer = loaded.to_canonical(
                 sample_rate=settings.audio.sample_rate,
                 channels=settings.audio.channels,
@@ -72,7 +79,12 @@ class VoiceStackStore:
                 frames=target_frames,
             )
             if raw_normalized:
-                write_wav_atomic(self._paths.voice_stack_raw, buffer)
+                voice_stack_path = _write_stack_buffer(
+                    self._paths,
+                    settings,
+                    buffer,
+                    timestamped=bool(settings.sources.voice_stack_path),
+                )
         else:
             raw_created = True
             buffer = _silent_buffer(
@@ -80,7 +92,12 @@ class VoiceStackStore:
                 sample_rate=settings.audio.sample_rate,
                 channels=settings.audio.channels,
             )
-            write_wav_atomic(self._paths.voice_stack_raw, buffer)
+            voice_stack_path = _write_stack_buffer(
+                self._paths,
+                settings,
+                buffer,
+                timestamped=False,
+            )
 
         manifest_created = self._ensure_manifest()
         return VoiceStackSnapshot(
@@ -88,6 +105,7 @@ class VoiceStackStore:
             raw_created=raw_created,
             raw_normalized=raw_normalized,
             manifest_created=manifest_created,
+            voice_stack_path=voice_stack_path,
         )
 
     def add_processed_voice(
@@ -129,6 +147,7 @@ class VoiceStackStore:
         new_entries: list[dict[str, Any]] = []
         accepted_writes: list[tuple[Path, AudioBuffer]] = []
         snapshot_payload = _json_safe_snapshot(processing_settings_snapshot)
+        voice_raw_path: str | None = None
 
         for chunk_index, chunk in enumerate(chunks):
             entry_id = uuid4().hex
@@ -170,21 +189,31 @@ class VoiceStackStore:
         raw_buffer = AudioBuffer(samples=guarded_samples, sample_rate=settings.audio.sample_rate)
 
         written_accepted_paths: list[Path] = []
-        raw_write_succeeded = False
+        written_raw_path: Path | None = None
         try:
+            voice_raw_path, written_raw_path = _write_voice_raw_buffer(
+                self._paths,
+                settings,
+                source,
+            )
             for path, accepted_buffer in accepted_writes:
                 write_wav_atomic(path, accepted_buffer)
                 written_accepted_paths.append(path)
 
-            write_wav_atomic(self._paths.voice_stack_raw, raw_buffer)
-            raw_write_succeeded = True
+            voice_stack_path = _write_stack_buffer(
+                self._paths,
+                settings,
+                raw_buffer,
+                timestamped=True,
+            )
             manifest["revision"] = current_revision + 1
             manifest["entries"] = existing_entries + new_entries
             _write_json_atomic(self._paths.voice_manifest, manifest)
         except Exception:
             _cleanup_paths(written_accepted_paths)
-            if raw_write_succeeded:
-                _restore_raw_stack(self._paths.voice_stack_raw, previous_raw_bytes)
+            if written_raw_path is not None:
+                _cleanup_paths([written_raw_path])
+            _restore_raw_stack(self._paths.voice_stack_raw, previous_raw_bytes)
             raise
 
         return VoiceStackAddResult(
@@ -193,6 +222,8 @@ class VoiceStackStore:
             peak_before_guard=peak_before_guard,
             peak_after_guard=peak_after_guard,
             gain_reduction_db=gain_reduction_db,
+            voice_stack_path=voice_stack_path,
+            voice_raw_path=voice_raw_path,
         )
 
     def rebuild_from_test_library(self, settings: AppSettings) -> VoiceStackRebuildResult:
@@ -238,9 +269,11 @@ class VoiceStackStore:
 
         peak_before_guard = _peak(stack_samples)
         guarded_samples, peak_after_guard, gain_reduction_db = _apply_peak_guard(stack_samples)
-        write_wav_atomic(
-            self._paths.voice_stack_raw,
+        voice_stack_path = _write_stack_buffer(
+            self._paths,
+            settings,
             AudioBuffer(samples=guarded_samples, sample_rate=settings.audio.sample_rate),
+            timestamped=True,
         )
 
         return VoiceStackRebuildResult(
@@ -249,6 +282,7 @@ class VoiceStackStore:
             peak_before_guard=peak_before_guard,
             peak_after_guard=peak_after_guard,
             gain_reduction_db=gain_reduction_db,
+            voice_stack_path=voice_stack_path,
         )
 
     def _ensure_manifest(self) -> bool:
@@ -299,6 +333,67 @@ def _matches_target(
         and buffer.channels == channels
         and buffer.frames == frames
     )
+
+
+def _current_stack_path(paths: ProjectPaths, settings: AppSettings) -> Path:
+    return selected_source_path(paths, settings, "voice_stack") or paths.voice_stack_raw
+
+
+def _write_stack_buffer(
+    paths: ProjectPaths,
+    settings: AppSettings,
+    buffer: AudioBuffer,
+    *,
+    timestamped: bool,
+) -> str | None:
+    if timestamped:
+        stack_path = _timestamped_stack_path(paths)
+        write_wav_atomic(stack_path, buffer)
+        relative_path = _relative_path(paths.root, stack_path)
+        settings.sources.voice_stack_path = relative_path
+        write_wav_atomic(paths.voice_stack_raw, buffer)
+        return relative_path
+
+    write_wav_atomic(paths.voice_stack_raw, buffer)
+    return settings.sources.voice_stack_path
+
+
+def _write_voice_raw_buffer(
+    paths: ProjectPaths,
+    settings: AppSettings,
+    buffer: AudioBuffer,
+) -> tuple[str, Path]:
+    raw_path = _timestamped_raw_path(paths)
+    write_wav_atomic(raw_path, buffer)
+    relative_path = _relative_path(paths.root, raw_path)
+    settings.sources.voice_raw_path = relative_path
+    return relative_path, raw_path
+
+
+def _timestamped_raw_path(paths: ProjectPaths) -> Path:
+    paths.voice_raw_sources_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    candidate = paths.voice_raw_sources_dir / f"{timestamp}-raw.wav"
+    suffix = 1
+    while candidate.exists():
+        candidate = paths.voice_raw_sources_dir / f"{timestamp}-raw-{suffix}.wav"
+        suffix += 1
+    return candidate
+
+
+def _timestamped_stack_path(paths: ProjectPaths) -> Path:
+    paths.voice_stack_sources_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    candidate = paths.voice_stack_sources_dir / f"{timestamp}-stack.wav"
+    suffix = 1
+    while candidate.exists():
+        candidate = paths.voice_stack_sources_dir / f"{timestamp}-stack-{suffix}.wav"
+        suffix += 1
+    return candidate
+
+
+def _relative_path(root: Path, path: Path) -> str:
+    return path.resolve().relative_to(root.resolve()).as_posix()
 
 
 def _silent_buffer(frames: int, sample_rate: int, channels: int) -> AudioBuffer:

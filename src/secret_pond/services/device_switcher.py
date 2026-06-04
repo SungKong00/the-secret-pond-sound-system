@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from contextlib import suppress
+from typing import Any
+
+from secret_pond.config import DeviceSettings
+from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.settings_store import SettingsState
+
+
+class DeviceSelectionError(RuntimeError):
+    """Raised when a runtime device change cannot be safely applied."""
+
+
+def apply_runtime_devices(
+    runtime: SecretPondRuntime,
+    devices: DeviceSettings,
+) -> SettingsState:
+    current = runtime.settings_store.load()
+    previous_devices = current.active.devices
+    input_changed = previous_devices.input_device_id != devices.input_device_id
+    output_changed = previous_devices.output_device_id != devices.output_device_id
+
+    if input_changed and runtime.controller.is_recording:
+        raise DeviceSelectionError("cannot change input device while recording")
+
+    if not input_changed and not output_changed:
+        return current
+
+    was_output_running = runtime.output.is_running
+    if output_changed and was_output_running:
+        runtime.output.stop()
+
+    try:
+        if input_changed:
+            _set_device_id(runtime.recorder, devices.input_device_id)
+        if output_changed:
+            _set_device_id(runtime.output, devices.output_device_id)
+        if output_changed and was_output_running:
+            runtime.output.start()
+    except Exception as exc:
+        _rollback_runtime_devices(
+            runtime,
+            previous_devices=previous_devices,
+            input_changed=input_changed,
+            output_changed=output_changed,
+            restore_output=output_changed and was_output_running,
+        )
+        raise DeviceSelectionError(str(exc)) from exc
+
+    next_active = current.active.model_copy(update={"devices": devices}, deep=True)
+    next_draft = current.draft.model_copy(update={"devices": devices}, deep=True)
+    next_state = runtime.settings_store.save(SettingsState(active=next_active, draft=next_draft))
+    runtime.apply_settings_state(next_state)
+    return next_state
+
+
+def _set_device_id(component: Any, device_id: str | None) -> None:
+    setter = getattr(component, "set_device_id", None)
+    if not callable(setter):
+        name = component.__class__.__name__
+        raise DeviceSelectionError(f"{name} cannot change device while the app is running")
+    setter(device_id)
+
+
+def _rollback_runtime_devices(
+    runtime: SecretPondRuntime,
+    *,
+    previous_devices: DeviceSettings,
+    input_changed: bool,
+    output_changed: bool,
+    restore_output: bool,
+) -> None:
+    if runtime.output.is_running:
+        with suppress(Exception):
+            runtime.output.stop()
+    if input_changed:
+        with suppress(Exception):
+            _set_device_id(runtime.recorder, previous_devices.input_device_id)
+    if output_changed:
+        with suppress(Exception):
+            _set_device_id(runtime.output, previous_devices.output_device_id)
+    if restore_output:
+        with suppress(Exception):
+            runtime.output.start()

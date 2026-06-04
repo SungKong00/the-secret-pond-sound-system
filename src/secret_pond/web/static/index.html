@@ -15,10 +15,9 @@
           <h1>Sound System <small lang="ko">사운드 시스템</small></h1>
         </section>
         <section class="status-strip" aria-label="실행 상태">
-          <span id="armedBadge" class="status-pill">준비 해제</span>
+          <span id="armedBadge" class="status-pill">녹음 준비 꺼짐</span>
           <span id="recordingBadge" class="status-pill">대기</span>
           <span id="outputBadge" class="status-pill">출력 꺼짐</span>
-          <span id="modeBadge" class="status-pill muted">모드 미확인</span>
           <span id="lastEventBadge" class="status-pill muted">최근 이벤트 없음</span>
           <span id="errorBadge" class="status-pill muted">오류 없음</span>
           <span id="syncBadge" class="status-pill muted">동기화 확인 중</span>
@@ -26,7 +25,7 @@
           <span class="status-pill">참여자 <strong id="participantCount">0</strong></span>
         </section>
         <section class="top-actions" aria-label="운영 콘솔">
-          <span class="status-pill station-pill">Control Room</span>
+          <span class="status-pill station-pill">운영실</span>
         </section>
       </header>
 
@@ -50,20 +49,19 @@
               </div>
               <div class="button-row playback-actions">
                 <button id="startOutputButton" class="button primary" type="button">
-                  Start Output <small lang="ko">출력 시작</small>
+                  출력 시작
                 </button>
                 <button id="stopOutputButton" class="button" type="button">
-                  Stop Output <small lang="ko">출력 중지</small>
+                  출력 중지
                 </button>
                 <button id="restartOutputButton" class="button" type="button" disabled>
-                  Restart Output <small lang="ko">출력 재시작</small>
+                  출력 재시작
                 </button>
               </div>
               <div class="playback-apply-strip">
                 <button id="applyButton" class="button primary" type="button">
-                  Apply and Restart <small lang="ko">적용 후 재시작</small>
+                  적용 후 재시작
                 </button>
-                <p class="hint">준비된 레이어와 목소리 처리 설정을 적용합니다.</p>
               </div>
             </section>
 
@@ -72,33 +70,71 @@
                 <p class="eyebrow">입력</p>
                 <h2>Voice Capture <small lang="ko">목소리 녹음</small></h2>
               </div>
+              <section
+                id="storageModePanel"
+                class="storage-mode-panel"
+                aria-label="녹음 보관 모드"
+              >
+                <div class="storage-mode-head">
+                  <span class="storage-mode-label">녹음 보관</span>
+                  <strong id="storageModeSummary">확인 중</strong>
+                </div>
+                <div class="storage-mode-options" role="group" aria-label="녹음 보관 모드 선택">
+                  <button
+                    id="storageModeLiveButton"
+                    class="storage-mode-button"
+                    type="button"
+                    data-storage-mode="live_ephemeral"
+                    aria-pressed="false"
+                  >
+                    <span>운영</span>
+                  </button>
+                  <button
+                    id="storageModeLibraryButton"
+                    class="storage-mode-button library"
+                    type="button"
+                    data-storage-mode="test_library"
+                    aria-pressed="false"
+                  >
+                    <span>테스트 저장</span>
+                  </button>
+                </div>
+              </section>
               <div class="capture-gate">
-                <div>
-                  <strong>Capture Gate</strong>
-                  <small>스페이스바 녹음 허용 상태</small>
+                <div id="captureGateCopy" class="capture-gate-copy">
+                  <strong>녹음 준비</strong>
+                  <small>스페이스바 녹음 허용</small>
                 </div>
-                <div class="capture-mode-actions" role="group" aria-label="스페이스바 녹음 모드">
-                  <button id="armButton" class="button primary" type="button" aria-pressed="false">
-                    Enable <small lang="ko">녹음 준비</small>
-                  </button>
-                  <button id="disarmButton" class="button" type="button" aria-pressed="true" disabled>
-                    Safe <small lang="ko">준비 해제</small>
-                  </button>
-                </div>
-              </div>
-              <div class="button-row take-actions">
-                <button id="startButton" class="button primary" type="button">
-                  Start Take <small lang="ko">테이크 시작</small>
-                </button>
-                <button id="stopButton" class="button" type="button">
-                  Stop Take <small lang="ko">테이크 종료</small>
+                <button
+                  id="captureGateSwitch"
+                  class="switch-control capture-gate-switch"
+                  type="button"
+                  role="switch"
+                  aria-checked="false"
+                  aria-labelledby="captureGateCopy"
+                  aria-describedby="captureGateState"
+                >
+                  <span class="switch-track" aria-hidden="true">
+                    <span class="switch-thumb"></span>
+                  </span>
+                  <span id="captureGateState" class="switch-state">녹음 준비 꺼짐</span>
                 </button>
               </div>
-              <div class="record-orbit">
-                <div class="record-core">
-                  <span id="recordCoreStatus">준비</span>
-                  <strong id="elapsedTime">0.0s</strong>
-                  <small id="remainingTime">120.0s 남음</small>
+              <div class="take-console">
+                <div class="record-orbit">
+                  <div class="record-core">
+                    <span id="recordCoreStatus">준비 전</span>
+                    <strong id="elapsedTime">0.0s</strong>
+                    <small id="remainingTime">120.0s 남음</small>
+                  </div>
+                </div>
+                <div class="button-row take-actions">
+                  <button id="startButton" class="button primary" type="button">
+                    테이크 시작
+                  </button>
+                  <button id="stopButton" class="button" type="button">
+                    테이크 종료
+                  </button>
                 </div>
               </div>
               <div class="record-limits" aria-label="녹음 시간 제한">
@@ -106,14 +142,14 @@
                 <span>최대 <strong id="maximumRecordingTime">120.0s</strong></span>
               </div>
               <div class="record-outcome ready" aria-live="polite">
-                <span id="recordOutcomeStatus">준비</span>
-                <strong id="recordOutcomeDetail">먼저 녹음을 준비한 뒤 스페이스바를 누르세요.</strong>
+                <span id="recordOutcomeStatus">녹음 준비 필요</span>
+                <strong id="recordOutcomeDetail">녹음 준비를 켠 뒤 스페이스바를 누르세요.</strong>
               </div>
               <p class="hint">녹음 준비 상태에서만 스페이스바 누름 녹음이 작동합니다.</p>
-              <details class="device-panel">
+              <details class="device-panel" open>
                 <summary>
                   <span>Audio Routing <small lang="ko">장치 라우팅</small></span>
-                  <strong>재시작 적용</strong>
+                  <strong>앱 재시작 적용</strong>
                 </summary>
                 <div id="deviceStatus" class="diagnostic-stack" aria-label="오디오 장치">
                   <div class="diagnostic-row device-summary">
@@ -121,7 +157,7 @@
                     <strong id="inputDeviceName">확인 중...</strong>
                   </div>
                   <label class="device-select-row" for="inputDeviceSelect">
-                    <span>입력 초안</span>
+                    <span>Input Device <small lang="ko">변경 예정 입력 장치</small></span>
                     <select id="inputDeviceSelect" disabled></select>
                   </label>
                   <div class="diagnostic-row device-summary">
@@ -129,7 +165,7 @@
                     <strong id="outputDeviceName">확인 중...</strong>
                   </div>
                   <label class="device-select-row" for="outputDeviceSelect">
-                    <span>출력 초안</span>
+                    <span>Output Device <small lang="ko">변경 예정 출력 장치</small></span>
                     <select id="outputDeviceSelect" disabled></select>
                   </label>
                   <p id="deviceRestartNotice" class="device-note">장치 변경은 앱 재시작 후 적용됩니다.</p>
@@ -140,72 +176,163 @@
           </div>
         </section>
 
-        <div class="main-workspace-panel">
-          <section class="panel settings-panel" aria-label="녹음 처리 설정">
-            <div class="panel-heading">
-              <p class="eyebrow">전처리</p>
-              <h2>Voice Treatment <small lang="ko">목소리 처리</small></h2>
-            </div>
-            <div
-              id="recordingPresets"
-              class="preset-row"
-              role="group"
-              aria-label="녹음 처리 프리셋"
+        <section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">
+          <div class="workspace-tabs" role="tablist" aria-label="작업 전환">
+            <button
+              id="workspaceTabTreatment"
+              class="workspace-tab active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="workspacePaneTreatment"
+              data-workspace-tab="treatment"
             >
-              <button class="preset-button" type="button" data-preset="Soft" aria-pressed="false">
-                Soft <small lang="ko">부드럽게</small>
+              Voice Treatment <small lang="ko">목소리 처리</small>
+            </button>
+            <button
+              id="workspaceTabStack"
+              class="workspace-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="workspacePaneStack"
+              data-workspace-tab="stack"
+            >
+              Voice Stack <small lang="ko">목소리 스택</small>
+            </button>
+            <button
+              id="workspaceTabMixer"
+              class="workspace-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="workspacePaneMixer"
+              data-workspace-tab="mixer"
+            >
+              Loop Mixer <small lang="ko">루프 믹서</small>
+            </button>
+          </div>
+
+          <section class="settings-library" aria-label="세팅 스냅샷">
+            <div class="settings-library-title">
+              <p class="eyebrow">프리셋</p>
+              <h2>Scene Snapshots <small lang="ko">세팅 저장</small></h2>
+            </div>
+            <div class="settings-library-controls">
+              <button id="settingsSnapshotSaveButton" class="button" type="button" disabled>
+                현재값 저장
               </button>
-              <button class="preset-button" type="button" data-preset="Misty" aria-pressed="false">
-                Misty <small lang="ko">안개처럼</small>
-              </button>
-              <button class="preset-button" type="button" data-preset="Dense" aria-pressed="false">
-                Dense <small lang="ko">풍성하게</small>
+              <label class="snapshot-select-shell" for="settingsSnapshotSelect">
+                <span class="sr-only">저장된 세팅 선택</span>
+                <select id="settingsSnapshotSelect" disabled>
+                  <option>저장된 세팅 없음</option>
+                </select>
+              </label>
+              <button id="settingsSnapshotApplyButton" class="button" type="button" disabled>
+                적용
               </button>
               <button
-                class="preset-button"
+                id="settingsSnapshotDeleteButton"
+                class="button danger"
                 type="button"
-                data-preset="Clearer Voice"
-                aria-pressed="false"
+                disabled
               >
-                Clearer Voice <small lang="ko">선명한 목소리</small>
+                삭제
               </button>
             </div>
-            <div id="recordingControls" class="control-stack compact"></div>
-            <details class="maintenance-panel">
-              <summary>Maintenance <small lang="ko">관리</small></summary>
-              <div class="maintenance-body">
-                <button id="resetButton" class="button" type="button">
-                  Reset Draft <small lang="ko">초기화</small>
-                </button>
-                <button id="resetParticipantsButton" class="button" type="button">
-                  Reset Participants <small lang="ko">참여자 초기화</small>
-                </button>
-              </div>
-            </details>
           </section>
 
-          <section class="panel voice-panel" aria-labelledby="voiceStackPanelTitle">
-            <div class="panel-heading">
-              <p class="eyebrow">스택</p>
-              <h2 id="voiceStackPanelTitle">Voice Stack <small lang="ko">목소리 스택</small></h2>
-            </div>
-            <div id="voiceStackControls" class="control-stack compact voice-stack-controls"></div>
-            <div id="voiceLayerControls" class="control-stack"></div>
-          </section>
-
-          <section class="panel mixer-panel" aria-label="레이어 믹서">
-            <div class="panel-heading inline">
-              <div>
-                <p class="eyebrow">레이어</p>
-                <h2>Loop Mixer <small lang="ko">루프 믹서</small></h2>
+          <div
+            id="workspacePaneTreatment"
+            class="workspace-pane"
+            role="tabpanel"
+            aria-labelledby="workspaceTabTreatment"
+            data-workspace-pane="treatment"
+          >
+            <section class="workspace-section settings-panel" aria-label="녹음 처리 설정">
+              <div class="panel-heading">
+                <p class="eyebrow">전처리</p>
+                <h2>Voice Treatment <small lang="ko">목소리 처리</small></h2>
               </div>
-              <button id="refreshButton" class="icon-button" type="button" aria-label="상태 새로고침">
-                ↻
-              </button>
-            </div>
-            <div id="layerControls" class="control-stack"></div>
-          </section>
-        </div>
+              <div
+                id="recordingPresets"
+                class="preset-row"
+                role="group"
+                aria-label="녹음 처리 프리셋"
+              >
+                <button class="preset-button" type="button" data-preset="Soft" aria-pressed="false">
+                  Soft <small lang="ko">부드럽게</small>
+                </button>
+                <button class="preset-button" type="button" data-preset="Misty" aria-pressed="false">
+                  Misty <small lang="ko">안개처럼</small>
+                </button>
+                <button class="preset-button" type="button" data-preset="Dense" aria-pressed="false">
+                  Dense <small lang="ko">풍성하게</small>
+                </button>
+                <button
+                  class="preset-button"
+                  type="button"
+                  data-preset="Clearer Voice"
+                  aria-pressed="false"
+                >
+                  Clearer Voice <small lang="ko">선명한 목소리</small>
+                </button>
+              </div>
+              <div id="recordingControls" class="control-stack compact"></div>
+              <details class="maintenance-panel">
+                <summary>관리</summary>
+                <div class="maintenance-body">
+                  <button id="resetButton" class="button" type="button">
+                    변경 취소
+                  </button>
+                  <button id="resetParticipantsButton" class="button" type="button">
+                    참여자 초기화
+                  </button>
+                </div>
+              </details>
+            </section>
+          </div>
+
+          <div
+            id="workspacePaneStack"
+            class="workspace-pane"
+            role="tabpanel"
+            aria-labelledby="workspaceTabStack"
+            data-workspace-pane="stack"
+            hidden
+          >
+            <section class="workspace-section voice-panel" aria-labelledby="voiceStackPanelTitle">
+              <div class="panel-heading">
+                <p class="eyebrow">스택</p>
+                <h2 id="voiceStackPanelTitle">Voice Stack <small lang="ko">목소리 스택</small></h2>
+              </div>
+              <div id="voiceStackControls" class="control-stack compact voice-stack-controls"></div>
+              <div id="voiceLayerControls" class="control-stack"></div>
+            </section>
+          </div>
+
+          <div
+            id="workspacePaneMixer"
+            class="workspace-pane"
+            role="tabpanel"
+            aria-labelledby="workspaceTabMixer"
+            data-workspace-pane="mixer"
+            hidden
+          >
+            <section class="workspace-section mixer-panel" aria-label="레이어 믹서">
+              <div class="panel-heading inline">
+                <div>
+                  <p class="eyebrow">레이어</p>
+                  <h2>Loop Mixer <small lang="ko">루프 믹서</small></h2>
+                </div>
+                <button id="refreshButton" class="icon-button" type="button" aria-label="상태 새로고침">
+                  ↻
+                </button>
+              </div>
+              <div id="layerControls" class="control-stack"></div>
+            </section>
+          </div>
+        </section>
 
         <div class="right-stack-panel">
           <section class="panel system-panel" aria-label="시스템 진단">
@@ -228,6 +355,20 @@
               </div>
             </div>
             <ul id="eventLogSummary" class="event-list" aria-label="최근 실행 이벤트"></ul>
+          </section>
+          <section class="panel source-library-panel" aria-label="파일 라이브러리">
+            <div class="panel-heading inline">
+              <div>
+                <p class="eyebrow">파일</p>
+                <h2>Source Library <small lang="ko">파일 라이브러리</small></h2>
+              </div>
+              <span id="sourceLibraryStatus" class="status-pill muted">확인 중</span>
+            </div>
+            <div
+              id="sourceLibraryList"
+              class="source-library-list"
+              aria-live="polite"
+            ></div>
           </section>
         </div>
       </section>

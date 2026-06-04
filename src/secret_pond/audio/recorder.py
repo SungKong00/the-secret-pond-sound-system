@@ -78,6 +78,12 @@ class SoundDeviceRecorder:
     def statuses(self) -> list[Any]:
         return list(self._statuses)
 
+    def set_device_id(self, device_id: str | None) -> None:
+        if self._is_recording:
+            msg = "cannot change input device while recording"
+            raise RuntimeError(msg)
+        self._device_id = device_id
+
     def start(self) -> None:
         if self._is_recording:
             msg = "recorder is already recording"

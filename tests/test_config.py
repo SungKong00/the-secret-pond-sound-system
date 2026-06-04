@@ -8,6 +8,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     EqSettings,
     InputControlSettings,
+    SourceSelectionSettings,
     VoiceStackSettings,
 )
 from secret_pond.state import RuntimeStatus
@@ -17,6 +18,9 @@ def test_default_settings_define_three_layers_and_disarmed_input() -> None:
     settings = AppSettings()
 
     assert set(settings.layers.keys()) == {"low", "mid", "voice"}
+    assert settings.sources.low_path is None
+    assert settings.sources.mid_path is None
+    assert settings.sources.voice_stack_path is None
     assert settings.input_control.armed is False
     assert settings.input_control.maximum_recording_seconds == 120.0
     assert settings.audio.sample_rate == 48_000
@@ -66,6 +70,31 @@ def test_audio_loop_seconds_can_be_short_for_setup_or_tests() -> None:
 
     with pytest.raises(ValidationError):
         AudioFormatSettings(loop_seconds=0)
+
+
+def test_source_selection_accepts_relative_wav_paths() -> None:
+    settings = SourceSelectionSettings(
+        low_path="data/sources/low/pond-low.wav",
+        mid_path="data/sources/mid/pond-mid.wav",
+        voice_raw_path="data/sources/voice/raw/2026-06-05T101500.wav",
+        voice_stack_path="data/sources/voice/stack/2026-06-05T101700.wav",
+    )
+
+    assert settings.low_path == "data/sources/low/pond-low.wav"
+    assert settings.voice_stack_path == "data/sources/voice/stack/2026-06-05T101700.wav"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/tmp/low.wav",
+        "../low.wav",
+        "data/sources/low/not-a-wav.mp3",
+    ],
+)
+def test_source_selection_rejects_unsafe_or_non_wav_paths(path: str) -> None:
+    with pytest.raises(ValidationError):
+        SourceSelectionSettings(low_path=path)
 
 
 def test_runtime_status_values_are_stable() -> None:

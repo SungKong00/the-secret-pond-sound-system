@@ -58,6 +58,7 @@ class RecordingController:
         participants: Participants,
         logger: EventSink | None = None,
         clock: Callable[[], float] = time.monotonic,
+        persist_settings: Callable[[AppSettings], None] | None = None,
     ) -> None:
         self._settings = settings
         self._recorder = recorder
@@ -66,6 +67,7 @@ class RecordingController:
         self._participants = participants
         self._logger = logger
         self._clock = clock
+        self._persist_settings = persist_settings
         self._armed = False
         self._recording_started_at: float | None = None
         self._last_error: str | None = None
@@ -225,6 +227,17 @@ class RecordingController:
                 {"duration_seconds": duration_seconds, "error": str(exc)},
             )
             raise
+
+        if getattr(stack_result, "voice_stack_path", None) is not None:
+            try:
+                self._persist_settings and self._persist_settings(self._settings)
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log_event(
+                    "recording.settings_failed",
+                    {"duration_seconds": duration_seconds, "error": str(exc)},
+                )
+                raise
 
         participant_count = self._increment_participants_best_effort()
         if participant_count is not None:

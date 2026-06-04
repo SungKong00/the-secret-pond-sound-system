@@ -12,6 +12,7 @@ from scipy.signal import butter, sosfilt
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.layers import LAYER_IDS, LayerId
+from secret_pond.audio.source_library import render_source_path
 from secret_pond.config import AppSettings, EqSettings, LayerSettings
 from secret_pond.paths import ProjectPaths
 
@@ -119,7 +120,7 @@ class LayerRenderer:
             raise
 
     def _render_audio(self, layer_id: LayerId, settings: AppSettings) -> _RenderedAudio:
-        source_path = self._source_path(layer_id)
+        source_path = self._source_path(layer_id, settings)
         if not source_path.exists():
             msg = f"{layer_id} source file does not exist: {source_path}"
             raise FileNotFoundError(msg)
@@ -136,12 +137,8 @@ class LayerRenderer:
         samples = _apply_gain(samples, layer_settings.volume_db)
         return _RenderedAudio(samples=samples, sample_rate=source.sample_rate)
 
-    def _source_path(self, layer_id: LayerId) -> Path:
-        if layer_id == "low":
-            return self._paths.low_source
-        if layer_id == "mid":
-            return self._paths.mid_source
-        return self._paths.voice_stack_raw
+    def _source_path(self, layer_id: LayerId, settings: AppSettings) -> Path:
+        return render_source_path(self._paths, settings, layer_id)
 
     def _output_path(self, layer_id: LayerId) -> Path:
         if layer_id == "low":

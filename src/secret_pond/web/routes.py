@@ -7,11 +7,21 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
 
 from secret_pond.audio.devices import AudioDeviceInfo
-from secret_pond.config import AppSettings
+from secret_pond.audio.source_library import (
+    category_config,
+    delete_source_file,
+    select_source,
+    selected_source_path,
+    source_file_is_selected,
+    source_library_payload,
+    upload_source_file,
+)
+from secret_pond.config import AppSettings, DeviceSettings
+from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.web.state import outcome_payload, settings_payload, state_payload
@@ -39,6 +49,7 @@ def disarm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_control(runtime.controller.disarm_input)
+        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -58,6 +69,7 @@ def stop_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_control(runtime.controller.stop_recording)
+        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -69,6 +81,7 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_control(runtime.controller.poll_auto_stop)
+        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -79,24 +92,34 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
 def get_devices(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     try:
-        settings = runtime.settings_store.load().active
-        input_devices = runtime.device_registry.list_input_devices()
-        output_devices = runtime.device_registry.list_output_devices()
-        selected_input = runtime.device_registry.validate_input(settings.devices.input_device_id)
-        selected_output = runtime.device_registry.validate_output(settings.devices.output_device_id)
+        return _devices_payload(runtime, runtime.settings_store.load().active)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
             detail=f"audio devices unavailable: {exc}",
         ) from exc
 
-    return {
-        "input_devices": [_device_payload(device) for device in input_devices],
-        "output_devices": [_device_payload(device) for device in output_devices],
-        "selected_input_device": _device_payload(selected_input),
-        "selected_output_device": _device_payload(selected_output),
-        "warnings": _device_warnings(selected_input, selected_output, settings),
-    }
+
+@router.put("/devices")
+def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        current = runtime.settings_store.load()
+        try:
+            devices = _device_settings_from_payload(current.active.devices, payload)
+            _validate_device_selection(runtime, devices)
+            apply_runtime_devices(runtime, devices)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except DeviceSelectionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "settings": settings_payload(runtime),
+            "state": state_payload(runtime),
+            "devices": _devices_payload(runtime, runtime.settings_store.load().active),
+        }
 
 
 @router.get("/diagnostics")
@@ -104,6 +127,114 @@ def get_diagnostics(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         return _diagnostics_payload(runtime)
+
+
+@router.get("/sources")
+def get_sources(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        settings = runtime.settings_store.load().draft
+        return source_library_payload(runtime.paths, settings)
+
+
+@router.put("/sources/{category}/select")
+def select_source_file(
+    request: Request,
+    category: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        config = category_config(category)
+        relative_path = payload.get("path")
+        if relative_path is not None and not isinstance(relative_path, str):
+            raise ValueError("path must be a string or null")
+        draft_state = runtime.settings_store.load()
+        draft = select_source(draft_state.draft, config.id, relative_path)
+        if relative_path is not None:
+            selected = selected_source_path(runtime.paths, draft, config.id)
+            if selected is None or not selected.exists():
+                raise FileNotFoundError(f"source file does not exist: {relative_path}")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with runtime.operation_lock:
+        state = runtime.settings_store.set_draft(draft)
+        runtime.settings_state = state
+        return {
+            "settings": settings_payload(runtime),
+            "sources": source_library_payload(runtime.paths, state.draft),
+        }
+
+
+@router.post("/sources/{category}/files", status_code=201)
+def upload_source(
+    request: Request,
+    category: str,
+    filename: str,
+    select: bool = False,
+    body: bytes = Body(...),
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        config = category_config(category)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with runtime.operation_lock:
+        try:
+            file_payload = upload_source_file(
+                runtime.paths,
+                config.id,
+                filename=filename,
+                content=body,
+            )
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        settings_state = runtime.settings_store.load()
+        if select:
+            draft = select_source(settings_state.draft, config.id, file_payload["path"])
+            settings_state = runtime.settings_store.set_draft(draft)
+            runtime.settings_state = settings_state
+        return {
+            "file": file_payload,
+            "settings": settings_payload(runtime),
+            "sources": source_library_payload(runtime.paths, settings_state.draft),
+        }
+
+
+@router.delete("/sources/{category}/files")
+def delete_source(
+    request: Request,
+    category: str,
+    path: str,
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        config = category_config(category)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with runtime.operation_lock:
+        settings_state = runtime.settings_store.load()
+        try:
+            if source_file_is_selected(runtime.paths, settings_state.active, config.id, path):
+                raise PermissionError("cannot delete the active source file")
+            if source_file_is_selected(runtime.paths, settings_state.draft, config.id, path):
+                raise PermissionError("cannot delete the draft source file")
+            delete_source_file(runtime.paths, settings_state.active, config.id, path)
+        except PermissionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "sources": source_library_payload(runtime.paths, settings_state.draft),
+        }
 
 
 @router.post("/playback/start")
@@ -334,8 +465,31 @@ def _runtime(request: Request) -> SecretPondRuntime:
 def _run_control(fn):
     try:
         return fn()
-    except RuntimeError as exc:
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _refresh_playback_after_recording(runtime: SecretPondRuntime, outcome: Any) -> None:
+    if outcome is None or not getattr(outcome, "accepted", False):
+        return
+
+    settings = runtime.controller.settings
+    try:
+        if runtime.output.is_running:
+            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+        else:
+            runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
+        _apply_player_layer_settings(runtime, settings)
+        runtime.player.set_peak_ceiling(settings.audio.peak_ceiling)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        _log_event_best_effort(
+            runtime,
+            "recording.playback_refresh_failed",
+            {
+                "error": str(exc),
+                "output_running": runtime.output.is_running,
+            },
+        )
 
 
 @contextmanager
@@ -423,6 +577,50 @@ def _rollback_apply_failure(
     return detail
 
 
+def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[str, Any]:
+    input_devices = runtime.device_registry.list_input_devices()
+    output_devices = runtime.device_registry.list_output_devices()
+    selected_input = runtime.device_registry.validate_input(settings.devices.input_device_id)
+    selected_output = runtime.device_registry.validate_output(settings.devices.output_device_id)
+    return {
+        "input_devices": [_device_payload(device) for device in input_devices],
+        "output_devices": [_device_payload(device) for device in output_devices],
+        "selected_input_device": _device_payload(selected_input),
+        "selected_output_device": _device_payload(selected_output),
+        "warnings": _device_warnings(selected_input, selected_output, settings),
+    }
+
+
+def _device_settings_from_payload(
+    current: DeviceSettings,
+    payload: dict[str, Any],
+) -> DeviceSettings:
+    allowed = {"input_device_id", "output_device_id"}
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise ValueError(f"unknown device setting: {unknown[0]}")
+    updates: dict[str, str | None] = {}
+    for key in allowed:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{key} must be a string or null")
+        updates[key] = value or None
+    return current.model_copy(update=updates)
+
+
+def _validate_device_selection(runtime: SecretPondRuntime, devices: DeviceSettings) -> None:
+    if devices.input_device_id is not None:
+        selected_input = runtime.device_registry.validate_input(devices.input_device_id)
+        if selected_input is None:
+            raise ValueError(f"input device is unavailable: {devices.input_device_id}")
+    if devices.output_device_id is not None:
+        selected_output = runtime.device_registry.validate_output(devices.output_device_id)
+        if selected_output is None:
+            raise ValueError(f"output device is unavailable: {devices.output_device_id}")
+
+
 def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
     if device is None:
         return None
@@ -433,6 +631,7 @@ def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
         "max_input_channels": device.max_input_channels,
         "max_output_channels": device.max_output_channels,
         "default_sample_rate": device.default_sample_rate,
+        "host_api_name": device.host_api_name,
     }
 
 
@@ -466,11 +665,15 @@ def _device_warnings(
 
 def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     paths = runtime.paths
+    settings = runtime.settings_store.load().active
+    low_source = selected_source_path(paths, settings, "low") or paths.low_source
+    mid_source = selected_source_path(paths, settings, "mid") or paths.mid_source
+    voice_source = selected_source_path(paths, settings, "voice_stack") or paths.voice_stack_raw
     return {
         "sources": [
-            _file_status_payload(paths.root, "low", "Low Source", paths.low_source),
-            _file_status_payload(paths.root, "mid", "Mid Source", paths.mid_source),
-            _file_status_payload(paths.root, "voice", "Voice Stack", paths.voice_stack_raw),
+            _file_status_payload(paths.root, "low", "Low Source", low_source),
+            _file_status_payload(paths.root, "mid", "Mid Source", mid_source),
+            _file_status_payload(paths.root, "voice", "Voice Stack", voice_source),
         ],
         "events": _event_log_payload(runtime),
     }

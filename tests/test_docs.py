@@ -23,6 +23,11 @@ def test_operator_guide_covers_required_operations() -> None:
         "Microphone",
         "data/sources/low.wav",
         "data/sources/mid.wav",
+        "data/sources/low/*.wav",
+        "data/sources/mid/*.wav",
+        "data/sources/voice/raw/*.wav",
+        "data/sources/voice/stack/*.wav",
+        "Source Library",
         "http://127.0.0.1:8000",
         "Arm",
         "Disarm",
@@ -39,9 +44,9 @@ def test_operator_guide_covers_required_operations() -> None:
         "Dense",
         "Clearer Voice",
         "Maintenance",
-        "Reset Draft",
+        "Cancel Changes",
         "Reset Participants",
-        "Stop recording before using Reset Draft",
+        "Stop recording before using Cancel Changes",
         "Stop recording before using Reset Participants",
         "Apply and Restart is running",
         "Apply and Restart is unavailable while recording",
@@ -89,6 +94,8 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "secret-pond doctor --strict",
         "missing-source warning",
         "valid low/mid files",
+        "Source Library",
+        "data/sources/voice/stack",
         "Startup loads compatible rendered playback caches",
         "Playback starts",
         "Low layer",
@@ -130,6 +137,8 @@ def test_readme_links_operator_docs() -> None:
     assert "secret-pond doctor --json" in readme
     assert "secret-pond doctor --strict" in readme
     assert "secret-pond rebuild-test-library" in readme
+    assert "data/sources/low/*.wav" in readme
+    assert "Source Library" in readme
     assert "Restart Output" in readme
     assert "Soft" in readme
     assert "Misty" in readme

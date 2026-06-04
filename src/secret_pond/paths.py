@@ -28,6 +28,26 @@ class ProjectPaths:
         return self.sources_dir / "mid.wav"
 
     @property
+    def low_sources_dir(self) -> Path:
+        return self.sources_dir / "low"
+
+    @property
+    def mid_sources_dir(self) -> Path:
+        return self.sources_dir / "mid"
+
+    @property
+    def voice_sources_dir(self) -> Path:
+        return self.sources_dir / "voice"
+
+    @property
+    def voice_raw_sources_dir(self) -> Path:
+        return self.voice_sources_dir / "raw"
+
+    @property
+    def voice_stack_sources_dir(self) -> Path:
+        return self.voice_sources_dir / "stack"
+
+    @property
     def accepted_dir(self) -> Path:
         return self.data_dir / "processed" / "accepted"
 
@@ -86,6 +106,10 @@ class ProjectPaths:
     def ensure_directories(self) -> None:
         for directory in (
             self.sources_dir,
+            self.low_sources_dir,
+            self.mid_sources_dir,
+            self.voice_raw_sources_dir,
+            self.voice_stack_sources_dir,
             self.accepted_dir,
             self.voice_dir,
             self.rendered_layers_dir,

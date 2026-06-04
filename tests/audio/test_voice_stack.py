@@ -10,7 +10,12 @@ from secret_pond.audio import voice_stack as voice_stack_module
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.voice_stack import VoiceStackStore
-from secret_pond.config import AppSettings, AudioFormatSettings, VoiceStackSettings
+from secret_pond.config import (
+    AppSettings,
+    AudioFormatSettings,
+    SourceSelectionSettings,
+    VoiceStackSettings,
+)
 from secret_pond.paths import ProjectPaths
 
 
@@ -180,6 +185,43 @@ def test_voice_stack_add_does_not_persist_chunks_in_live_ephemeral_mode(tmp_path
     assert "accepted_clip_path" not in manifest["entries"][0]
 
 
+def test_voice_stack_add_writes_timestamped_stack_without_overwriting_active_source(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = voice_stack_settings()
+    settings.voice_stack.insert_gain_db = 0.0
+    settings.sources = SourceSelectionSettings(
+        voice_stack_path="data/sources/voice/stack/initial-stack.wav",
+    )
+    initial = AudioBuffer(
+        samples=np.zeros((8_000, 2), dtype=np.float32),
+        sample_rate=8_000,
+    )
+    initial_path = paths.voice_stack_sources_dir / "initial-stack.wav"
+    write_wav_atomic(initial_path, initial)
+    before_initial = initial_path.read_bytes()
+    store = VoiceStackStore(paths)
+    voice = AudioBuffer(samples=np.ones((1_000, 2), dtype=np.float32) * 0.1, sample_rate=8_000)
+
+    result = store.add_processed_voice(voice, settings, offset_frames=0)
+
+    assert initial_path.read_bytes() == before_initial
+    assert result.voice_stack_path == settings.sources.voice_stack_path
+    assert result.voice_stack_path is not None
+    assert result.voice_stack_path.startswith("data/sources/voice/stack/")
+    assert result.voice_raw_path == settings.sources.voice_raw_path
+    assert result.voice_raw_path is not None
+    assert result.voice_raw_path.startswith("data/sources/voice/raw/")
+    assert result.voice_stack_path.endswith(".wav")
+    assert result.voice_stack_path != "data/sources/voice/stack/initial-stack.wav"
+    assert (tmp_path / result.voice_stack_path).exists()
+    assert (tmp_path / result.voice_raw_path).exists()
+    loaded = read_wav(tmp_path / result.voice_stack_path)
+    np.testing.assert_allclose(loaded.samples[:1_000], 0.1, atol=1e-4)
+
+
 def test_voice_stack_add_splits_long_voice_into_multiple_manifest_entries(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     settings = voice_stack_settings()
@@ -217,6 +259,29 @@ def test_voice_stack_add_tiles_final_short_chunk_to_loop_length(tmp_path: Path) 
         np.array([[0.1, 0.2], [0.3, 0.4], [0.1, 0.2], [0.3, 0.4]], dtype=np.float32),
         atol=1e-4,
     )
+
+
+def test_voice_stack_tiles_twenty_second_voice_three_times_in_sixty_second_loop(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2),
+        voice_stack=VoiceStackSettings(loop_seconds=60, insert_gain_db=0.0),
+    )
+    store = VoiceStackStore(paths)
+    voice = AudioBuffer(
+        samples=np.ones((20 * 8_000, 2), dtype=np.float32) * 0.1,
+        sample_rate=8_000,
+    )
+
+    store.add_processed_voice(voice, settings, offset_frames=0)
+    loaded = read_wav(paths.voice_stack_raw)
+
+    assert loaded.frames == 60 * 8_000
+    np.testing.assert_allclose(loaded.samples[: 20 * 8_000], 0.1, atol=1e-4)
+    np.testing.assert_allclose(loaded.samples[20 * 8_000 : 40 * 8_000], 0.1, atol=1e-4)
+    np.testing.assert_allclose(loaded.samples[40 * 8_000 :], 0.1, atol=1e-4)
 
 
 def test_voice_stack_add_wraps_chunk_around_loop_end(tmp_path: Path) -> None:
@@ -408,6 +473,10 @@ def test_voice_stack_rebuilds_raw_from_test_library_manifest(tmp_path: Path) -> 
     loaded = read_wav(paths.voice_stack_raw)
 
     assert result.added_chunks == 2
+    assert result.voice_stack_path == settings.sources.voice_stack_path
+    assert result.voice_stack_path is not None
+    assert result.voice_stack_path.startswith("data/sources/voice/stack/")
+    assert (tmp_path / result.voice_stack_path).exists()
     assert paths.voice_manifest.read_text(encoding="utf-8") == original_manifest
     np.testing.assert_allclose(loaded.samples[:4_000], 0.3, atol=1e-4)
     np.testing.assert_allclose(loaded.samples[4_000:], 0.3, atol=1e-4)

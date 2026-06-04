@@ -35,11 +35,27 @@ If recording fails on macOS, open System Settings > Privacy & Security > Microph
 Prepare these files before playback:
 
 ```text
-data/sources/low.wav
-data/sources/mid.wav
+data/sources/low/*.wav
+data/sources/mid/*.wav
 ```
 
-The System panel also checks:
+The Source Library panel also manages:
+
+```text
+data/sources/voice/raw/*.wav
+data/sources/voice/stack/*.wav
+```
+
+For compatibility, the app still falls back to:
+
+```text
+data/sources/low.wav
+data/sources/mid.wav
+data/voice/voice_stack_raw.wav
+```
+
+The System panel also checks the currently selected files. If no Source Library file is selected,
+it checks the legacy fallback paths.
 
 ```text
 data/voice/voice_stack_raw.wav
@@ -54,6 +70,8 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
 3. Run `secret-pond serve`.
 4. Open `http://127.0.0.1:8000`.
 5. Check the System panel before operation.
+6. Use Source Library to select the Low, Mid, and Voice Stack WAV files. Upload new WAV files
+   there when needed. Delete only inactive files; the active source is protected.
 
 For machine-readable preflight logs, run:
 
@@ -61,24 +79,24 @@ For machine-readable preflight logs, run:
 secret-pond doctor --json
 ```
 
-After `data/sources/low.wav` and `data/sources/mid.wav` are prepared, `secret-pond doctor --strict` can be used as a show-readiness gate. It exits with failure when data write access, native dependencies, selected device availability, source files, or basic device compatibility checks fail.
+After low and mid files are selected in Source Library, or the legacy `data/sources/low.wav` and `data/sources/mid.wav` files are prepared, `secret-pond doctor --strict` can be used as a show-readiness gate. It exits with failure when data write access, native dependencies, selected device availability, source files, or basic device compatibility checks fail.
 
 The doctor report does not prove microphone permission, actual stream startup, rendering, browser behavior, or Windows file replacement. Keep the manual checklist for those checks.
 
 ## Device Selection
 
-Input and output devices can be selected in the dashboard as draft settings. Device names and IDs can differ across Mac and Windows, and can also change when an audio interface is unplugged, renamed, or reconnected.
+Input and output devices can be selected in the dashboard as pending settings. Device names and IDs can differ across Mac and Windows, and can also change when an audio interface is unplugged, renamed, or reconnected.
 
 Current MVP behavior:
 
 - Device, sample-rate, and channel changes do not apply through `Apply and Restart`.
-- Select the device draft, then restart the app.
-- On startup, the app promotes startup device/audio-format drafts to active settings, then loads only rendered playback caches that match the active sample rate, channel count, and loop length. Stale or missing caches trigger an automatic render attempt. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
+- Select the pending device, then restart the app.
+- On startup, the app promotes pending startup device/audio-format settings to active settings, then loads only rendered playback caches that match the active sample rate, channel count, and loop length. Stale or missing caches trigger an automatic render attempt. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
 - If a device disappears or is renamed, choose an available device again, restart the app, and rerun `secret-pond doctor`.
 
 ## Operation
 
-On startup, the app loads existing compatible playback caches. If caches are missing or stale and `data/sources/low.wav` plus `data/sources/mid.wav` are available, startup automatically renders and loads fresh playback layers. Use `Start Output` to begin playback after startup preparation succeeds. Use `Apply and Restart` after staged settings changes or when the System panel reports startup playback is unavailable. Use `Stop Output` to stop the stream. Use `Restart Output` to restart the current loaded playback from the beginning without applying new settings.
+On startup, the app loads existing compatible playback caches. If caches are missing or stale and selected Source Library low/mid files are available, startup automatically renders and loads fresh playback layers. If no library selection exists, the app uses the legacy `data/sources/low.wav` plus `data/sources/mid.wav` paths. Use `Start Output` to begin playback after startup preparation succeeds. Use `Apply and Restart` after staged settings changes or when the System panel reports startup playback is unavailable. Use `Stop Output` to stop the stream. Use `Restart Output` to restart the current loaded playback from the beginning without applying new settings.
 
 Use `Arm` before recording. Spacebar recording only works while Armed.
 
@@ -102,13 +120,13 @@ The header shows `Error None` during normal operation and `Error Active` wheneve
 
 ## Settings
 
-Sliders edit draft settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show Active or Pending Draft values. The Loop Mixer panel contains the Low and Mid supporting layers; the Voice Stack panel contains the voice playback layer EQ/filter controls.
+Sliders edit pending settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show current values and changed values. The Loop Mixer panel contains the Low and Mid supporting layers; the Voice Stack panel contains the voice playback layer EQ/filter controls.
 
-The Voice Stack panel also includes `Voice loop` for the voice stack loop length. This is not a real-time control. Changing Voice loop is draft-staged like the layer sliders.
+The Voice Stack panel also includes `Voice loop` for the voice stack loop length. This is not a real-time control. Changing Voice loop is staged as a pending setting like the layer sliders.
 
-`Apply and Restart` normalizes `data/voice/voice_stack_raw.wav` to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.
+`Apply and Restart` normalizes the selected voice stack source to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. Accepted recordings also save a timestamped processed voice raw snapshot under `data/sources/voice/raw/`. New voice stack outputs are saved as timestamped files under `data/sources/voice/stack/`, while `data/voice/voice_stack_raw.wav` remains as a legacy compatibility mirror. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.
 
-Use `Apply and Restart` to render the current draft audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
+Use `Apply and Restart` to render the current pending audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
 
 The Voice Treatment panel has four non-technical presets:
 
@@ -117,16 +135,16 @@ The Voice Treatment panel has four non-technical presets:
 - Dense
 - Clearer Voice
 
-Preset buttons update the recording-treatment draft. They still require the normal draft save/apply flow for persisted settings and for changes that affect rendered playback.
+Preset buttons update the pending recording-treatment settings. They still require the normal save/apply flow for persisted settings and for changes that affect rendered playback.
 
-Use `Maintenance` > `Reset Draft` only when you want to discard unsaved draft settings. Stop recording before using Reset Draft. Reset Draft is also unavailable while Apply and Restart is running. Reset Draft does not render audio, apply settings, or change the currently active playback settings.
+Use `Maintenance` > `Cancel Changes` only when you want to discard unsaved settings changes. Stop recording before using Cancel Changes. Cancel Changes is also unavailable while Apply and Restart is running. Cancel Changes does not render audio, apply settings, or change the currently active playback settings.
 
 Use `Maintenance` > `Reset Participants` only when intentionally zeroing the show participant counter. Stop recording before using Reset Participants. Reset Participants is also unavailable while Apply and Restart is running. Reset Participants does not delete logs, voice-stack files, rendered audio, or settings.
 
 ## Error Recovery
 
-- If startup playback is unavailable, check the recent System event. If prepared files are missing, add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
-- If a selected device is unavailable, choose a new draft device, restart the app, and rerun `secret-pond doctor`.
+- If startup playback is unavailable, check the recent System event. If prepared files are missing, add or select low/mid WAV files in Source Library, or add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
+- If a selected device is unavailable, choose a new pending device, restart the app, and rerun `secret-pond doctor`.
 - If `Apply and Restart` fails, the app tries to keep or restore the previous rendered playback state.
 - If `Restart Output` fails, stop output, check the device, and restart the app if the device state is unclear.
 - If the browser appears stale, refresh the page. Active backend state is preserved by the Python process.
@@ -147,6 +165,7 @@ Back up in `test_library` mode:
 ```text
 data/processed/accepted
 data/voice/voice_stack_manifest.json
+data/sources/voice/stack
 ```
 
 To rebuild the rehearsal stack from those accepted clips, stop the app and run:
@@ -163,8 +182,10 @@ Back up in `live_ephemeral` mode:
 
 ```text
 data/voice/voice_stack_raw.wav
+data/sources/voice/raw
+data/sources/voice/stack
 data/config/settings.json
 data/logs
 ```
 
-`test_library` keeps accepted individual clips so the stack can be rebuilt. `live_ephemeral` does not keep individual voice WAV files; the accumulated `voice_stack_raw.wav` is the important voice artifact.
+`test_library` keeps accepted individual clips so the stack can be rebuilt. `live_ephemeral` does not keep test-library accepted chunks, but accepted recordings now leave timestamped processed raw snapshots under `data/sources/voice/raw/`. The selected timestamped voice stack file under `data/sources/voice/stack/` is the important playback source artifact. The legacy `voice_stack_raw.wav` mirror is kept for compatibility.

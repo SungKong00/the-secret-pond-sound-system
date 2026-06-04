@@ -62,6 +62,13 @@ class SoundDeviceOutput:
     def latest_error(self) -> str | None:
         return self._latest_error
 
+    def set_device_id(self, device_id: str | None) -> None:
+        if self._is_running:
+            msg = "cannot change output device while running"
+            raise RuntimeError(msg)
+        self._device_id = device_id
+        self._latest_error = None
+
     def start(self) -> None:
         if self._is_running:
             msg = "output is already running"

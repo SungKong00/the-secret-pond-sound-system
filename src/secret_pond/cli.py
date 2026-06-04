@@ -11,6 +11,7 @@ from pathlib import Path
 
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.renderer import LayerRenderer
+from secret_pond.audio.source_library import selected_source_path
 from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
@@ -172,9 +173,9 @@ def build_doctor_report(
         msg = f"Audio devices: unavailable ({exc})"
         raise AudioDeviceCheckError(msg) from exc
 
-    missing_sources = [
-        source for source in (paths.low_source, paths.mid_source) if not source.exists()
-    ]
+    low_source = selected_source_path(paths, settings, "low") or paths.low_source
+    mid_source = selected_source_path(paths, settings, "mid") or paths.mid_source
+    missing_sources = [source for source in (low_source, mid_source) if not source.exists()]
     warnings = build_device_warnings(input_device, output_device, settings)
 
     return DoctorReport(
@@ -345,6 +346,7 @@ def _device_to_payload(device: AudioDeviceInfo) -> dict[str, object]:
         "max_input_channels": device.max_input_channels,
         "max_output_channels": device.max_output_channels,
         "default_sample_rate": device.default_sample_rate,
+        "host_api_name": device.host_api_name,
     }
 
 

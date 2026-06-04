@@ -73,7 +73,11 @@ class SpyVoiceStack:
         )
         if self.add_error is not None:
             raise self.add_error
-        return SimpleNamespace(added_chunks=1)
+        settings.sources.voice_stack_path = "data/sources/voice/stack/generated-stack.wav"
+        return SimpleNamespace(
+            added_chunks=1,
+            voice_stack_path="data/sources/voice/stack/generated-stack.wav",
+        )
 
 
 class SpyRenderer:
@@ -244,6 +248,9 @@ def test_controller_processes_adds_renders_and_counts_accepted_recording() -> No
         == controller.settings.recording.model_dump(mode="json")
     )
     assert renderer.rendered_layers == ["voice"]
+    assert controller.settings.sources.voice_stack_path == (
+        "data/sources/voice/stack/generated-stack.wav"
+    )
 
 
 def test_controller_counts_after_voice_render_succeeds() -> None:

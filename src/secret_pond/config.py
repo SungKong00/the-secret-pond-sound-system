@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class EqSettings(BaseModel):
@@ -74,6 +75,28 @@ class PlaybackSettings(BaseModel):
     master_volume_db: float = Field(default=-6.0, ge=-60.0, le=6.0)
 
 
+class SourceSelectionSettings(BaseModel):
+    low_path: str | None = None
+    mid_path: str | None = None
+    voice_raw_path: str | None = None
+    voice_stack_path: str | None = None
+
+    @field_validator("low_path", "mid_path", "voice_raw_path", "voice_stack_path")
+    @classmethod
+    def validate_source_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.replace("\\", "/").strip()
+        path = PurePosixPath(normalized)
+        if not normalized or path.is_absolute() or ".." in path.parts:
+            msg = "source paths must be relative paths under the project root"
+            raise ValueError(msg)
+        if path.suffix.lower() != ".wav":
+            msg = "source paths must point to .wav files"
+            raise ValueError(msg)
+        return path.as_posix()
+
+
 class VoiceStackSettings(BaseModel):
     mode: Literal["test_library", "live_ephemeral"] = "live_ephemeral"
     loop_seconds: int = Field(default=60, ge=1, le=600)
@@ -95,6 +118,7 @@ class AppSettings(BaseModel):
     recording: RecordingProcessingSettings = Field(default_factory=RecordingProcessingSettings)
     devices: DeviceSettings = Field(default_factory=DeviceSettings)
     playback: PlaybackSettings = Field(default_factory=PlaybackSettings)
+    sources: SourceSelectionSettings = Field(default_factory=SourceSelectionSettings)
     voice_stack: VoiceStackSettings = Field(default_factory=VoiceStackSettings)
     layers: dict[str, LayerSettings] = Field(default_factory=default_layers)
 

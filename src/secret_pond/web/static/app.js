@@ -10,13 +10,24 @@ const api = async (path, options = {}) => {
   return payload;
 };
 
+const workspaceTabNames = ["treatment", "stack", "mixer"];
+
+const workspaceTabFromUrl = () => {
+  const query = new URLSearchParams(window.location.search || "");
+  const tabName = query.get("workspace");
+  return workspaceTabNames.includes(tabName) ? tabName : "treatment";
+};
+
 const state = {
   snapshot: null,
   draft: null,
   devices: null,
   diagnostics: null,
+  sources: null,
+  transientError: null,
   deviceError: null,
   diagnosticsError: null,
+  sourcesError: null,
   saveTimer: null,
   spaceRecording: false,
   stateSocket: null,
@@ -26,9 +37,100 @@ const state = {
   recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
   applyInFlight: false,
+  workspaceTab: workspaceTabFromUrl(),
+  deferredInteractiveRenders: {},
 };
 
 const $ = (id) => document.getElementById(id);
+
+const containsKorean = (message) => /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(message);
+
+const sourceCategoryLabels = {
+  low: { title: "Low", helper: "낮은 배경 루프" },
+  mid: { title: "Mid", helper: "중간 배경 루프" },
+  voice_raw: { title: "Voice Raw", helper: "목소리 원본 보관" },
+  voice_stack: { title: "Voice Stack", helper: "목소리 스택 소스" },
+};
+
+const translateUiErrorMessage = (message) => {
+  if (!message) return "";
+  const text = String(message).trim();
+  if (!text) return "";
+  if (containsKorean(text)) return text;
+
+  const normalized = text.toLowerCase();
+  const requestStatus = normalized.match(/request failed:\s*(\d+)/);
+  if (requestStatus) {
+    return `요청을 처리하지 못했습니다. HTTP ${requestStatus[1]} 상태입니다.`;
+  }
+  if (normalized.includes("failed to fetch") || normalized.includes("load failed")) {
+    return "서버에 연결하지 못했습니다.";
+  }
+  if (normalized.includes("audio devices unavailable")) {
+    return "오디오 장치를 사용할 수 없습니다.";
+  }
+  if (normalized.includes("devices failed") || normalized.includes("device")) {
+    return "오디오 장치 정보를 불러오지 못했습니다.";
+  }
+  if (normalized.includes("diagnostics failed") || normalized.includes("diagnostic")) {
+    return "시스템 진단 정보를 불러오지 못했습니다.";
+  }
+  if (normalized.includes("event log")) {
+    return "최근 이벤트를 불러오지 못했습니다.";
+  }
+  if (normalized.includes("source file") && normalized.includes("does not exist")) {
+    return "선택된 소스 파일을 찾지 못했습니다.";
+  }
+  if (
+    normalized.includes("stack") ||
+    normalized.includes("voice") ||
+    normalized.includes("accepted_clip_path")
+  ) {
+    return "목소리 스택 처리 중 오류가 발생했습니다.";
+  }
+  if (
+    normalized.includes("stream") ||
+    normalized.includes("output") ||
+    normalized.includes("playback") ||
+    normalized.includes("player") ||
+    normalized.includes("mix") ||
+    normalized.includes("render")
+  ) {
+    return "오디오 출력 처리 중 오류가 발생했습니다.";
+  }
+  if (normalized.includes("recording") || normalized.includes("recorder")) {
+    return "녹음 처리 중 오류가 발생했습니다.";
+  }
+  if (
+    normalized.includes("settings") ||
+    normalized.includes("draft") ||
+    normalized.includes("invalid json")
+  ) {
+    return "설정 처리 중 오류가 발생했습니다.";
+  }
+  if (normalized.includes("participant")) {
+    return "참여자 정보를 처리하는 중 오류가 발생했습니다.";
+  }
+  if (normalized.includes("websocket") || normalized.includes("json")) {
+    return "실시간 상태를 해석하지 못했습니다.";
+  }
+  if (normalized.includes("not ready") || normalized.includes("runtime")) {
+    return "앱 실행 준비가 아직 끝나지 않았습니다.";
+  }
+  if (normalized.includes("unavailable") || normalized.includes("busy")) {
+    return "현재 이 작업을 사용할 수 없습니다.";
+  }
+  if (normalized.includes("missing") || normalized.includes("not found")) {
+    return "필요한 파일이나 데이터를 찾지 못했습니다.";
+  }
+  if (normalized.includes("invalid")) {
+    return "입력값이 올바르지 않습니다.";
+  }
+  if (normalized.includes("cannot")) {
+    return "현재 상태에서는 이 작업을 실행할 수 없습니다.";
+  }
+  return "작업 중 오류가 발생했습니다.";
+};
 
 const layerLabels = {
   low: { ko: "낮은 드론", en: "Low Drone" },
@@ -46,6 +148,45 @@ const modeLabels = {
   "live_ephemeral": "운영 모드",
   "test_library": "테스트 모드",
 };
+
+const storageModeDetails = {
+  "live_ephemeral": {
+    label: "운영 모드",
+    optionLabel: "운영",
+    summary: "파일 안 남김",
+    idleTitle: "개별 accepted clip 파일을 남기지 않습니다.",
+    className: "safe",
+  },
+  "test_library": {
+    label: "테스트 모드",
+    optionLabel: "테스트 저장",
+    summary: "파일 저장",
+    idleTitle: "accepted clip을 data/processed/accepted에 저장합니다.",
+    className: "library",
+  },
+};
+
+const eventTypeLabels = {
+  "system.startup": "시스템 시작",
+  "system.startup_playback_unavailable": "시작 재생 준비 실패",
+  "system.startup_playback_autostart_failed": "자동 출력 시작 실패",
+  "settings.applied": "설정 적용",
+  "settings.apply_failed": "설정 적용 실패",
+  "settings.apply_rejected": "설정 적용 보류",
+  "playback.started": "출력 시작",
+  "playback.stopped": "출력 중지",
+  "playback.start_failed": "출력 시작 실패",
+  "playback.stop_failed": "출력 중지 실패",
+  "playback.restart_failed": "출력 재시작 실패",
+  "recording.start": "녹음 시작",
+  "recording.stop": "녹음 종료",
+  "recording.accepted": "녹음 추가",
+  "recording.discarded": "녹음 폐기",
+  "recording.start_failed": "녹음 시작 실패",
+  "recording.render_failed": "녹음 렌더링 실패",
+};
+
+const formatEventType = (eventType) => eventTypeLabels[eventType] || "시스템 이벤트";
 
 const layerControlGroups = [
   {
@@ -111,33 +252,33 @@ const layerControlGroups = [
     ],
   },
   {
-    title: { ko: "대역 제한", en: "Band Limits" },
-    note: "불필요한 저역과 고역을 잘라 레이어의 위치를 정합니다.",
+    title: "Filter Range",
+    note: "필터가 통과시킬 대역을 정합니다.",
     className: "filter-group",
     layout: "filter-pair-grid",
-    collapsible: true,
+    action: "reset-filter",
     controls: [
       {
         path: "eq.highpass_hz",
-        label: { ko: "하한 컷", en: "Low Cut" },
+        label: "Low Cut",
         min: 20,
         max: 500,
         step: 1,
         suffix: " Hz",
         kind: "filter",
-        rangeLabel: "below cutoff removed",
-        description: "이 값보다 낮은 울림을 줄입니다.",
+        rangeLabel: "below cut",
+        description: "이 값보다 낮은 소리를 줄입니다.",
       },
       {
         path: "eq.lowpass_hz",
-        label: { ko: "상한 컷", en: "High Cut" },
+        label: "High Cut",
         min: 2000,
         max: 20000,
         step: 10,
         suffix: " Hz",
         kind: "filter",
-        rangeLabel: "above cutoff removed",
-        description: "이 값보다 높은 성분을 줄입니다.",
+        rangeLabel: "above cut",
+        description: "이 값보다 높은 소리를 줄입니다.",
       },
     ],
   },
@@ -145,9 +286,51 @@ const layerControlGroups = [
 
 const recordingControlGroups = [
   {
-    title: { ko: "입력 안정화", en: "Input Safety" },
+    title: "목소리 음역",
+    note: "목소리의 불필요한 가장자리와 선명도를 조정합니다.",
+    className: "voice-band-group",
+    controls: [
+      {
+        path: "highpass_hz",
+        label: { ko: "저역 정리", en: "Low Cut" },
+        min: 40,
+        max: 300,
+        step: 1,
+        suffix: " Hz",
+        kind: "filter",
+        rangeLabel: "rumble cut",
+        description: "숨소리보다 낮은 진동과 바닥 소음을 줄입니다.",
+      },
+      {
+        path: "lowpass_hz",
+        label: { ko: "고역 정리", en: "High Cut" },
+        min: 4000,
+        max: 16000,
+        step: 10,
+        suffix: " Hz",
+        kind: "filter",
+        rangeLabel: "air cut",
+        description: "거친 고역이나 공간 노이즈를 줄입니다.",
+      },
+      {
+        path: "presence_gain_db",
+        label: { ko: "존재감", en: "Presence" },
+        min: -12,
+        max: 9,
+        step: 0.5,
+        suffix: " dB",
+        kind: "eq",
+        band: "high",
+        rangeLabel: "2 kHz+",
+        description: "목소리가 앞으로 나오거나 뒤로 물러나는 느낌입니다.",
+      },
+    ],
+  },
+  {
+    title: "입력 안정화",
     note: "녹음 소스의 기본 크기와 피크를 정리합니다.",
     className: "input-safety-group",
+    collapsible: true,
     controls: [
       {
         path: "gain_db",
@@ -172,50 +355,10 @@ const recordingControlGroups = [
     ],
   },
   {
-    title: { ko: "목소리 음역", en: "Voice Band" },
-    note: "목소리의 불필요한 가장자리와 선명도를 조정합니다.",
-    className: "voice-band-group",
-    controls: [
-      {
-        path: "highpass_hz",
-        label: { ko: "저역 정리", en: "Low Cut" },
-        min: 40,
-        max: 300,
-        step: 1,
-        suffix: " Hz",
-        kind: "filter",
-        rangeLabel: "rumble control",
-        description: "숨소리보다 낮은 진동과 바닥 소음을 줄입니다.",
-      },
-      {
-        path: "lowpass_hz",
-        label: { ko: "고역 정리", en: "High Cut" },
-        min: 4000,
-        max: 16000,
-        step: 10,
-        suffix: " Hz",
-        kind: "filter",
-        rangeLabel: "air control",
-        description: "거친 고역이나 공간 노이즈를 줄입니다.",
-      },
-      {
-        path: "presence_gain_db",
-        label: { ko: "존재감", en: "Presence" },
-        min: -12,
-        max: 9,
-        step: 0.5,
-        suffix: " dB",
-        kind: "eq",
-        band: "high",
-        rangeLabel: "2 kHz+",
-        description: "목소리가 앞으로 나오거나 뒤로 물러나는 느낌입니다.",
-      },
-    ],
-  },
-  {
-    title: { ko: "공간감", en: "Space Tail" },
+    title: "공간감",
     note: "전시장 안개감과 잔향의 길이를 만듭니다.",
     className: "space-tail-group",
+    collapsible: true,
     controls: [
       {
         path: "reverb_mix",
@@ -389,13 +532,20 @@ const formatTimestamp = (value) => {
   if (!value) return "시간 없음";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], {
+  return date.toLocaleString("ko-KR", {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
 };
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 
 const labelText = (label) => (typeof label === "string" ? label : label.en);
 
@@ -426,6 +576,39 @@ const setPath = (object, path, value) => {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const deferredInteractiveRenderTargets = new WeakSet();
+const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
+
+const activeInteractiveControlFor = (container) => {
+  const active = document.activeElement;
+  if (!active || !container) return null;
+  if (active === container) return active;
+  if (
+    typeof container.contains === "function" &&
+    container.contains(active) &&
+    interactiveControlTags.has(active.tagName)
+  ) {
+    return active;
+  }
+  return null;
+};
+
+const deferInteractiveRender = (key, container, renderFn) => {
+  const active = activeInteractiveControlFor(container);
+  if (!active) return false;
+  state.deferredInteractiveRenders[key] = renderFn;
+  if (!deferredInteractiveRenderTargets.has(active)) {
+    deferredInteractiveRenderTargets.add(active);
+    active.addEventListener("blur", () => {
+      deferredInteractiveRenderTargets.delete(active);
+      const deferred = state.deferredInteractiveRenders[key];
+      delete state.deferredInteractiveRenders[key];
+      deferred?.();
+    }, { once: true });
+  }
+  return true;
+};
+
 const renderErrorBadge = (message) => {
   if (message) {
     $("errorBadge").textContent = "오류 있음";
@@ -438,16 +621,23 @@ const renderErrorBadge = (message) => {
 
 const replaceableRecordOutcomeKinds = new Set(["ready", "armed-ready", "recording", "processing"]);
 
-const showError = (message) => {
+const setErrorBanner = (message) => {
   const banner = $("errorBanner");
-  renderErrorBadge(message);
-  if (!message) {
+  const translatedMessage = translateUiErrorMessage(message);
+  renderErrorBadge(translatedMessage);
+  if (!translatedMessage) {
     banner.hidden = true;
     banner.textContent = "";
     return;
   }
   banner.hidden = false;
-  banner.textContent = message;
+  banner.textContent = translatedMessage;
+};
+
+const showError = (message) => {
+  const translatedMessage = translateUiErrorMessage(message);
+  state.transientError = translatedMessage || null;
+  setErrorBanner(translatedMessage);
 };
 
 const requestState = async (options = {}) => {
@@ -481,10 +671,23 @@ const requestDiagnostics = async () => {
   renderErrors();
 };
 
+const requestSources = async () => {
+  try {
+    state.sources = await api("/api/sources");
+    state.sourcesError = null;
+  } catch (error) {
+    state.sources = null;
+    state.sourcesError = error.message;
+  }
+  renderSourceLibrary();
+  renderErrors();
+};
+
 const refreshAll = async () => {
-  await requestState().catch((error) => showError(error.message));
+  await requestState().catch((error) => showError(translateUiErrorMessage(error.message)));
   await requestDevices();
   await requestDiagnostics();
+  await requestSources();
 };
 
 const applyState = (payload, options = {}) => {
@@ -497,7 +700,6 @@ const applyState = (payload, options = {}) => {
     state.snapshot.settings.draft = clone(state.draft);
   }
   renderState();
-  renderDevices();
   renderSystemStatus();
 };
 
@@ -525,13 +727,13 @@ const renderState = () => {
   const outputControlBusy = state.applyInFlight || recordingStopBusy;
   const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy;
 
-  $("armedBadge").textContent = snapshot.armed ? "준비됨" : "준비 해제";
+  $("armedBadge").textContent = snapshot.armed ? "녹음 준비 켜짐" : "녹음 준비 꺼짐";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
   $("recordingBadge").textContent = snapshot.is_recording ? "녹음 중" : "대기";
   $("recordingBadge").className = `status-pill ${snapshot.is_recording ? "hot" : ""}`;
   $("outputBadge").textContent = snapshot.playback.output_running ? "출력 중" : "출력 꺼짐";
   $("outputBadge").className = `status-pill ${snapshot.playback.output_running ? "safe" : "muted"}`;
-  renderModeBadge(snapshot.settings.active.voice_stack.mode);
+  renderStorageModeControls();
   $("participantCount").textContent = snapshot.participant_count;
   $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
   $("remainingTime").textContent =
@@ -547,8 +749,8 @@ const renderState = () => {
     : snapshot.is_recording
       ? "녹음 중"
       : snapshot.armed
-        ? "준비됨"
-        : "안전";
+        ? "준비 완료"
+        : "준비 전";
   document.querySelector(".record-core").classList.toggle("armed", captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
   renderRecordReadiness(snapshot, recordingStopBusy);
@@ -563,27 +765,31 @@ const renderState = () => {
       : hasPendingChanges(snapshot)
         ? "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다."
         : "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
-  $("armButton").disabled = recordingStopBusy || snapshot.armed || snapshot.is_recording;
-  $("disarmButton").disabled =
-    recordingStopBusy || (!snapshot.armed && !snapshot.is_recording);
+  const captureGateOn = snapshot.armed || snapshot.is_recording;
+  $("captureGateSwitch").disabled = recordingStopBusy || snapshot.is_recording;
+  $("captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false");
+  $("captureGateSwitch").classList.toggle("checked", captureGateOn);
+  $("captureGateState").textContent = snapshot.is_recording
+    ? "녹음 중"
+    : snapshot.armed
+      ? "녹음 준비 켜짐"
+      : "녹음 준비 꺼짐";
   $("startButton").disabled = recordingStopBusy || !snapshot.armed || snapshot.is_recording;
   $("stopButton").disabled = recordingStopBusy || !snapshot.is_recording;
   $("startOutputButton").disabled = outputControlBusy || snapshot.playback.output_running;
   $("stopOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
   $("restartOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
-  $("armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false");
-  $("disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true");
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
   $("applyButton").disabled =
     state.applyInFlight || recordingStopBusy || snapshot.is_recording || runtimeConfigChanges;
   if (state.applyInFlight) {
-    $("applyButton").textContent = "적용 중...";
+    $("applyButton").textContent = "적용 중…";
   } else {
-    setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" });
+    $("applyButton").textContent = "적용 후 재시작";
   }
   $("resetButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetButton").title = snapshot.is_recording
-    ? "초안 설정을 초기화하기 전에 녹음을 중지하세요."
+    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
     : "";
   $("resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetParticipantsButton").title = snapshot.is_recording
@@ -618,13 +824,8 @@ const renderRecordReadiness = (snapshot, recordingStopBusy) => {
   } else if (snapshot.armed) {
     setRecordStatus("armed-ready", "스페이스바를 눌러 녹음", "스페이스바를 떼면 녹음을 중지합니다.");
   } else {
-    setRecordStatus("ready", "준비", "먼저 녹음을 준비한 뒤 스페이스바를 누르세요.");
+    setRecordStatus("ready", "녹음 준비 필요", "녹음 준비를 켠 뒤 스페이스바를 누르세요.");
   }
-};
-
-const renderModeBadge = (mode) => {
-  $("modeBadge").textContent = modeLabels[mode] || "모드 미확인";
-  $("modeBadge").className = `status-pill ${mode === "live_ephemeral" ? "safe" : "muted"}`;
 };
 
 const renderLastEventBadge = () => {
@@ -633,7 +834,7 @@ const renderLastEventBadge = () => {
     $("lastEventBadge").textContent = "최근 이벤트 불러오기 실패";
     $("lastEventBadge").className = "status-pill hot";
   } else if (lastEvent?.event_type) {
-    $("lastEventBadge").textContent = `최근 ${lastEvent.event_type}`;
+    $("lastEventBadge").textContent = `최근 ${formatEventType(lastEvent.event_type)}`;
     $("lastEventBadge").className = "status-pill";
   } else {
     $("lastEventBadge").textContent = "최근 이벤트 없음";
@@ -662,25 +863,28 @@ const renderRecordingOutcome = (outcome) => {
   } else if (outcome.reason === "empty") {
     setRecordStatus("discarded", "빈 녹음", `${duration} 녹음됨.`);
   } else if (outcome.reason === "disarmed") {
-    setRecordStatus("discarded", "녹음 준비 해제됨", `${duration} 녹음됨.`);
+    setRecordStatus("discarded", "녹음 준비 꺼짐", `${duration} 녹음됨.`);
   } else {
-    setRecordStatus("discarded", "녹음 폐기됨", outcome.reason || duration);
+    setRecordStatus("discarded", "녹음 폐기됨", translateUiErrorMessage(outcome.reason) || duration);
   }
 };
 
 const currentErrorMessages = () => {
-  const snapshot = state.snapshot;
   return [
-    snapshot?.last_error,
-    snapshot?.playback.output_latest_error,
     state.deviceError,
     state.diagnosticsError,
-  ].filter(Boolean);
+    state.sourcesError,
+  ].filter(Boolean).map(translateUiErrorMessage);
 };
 
 const renderErrors = () => {
   const messages = currentErrorMessages();
-  showError(messages.join(" · "));
+  if (messages.length) {
+    state.transientError = null;
+    setErrorBanner(messages.join(" · "));
+    return;
+  }
+  setErrorBanner(state.transientError || "");
 };
 
 const renderDevices = () => {
@@ -699,8 +903,14 @@ const renderDevices = () => {
     return;
   }
 
-  $("inputDeviceName").textContent = devices.selected_input_device?.name || "입력 장치 없음";
-  $("outputDeviceName").textContent = devices.selected_output_device?.name || "출력 장치 없음";
+  $("inputDeviceName").textContent = deviceOptionLabel(
+    devices.selected_input_device,
+    "입력 장치 없음",
+  );
+  $("outputDeviceName").textContent = deviceOptionLabel(
+    devices.selected_output_device,
+    "출력 장치 없음",
+  );
   renderDeviceSelect(
     "inputDeviceSelect",
     devices.input_devices,
@@ -717,7 +927,7 @@ const renderDevices = () => {
   warningList.innerHTML = "";
   devices.warnings.forEach((warning) => {
     const item = document.createElement("li");
-    item.textContent = warning;
+    item.textContent = translateUiErrorMessage(warning);
     warningList.appendChild(item);
   });
   renderSystemStatus();
@@ -781,7 +991,7 @@ const renderSystemDevices = () => {
 const systemDeviceName = (key, emptyLabel) => {
   if (state.deviceError) return "사용 불가";
   if (!state.devices) return "확인 중...";
-  return state.devices[key]?.name || emptyLabel;
+  return deviceOptionLabel(state.devices[key], emptyLabel);
 };
 
 const renderSourceHealthList = (sources) => {
@@ -801,13 +1011,121 @@ const renderSourceHealthList = (sources) => {
   });
 };
 
+const renderSourceLibrary = () => {
+  const container = $("sourceLibraryList");
+  if (!container) return;
+  if (deferInteractiveRender("source-library", container, renderSourceLibrary)) return;
+  const status = $("sourceLibraryStatus");
+  if (!state.sources) {
+    status.textContent = state.sourcesError ? "목록 실패" : "확인 중";
+    status.className = `status-pill ${state.sourcesError ? "hot" : "muted"}`;
+    container.innerHTML = "";
+    const placeholder = document.createElement("div");
+    placeholder.className = "source-library-empty";
+    placeholder.textContent = state.sourcesError
+      ? translateUiErrorMessage(state.sourcesError)
+      : "파일 목록을 확인하는 중입니다.";
+    container.appendChild(placeholder);
+    return;
+  }
+
+  const categories = state.sources.categories || [];
+  const missingCount = categories.filter((category) => !category.active_exists).length;
+  status.textContent = missingCount ? `${missingCount}개 선택 필요` : "파일 준비됨";
+  status.className = `status-pill ${missingCount ? "hot" : "safe"}`;
+  container.innerHTML = "";
+  categories.forEach((category) => {
+    container.appendChild(sourceCategoryCard(category));
+  });
+};
+
+const sourceCategoryCard = (category) => {
+  const label = sourceCategoryLabels[category.id] || {
+    title: category.label || category.id,
+    helper: category.directory,
+  };
+  const card = document.createElement("section");
+  card.className = "source-category-card";
+  const options = [
+    `<option value="">${category.legacy_exists ? "기존 파일 사용" : "선택 안 함"}</option>`,
+    ...(category.files || []).map((file) => {
+      const selected = category.selected_path === file.path ? " selected" : "";
+      return `<option value="${escapeHtml(file.path)}"${selected}>${escapeHtml(file.name)}</option>`;
+    }),
+  ].join("");
+  card.innerHTML = `
+    <div class="source-category-head">
+      <div>
+        <h3>${escapeHtml(label.title)}</h3>
+        <p>${escapeHtml(label.helper)}</p>
+      </div>
+      <span class="status-pill ${category.active_exists ? "safe" : "hot"}">
+        ${category.active_exists ? "선택됨" : "없음"}
+      </span>
+    </div>
+    <label class="source-select-row">
+      <span>사용 파일</span>
+      <select data-source-select="${escapeHtml(category.id)}">${options}</select>
+    </label>
+    <div class="source-file-list">
+      ${sourceFileRows(category)}
+    </div>
+    <div class="source-upload-row">
+      <label class="source-drop-zone" data-source-drop="${escapeHtml(category.id)}">
+        <input
+          class="sr-only"
+          type="file"
+          accept=".wav,audio/wav,audio/x-wav"
+          data-source-file="${escapeHtml(category.id)}"
+        />
+        <strong>파일 선택 또는 드롭</strong>
+        <small>WAV 파일을 이 폴더로 복사합니다.</small>
+      </label>
+      <button class="button" type="button" data-source-upload="${escapeHtml(category.id)}">추가</button>
+      <label class="source-upload-select">
+        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}" checked />
+        <span>업로드 후 바로 선택</span>
+      </label>
+    </div>
+  `;
+  return card;
+};
+
+const sourceFileRows = (category) => {
+  if (!category.files?.length) {
+    return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
+  }
+  return category.files.map((file) => {
+    const active = file.active ? `<span class="source-file-badge">사용 중</span>` : "";
+    const disabled = file.active ? " disabled" : "";
+    const deleteTitle = file.active ? ' title="현재 선택된 파일은 삭제할 수 없습니다"' : "";
+    return `
+      <div class="source-file-row">
+        <div>
+          <strong>${escapeHtml(file.name)}</strong>
+          <small>${formatBytes(file.size_bytes)} · ${formatTimestamp(file.modified_at)}</small>
+        </div>
+        ${active}
+        <button
+          class="mini-button danger"
+          type="button"
+          data-source-delete="${escapeHtml(category.id)}"
+          data-source-path="${escapeHtml(file.path)}"
+          ${deleteTitle}
+          ${disabled}
+        >삭제</button>
+      </div>
+    `;
+  }).join("");
+};
+
 const renderEventLogSummary = (events, error = null) => {
   const list = $("eventLogSummary");
   list.innerHTML = "";
   if (error) {
     const item = document.createElement("li");
     item.className = "event-item event-error";
-    item.textContent = error;
+    item.textContent = translateUiErrorMessage(error);
     list.appendChild(item);
     return;
   }
@@ -825,14 +1143,110 @@ const renderEventLogSummary = (events, error = null) => {
     time.className = "event-time";
     time.textContent = formatTimestamp(event.timestamp);
     const label = document.createElement("strong");
-    label.textContent = event.event_type || "이벤트";
+    label.textContent = formatEventType(event.event_type);
     item.append(time, label);
     list.appendChild(item);
   });
 };
 
+const selectSourceFile = async (category, path) => {
+  try {
+    const payload = await api(`/api/sources/${encodeURIComponent(category)}/select`, {
+      method: "PUT",
+      body: JSON.stringify({ path: path || null }),
+    });
+    state.snapshot.settings = payload.settings;
+    state.draft = clone(payload.settings.draft);
+    state.sources = payload.sources;
+    renderState();
+    renderSourceLibrary();
+    await requestDiagnostics();
+  } catch (error) {
+    showError(translateUiErrorMessage(error.message));
+    await requestSources().catch(() => {});
+  }
+};
+
+const selectedSourceUploadMode = (category) => {
+  const checkbox = document.querySelector(`[data-source-upload-select="${category}"]`);
+  return checkbox ? checkbox.checked : true;
+};
+
+const uploadSourceFile = async (category, droppedFile = null) => {
+  const input = document.querySelector(`[data-source-file="${category}"]`);
+  const file = droppedFile || input?.files?.[0];
+  if (!file) {
+    showError("추가할 WAV 파일을 선택하세요.");
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith(".wav")) {
+    showError("WAV 파일만 추가할 수 있습니다.");
+    return;
+  }
+  const params = new URLSearchParams({
+    filename: file.name,
+    select: String(selectedSourceUploadMode(category)),
+  });
+  try {
+    const payload = await api(
+      `/api/sources/${encodeURIComponent(category)}/files?${params.toString()}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "audio/wav" },
+        body: file,
+      },
+    );
+    if (payload.settings) {
+      state.snapshot.settings = payload.settings;
+      state.draft = clone(payload.settings.draft);
+    }
+    state.sources = payload.sources;
+    if (input) input.value = "";
+    renderState();
+    renderSourceLibrary();
+    await requestDiagnostics();
+  } catch (error) {
+    showError(translateUiErrorMessage(error.message));
+    await requestSources().catch(() => {});
+  }
+};
+
+const handleSourceFileDrop = (event, category) => {
+  event.preventDefault();
+  const dropZone = event.target.closest("[data-source-drop]");
+  dropZone?.classList.remove("is-dragging");
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) {
+    showError("추가할 WAV 파일을 선택하세요.");
+    return;
+  }
+  uploadSourceFile(category, file);
+};
+
+const deleteSourceFile = async (category, path) => {
+  if (!window.confirm("선택한 WAV 파일을 삭제할까요?")) return;
+  try {
+    const payload = await api(
+      `/api/sources/${encodeURIComponent(category)}/files?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" },
+    );
+    state.sources = payload.sources;
+    renderSourceLibrary();
+    await requestDiagnostics();
+  } catch (error) {
+    showError(translateUiErrorMessage(error.message));
+    await requestSources().catch(() => {});
+  }
+};
+
 const renderDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
   const select = $(selectId);
+  const disabled = forceDisabled || !state.draft || !state.devices;
+  if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
+    select.disabled = disabled;
+    return;
+  }
+
   select.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
@@ -842,7 +1256,7 @@ const renderDeviceSelect = (selectId, devices, selectedId, forceDisabled = false
   devices.forEach((device) => {
     const option = document.createElement("option");
     option.value = device.id;
-    option.textContent = `${device.name} (${device.default_sample_rate || "알 수 없음"} Hz)`;
+    option.textContent = deviceOptionLabel(device);
     select.appendChild(option);
   });
 
@@ -854,7 +1268,20 @@ const renderDeviceSelect = (selectId, devices, selectedId, forceDisabled = false
   }
 
   select.value = selectedId || "";
-  select.disabled = forceDisabled || !state.draft || !state.devices;
+  select.disabled = disabled;
+};
+
+const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
+  if (!device) return emptyLabel;
+  const channelCount = device.kind === "input"
+    ? device.max_input_channels
+    : device.max_output_channels;
+  return [
+    device.name,
+    device.host_api_name,
+    channelCount ? `${channelCount}ch` : null,
+    `${device.default_sample_rate || "알 수 없음"} Hz`,
+  ].filter(Boolean).join(" · ");
 };
 
 const renderDeviceRestartNotice = () => {
@@ -891,24 +1318,28 @@ const hasPendingChanges = (snapshot) =>
   JSON.stringify(snapshot.settings.active) !==
   JSON.stringify(state.draft || snapshot.settings.draft);
 
-const hasLayerDraftChanges = (layerId) => {
+const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
   return (
-    JSON.stringify(state.snapshot.settings.active.layers[layerId]) !==
-    JSON.stringify(state.draft.layers[layerId])
+    Boolean(state.snapshot.settings.active.layers[layerId].enabled) !==
+    Boolean(state.draft.layers[layerId].enabled)
   );
 };
 
-const layerPendingBadge = (layerId) =>
-  `<span class="layer-status ${hasLayerDraftChanges(layerId) ? "pending" : ""}">${
-    hasLayerDraftChanges(layerId) ? "Pending Draft" : "Active"
-  }</span>`;
+const layerEnabledText = (enabled) => (enabled ? "켜짐" : "꺼짐");
 
-const updateLayerPendingBadge = (layerId, card) => {
-  const badge = card.querySelector(".layer-status");
-  const pending = hasLayerDraftChanges(layerId);
-  badge.textContent = pending ? "Pending Draft" : "Active";
-  badge.classList.toggle("pending", pending);
+const updateLayerEnabledControl = (card, layerId, enabled) => {
+  const toggle = card.querySelector(".layer-toggle");
+  const label = card.querySelector(".layer-toggle-label");
+  const note = card.querySelector(".layer-toggle-note");
+  const pending = hasLayerInclusionDraftChange(layerId);
+  toggle?.classList.toggle("enabled", enabled);
+  toggle?.classList.toggle("pending", pending);
+  if (label) label.textContent = layerEnabledText(enabled);
+  if (note) {
+    note.textContent = pending ? "재시작 시 적용" : "";
+    note.hidden = !pending;
+  }
 };
 
 const renderControls = () => {
@@ -920,13 +1351,14 @@ const renderControls = () => {
 };
 
 const renderLayerControls = () => {
-  renderLayerGroup("layerControls", ["low", "mid"]);
+  renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
 };
 
 const renderVoiceStackControls = () => {
   const container = $("voiceStackControls");
   container.innerHTML = "";
+  renderStorageModeControls();
   const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
   voiceStackControlDefs.forEach((control) => {
     container.appendChild(
@@ -944,6 +1376,45 @@ const renderVoiceStackControls = () => {
   });
 };
 
+const renderStorageModeControls = () => {
+  if (!state.snapshot || !state.draft) return;
+  const activeMode = state.snapshot.settings.active.voice_stack.mode;
+  const draftMode = state.draft.voice_stack.mode;
+  const activeDetails = storageModeDetails[activeMode] || storageModeDetails.live_ephemeral;
+  const draftDetails = storageModeDetails[draftMode] || activeDetails;
+  const pending = activeMode !== draftMode;
+  $("storageModeSummary").textContent = pending
+    ? `${activeDetails.label} · 재시작 시 적용: ${draftDetails.optionLabel}`
+    : `${activeDetails.label} · ${activeDetails.summary}`;
+  $("storageModePanel").className = `storage-mode-panel ${
+    pending ? "pending" : activeDetails.className
+  }`;
+  const disabled = state.applyInFlight || state.snapshot.is_recording || state.recordingStopInFlight;
+  [
+    ["storageModeLiveButton", "live_ephemeral"],
+    ["storageModeLibraryButton", "test_library"],
+  ].forEach(([id, mode]) => {
+    const button = $(id);
+    const active = draftMode === mode;
+    button.disabled = disabled;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.classList.toggle("active", active);
+    button.classList.toggle("pending", pending && active);
+    button.title = disabled
+      ? "녹음 중이거나 적용 중일 때는 보관 모드를 바꿀 수 없습니다."
+      : (storageModeDetails[mode] || storageModeDetails.live_ephemeral).idleTitle;
+  });
+};
+
+const setStorageMode = (mode) => {
+  if (!storageModeDetails[mode] || !state.draft || !state.snapshot) return;
+  if (state.snapshot.is_recording || state.recordingStopInFlight || state.applyInFlight) return;
+  state.draft.voice_stack.mode = mode;
+  state.snapshot.settings.draft = clone(state.draft);
+  renderState();
+  scheduleDraftSave();
+};
+
 const renderLayerGroup = (containerId, layerIds) => {
   const container = $(containerId);
   container.innerHTML = "";
@@ -958,6 +1429,7 @@ const renderLayerCard = (layerId) => {
   const card = document.createElement("section");
   card.className = "layer-card";
   const layerLabel = layerLabels[layerId];
+  const pendingEnabled = hasLayerInclusionDraftChange(layerId);
   card.innerHTML = `
     <div class="layer-head">
       <div>
@@ -965,12 +1437,22 @@ const renderLayerCard = (layerId) => {
         <p class="layer-role">${layerDescriptions[layerId] || ""}</p>
       </div>
       <div class="layer-head-actions">
-        ${layerPendingBadge(layerId)}
-        <label class="layer-toggle">
-          <input type="checkbox" aria-label="${labelText(layerLabel)} enabled" ${
+        <label class="layer-toggle ${layer.enabled ? "enabled" : ""} ${
+          pendingEnabled ? "pending" : ""
+        }">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="${labelText(layerLabel)} 켜짐 꺼짐"
+            aria-checked="${layer.enabled ? "true" : "false"}"
+            ${
             layer.enabled ? "checked" : ""
-          } />
-          <span>Enabled</span>
+          }
+          />
+          <span class="layer-toggle-copy">
+            <span class="layer-toggle-label">${layerEnabledText(layer.enabled)}</span>
+            <small class="layer-toggle-note" ${pendingEnabled ? "" : "hidden"}>재시작 시 적용</small>
+          </span>
         </label>
       </div>
     </div>
@@ -979,7 +1461,8 @@ const renderLayerCard = (layerId) => {
   `;
   card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
     state.draft.layers[layerId].enabled = event.target.checked;
-    updateLayerPendingBadge(layerId, card);
+    event.target.setAttribute("aria-checked", event.target.checked ? "true" : "false");
+    updateLayerEnabledControl(card, layerId, event.target.checked);
     renderState();
     scheduleDraftSave();
   });
@@ -987,12 +1470,17 @@ const renderLayerCard = (layerId) => {
   const controls = card.querySelector(".layer-controls");
   layerControlGroups.forEach((group) => {
     controls.appendChild(
-      controlGroup(group, layer, activeLayer, (control, value) => {
-        setPath(state.draft.layers[layerId], control.path, value);
-        updateLayerPendingBadge(layerId, card);
-        renderState();
-        scheduleDraftSave();
-      }),
+      controlGroup(
+        group,
+        layer,
+        activeLayer,
+        (control, value) => {
+          setPath(state.draft.layers[layerId], control.path, value);
+          renderState();
+          scheduleDraftSave();
+        },
+        group.action === "reset-filter" ? () => resetLayerFilter(layerId) : undefined,
+      ),
     );
   });
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
@@ -1028,6 +1516,20 @@ const applyLayerPreset = (layerId, presetName) => {
     },
   };
   state.snapshot.settings.draft = clone(state.draft);
+  renderLayerControls();
+  renderState();
+  scheduleDraftSave();
+};
+
+const resetLayerFilter = (layerId) => {
+  const layer = state.draft?.layers?.[layerId];
+  const filterGroup = layerControlGroups.find((group) => group.action === "reset-filter");
+  if (!layer || !filterGroup) return;
+  filterGroup.controls.forEach((control) => {
+    const resetValue = control.path.endsWith("highpass_hz") ? control.min : control.max;
+    setPath(layer, control.path, resetValue);
+  });
+  if (state.snapshot) state.snapshot.settings.draft = clone(state.draft);
   renderLayerControls();
   renderState();
   scheduleDraftSave();
@@ -1076,6 +1578,35 @@ const applyRecordingPreset = (name) => {
   scheduleDraftSave();
 };
 
+const workspaceTabs = () => Array.from(document.querySelectorAll("[data-workspace-tab]"));
+
+const renderWorkspaceTabs = () => {
+  workspaceTabs().forEach((button) => {
+    const active = button.dataset.workspaceTab === state.workspaceTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll("[data-workspace-pane]").forEach((pane) => {
+    pane.hidden = pane.dataset.workspacePane !== state.workspaceTab;
+  });
+};
+
+const updateWorkspaceUrl = () => {
+  if (!window.history?.replaceState || !window.location?.href) return;
+  const url = new URL(window.location.href);
+  if (state.workspaceTab === "treatment") url.searchParams.delete("workspace");
+  else url.searchParams.set("workspace", state.workspaceTab);
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+};
+
+const setWorkspaceTab = (tabName, options = {}) => {
+  if (!workspaceTabNames.includes(tabName)) return;
+  state.workspaceTab = tabName;
+  renderWorkspaceTabs();
+  if (options.syncUrl !== false) updateWorkspaceUrl();
+};
+
 const frequencyGuideMarkup = (kind) => {
   if (kind !== "eq") return "";
   return `
@@ -1087,27 +1618,106 @@ const frequencyGuideMarkup = (kind) => {
   `;
 };
 
-const controlGroup = (group, draftSource, activeSource, onInput) => {
+const filterStatus = (group, draftSource, activeSource = null) => {
+  const highpassControl = group.controls.find((control) => control.path.endsWith("highpass_hz"));
+  const lowpassControl = group.controls.find((control) => control.path.endsWith("lowpass_hz"));
+  if (!highpassControl || !lowpassControl) return null;
+  const highpass = getPath(draftSource, highpassControl.path);
+  const lowpass = getPath(draftSource, lowpassControl.path);
+  const activeHighpass = activeSource ? getPath(activeSource, highpassControl.path) : highpass;
+  const activeLowpass = activeSource ? getPath(activeSource, lowpassControl.path) : lowpass;
+  const pending =
+    Number(activeHighpass) !== Number(highpass) || Number(activeLowpass) !== Number(lowpass);
+  const bypassed =
+    Number(highpass) <= Number(highpassControl.min) &&
+    Number(lowpass) >= Number(lowpassControl.max);
+  const highpassLabel = formatValue(highpass, highpassControl.suffix);
+  const lowpassLabel = formatValue(lowpass, lowpassControl.suffix);
+  const fullBandLabel = `${formatValue(highpassControl.min, highpassControl.suffix)} - ${formatValue(
+    lowpassControl.max,
+    lowpassControl.suffix,
+  )}`;
+  const passRangeLabel = `${highpassLabel} - ${lowpassLabel}`;
+  return {
+    bypassed,
+    pending,
+    label: pending ? "아직 적용 안 됨" : bypassed ? "필터 없음" : "필터 적용됨",
+    detail: pending
+      ? `변경 대역: ${passRangeLabel}`
+      : bypassed
+        ? `전체 대역: ${fullBandLabel}`
+        : `통과 대역: ${passRangeLabel}`,
+  };
+};
+
+const groupActionsMarkup = (group, draftSource, activeSource = null) => {
+  if (group.action !== "reset-filter") return "";
+  const status = filterStatus(group, draftSource, activeSource);
+  if (!status) return "";
+  return `
+    <div class="control-group-actions">
+      <span class="filter-status ${
+        status.pending ? "pending" : status.bypassed ? "bypassed" : "active"
+      }">
+        <span>필터 상태</span>
+        <strong>${status.label}</strong>
+        <small>${status.detail}</small>
+      </span>
+      <button class="mini-button filter-reset-button" type="button" ${
+        status.bypassed ? "disabled" : ""
+      }>
+        필터 초기화
+      </button>
+    </div>
+  `;
+};
+
+const controlGroup = (group, draftSource, activeSource, onInput, onGroupAction = null) => {
   const section = document.createElement(group.collapsible ? "details" : "section");
   section.className = `control-group ${group.className || ""}`;
   if (group.open) section.open = true;
+  let currentDraftSource = draftSource;
   const headTag = group.collapsible ? "summary" : "div";
   section.innerHTML = `
     <${headTag} class="control-group-head">
-      <h4>${labelMarkup(group.title)}</h4>
-      <p>${group.note || ""}</p>
+      <div class="control-group-title">
+        <h4>${labelMarkup(group.title)}</h4>
+        <p>${group.note || ""}</p>
+      </div>
+      ${groupActionsMarkup(group, draftSource, activeSource)}
     </${headTag}>
     ${frequencyGuideMarkup(group.guide)}
     <div class="control-group-body ${group.layout || ""}"></div>
   `;
   const body = section.querySelector(".control-group-body");
+  const attachGroupAction = () => {
+    section
+      .querySelector(".filter-reset-button")
+      ?.addEventListener("click", () => onGroupAction?.(group));
+  };
+  const refreshGroupActions = () => {
+    const currentActions = section.querySelector(".control-group-actions");
+    const nextMarkup = groupActionsMarkup(group, currentDraftSource, activeSource);
+    if (!currentActions || !nextMarkup) return;
+    const template = document.createElement("template");
+    template.innerHTML = nextMarkup.trim();
+    const nextActions = template.content.firstElementChild;
+    if (!nextActions) return;
+    currentActions.replaceWith(nextActions);
+    attachGroupAction();
+  };
+  attachGroupAction();
   if (!body.parentElement) section.appendChild(body);
   group.controls.forEach((control) => {
     body.appendChild(
       rangeControl(
         control,
         getPath(draftSource, control.path),
-        (value) => onInput(control, value),
+        (value) => {
+          setPath(currentDraftSource, control.path, value);
+          currentDraftSource = onInput(control, value) || currentDraftSource;
+          refreshGroupActions();
+        },
         activeSource ? getPath(activeSource, control.path) : undefined,
       ),
     );
@@ -1119,9 +1729,10 @@ const renderDraftValue = (draftValue, activeValue, suffix) => {
   if (activeValue === undefined) return formatValue(draftValue, suffix);
   const activeChanged = activeValue !== undefined && Number(activeValue) !== Number(draftValue);
   const activeMarkup = activeChanged
-    ? `<small class="active-value">Active ${formatValue(activeValue, suffix)}</small>`
+    ? `<small class="active-value">현재 적용 ${formatValue(activeValue, suffix)}</small>`
     : "";
-  return `<strong>Draft ${formatValue(draftValue, suffix)}</strong>${activeMarkup}`;
+  const statusLabel = activeChanged ? "변경값" : "현재값";
+  return `<strong>${statusLabel} ${formatValue(draftValue, suffix)}</strong>${activeMarkup}`;
 };
 
 const decimalPlaces = (value) => {
@@ -1286,7 +1897,7 @@ const saveDraft = async () => {
     renderState();
     renderDevices();
   } catch (error) {
-    showError(error.message);
+    showError(translateUiErrorMessage(error.message));
     throw error;
   }
 };
@@ -1347,11 +1958,12 @@ const control = async (path, options = {}) => {
     }
     if (!deferredStopHandled) {
       await requestDiagnostics();
+      await requestSources();
     }
   } catch (error) {
     controlError = error;
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
-      setRecordStatus("failed", "녹음 실패", error.message);
+      setRecordStatus("failed", "녹음 실패", translateUiErrorMessage(error.message));
       await requestState({ syncDraft: false }).catch(() => {});
       await requestDiagnostics().catch(() => {});
     }
@@ -1367,7 +1979,7 @@ const control = async (path, options = {}) => {
       state.recordingStartInFlight = false;
       state.recordingStopRequestedAfterStart = false;
     }
-    if (controlError) showError(controlError.message);
+    if (controlError) showError(translateUiErrorMessage(controlError.message));
   }
 };
 
@@ -1381,18 +1993,21 @@ const applyAndRestart = async () => {
     const payload = await api("/api/settings/apply", { method: "POST" });
     applyState(payload.state);
     await requestDiagnostics();
+    await requestSources();
   } catch (error) {
     applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
     await requestDiagnostics().catch(() => {});
+    await requestSources().catch(() => {});
   } finally {
     state.applyInFlight = false;
     renderState();
-    if (applyError) showError(applyError.message);
+    if (applyError) showError(translateUiErrorMessage(applyError.message));
   }
 };
 
 const resetDraft = async () => {
+  if (!window.confirm("저장하지 않은 설정 변경을 취소할까요?")) return;
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     state.snapshot.settings = payload.settings;
@@ -1401,21 +2016,30 @@ const resetDraft = async () => {
     renderControls();
     renderDevices();
     await requestDiagnostics();
+    await requestSources();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(error.message);
+    showError(translateUiErrorMessage(error.message));
   }
 };
 
 const resetParticipants = async () => {
+  if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
   try {
     const payload = await api("/api/participants/reset", { method: "POST" });
     applyState(payload.state, { syncDraft: false });
     await requestDiagnostics();
+    await requestSources();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(error.message);
+    showError(translateUiErrorMessage(error.message));
   }
+};
+
+const toggleCaptureGate = () => {
+  const snapshot = state.snapshot;
+  if (!snapshot || state.recordingStopInFlight || snapshot.is_recording) return;
+  control(snapshot.armed ? "/api/input/disarm" : "/api/input/arm");
 };
 
 const changeDraftDevice = (key, value) => {
@@ -1505,7 +2129,7 @@ const connectStateSocket = () => {
     try {
       applyState(JSON.parse(event.data), { syncDraft: false });
     } catch (error) {
-      showError(error.message);
+      showError(translateUiErrorMessage(error.message));
     }
   });
   socket.addEventListener("close", () => {
@@ -1560,8 +2184,7 @@ const drawCanvas = () => {
 };
 
 const bindEvents = () => {
-  $("armButton").addEventListener("click", () => control("/api/input/arm"));
-  $("disarmButton").addEventListener("click", () => control("/api/input/disarm"));
+  $("captureGateSwitch").addEventListener("click", toggleCaptureGate);
   $("startButton").addEventListener("click", () => control("/api/recording/start"));
   $("stopButton").addEventListener("click", () => control("/api/recording/stop"));
   $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
@@ -1574,17 +2197,69 @@ const bindEvents = () => {
   document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
     button.addEventListener("click", () => applyRecordingPreset(button.dataset.preset));
   });
+  workspaceTabs().forEach((button) => {
+    button.addEventListener("click", () => setWorkspaceTab(button.dataset.workspaceTab));
+    button.addEventListener("keydown", (event) => {
+      const tabs = workspaceTabs();
+      const index = tabs.indexOf(button);
+      const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (direction === 0 || index < 0) return;
+      event.preventDefault();
+      const next = tabs[(index + direction + tabs.length) % tabs.length];
+      next.focus();
+      setWorkspaceTab(next.dataset.workspaceTab);
+    });
+  });
+  document.querySelectorAll("[data-storage-mode]").forEach((button) => {
+    button.addEventListener("click", () => setStorageMode(button.dataset.storageMode));
+  });
   $("inputDeviceSelect").addEventListener("change", (event) => {
     changeDraftDevice("input_device_id", event.target.value);
   });
   $("outputDeviceSelect").addEventListener("change", (event) => {
     changeDraftDevice("output_device_id", event.target.value);
   });
+  $("sourceLibraryList").addEventListener("change", (event) => {
+    const select = event.target.closest("[data-source-select]");
+    if (!select) return;
+    selectSourceFile(select.dataset.sourceSelect, select.value);
+  });
+  $("sourceLibraryList").addEventListener("dragover", (event) => {
+    const dropZone = event.target.closest("[data-source-drop]");
+    if (!dropZone) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    dropZone.classList.add("is-dragging");
+  });
+  $("sourceLibraryList").addEventListener("dragleave", (event) => {
+    const dropZone = event.target.closest("[data-source-drop]");
+    if (!dropZone || dropZone.contains(event.relatedTarget)) return;
+    dropZone.classList.remove("is-dragging");
+  });
+  $("sourceLibraryList").addEventListener("drop", (event) => {
+    const dropZone = event.target.closest("[data-source-drop]");
+    if (!dropZone) return;
+    handleSourceFileDrop(event, dropZone.dataset.sourceDrop);
+  });
+  $("sourceLibraryList").addEventListener("click", (event) => {
+    const uploadButton = event.target.closest("[data-source-upload]");
+    if (uploadButton) {
+      uploadSourceFile(uploadButton.dataset.sourceUpload);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-source-delete]");
+    if (deleteButton) {
+      deleteSourceFile(deleteButton.dataset.sourceDelete, deleteButton.dataset.sourcePath);
+    }
+  });
   document.addEventListener("keydown", startFromSpace);
   document.addEventListener("keyup", stopFromSpace);
   window.addEventListener("blur", stopIfRecording);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopIfRecording();
+  });
+  window.addEventListener("popstate", () => {
+    setWorkspaceTab(workspaceTabFromUrl(), { syncUrl: false });
   });
   setInterval(async () => {
     if (!state.websocketConnected && state.snapshot?.is_recording) {
@@ -1596,6 +2271,7 @@ const bindEvents = () => {
 };
 
 bindEvents();
+renderWorkspaceTabs();
 drawCanvas();
 connectStateSocket();
 refreshAll();

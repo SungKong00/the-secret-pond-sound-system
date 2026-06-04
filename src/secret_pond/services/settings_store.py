@@ -112,9 +112,18 @@ def _validated_settings_payload(payload: Any, key: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         msg = f"settings {key} must be a JSON object"
         raise ValueError(msg)
-    if set(payload) != set(AppSettings.model_fields):
+    expected = set(AppSettings.model_fields)
+    actual = set(payload)
+    missing = expected - actual
+    extra = actual - expected
+    if extra or missing - {"sources"}:
         msg = f"settings {key} is missing required keys"
         raise ValueError(msg)
+    if "sources" not in payload:
+        return {
+            **payload,
+            "sources": AppSettings().sources.model_dump(mode="json"),
+        }
     return payload
 
 

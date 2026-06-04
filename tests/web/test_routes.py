@@ -26,6 +26,7 @@ from secret_pond.config import (
     DeviceSettings,
     InputControlSettings,
     RecordingProcessingSettings,
+    SourceSelectionSettings,
     VoiceStackSettings,
 )
 from secret_pond.paths import ProjectPaths
@@ -117,6 +118,13 @@ class FakeOutput:
         self.latest_error = None
         self.start_calls = 0
         self.stop_calls = 0
+        self.device_id = None
+
+    def set_device_id(self, device_id: str | None) -> None:
+        if self.is_running:
+            msg = "cannot change output device while running"
+            raise RuntimeError(msg)
+        self.device_id = device_id
 
     def start(self) -> None:
         self.start_calls += 1
@@ -135,6 +143,18 @@ class FakeOutput:
         if self.fail_stop is not None:
             self.latest_error = str(self.fail_stop)
             raise self.fail_stop
+
+
+class DeviceAwareFakeRecorder(FakeRecorder):
+    def __init__(self, takes: AudioBuffer | list[AudioBuffer]) -> None:
+        super().__init__(takes)
+        self.device_id = None
+
+    def set_device_id(self, device_id: str | None) -> None:
+        if self.is_recording:
+            msg = "cannot change input device while recording"
+            raise RuntimeError(msg)
+        self.device_id = device_id
 
 
 class RestartFailureStream:
@@ -199,6 +219,23 @@ class FailingStageRenderer:
     def stage_all(self, settings):
         self.stage_calls += 1
         raise self.error
+
+
+class FailingLayerRenderer:
+    def __init__(self, delegate, error: Exception) -> None:
+        self.delegate = delegate
+        self.error = error
+
+    def render_layer(self, layer_id, settings):
+        if layer_id == "voice":
+            raise self.error
+        return self.delegate.render_layer(layer_id, settings)
+
+    def render_all(self, settings):
+        return self.delegate.render_all(settings)
+
+    def stage_all(self, settings):
+        return self.delegate.stage_all(settings)
 
 
 class BlockingStageRenderer:
@@ -278,10 +315,12 @@ def create_test_client(
     tmp_path: Path,
     *,
     with_sources: bool = False,
+    recorder: Any | None = None,
     player: LayeredLoopPlayer | None = None,
     output: PlaybackOutput | None = None,
     settings: AppSettings | None = None,
     device_registry=None,
+    raise_server_exceptions: bool = True,
 ) -> TestClient:
     paths = ProjectPaths(tmp_path)
     resolved_settings = settings or api_settings()
@@ -293,12 +332,15 @@ def create_test_client(
     )
     runtime = build_runtime(
         tmp_path,
-        recorder=FakeRecorder(recorder_take()),
+        recorder=recorder or FakeRecorder(recorder_take()),
         player=player,
         output=output,
         device_registry=resolved_device_registry,
     )
-    return TestClient(create_app(runtime=runtime))
+    return TestClient(
+        create_app(runtime=runtime),
+        raise_server_exceptions=raise_server_exceptions,
+    )
 
 
 def write_source_files(paths: ProjectPaths, settings: AppSettings) -> None:
@@ -326,6 +368,17 @@ def draft_with_low_layer_disabled() -> dict:
         "low": settings.layers["low"].model_copy(update={"enabled": False}),
     }
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
+def api_settings_with_voice_only_layers() -> AppSettings:
+    settings = api_settings()
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False}),
+        "mid": settings.layers["mid"].model_copy(update={"enabled": False}),
+        "voice": settings.layers["voice"].model_copy(update={"enabled": True}),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True)
 
 
 def draft_with_sample_rate(sample_rate: int) -> dict:
@@ -383,6 +436,7 @@ def fake_device_registry() -> FakeDeviceRegistry:
                 max_input_channels=2,
                 max_output_channels=0,
                 default_sample_rate=48_000,
+                host_api_name="Core Audio",
             ),
             AudioDeviceInfo(
                 id="speaker-1",
@@ -399,6 +453,7 @@ def fake_device_registry() -> FakeDeviceRegistry:
                 max_input_channels=0,
                 max_output_channels=2,
                 default_sample_rate=8_000,
+                host_api_name="WASAPI",
             ),
         ]
     )
@@ -455,25 +510,25 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'href="/static/styles.css"' in response.text
     assert 'src="/static/app.js"' in response.text
     assert 'id="outputBadge"' in response.text
-    assert 'id="modeBadge"' in response.text
+    assert 'id="modeBadge"' not in response.text
+    assert "녹음 보관 확인 중" not in response.text
     assert 'id="lastEventBadge"' in response.text
     assert 'id="errorBadge"' in response.text
     assert "오류 없음" in response.text
     assert 'id="deviceHealthBadge"' in response.text
     assert 'id="syncBadge"' in response.text
+    assert '<details class="device-panel" open>' not in response.text
+    assert "Input Device" not in response.text
+    assert "Output Device" not in response.text
+    assert "앱 재시작 적용" not in response.text
     assert "저장 안 된 변경 없음" in response.text
     assert "No pending changes" not in response.text
     assert 'aria-label="녹음 제어"' in response.text
     assert 'aria-label="runtime controls"' not in response.text
-    assert 'aria-label="스페이스바 녹음 모드"' in response.text
-    assert (
-        'id="armButton" class="button primary" type="button" aria-pressed="false"'
-        in response.text
-    )
-    assert (
-        'id="disarmButton" class="button" type="button" aria-pressed="true" disabled'
-        in response.text
-    )
+    assert 'id="captureGateSwitch"' in response.text
+    assert 'role="switch"' in response.text
+    assert 'aria-checked="false"' in response.text
+    assert 'aria-describedby="captureGateState"' in response.text
     top_actions = slice_between(
         response.text,
         '<section class="top-actions" aria-label="운영 콘솔">',
@@ -488,7 +543,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     operation_panel = slice_between(
         response.text,
         '<section class="panel operation-panel" aria-label="운영 콘솔">',
-        '<div class="main-workspace-panel">',
+        '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
     )
     playback_panel = slice_between(
         operation_panel,
@@ -523,40 +578,98 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="restartOutputButton"' in playback_panel
     assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
     assert 'id="applyButton"' in playback_panel
-    assert "Apply and Restart" in playback_panel
-    assert '<small lang="ko">적용 후 재시작</small>' in playback_panel
-    assert "Capture Gate" in record_panel
-    assert 'id="armButton"' in record_panel
-    assert 'id="disarmButton"' in record_panel
+    assert "적용 후 재시작" in playback_panel
+    assert "Apply and Restart" not in playback_panel
+    assert "녹음 준비" in record_panel
+    assert 'id="storageModePanel"' in record_panel
+    assert 'id="storageModeSummary"' in record_panel
+    assert 'id="storageModeLiveButton"' in record_panel
+    assert 'id="storageModeLibraryButton"' in record_panel
+    assert "녹음 보관" in record_panel
+    assert "운영" in record_panel
+    assert "테스트 저장" in record_panel
+    assert "개별 녹음 보관 안 함" not in record_panel
+    assert "accepted clip 저장" not in record_panel
+    assert record_panel.index("녹음 보관") < record_panel.index("녹음 준비")
+    assert 'id="captureGateSwitch"' in record_panel
+    assert 'role="switch"' in record_panel
+    assert 'id="captureGateState"' in record_panel
+    assert "녹음 준비 꺼짐" in record_panel
+    assert 'id="armButton"' not in record_panel
+    assert 'id="disarmButton"' not in record_panel
+    assert "Arm" not in record_panel
+    assert "Disarm" not in record_panel
+    assert "Safe" not in record_panel
+    assert "안전" not in record_panel
     assert 'id="startButton"' in record_panel
     assert 'id="stopButton"' in record_panel
-    assert "Start Take" in record_panel
-    assert record_panel.index('id="startButton"') < record_panel.index('class="record-orbit"')
+    assert "테이크 시작" in record_panel
+    take_console = slice_between(
+        record_panel,
+        '<div class="take-console">',
+        "</div>\n              <div class=\"record-limits\"",
+    )
+    assert 'class="record-orbit"' in take_console
+    assert 'id="startButton"' in take_console
+    assert 'id="stopButton"' in take_console
     assert 'id="systemStatus"' in system_panel
     assert 'id="sourceHealthList"' in system_panel
     assert 'id="eventLogSummary"' in system_panel
-    assert 'class="main-workspace-panel"' in response.text
+    assert 'class="panel workspace-panel main-workspace-panel"' in response.text
     main_workspace = slice_between(
         response.text,
-        '<div class="main-workspace-panel">',
+        '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
         '<div class="right-stack-panel">',
     )
-    assert 'class="panel voice-panel"' in response.text
+    assert 'class="workspace-tabs"' in main_workspace
+    assert 'role="tablist"' in main_workspace
+    assert 'id="workspaceTabTreatment"' in main_workspace
+    assert 'data-workspace-tab="treatment"' in main_workspace
+    assert 'aria-controls="workspacePaneTreatment"' in main_workspace
+    assert 'aria-selected="true"' in main_workspace
+    assert 'id="workspaceTabStack"' in main_workspace
+    assert 'data-workspace-tab="stack"' in main_workspace
+    assert 'aria-controls="workspacePaneStack"' in main_workspace
+    assert 'aria-selected="false"' in main_workspace
+    assert 'id="workspaceTabMixer"' in main_workspace
+    assert 'data-workspace-tab="mixer"' in main_workspace
+    assert 'aria-controls="workspacePaneMixer"' in main_workspace
+    assert 'class="settings-library"' in main_workspace
+    assert 'id="settingsSnapshotSaveButton"' in main_workspace
+    assert 'id="settingsSnapshotSelect"' in main_workspace
+    assert "저장된 세팅 없음" in main_workspace
+    assert 'id="settingsSnapshotApplyButton"' in main_workspace
+    assert 'id="settingsSnapshotDeleteButton"' in main_workspace
+    assert 'id="workspacePaneTreatment"' in main_workspace
+    assert 'data-workspace-pane="treatment"' in main_workspace
+    assert 'id="workspacePaneStack"' in main_workspace
+    assert 'data-workspace-pane="stack"' in main_workspace
+    assert 'id="workspacePaneMixer"' in main_workspace
+    assert 'data-workspace-pane="mixer"' in main_workspace
+    stack_pane_start = (
+        'id="workspacePaneStack"\n'
+        '            class="workspace-pane"\n'
+        '            role="tabpanel"'
+    )
+    assert stack_pane_start in main_workspace
+    assert 'data-workspace-pane="stack"\n            hidden' in main_workspace
+    assert 'data-workspace-pane="mixer"\n            hidden' in main_workspace
+    assert 'class="workspace-section voice-panel"' in response.text
     assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
     settings_panel = slice_between(
         main_workspace,
-        '<section class="panel settings-panel"',
-        '<section class="panel voice-panel"',
+        '<section class="workspace-section settings-panel"',
+        '</div>\n\n          <div\n            id="workspacePaneStack"',
     )
     voice_panel = slice_between(
         main_workspace,
-        '<section class="panel voice-panel"',
-        '<section class="panel mixer-panel"',
+        '<section class="workspace-section voice-panel"',
+        '</div>\n\n          <div\n            id="workspacePaneMixer"',
     )
     mixer_panel = slice_between(
         main_workspace,
-        '<section class="panel mixer-panel"',
-        "\n        </div>",
+        '<section class="workspace-section mixer-panel"',
+        "\n          </div>\n        </section>",
     )
     assert main_workspace.index("Voice Treatment") < main_workspace.index("Voice Stack")
     assert main_workspace.index("Voice Stack") < main_workspace.index("Loop Mixer")
@@ -566,14 +679,17 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="voiceStackControls"' in voice_panel
     assert 'id="voiceLayerControls"' in voice_panel
     assert 'id="voiceStackPanelTitle"' in voice_panel
+    assert 'id="storageModePanel"' not in voice_panel
     assert "Voice Stack" in voice_panel
     assert '<small lang="ko">목소리 스택</small>' in voice_panel
-    assert 'id="deviceStatus"' in response.text
-    assert 'id="inputDeviceName"' in response.text
-    assert 'id="outputDeviceName"' in response.text
-    assert 'id="inputDeviceSelect"' in response.text
-    assert 'id="outputDeviceSelect"' in response.text
-    assert 'id="deviceRestartNotice"' in response.text
+    assert 'id="deviceStatus"' not in response.text
+    assert 'id="inputDeviceName"' not in response.text
+    assert 'id="outputDeviceName"' not in response.text
+    assert 'id="deviceRestartNotice"' not in response.text
+    assert 'id="inputDeviceSelect"' in system_panel
+    assert 'id="outputDeviceSelect"' in system_panel
+    assert 'id="inputDeviceSelect"' not in record_panel
+    assert 'id="outputDeviceSelect"' not in record_panel
     assert 'id="recordOutcomeStatus"' in response.text
     assert 'id="recordOutcomeDetail"' in response.text
     assert 'class="record-limits"' in response.text
@@ -592,8 +708,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert '<small lang="ko">선명한 목소리</small>' in response.text
     assert 'class="right-stack-panel"' in response.text
     assert 'aria-label="시스템 진단"' in right_stack
-    assert 'id="systemInputDeviceName"' in system_panel
-    assert 'id="systemOutputDeviceName"' in system_panel
+    assert 'for="inputDeviceSelect"' in system_panel
+    assert 'for="outputDeviceSelect"' in system_panel
 
 
 def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> None:
@@ -605,7 +721,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     operation_panel = slice_between(
         response.text,
         '<section class="panel operation-panel" aria-label="운영 콘솔">',
-        '<div class="main-workspace-panel">',
+        '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
     )
     playback_panel = slice_between(
         operation_panel,
@@ -614,41 +730,45 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     )
     main_workspace = slice_between(
         response.text,
-        '<div class="main-workspace-panel">',
+        '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
         '<div class="right-stack-panel">',
     )
     settings_panel = slice_between(
         main_workspace,
-        '<section class="panel settings-panel"',
-        '<section class="panel voice-panel"',
+        '<section class="workspace-section settings-panel"',
+        '</div>\n\n          <div\n            id="workspacePaneStack"',
     )
     voice_panel = slice_between(
         main_workspace,
-        '<section class="panel voice-panel"',
-        '<section class="panel mixer-panel"',
+        '<section class="workspace-section voice-panel"',
+        '</div>\n\n          <div\n            id="workspacePaneMixer"',
     )
     maintenance_panel = slice_between(
         settings_panel,
         '<details class="maintenance-panel">',
         "</details>",
     )
-    assert "Apply and Restart" in playback_panel
-    assert "Apply and Restart" not in settings_panel
-    assert "Apply and Restart" not in voice_panel
-    assert "Reset Draft" not in playback_panel
-    assert "<summary>Maintenance" in maintenance_panel
+    assert "적용 후 재시작" in playback_panel
+    assert "Apply and Restart" not in playback_panel
+    assert "적용 후 재시작" not in settings_panel
+    assert "적용 후 재시작" not in voice_panel
+    assert "변경 취소" not in playback_panel
+    assert "<summary>관리</summary>" in maintenance_panel
+    assert "Maintenance" not in maintenance_panel
     assert 'id="resetButton"' in maintenance_panel
     assert 'id="resetParticipantsButton"' in maintenance_panel
-    assert "Reset Draft" in maintenance_panel
-    assert "Reset Participants" in maintenance_panel
+    assert "변경 취소" in maintenance_panel
+    assert "참여자 초기화" in maintenance_panel
 
 
 def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
+    page = client.get("/")
     styles = client.get("/static/styles.css")
     script = client.get("/static/app.js")
 
+    assert page.status_code == 200
     assert styles.status_code == 200
     assert "text/css" in styles.headers["content-type"]
     normalized_styles = " ".join(styles.text.split())
@@ -679,13 +799,24 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".operation-panel" in styles.text
     assert ".operation-card" in styles.text
     assert ".capture-gate" in styles.text
+    assert ".switch-control" in styles.text
+    assert ".capture-gate-switch" in styles.text
+    assert ".take-console" in styles.text
     assert ".playback-panel" in styles.text
     assert ".playback-actions" in styles.text
     assert ".playback-apply-strip" in styles.text
     assert ".main-workspace-panel" in styles.text
+    assert ".workspace-panel" in styles.text
+    assert ".workspace-tabs" in styles.text
+    assert ".workspace-tab" in styles.text
+    assert ".workspace-tab.active" in styles.text
+    assert ".settings-library" in styles.text
+    assert ".settings-library-controls" in styles.text
+    assert ".workspace-pane[hidden]" in styles.text
+    assert ".workspace-section" in styles.text
     assert ".right-stack-panel" in styles.text
     assert ".voice-panel" in styles.text
-    assert ".device-panel" in styles.text
+    assert ".device-panel" not in styles.text
     assert ".control-group" in styles.text
     assert ".eq-band-grid" in styles.text
     assert ".frequency-guide" in styles.text
@@ -694,6 +825,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".operation-panel,\n.main-workspace-panel,\n.right-stack-panel" in styles.text
     assert "align-content: start;" in styles.text
     assert ".settings-panel .control-row" in styles.text
+    assert '"voice voice"' in styles.text
+    assert '"input space"' in styles.text
+    assert ".input-safety-group" in styles.text
+    assert ".voice-band-group" in styles.text
+    assert ".space-tail-group" in styles.text
+    assert ".settings-panel #recordingControls .voice-band-group .control-group-body" in styles.text
     assert (
         "grid-template-columns: minmax(96px, 0.82fr) minmax(130px, 1fr) "
         "minmax(112px, auto);"
@@ -702,6 +839,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".precision-control" in styles.text
     assert ".value-input" in styles.text
     assert ".nudge-button" in styles.text
+    assert ".mini-button" in styles.text
+    assert ".filter-status" in styles.text
     assert ".range-marks" in styles.text
     assert ".layer-preset-row" in styles.text
     assert script.status_code == 200
@@ -711,10 +850,17 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.diagnostics = null" in script.text
     assert "new WebSocket" in script.text
     assert 'api("/api/diagnostics")' in script.text
-    assert "renderModeBadge(snapshot.settings.active.voice_stack.mode)" in script.text
+    assert "renderStorageModeControls()" in script.text
     assert '"live_ephemeral": "운영 모드"' in script.text
     assert '"test_library": "테스트 모드"' in script.text
     assert "renderLastEventBadge" in script.text
+    assert "eventTypeLabels" in script.text
+    assert "formatEventType" in script.text
+    assert '"system.startup_playback_unavailable": "시작 재생 준비 실패"' in script.text
+    assert '"recording.accepted": "녹음 추가"' in script.text
+    assert '"playback.started": "출력 시작"' in script.text
+    assert "`최근 ${formatEventType(lastEvent.event_type)}`" in script.text
+    assert 'label.textContent = formatEventType(event.event_type)' in script.text
     assert "최근 이벤트 없음" in script.text
     assert "최근 이벤트 불러오기 실패" in script.text
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
@@ -736,6 +882,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "출력 스트림이 실행 중입니다." in script.text
     assert "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다." in script.text
     assert "renderDeviceHealthBadge" in script.text
+    assert "deviceOptionLabel" in script.text
+    assert "host_api_name" in script.text
+    assert '`${channelCount}ch`' in script.text
     assert "장치 확인 중" in script.text
     assert "장치 정상" in script.text
     assert "장치 경고" in script.text
@@ -753,10 +902,38 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "renderSystemStatus" in script.text
-    assert "const systemDeviceName" in script.text
-    assert 'systemDeviceName( "selected_input_device", "입력 장치 없음", )' in normalized_script
-    assert 'systemDeviceName( "selected_output_device", "출력 장치 없음", )' in normalized_script
+    assert "renderSystemDeviceSelect" in script.text
+    assert 'renderSystemDeviceSelect( "inputDeviceSelect", devices.input_devices' in normalized_script
+    assert 'renderSystemDeviceSelect( "outputDeviceSelect", devices.output_devices' in normalized_script
     assert "sourceHealthList" in script.text
+    assert 'date.toLocaleString("ko-KR"' in script.text
+    assert "sourceLibraryList" in page.text
+    assert "Source Library" in page.text
+    assert "파일 라이브러리" in page.text
+    assert ".source-library-panel" in styles.text
+    assert ".source-category-card" in styles.text
+    assert ".source-file-row" in styles.text
+    assert ".source-upload-row" in styles.text
+    assert ".source-drop-zone" in styles.text
+    assert ".source-upload-select" in styles.text
+    assert "is-dragging" in styles.text
+    assert "state.sources = null" in script.text
+    assert 'api("/api/sources")' in script.text
+    assert "requestSources" in script.text
+    assert "renderSourceLibrary" in script.text
+    assert "selectSourceFile" in script.text
+    assert "uploadSourceFile" in script.text
+    assert "selectedSourceUploadMode" in script.text
+    assert "handleSourceFileDrop" in script.text
+    assert "deleteSourceFile" in script.text
+    assert "data-source-select" in script.text
+    assert "data-source-delete" in script.text
+    assert "data-source-upload" in script.text
+    assert "data-source-upload-select" in script.text
+    assert "data-source-drop" in script.text
+    assert "업로드 후 바로 선택" in script.text
+    assert "파일 선택 또는 드롭" in script.text
+    assert "현재 선택된 파일은 삭제할 수 없습니다" in script.text
     assert "eventLogSummary" in script.text
     assert "syncDraft: false" in script.text
     assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
@@ -784,6 +961,45 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderRecordingControls()" in script.text
     assert "renderVoiceStackControls()" in script.text
     assert "const renderVoiceStackControls = () => {" in script.text
+    assert "storageModeDetails" in script.text
+    assert "renderStorageModeControls" in script.text
+    assert "setStorageMode" in script.text
+    assert "파일 안 남김" in script.text
+    assert "파일 저장" in script.text
+    assert "개별 녹음 파일을 남기지 않습니다." not in script.text
+    assert "accepted clip을 파일로 저장합니다." not in script.text
+    assert "재시작 시 적용" in script.text
+    assert ".storage-mode-panel" in styles.text
+    assert ".storage-mode-options" in styles.text
+    assert ".storage-mode-button" in styles.text
+    assert ".storage-mode-button.active" in styles.text
+    assert ".storage-mode-badge" not in styles.text
+    assert ".storage-mode-panel.pending" in styles.text
+    assert ".storage-mode-panel.library" in styles.text
+    assert ".record-panel .storage-mode-panel" in styles.text
+    assert "const translateUiErrorMessage = (message)" in script.text
+    assert "translateUiErrorMessage(error.message)" in script.text
+    assert "translateUiErrorMessage(messages.join" not in script.text
+    assert 'const workspaceTabNames = ["treatment", "stack", "mixer"]' in script.text
+    assert "const workspaceTabFromUrl = () => {" in script.text
+    assert "workspaceTab: workspaceTabFromUrl()" in script.text
+    assert "const workspaceTabs = () =>" in script.text
+    assert "const renderWorkspaceTabs = () => {" in script.text
+    assert "const updateWorkspaceUrl = () => {" in script.text
+    assert "const setWorkspaceTab = (tabName, options = {}) => {" in script.text
+    assert 'url.searchParams.set("workspace", state.workspaceTab)' in script.text
+    assert "window.history.replaceState" in script.text
+    assert 'window.addEventListener("popstate"' in script.text
+    assert '"ArrowRight"' in script.text
+    assert '"ArrowLeft"' in script.text
+    assert 'button.tabIndex = active ? 0 : -1' in script.text
+    assert 'pane.hidden = pane.dataset.workspacePane !== state.workspaceTab' in script.text
+    assert 'document.querySelectorAll("[data-workspace-pane]")' in script.text
+    assert "renderWorkspaceTabs();" in script.text
+    assert 'window.confirm("저장하지 않은 설정 변경을 취소할까요?")' in script.text
+    assert 'window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")' in (
+        script.text
+    )
     assert '"voiceStackControls"' in script.text
     assert "voiceStackControlDefs" in script.text
     assert 'label: { ko: "목소리 루프 길이", en: "Voice Loop" }' in script.text
@@ -818,13 +1034,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".record-limits" in styles.text
     assert "renderRecordReadiness" in script.text
     assert "스페이스바를 눌러 녹음" in script.text
-    assert "먼저 녹음을 준비한 뒤 스페이스바를 누르세요." in script.text
+    assert "녹음 준비 필요" in script.text
+    assert "녹음 준비를 켠 뒤 스페이스바를 누르세요." in script.text
     assert ".record-outcome.armed-ready" in styles.text
     assert "overflow-wrap: anywhere" in styles.text
     assert "녹음 추가됨" in script.text
     assert "너무 짧음" in script.text
     assert "빈 녹음" in script.text
-    assert "녹음 준비 해제됨" in script.text
+    assert "녹음 준비 꺼짐" in script.text
     assert "녹음 실패" in script.text
     assert (
         "const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy"
@@ -839,42 +1056,93 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "snapshot.is_recording)"
         in script.text
     )
-    assert (
-        '"armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false")'
-        in script.text
-    )
-    assert (
-        '"disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true")'
-        in script.text
-    )
     assert ".record-core.armed" in styles.text
     assert ".record-core.recording" in styles.text
-    assert ".capture-mode-actions" in styles.text
-    assert "layerPendingBadge" in script.text
-    assert "updateLayerPendingBadge" in script.text
+    assert 'captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false")' in (
+        script.text
+    )
+    assert 'captureGateSwitch").classList.toggle("checked", captureGateOn)' in script.text
+    assert ".switch-control.checked" in styles.text
+    assert "layerPendingBadge" not in script.text
+    assert "updateLayerPendingBadge" not in script.text
+    assert "layerDraftChangeSummary" not in script.text
+    assert "Draft changes:" not in script.text
+    assert "재시작 시 적용" in script.text
+    assert "켜짐" in script.text
+    assert "꺼짐" in script.text
+    assert "다음 적용:" not in script.text
     assert "renderLayerCard" in script.text
     assert "layerPresetDefs" in script.text
     assert "applyLayerPreset" in script.text
     assert "Warm Bed" in script.text
     assert "Clear Pocket" in script.text
     assert "Distant Air" in script.text
-    assert "renderLayerGroup(\"layerControls\", [\"low\", \"mid\"])" in script.text
+    assert "renderLayerGroup(\"layerControls\", [\"mid\", \"low\"])" in script.text
     assert "renderLayerGroup(\"voiceLayerControls\", [\"voice\"])" in script.text
     assert "voiceLayerControls" in script.text
     assert "layerControlGroups" in script.text
+    assert 'action: "reset-filter"' in script.text
+    assert "filterStatus" in script.text
+    assert "filter-reset-button" in script.text
+    assert "resetLayerFilter" in script.text
+    assert 'title: "Filter Range"' in script.text
+    assert "필터가 통과시킬 대역을 정합니다." in script.text
+    assert 'label: "Low Cut"' in script.text
+    assert 'label: "High Cut"' in script.text
+    assert "below cut" in script.text
+    assert "above cut" in script.text
+    assert "이 값보다 낮은 소리를 줄입니다." in script.text
+    assert "이 값보다 높은 소리를 줄입니다." in script.text
+    assert "아직 적용 안 됨" in script.text
+    assert "필터 없음" in script.text
+    assert "필터 적용됨" in script.text
+    assert "전체 대역:" in script.text
+    assert "통과 대역:" in script.text
+    assert "변경 대역:" in script.text
+    assert "필터 초기화" in script.text
+    assert "No filter applied" not in script.text
+    assert "Filter applied" not in script.text
+    assert "Not applied yet" not in script.text
+    assert "Full range:" not in script.text
+    assert "Pass range:" not in script.text
+    assert "Draft range:" not in script.text
+    assert "Reset filter" not in script.text
+    assert "수정 대역:" not in script.text
+    group_actions_body = slice_between(
+        script.text,
+        "const groupActionsMarkup = (group, draftSource, activeSource = null) => {",
+        "};\n\nconst controlGroup",
+    )
+    assert "필터 상태" in group_actions_body
+    assert "필터 초기화" in group_actions_body
+    assert "Bypassed" not in script.text
+    assert "Active Filter" not in script.text
+    assert "Clear <small" not in script.text
     assert "recordingControlGroups" in script.text
+    assert "collapsible: true" in script.text
     assert "frequencyGuideMarkup" in script.text
     assert "20-250 Hz" in script.text
     assert "250 Hz-2 kHz" in script.text
     assert "2 kHz+" in script.text
-    assert "Pending Draft" in script.text
-    assert "Active" in script.text
     assert "renderDraftValue" in script.text
     assert "precisionControlMarkup" in script.text
     assert "snappedValue" in script.text
     assert "active-value" in styles.text
-    assert "Draft " in script.text
-    assert "Active " in script.text
+    render_draft_value_body = slice_between(
+        script.text,
+        "const renderDraftValue = (draftValue, activeValue, suffix) => {",
+        "};\n\nconst decimalPlaces",
+    )
+    assert "변경값" in render_draft_value_body
+    assert "수정값" not in render_draft_value_body
+    assert "현재값" in render_draft_value_body
+    assert "현재 적용" in render_draft_value_body
+    assert "Pending" not in render_draft_value_body
+    assert "Applied " not in render_draft_value_body
+    assert "초안 " not in render_draft_value_body
+    assert "적용값 " not in render_draft_value_body
+    assert "Draft " not in render_draft_value_body
+    assert "Active " not in render_draft_value_body
     assert "저장 안 된 오디오 변경" in script.text
     assert "저장 안 된 변경 없음" in script.text
     assert "Pending changes" not in script.text
@@ -883,17 +1151,19 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     render_state_body = slice_between(
         script.text,
         "const renderState = () => {",
-        "};\n\nconst renderModeBadge",
+        "};\n\nconst renderLastEventBadge",
     )
     assert "const recordingStopBusy = state.recordingStopInFlight" in render_state_body
     assert (
-        '"armButton").disabled = recordingStopBusy || snapshot.armed || '
-        "snapshot.is_recording"
+        '"captureGateSwitch").disabled = recordingStopBusy || snapshot.is_recording'
         in render_state_body
     )
     assert (
-        '"disarmButton").disabled =\n    recordingStopBusy || '
-        "(!snapshot.armed && !snapshot.is_recording)"
+        '"captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false")'
+        in render_state_body
+    )
+    assert (
+        '"captureGateState").textContent = snapshot.is_recording'
         in render_state_body
     )
     assert (
@@ -912,14 +1182,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "snapshot.is_recording || runtimeConfigChanges"
         in render_state_body
     )
-    assert 'setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" })' in (
-        script.text
+    bilingual_apply_label = (
+        'setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" })'
     )
-    assert "적용 중..." in script.text
+    assert bilingual_apply_label not in script.text
+    assert "적용 중…" in script.text
     assert "녹음 처리가 끝날 때까지 기다리세요." in script.text
     assert "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다." in script.text
     assert '"resetButton").disabled = state.applyInFlight || snapshot.is_recording' in script.text
-    assert "초안 설정을 초기화하기 전에 녹음을 중지하세요." in script.text
+    assert "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요." in script.text
     assert (
         '"resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording'
         in script.text
@@ -931,13 +1202,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert "snapshot.settings.active.audio.channels !== state.draft.audio.channels" in script.text
-    assert (
-        "snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id"
-        in script.text
+    assert "active.devices.input_device_id !== state.draft.devices.input_device_id" not in (
+        script.text
     )
-    assert (
-        "snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id"
-        in script.text
+    assert "active.devices.output_device_id !== state.draft.devices.output_device_id" not in (
+        script.text
     )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     apply_body = slice_between(
@@ -950,14 +1219,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.applyInFlight = false" in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
-    assert "showError(applyError.message)" in apply_body
+    assert "showError(translateUiErrorMessage(applyError.message))" in apply_body
     assert '"/api/settings/apply"' in apply_body
     assert '"/api/settings/apply-and-restart"' not in apply_body
     assert "const resetDraft = async () => {" in script.text
     reset_draft_body = slice_between(
         script.text,
         "const resetDraft = async () => {",
-        "};\n\nconst changeDraftDevice",
+        "};\n\nconst resetParticipants",
     )
     assert '"/api/settings/reset-draft"' in reset_draft_body
     assert '"/api/settings/reset"' not in reset_draft_body
@@ -967,11 +1236,20 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     reset_participants_body = slice_between(
         script.text,
         "const resetParticipants = async () => {",
-        "};\n\nconst changeDraftDevice",
+        "};\n\nconst changeDevice",
     )
     assert "applyState(payload.state, { syncDraft: false })" in reset_participants_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
-    assert "showError(error.message)" in script.text
+    assert "showError(translateUiErrorMessage(error.message))" in script.text
+    assert "const changeDevice = async (key, value) => {" in script.text
+    change_device_body = slice_between(
+        script.text,
+        "const changeDevice = async (key, value) => {",
+        "};\n\nconst shouldIgnoreSpace",
+    )
+    assert '"/api/devices"' in change_device_body
+    assert "await requestDevices()" in change_device_body
+    assert "await requestState({ syncDraft: false }).catch(() => {})" in change_device_body
     control_body = slice_between(
         script.text,
         "const control = async (path, options = {}) => {",
@@ -989,27 +1267,33 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "state.recordingStopInFlight = true;\n    renderState();" in control_body
     assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
-    assert "if (controlError) showError(controlError.message);" in control_body
+    assert "if (controlError) showError(translateUiErrorMessage(controlError.message));" in (
+        control_body
+    )
     assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
         "setRecordStatus(\"processing\", \"녹음 처리 중...\")",
     )
     final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
     final_render = control_body.index("renderState();", final_recording_stop_reset)
-    final_error = control_body.index("if (controlError) showError(controlError.message);")
+    final_error = control_body.index(
+        "if (controlError) showError(translateUiErrorMessage(controlError.message));"
+    )
     assert final_recording_stop_reset < final_render < final_error
     recording_error_branch = slice_between(
         control_body,
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
         "}\n    if (path.startsWith(\"/api/playback/\"))",
     )
-    assert 'setRecordStatus("failed", "녹음 실패", error.message)' in recording_error_branch
+    assert 'setRecordStatus("failed", "녹음 실패", translateUiErrorMessage(error.message))' in (
+        recording_error_branch
+    )
     assert "await requestState({ syncDraft: false }).catch(() => {})" in recording_error_branch
     assert "await requestDiagnostics().catch(() => {})" in recording_error_branch
     recording_branch_start = control_body.index(
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
     )
     recording_failed_status = control_body.index(
-        'setRecordStatus("failed", "녹음 실패", error.message)',
+        'setRecordStatus("failed", "녹음 실패", translateUiErrorMessage(error.message))',
         recording_branch_start,
     )
     recording_state_refresh = control_body.index(
@@ -1020,7 +1304,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "await requestDiagnostics().catch(() => {})",
         recording_branch_start,
     )
-    show_error = control_body.index("showError(controlError.message)")
+    show_error = control_body.index("showError(translateUiErrorMessage(controlError.message))")
     assert recording_branch_start < recording_failed_status < recording_state_refresh
     assert recording_state_refresh < recording_diagnostics_refresh
     assert recording_diagnostics_refresh < show_error
@@ -1037,6 +1321,136 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "if (event.repeat) return;" in start_from_space_body
 
 
+def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
+    tmp_path: Path,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        (
+            "\nglobalThis.__secretPondTest = "
+            "{ controlGroup, layerControlGroups, setPath, clone };\n"
+        ),
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+let lastActionsMarkup = "";
+
+const makeElement = () => {{
+  const element = {{
+    children: [],
+    innerHTML: "",
+    value: "",
+    textContent: "",
+    className: "",
+    parentElement: null,
+    attributes: {{}},
+    listeners: {{}},
+    _queryElements: {{}},
+    style: {{ setProperty() {{}} }},
+    classList: {{
+      toggle() {{}},
+      contains() {{ return false; }},
+    }},
+    setAttribute(name, value) {{
+      this.attributes[name] = value;
+    }},
+    appendChild(child) {{
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    }},
+    addEventListener(eventName, handler) {{
+      this.listeners[eventName] = handler;
+    }},
+    dispatchEvent(event) {{
+      this.listeners[event.type]?.(event);
+    }},
+    querySelector(selector) {{
+      if (!this._queryElements[selector]) {{
+        this._queryElements[selector] = makeElement();
+      }}
+      return this._queryElements[selector];
+    }},
+    replaceWith(nextElement) {{
+      lastActionsMarkup = nextElement.innerHTML;
+    }},
+  }};
+  return element;
+}};
+
+const makeTemplate = () => {{
+  const template = {{ content: {{ firstElementChild: null }} }};
+  Object.defineProperty(template, "innerHTML", {{
+    set(value) {{
+      const element = makeElement();
+      element.innerHTML = value;
+      template.content.firstElementChild = element;
+    }},
+  }});
+  return template;
+}};
+
+globalThis.document = {{
+  getElementById() {{ return makeElement(); }},
+  querySelector() {{ return makeElement(); }},
+  querySelectorAll() {{ return []; }},
+  createElement(tagName) {{
+    return tagName === "template" ? makeTemplate() : makeElement();
+  }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {{}};
+globalThis.setInterval = () => 0;
+
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const activeLayer = {{
+  eq: {{ highpass_hz: 20, lowpass_hz: 20000 }},
+}};
+const current = {{
+  draft: {{ eq: {{ highpass_hz: 20, lowpass_hz: 20000 }} }},
+}};
+const filterGroup = globalThis.__secretPondTest.layerControlGroups.find(
+  (group) => group.action === "reset-filter",
+);
+const section = globalThis.__secretPondTest.controlGroup(
+  filterGroup,
+  current.draft,
+  activeLayer,
+  (control, value) => {{
+    globalThis.__secretPondTest.setPath(current.draft, control.path, value);
+  }},
+);
+const body = section.querySelector(".control-group-body");
+const lowCutRow = body.children[0];
+const lowCutInput = lowCutRow.querySelector("input");
+
+lowCutInput.value = "80";
+lowCutInput.dispatchEvent({{ type: "input" }});
+assert.match(lastActionsMarkup, /filter-status pending/);
+
+current.draft = globalThis.__secretPondTest.clone(current.draft);
+lowCutInput.value = "20";
+lowCutInput.dispatchEvent({{ type: "input" }});
+assert.doesNotMatch(lastActionsMarkup, /filter-status pending/);
+assert.match(lastActionsMarkup, /filter-status bypassed/);
+assert.match(lastActionsMarkup, /필터 없음/);
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -1044,13 +1458,14 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
 
     client = create_test_client(tmp_path)
     script = client.get("/static/app.js").text.replace(
-        "\nbindEvents();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
         (
             "\nglobalThis.__secretPondTest = "
-            "{ state, renderState, renderSyncBadge, "
-            "renderRecordingControls, renderVoiceStackControls, "
-            "connectStateSocket, showError, renderErrors, control, startFromSpace, "
-            "stopFromSpace, stopIfRecording };\n"
+            "{ state, applyState, renderState, renderSyncBadge, "
+            "renderRecordingControls, renderVoiceStackControls, renderWorkspaceTabs, "
+            "setWorkspaceTab, setStorageMode, translateUiErrorMessage, renderEventLogSummary, "
+            "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
+            "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording };\n"
         ),
     )
     harness = f"""
@@ -1149,11 +1564,42 @@ elements.recordOutcomeDetail = makeTrackedElement();
 elements.recordOutcomeDetail.textContent = "먼저 녹음을 준비한 뒤 스페이스바를 누르세요.";
 elements.recordOutcomeDetail.parentElement = recordOutcome;
 
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage("action failed"),
+  "작업 중 오류가 발생했습니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
+    "audio devices unavailable: host audio unavailable",
+  ),
+  "오디오 장치를 사용할 수 없습니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage("Request failed: 503"),
+  "요청을 처리하지 못했습니다. HTTP 503 상태입니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
+    "low source file does not exist: /Users/nohsungbeen/dev/project/" +
+      "The Secret Pond/data/sources/low.wav",
+  ),
+  "선택된 소스 파일을 찾지 못했습니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage("이미 한글 오류입니다."),
+  "이미 한글 오류입니다.",
+);
+
 globalThis.__secretPondTest.showError("action failed");
 assert.strictEqual(elements.errorBanner.hidden, false);
-assert.strictEqual(elements.errorBanner.textContent, "action failed");
+assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
+
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
 globalThis.__secretPondTest.showError("");
 assert.strictEqual(elements.errorBanner.hidden, true);
@@ -1164,7 +1610,7 @@ assert.strictEqual(elements.errorBadge.className, "status-pill muted");
 globalThis.__secretPondTest.state.snapshot = null;
 globalThis.__secretPondTest.state.deviceError = "devices failed";
 globalThis.__secretPondTest.renderErrors();
-assert.strictEqual(elements.errorBanner.textContent, "devices failed");
+assert.strictEqual(elements.errorBanner.textContent, "오디오 장치 정보를 불러오지 못했습니다.");
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
 globalThis.__secretPondTest.state.deviceError = null;
@@ -1240,6 +1686,26 @@ assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, false);
 assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 assert.strictEqual(scheduledReconnect.delay, 1500);
 
+globalThis.__secretPondTest.renderEventLogSummary([], "stream start failed");
+assert.strictEqual(elements.eventLogSummary.children.length, 1);
+assert.strictEqual(
+  elements.eventLogSummary.children[0].textContent,
+  "오디오 출력 처리 중 오류가 발생했습니다.",
+);
+elements.eventLogSummary.children = [];
+globalThis.__secretPondTest.renderEventLogSummary([
+  {{ timestamp: "2026-06-05T01:31:00Z", event_type: "system.startup_playback_unavailable" }},
+  {{ timestamp: "2026-06-05T01:32:00Z", event_type: "recording.accepted" }},
+  {{ timestamp: "2026-06-05T01:33:00Z", event_type: "unknown.internal_event" }},
+]);
+assert.strictEqual(elements.eventLogSummary.children.length, 3);
+assert.strictEqual(
+  elements.eventLogSummary.children[0].children[1].textContent,
+  "시작 재생 준비 실패",
+);
+assert.strictEqual(elements.eventLogSummary.children[1].children[1].textContent, "녹음 추가");
+assert.strictEqual(elements.eventLogSummary.children[2].children[1].textContent, "시스템 이벤트");
+
 const layerSettings = (volumeDb) => ({{
   enabled: true,
   volume_db: volumeDb,
@@ -1296,29 +1762,114 @@ globalThis.__secretPondTest.state.diagnosticsError = "diagnostics failed";
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(
   elements.errorBanner.textContent,
-  "stack failed · stream failed · diagnostics failed",
+  "시스템 진단 정보를 불러오지 못했습니다.",
 );
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
-globalThis.__secretPondTest.state.snapshot.last_error = null;
-globalThis.__secretPondTest.state.snapshot.playback.output_latest_error = null;
 globalThis.__secretPondTest.state.diagnosticsError = null;
 globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.armButton.disabled, true);
+assert.strictEqual(elements.captureGateSwitch.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, false);
-assert.strictEqual(elements.disarmButton.disabled, false);
 assert.strictEqual(elements.recordCoreStatus.textContent, "녹음 중");
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 중");
 assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지합니다.");
 assert.strictEqual(recordCore.classList.contains("recording"), true);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
-assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
-assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
+assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
+assert.strictEqual(elements.captureGateState.textContent, "녹음 중");
 
 const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.is_recording = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(
+  elements.storageModeSummary.textContent,
+  "운영 모드 · 파일 안 남김",
+);
+assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel safe");
+assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "false");
+
+globalThis.__secretPondTest.state.devices = {{
+  selected_input_device: {{ id: "mic-1", name: "Built-in Mic" }},
+  selected_output_device: {{ id: "speaker-1", name: "Built-in Output" }},
+  input_devices: [{{ id: "mic-1", name: "Built-in Mic", default_sample_rate: 48000 }}],
+  output_devices: [{{ id: "speaker-1", name: "Built-in Output", default_sample_rate: 48000 }}],
+  warnings: [],
+}};
+globalThis.__secretPondTest.state.sources = {{
+  categories: [
+    {{
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      active_exists: true,
+      legacy_exists: true,
+      selected_path: "sources/low/current.wav",
+      files: [
+        {{
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+        }},
+      ],
+    }},
+  ],
+}};
+document.getElementById("inputDeviceSelect");
+document.getElementById("sourceLibraryList");
+elements.inputDeviceSelect.innerHTML = "open device dropdown";
+elements.sourceLibraryList.innerHTML = "open source dropdown";
+globalThis.__secretPondTest.applyState(snapshot, {{ syncDraft: false }});
+assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
+assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
+globalThis.document.activeElement = elements.inputDeviceSelect;
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
+globalThis.document.activeElement = null;
+elements.inputDeviceSelect.listeners.blur();
+assert.strictEqual(elements.inputDeviceSelect.innerHTML, "");
+
+const focusedSourceSelect = makeTrackedElement();
+focusedSourceSelect.tagName = "SELECT";
+elements.sourceLibraryList.innerHTML = "open source dropdown";
+elements.sourceLibraryList.contains = (element) => element === focusedSourceSelect;
+globalThis.document.activeElement = focusedSourceSelect;
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
+globalThis.document.activeElement = null;
+focusedSourceSelect.listeners.blur();
+assert.notStrictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
+globalThis.document.activeElement = null;
+
+globalThis.__secretPondTest.setStorageMode("test_library");
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+assert.strictEqual(
+  elements.storageModeSummary.textContent,
+  "운영 모드 · 재시작 시 적용: 테스트 저장",
+);
+assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel pending");
+assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "true");
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.active.voice_stack.mode = "test_library";
+globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.mode = "test_library";
+globalThis.__secretPondTest.state.draft.voice_stack.mode = "test_library";
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(
+  elements.storageModeSummary.textContent,
+  "테스트 모드 · 파일 저장",
+);
+assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel library");
 globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
@@ -1365,7 +1916,7 @@ globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordCoreStatus.textContent, "준비됨");
+assert.strictEqual(elements.recordCoreStatus.textContent, "준비 완료");
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "스페이스바를 눌러 녹음");
 assert.strictEqual(
   elements.recordOutcomeDetail.textContent,
@@ -1374,16 +1925,17 @@ assert.strictEqual(
 assert.strictEqual(recordOutcome.className, "record-outcome armed-ready");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(recordCore.classList.contains("armed"), true);
-assert.strictEqual(elements.armButton.disabled, true);
-assert.strictEqual(elements.disarmButton.disabled, false);
+assert.strictEqual(elements.captureGateSwitch.disabled, false);
+assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
+assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
+assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 켜짐");
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 assert.strictEqual(elements.startOutputButton.disabled, false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.armButton.disabled, true);
-assert.strictEqual(elements.disarmButton.disabled, true);
+assert.strictEqual(elements.captureGateSwitch.disabled, true);
 assert.strictEqual(elements.startButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, true);
@@ -1407,18 +1959,18 @@ globalThis.__secretPondTest.state.applyInFlight = false;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordCoreStatus.textContent, "안전");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "준비");
+assert.strictEqual(elements.recordCoreStatus.textContent, "준비 전");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 준비 필요");
 assert.strictEqual(
   elements.recordOutcomeDetail.textContent,
-  "먼저 녹음을 준비한 뒤 스페이스바를 누르세요.",
+  "녹음 준비를 켠 뒤 스페이스바를 누르세요.",
 );
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
-assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
-assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "true");
-assert.strictEqual(elements.armButton.disabled, false);
-assert.strictEqual(elements.disarmButton.disabled, true);
+assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "false");
+assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), false);
+assert.strictEqual(elements.captureGateSwitch.disabled, false);
+assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 꺼짐");
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 
@@ -1753,6 +2305,31 @@ def test_api_diagnostics_reports_source_health_and_recent_events(tmp_path: Path)
     assert payload["events"]["recent"][1]["event_type"] == "recording.accepted"
 
 
+def test_api_diagnostics_reports_selected_library_sources(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.low_sources_dir / "library-low.wav",
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/library-low.wav",
+            )
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    sources = {source["id"]: source for source in response.json()["sources"]}
+    assert sources["low"]["exists"] is True
+    assert sources["low"]["path"] == "data/sources/low/library-low.wav"
+
+
 def test_api_diagnostics_marks_missing_prepared_sources(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -1765,6 +2342,171 @@ def test_api_diagnostics_marks_missing_prepared_sources(tmp_path: Path) -> None:
     assert sources["low"]["modified_at"] is None
     assert sources["mid"]["exists"] is False
     assert sources["voice"]["exists"] is True
+
+
+def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.low_sources_dir / "library-low.wav",
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/library-low.wav",
+            )
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.get("/api/sources")
+
+    assert response.status_code == 200
+    categories = {category["id"]: category for category in response.json()["categories"]}
+    assert set(categories) == {"low", "mid", "voice_raw", "voice_stack"}
+    assert categories["low"]["selected_path"] == "data/sources/low/library-low.wav"
+    assert categories["low"]["active_exists"] is True
+    assert categories["low"]["files"][0]["path"] == "data/sources/low/library-low.wav"
+    assert categories["low"]["files"][0]["active"] is True
+
+
+def test_api_sources_select_persists_draft_selection(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.mid_sources_dir / "library-mid.wav",
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    client = create_test_client(tmp_path)
+
+    response = client.put(
+        "/api/sources/mid/select",
+        json={"path": "data/sources/mid/library-mid.wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["draft"]["sources"]["mid_path"] == (
+        "data/sources/mid/library-mid.wav"
+    )
+    assert SettingsStore(paths).load().draft.sources.mid_path == (
+        "data/sources/mid/library-mid.wav"
+    )
+
+
+def test_api_sources_upload_writes_wav_to_category_directory(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    source = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000)
+    source_path = tmp_path / "upload-source.wav"
+    write_wav_atomic(source_path, source)
+
+    response = client.post(
+        "/api/sources/low/files",
+        params={"filename": "uploaded-low.wav"},
+        content=source_path.read_bytes(),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["file"]["path"] == "data/sources/low/uploaded-low.wav"
+    assert (paths.low_sources_dir / "uploaded-low.wav").exists()
+
+
+def test_api_sources_upload_can_persist_uploaded_file_as_draft_selection(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    source = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000)
+    source_path = tmp_path / "upload-source.wav"
+    write_wav_atomic(source_path, source)
+
+    response = client.post(
+        "/api/sources/low/files",
+        params={"filename": "uploaded-low.wav", "select": "true"},
+        content=source_path.read_bytes(),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["settings"]["draft"]["sources"]["low_path"] == (
+        "data/sources/low/uploaded-low.wav"
+    )
+    assert response.json()["sources"]["categories"][0]["selected_path"] == (
+        "data/sources/low/uploaded-low.wav"
+    )
+    assert SettingsStore(paths).load().draft.sources.low_path == (
+        "data/sources/low/uploaded-low.wav"
+    )
+
+
+def test_api_sources_delete_rejects_active_file(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    active_path = paths.low_sources_dir / "active-low.wav"
+    write_wav_atomic(
+        active_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/active-low.wav",
+            )
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.delete(
+        "/api/sources/low/files",
+        params={"path": "data/sources/low/active-low.wav"},
+    )
+
+    assert response.status_code == 409
+    assert active_path.exists()
+
+
+def test_api_sources_delete_removes_inactive_file(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    inactive_path = paths.low_sources_dir / "inactive-low.wav"
+    write_wav_atomic(
+        inactive_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    client = create_test_client(tmp_path)
+
+    response = client.delete(
+        "/api/sources/low/files",
+        params={"path": "data/sources/low/inactive-low.wav"},
+    )
+
+    assert response.status_code == 200
+    assert inactive_path.exists() is False
+
+
+def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path, with_sources=True)
+    paths.ensure_directories()
+    selected_low = np.ones((8_000, 2), dtype=np.float32) * 0.4
+    write_wav_atomic(
+        paths.low_sources_dir / "selected-low.wav",
+        AudioBuffer(samples=selected_low, sample_rate=8_000),
+    )
+
+    select_response = client.put(
+        "/api/sources/low/select",
+        json={"path": "data/sources/low/selected-low.wav"},
+    )
+    apply_response = client.post("/api/settings/apply-and-restart")
+
+    assert select_response.status_code == 200
+    assert apply_response.status_code == 200
+    assert apply_response.json()["settings"]["active"]["sources"]["low_path"] == (
+        "data/sources/low/selected-low.wav"
+    )
+    rendered = read_wav(paths.low_playback)
+    assert float(np.max(np.abs(rendered.samples))) > 0.05
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
@@ -1842,6 +2584,8 @@ def test_api_devices_returns_device_lists_and_selected_devices(tmp_path: Path) -
     assert [device["id"] for device in payload["output_devices"]] == ["speaker-1", "speaker-2"]
     assert payload["selected_input_device"]["id"] == "mic-2"
     assert payload["selected_output_device"]["id"] == "speaker-2"
+    assert payload["selected_input_device"]["host_api_name"] == "Core Audio"
+    assert payload["selected_output_device"]["host_api_name"] == "WASAPI"
     assert payload["warnings"] == []
 
 
@@ -1852,6 +2596,74 @@ def test_api_devices_maps_device_registry_failure_to_503(tmp_path: Path) -> None
 
     assert response.status_code == 503
     assert "device stack unavailable" in response.json()["detail"]
+
+
+def test_api_devices_update_applies_devices_immediately(tmp_path: Path) -> None:
+    recorder = DeviceAwareFakeRecorder(recorder_take())
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        recorder=recorder,
+        output=output,
+        device_registry=fake_device_registry(),
+    )
+
+    response = client.put(
+        "/api/devices",
+        json={"input_device_id": "mic-2", "output_device_id": "speaker-2"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    settings = payload["state"]["settings"]
+    assert settings["active"]["devices"]["input_device_id"] == "mic-2"
+    assert settings["active"]["devices"]["output_device_id"] == "speaker-2"
+    assert settings["draft"]["devices"]["input_device_id"] == "mic-2"
+    assert settings["draft"]["devices"]["output_device_id"] == "speaker-2"
+    assert payload["devices"]["selected_input_device"]["id"] == "mic-2"
+    assert payload["devices"]["selected_output_device"]["id"] == "speaker-2"
+    assert recorder.device_id == "mic-2"
+    assert output.device_id == "speaker-2"
+    runtime = client.app.state.runtime
+    assert runtime.controller.settings.devices.input_device_id == "mic-2"
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.devices.input_device_id == "mic-2"
+    assert stored.draft.devices.output_device_id == "speaker-2"
+
+
+def test_api_devices_update_restarts_running_output_on_output_device_change(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        output=output,
+        device_registry=fake_device_registry(),
+    )
+    start_response = client.post("/api/playback/start")
+
+    response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
+
+    assert start_response.status_code == 200
+    assert response.status_code == 200
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    assert output.is_running is True
+    assert output.device_id == "speaker-2"
+    assert response.json()["state"]["playback"]["output_running"] is True
+
+
+def test_api_devices_update_blocks_input_change_while_recording(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, device_registry=fake_device_registry())
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    response = client.put("/api/devices", json={"input_device_id": "mic-2"})
+
+    assert response.status_code == 409
+    assert "recording" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["devices"]["input_device_id"] is None
 
 
 def test_api_start_recording_rejects_disarmed_input(tmp_path: Path) -> None:
@@ -1882,6 +2694,54 @@ def test_api_arm_start_and_stop_recording(tmp_path: Path) -> None:
     assert "stack_result" not in payload["outcome"]
     assert payload["state"]["participant_count"] == 1
     assert payload["state"]["is_recording"] is False
+
+
+def test_api_recording_stop_maps_voice_render_failures_to_conflict(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    runtime = client.app.state.runtime
+    runtime.controller._renderer = FailingLayerRenderer(  # noqa: SLF001
+        runtime.renderer,
+        FileNotFoundError("voice missing"),
+    )
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+
+    assert response.status_code == 409
+    assert "voice missing" in response.json()["detail"]
+    state = client.get("/api/state").json()
+    assert state["is_recording"] is False
+    assert state["last_error"] == "voice missing"
+
+
+def test_api_recording_acceptance_refreshes_running_voice_playback_layer(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=api_settings_with_voice_only_layers(),
+    )
+    runtime = client.app.state.runtime
+    client.post("/api/settings/apply-and-restart")
+    start_response = client.post("/api/playback/start")
+    before = runtime.player.next_block(8_000)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    stop_response = client.post("/api/recording/stop")
+    after = runtime.player.next_block(8_000)
+
+    assert start_response.status_code == 200
+    assert start_response.json()["state"]["playback"]["output_running"] is True
+    assert float(np.max(np.abs(before.samples))) == pytest.approx(0.0)
+    assert stop_response.status_code == 200
+    assert stop_response.json()["outcome"]["accepted"] is True
+    assert stop_response.json()["state"]["playback"]["output_running"] is True
+    assert float(np.max(np.abs(after.samples))) > 0.00001
 
 
 def test_api_auto_stop_poll_returns_null_outcome_when_idle(tmp_path: Path) -> None:
@@ -2154,6 +3014,36 @@ def test_api_settings_apply_and_restart_prepares_voice_stack_loop_length(
     raw = read_wav(ProjectPaths(tmp_path).voice_stack_raw)
     assert raw.sample_rate == 8_000
     assert raw.frames == 16_000
+
+
+def test_recording_acceptance_persists_timestamped_voice_stack_selection(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+    paths = ProjectPaths(tmp_path)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    selected_raw = stored.active.sources.voice_raw_path
+    selected_stack = stored.active.sources.voice_stack_path
+    assert selected_raw is not None
+    assert selected_raw.startswith("data/sources/voice/raw/")
+    assert selected_raw.endswith(".wav")
+    assert (tmp_path / selected_raw).exists()
+    assert selected_stack is not None
+    assert selected_stack.startswith("data/sources/voice/stack/")
+    assert selected_stack.endswith(".wav")
+    assert (tmp_path / selected_stack).exists()
+    assert response.json()["state"]["settings"]["active"]["sources"]["voice_raw_path"] == (
+        selected_raw
+    )
+    assert response.json()["state"]["settings"]["active"]["sources"]["voice_stack_path"] == (
+        selected_stack
+    )
 
 
 def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(

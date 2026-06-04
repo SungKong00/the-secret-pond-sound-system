@@ -8,7 +8,11 @@ Use this checklist before rehearsal and before show operation.
 - [ ] `secret-pond doctor --json` produces parseable readiness JSON for logs.
 - [ ] After prepared source files are in place, `secret-pond doctor --strict` exits successfully.
 - [ ] App starts without source files and shows a clear missing-source warning.
-- [ ] App starts with valid low/mid files at `data/sources/low.wav` and `data/sources/mid.wav`.
+- [ ] App starts with valid low/mid files selected in Source Library or with legacy files at `data/sources/low.wav` and `data/sources/mid.wav`.
+- [ ] Source Library lists `data/sources/low/*.wav`, `data/sources/mid/*.wav`, `data/sources/voice/raw/*.wav`, and `data/sources/voice/stack/*.wav`.
+- [ ] Source Library selection survives app restart through settings.
+- [ ] Source Library upload writes a WAV into the matching directory.
+- [ ] Source Library delete removes inactive files and blocks the currently active file.
 - [ ] Startup loads compatible rendered playback caches, or renders fresh caches when prepared sources are available.
 - [ ] System panel shows source health, selected devices, and recent events.
 - [ ] The browser opens at `http://127.0.0.1:8000`.
@@ -25,6 +29,7 @@ Use this checklist before rehearsal and before show operation.
 - [ ] Voice layer can be disabled after Apply and Restart.
 - [ ] EQ slider movement shows dirty state with `Unsaved audio changes`.
 - [ ] Changing `Voice loop` shows `Unsaved audio changes`, then `Apply and Restart` rebuilds voice_stack_raw.wav and voice_playback.wav to the selected length.
+- [ ] Changing source selections shows `Unsaved audio changes`, then `Apply and Restart` renders from the selected files.
 
 ## Recording
 
@@ -37,20 +42,22 @@ Use this checklist before rehearsal and before show operation.
 - [ ] A recording shorter than 3 seconds is discarded.
 - [ ] A valid recording increments participant count.
 - [ ] A valid recording updates `data/rendered/layers/voice_playback.wav`; use `Apply and Restart` if the running output needs to reload that rendered layer.
+- [ ] A valid recording creates timestamped voice raw and stack files under `data/sources/voice/raw/` and `data/sources/voice/stack/`.
 
 ## Voice Stack Modes
 
 - [ ] A valid recording in test_library mode creates accepted chunks and manifest entries.
 - [ ] A valid recording in live_ephemeral mode leaves no individual accepted voice WAV.
 - [ ] `secret-pond rebuild-test-library --root .` rebuilds voice_stack_raw.wav and voice_playback.wav from accepted chunks and manifest in test_library mode.
+- [ ] Rebuilt voice stack output is also available as a timestamped Source Library stack file.
 - [ ] live_ephemeral mode can start from an existing voice_stack_raw.wav.
 - [ ] Restarting the app preserves participant count and settings.
 
 ## Device Recovery
 
 - [ ] Unplugging or renaming an input/output device is visible in `secret-pond doctor` or the dashboard warnings.
-- [ ] A new input/output draft can be selected.
-- [ ] Restarting the app promotes startup device/audio-format drafts, rejects stale rendered caches, and then `secret-pond doctor` plus dashboard warnings are checked.
+- [ ] A new input/output pending device can be selected.
+- [ ] Restarting the app promotes pending startup device/audio-format settings, rejects stale rendered caches, and then `secret-pond doctor` plus dashboard warnings are checked.
 - [ ] Device, sample-rate, and channel changes are not expected to apply through Apply and Restart in the MVP.
 
 ## macOS

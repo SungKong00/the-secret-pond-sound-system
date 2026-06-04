@@ -9,7 +9,7 @@ from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.audio.renderer import LayerRenderer
-from secret_pond.config import AppSettings, AudioFormatSettings
+from secret_pond.config import AppSettings, AudioFormatSettings, SourceSelectionSettings
 from secret_pond.paths import ProjectPaths
 
 
@@ -88,6 +88,44 @@ def test_renderer_normalizes_source_sample_rate_channels_and_loop_length(tmp_pat
     assert rendered.sample_rate == 8_000
     assert rendered.samples.shape == (8_000, 2)
     np.testing.assert_allclose(rendered.samples[:, 0], rendered.samples[:, 1], atol=1e-4)
+
+
+def test_renderer_uses_selected_library_source_before_legacy_path(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["low"].volume_db = 0.0
+    selected_path = paths.low_sources_dir / "selected-low.wav"
+    legacy = sine_wave(100.0) * 0.05
+    selected = sine_wave(100.0) * 0.35
+    write_wav_atomic(paths.low_source, AudioBuffer(samples=legacy, sample_rate=8_000))
+    write_wav_atomic(selected_path, AudioBuffer(samples=selected, sample_rate=8_000))
+    settings.sources = SourceSelectionSettings(
+        low_path="data/sources/low/selected-low.wav",
+    )
+
+    result = LayerRenderer(paths).render_layer("low", settings)
+    rendered = read_wav(result.output_path)
+
+    assert rms(rendered.samples) > rms(legacy) * 3.0
+
+
+def test_renderer_falls_back_to_legacy_source_when_no_library_selection(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["mid"].volume_db = 0.0
+    write_wav_atomic(
+        paths.mid_source,
+        AudioBuffer(samples=sine_wave(1_000.0) * 0.25, sample_rate=8_000),
+    )
+
+    result = LayerRenderer(paths).render_layer("mid", settings)
+
+    assert result.output_path == paths.mid_playback
+    assert paths.mid_playback.exists()
 
 
 def test_renderer_does_not_modify_voice_stack_raw(tmp_path: Path) -> None:

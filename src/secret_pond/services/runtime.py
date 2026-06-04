@@ -115,6 +115,22 @@ def build_runtime(
         logger=startup_logger or logger,
         voice_stack_source_normalized=voice_stack_snapshot.raw_normalized,
     )
+
+    def persist_recording_settings(settings: Any) -> None:
+        current = settings_store.load()
+        draft = current.draft.model_copy(
+            update={
+                "sources": current.draft.sources.model_copy(
+                    update={
+                        "voice_raw_path": settings.sources.voice_raw_path,
+                        "voice_stack_path": settings.sources.voice_stack_path,
+                    },
+                )
+            },
+            deep=True,
+        )
+        settings_store.save(SettingsState(active=settings, draft=draft))
+
     controller = RecordingController(
         settings=active_settings,
         recorder=resolved_recorder,
@@ -122,6 +138,7 @@ def build_runtime(
         renderer=renderer,
         participants=participants,
         logger=logger,
+        persist_settings=persist_recording_settings,
     )
 
     return SecretPondRuntime(
@@ -283,4 +300,5 @@ def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
         "max_input_channels": device.max_input_channels,
         "max_output_channels": device.max_output_channels,
         "default_sample_rate": device.default_sample_rate,
+        "host_api_name": device.host_api_name,
     }

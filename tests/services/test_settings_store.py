@@ -176,3 +176,28 @@ def test_settings_store_atomic_write_cleans_temp_file(tmp_path: Path) -> None:
     store.save(SettingsState(active=AppSettings(), draft=settings_with_voice_volume(-9.0)))
 
     assert list(paths.config_dir.glob("*.tmp")) == []
+
+
+def test_settings_store_migrates_missing_source_selection_from_existing_schema(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    legacy_settings = AppSettings().model_dump(mode="json")
+    legacy_settings.pop("sources")
+    paths.settings_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "active": legacy_settings,
+                "draft": legacy_settings,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = SettingsStore(paths).load()
+
+    assert loaded.active.sources.low_path is None
+    assert loaded.draft.sources.voice_stack_path is None
