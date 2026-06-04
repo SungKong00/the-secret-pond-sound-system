@@ -667,7 +667,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="storageModeLiveButton"' in record_panel
     assert 'id="storageModeLibraryButton"' in record_panel
     assert "녹음 보관" in record_panel
-    assert "운영" in record_panel
+    assert "전시" in record_panel
     assert "테스트 저장" in record_panel
     assert "개별 녹음 보관 안 함" not in record_panel
     assert "accepted clip 저장" not in record_panel

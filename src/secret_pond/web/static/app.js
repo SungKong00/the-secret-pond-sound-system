@@ -394,7 +394,7 @@ const modeLabels = {
 const storageModeDetails = {
   "live_ephemeral": {
     label: "운영 모드",
-    optionLabel: "운영",
+    optionLabel: "전시",
     summary: "파일 안 남김",
     idleTitle: "개별 accepted clip 파일을 남기지 않습니다.",
     className: "safe",
