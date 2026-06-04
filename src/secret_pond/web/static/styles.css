@@ -68,7 +68,7 @@ body::before {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto auto;
+  grid-template-columns: minmax(180px, max-content) minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   min-height: 84px;
@@ -102,6 +102,10 @@ body::before {
   align-items: center;
 }
 
+.status-strip {
+  min-width: 0;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -112,6 +116,15 @@ body::before {
   background: rgba(101, 247, 255, 0.08);
   color: var(--text);
   font-size: 13px;
+  white-space: nowrap;
+}
+
+#lastEventBadge {
+  display: inline-block;
+  min-width: 0;
+  max-width: min(30ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

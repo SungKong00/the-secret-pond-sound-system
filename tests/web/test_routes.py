@@ -611,6 +611,18 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert styles.status_code == 200
     assert "text/css" in styles.headers["content-type"]
     normalized_styles = " ".join(styles.text.split())
+    topbar_rule = slice_between(styles.text, ".topbar {", "}")
+    status_strip_rule = slice_between(styles.text, ".status-strip {", "}")
+    last_event_badge_rule = slice_between(styles.text, "#lastEventBadge {", "}")
+    assert "grid-template-columns: minmax(180px, max-content) minmax(0, 1fr) auto;" in (
+        " ".join(topbar_rule.split())
+    )
+    assert "min-width: 0;" in status_strip_rule
+    assert "min-width: 0;" in last_event_badge_rule
+    assert "max-width: min(30ch, 100%);" in last_event_badge_rule
+    assert "overflow: hidden;" in last_event_badge_rule
+    assert "text-overflow: ellipsis;" in last_event_badge_rule
+    assert "white-space: nowrap;" in last_event_badge_rule
     assert (
         "grid-template-columns: minmax(240px, 0.72fr) minmax(260px, 0.78fr) "
         "minmax(340px, 1.2fr) minmax(280px, 0.86fr);"
