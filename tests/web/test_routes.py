@@ -2691,8 +2691,10 @@ const runSourceSocketRefreshCheck = async () => {{
     globalThis.__secretPondTest.state.appliedSourceSignature.includes("sources/low/new.wav"),
     true,
   );
+  elements.participantCount.textContent = "native dropdown still open";
   await sourceSocket.emit("message", {{ data: JSON.stringify(socketSourceState) }});
   assert.strictEqual(socketSourceResponses.length, 1);
+  assert.strictEqual(elements.participantCount.textContent, "native dropdown still open");
 }};
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");

@@ -32,6 +32,7 @@ const state = {
   diagnosticsError: null,
   sourcesError: null,
   appliedSourceSignature: null,
+  serverStateSignature: null,
   saveTimer: null,
   draftSaveRequestId: 0,
   sourceMutationRequestId: 0,
@@ -1199,6 +1200,8 @@ const requestSources = async (options = {}) => {
   renderErrors();
 };
 
+const serverStateSignature = (payload) => JSON.stringify(payload);
+
 const refreshAll = async () => {
   await requestState({ syncDraft: false }).catch((error) => showError(error.message));
   await requestDevices();
@@ -1210,6 +1213,12 @@ const refreshAll = async () => {
 
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
+  const nextServerStateSignature = serverStateSignature(payload);
+  const serverStateChanged = state.serverStateSignature !== nextServerStateSignature;
+  if (!serverStateChanged && !syncDraft && state.snapshot) {
+    return false;
+  }
+  state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
   if (syncDraft || !state.draft) {
     state.draft = clone(payload.settings.draft);
@@ -1219,6 +1228,7 @@ const applyState = (payload, options = {}) => {
   }
   renderState();
   renderSystemStatus();
+  return true;
 };
 
 const syncDraftSnapshot = () => {
