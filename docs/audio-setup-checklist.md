@@ -24,6 +24,7 @@ Use this checklist before rehearsal and before show operation.
 - [ ] Mid layer can be disabled after Apply and Restart.
 - [ ] Voice layer can be disabled after Apply and Restart.
 - [ ] EQ slider movement shows dirty state with `Unsaved audio changes`.
+- [ ] Changing `Voice loop` shows `Unsaved audio changes`, then `Apply and Restart` rebuilds voice_stack_raw.wav and voice_playback.wav to the selected length.
 
 ## Recording
 

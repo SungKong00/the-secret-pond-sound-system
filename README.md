@@ -43,6 +43,7 @@ secret-pond serve
 - 앱 시작 시 기존 렌더 캐시를 활성 오디오 설정과 대조해 재생기에 로드하고, 캐시가 없거나 맞지 않으면 준비 음원에서 렌더를 다시 시도
 - 출력 중 staged 설정을 적용할 때 렌더/플레이어/출력을 롤백 가능한 순서로 재시작
 - 운영자 UI 상태 보강: `Unsaved audio changes`, 레이어 Active/Pending Draft, 녹음 min/max duration, `Restart Output`, Voice Stack panel
+- Voice Stack panel의 `Voice loop` 초안 조절: 목소리 스택 loop length를 바꾸고 `Apply and Restart`로 voice stack raw와 voice playback을 다시 맞춤
 - Voice Treatment 프리셋: Soft, Misty, Dense, Clearer Voice
 
 아직 구현하지 않은 범위:
@@ -60,7 +61,7 @@ secret-pond serve
 4. System 패널에서 `low.wav`, `mid.wav`, `voice_stack_raw.wav` 상태와 선택된 장치를 확인합니다.
 5. 시작 시 렌더 캐시가 활성 오디오 설정과 맞으면 자동으로 player에 로드됩니다. 캐시가 없거나 맞지 않으면 준비 음원에서 자동 렌더를 시도하며, 실패 원인은 System 패널의 최근 이벤트에서 확인합니다.
 6. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.
-7. Loop Mixer와 Voice Stack panel의 EQ/볼륨을 바꾼 뒤에는 `Apply and Restart`로 새 렌더를 만들고 player에 다시 로드합니다.
+7. Loop Mixer와 Voice Stack panel의 EQ/볼륨 또는 `Voice loop`를 바꾼 뒤에는 `Apply and Restart`로 새 렌더를 만들고 player에 다시 로드합니다.
 8. 필요하면 `Restart Output`으로 현재 로드된 재생을 처음부터 다시 시작합니다.
 9. `Arm` 후 스페이스바를 누르고 있는 동안 녹음합니다.
 

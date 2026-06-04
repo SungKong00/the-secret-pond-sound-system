@@ -61,6 +61,10 @@ def test_operator_guide_covers_required_operations() -> None:
         "startup playback is unavailable",
         "Playback panel",
         "Voice Stack panel",
+        "Voice loop",
+        "voice stack loop length",
+        "trimming or repeating",
+        "rebuilds `data/rendered/layers/voice_playback.wav`",
         "verify `secret-pond doctor` and dashboard warnings",
         "does not prove microphone permission",
         "Sync Live",
@@ -101,6 +105,8 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "secret-pond rebuild-test-library",
         "voice_playback.wav",
         "EQ slider",
+        "Voice loop",
+        "voice_stack_raw.wav and voice_playback.wav to the selected length",
         "Apply and Restart",
         "failed render",
         "settings",
@@ -131,6 +137,8 @@ def test_readme_links_operator_docs() -> None:
     assert "Clearer Voice" in readme
     assert "Unsaved audio changes" in readme
     assert "min/max duration" in readme
+    assert "Voice loop" in readme
+    assert "loop length" in readme
     assert "System" in readme
     assert "렌더 캐시" in readme
 
@@ -165,6 +173,8 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "이미 Arm 상태이거나 녹음 중일 때는 Arm 버튼" in request
     assert "Playback 패널" in request
     assert "Voice Stack 패널" in request
+    assert "Voice loop" in request
+    assert "목소리 스택 루프 길이" in request
     assert "상태 동기화 배지" in request
     assert "오류 상태 배지" in request
     assert "Spacebar 캡처 준비 상태" in request
