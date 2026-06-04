@@ -1148,6 +1148,10 @@ const showError = (message) => {
   renderNoticeBanner(notice ? [notice] : []);
 };
 
+const clearTransientError = () => {
+  state.transientError = null;
+};
+
 const requestState = async (options = {}) => {
   const payload = await api("/api/state");
   applyState(payload, options);
@@ -1200,6 +1204,8 @@ const refreshAll = async () => {
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });
+  clearTransientError();
+  renderErrors();
 };
 
 const applyState = (payload, options = {}) => {

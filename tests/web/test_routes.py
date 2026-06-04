@@ -2907,6 +2907,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   unsavedDraft.voice_stack.loop_seconds = 77;
   const serverDraft = cloneSettings(activeSettings);
   serverDraft.voice_stack.loop_seconds = 60;
+  globalThis.__secretPondTest.showError("action failed");
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
   globalThis.__secretPondTest.state.draft = cloneSettings(unsavedDraft);
   globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
   globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(serverDraft);
@@ -2960,6 +2962,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
     77,
   );
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
+  assert.strictEqual(elements.errorBanner.hidden, true);
 
   const draftSaveResponses = [];
   globalThis.fetch = (path, options = {{}}) =>
