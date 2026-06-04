@@ -1309,17 +1309,30 @@ const deriveDashboardControlState = ({
   };
 };
 
+const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
+  const settingsChanged = Boolean(settingsPlan?.changedSections?.length);
+  return {
+    settingsChanged,
+    sourceFilesChanged: Boolean(sourceFilesChanged),
+    pendingChanges: settingsChanged || Boolean(sourceFilesChanged),
+    runtimeConfigChanged: Boolean(settingsPlan?.runtimeConfigChanged),
+  };
+};
+
 const renderState = () => {
   renderSyncBadge();
   const snapshot = state.snapshot;
   if (!snapshot) return;
-  const pendingChanges = hasPendingChanges(snapshot);
+  const pendingChangeState = derivePendingChangeState(
+    settingsChangePlan(snapshot),
+    hasSourceFileChanges(snapshot),
+  );
   const controlState = deriveDashboardControlState({
     snapshot,
     applyInFlight: state.applyInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
-    pendingChanges,
-    runtimeConfigChanged: settingsChangePlan(snapshot).runtimeConfigChanged,
+    pendingChanges: pendingChangeState.pendingChanges,
+    runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
   });
 
   $("armedBadge").textContent = snapshot.armed ? "녹음 준비 켜짐" : "녹음 준비 꺼짐";
@@ -1349,14 +1362,14 @@ const renderState = () => {
   document.querySelector(".record-core").classList.toggle("armed", controlState.captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
   renderRecordReadiness(snapshot, controlState.recordingStopBusy);
-  $("pendingBadge").hidden = !pendingChanges;
-  $("pendingBadge").textContent = pendingChanges ? "저장 안 된 오디오 변경" : "";
+  $("pendingBadge").hidden = !pendingChangeState.pendingChanges;
+  $("pendingBadge").textContent = pendingChangeState.pendingChanges ? "저장 안 된 오디오 변경" : "";
   $("pendingBadge").className = "status-pill hot";
   $("outputControlSummary").textContent = state.applyInFlight
     ? "준비된 오디오 설정을 렌더링하는 중입니다."
     : snapshot.playback.output_running
       ? "출력 스트림이 실행 중입니다."
-      : pendingChanges
+      : pendingChangeState.pendingChanges
         ? "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다."
         : "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
   $("captureGate").className = `capture-gate ${controlState.captureGateClass}`;
@@ -2057,17 +2070,16 @@ const syncAppliedSourceSignature = () => {
   }
 };
 
-const hasSettingsDraftChanges = (snapshot) =>
-  settingsChangePlan(snapshot).changedSections.length > 0;
-
 const hasSourceFileChanges = (snapshot = state.snapshot) => {
   if (!snapshot || state.appliedSourceSignature === null) return false;
   const draftSignature = sourceSignatureForSettings(state.draft || snapshot.settings.draft);
   return draftSignature !== null && draftSignature !== state.appliedSourceSignature;
 };
 
-const hasPendingChanges = (snapshot) =>
-  hasSettingsDraftChanges(snapshot) || hasSourceFileChanges(snapshot);
+const hasPendingChanges = (snapshot) => derivePendingChangeState(
+  settingsChangePlan(snapshot),
+  hasSourceFileChanges(snapshot),
+).pendingChanges;
 
 const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;

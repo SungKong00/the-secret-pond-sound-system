@@ -1265,11 +1265,16 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "저장 안 된 변경 없음" not in script.text
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
-    assert "settingsChangePlan(snapshot).runtimeConfigChanged" in script.text
+    assert "const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false)" in (
+        script.text
+    )
     render_state_body = slice_between(
         script.text,
         "const renderState = () => {",
         "};\n\nconst renderLastEventBadge",
+    )
+    assert (
+        "const pendingChangeState = derivePendingChangeState(" in render_state_body
     )
     assert "const controlState = deriveDashboardControlState({" in render_state_body
     assert (
@@ -1281,7 +1286,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in render_state_body
     )
     assert (
-        '"pendingBadge").hidden = !pendingChanges'
+        '"pendingBadge").hidden = !pendingChangeState.pendingChanges'
         in render_state_body
     )
     assert (
@@ -1696,7 +1701,10 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
     client = create_test_client(tmp_path)
     script = client.get("/static/app.js").text.replace(
         "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
-        "\nglobalThis.__secretPondTest = { deriveDashboardControlState };\n",
+        (
+            "\nglobalThis.__secretPondTest = "
+            "{ deriveDashboardControlState, derivePendingChangeState };\n"
+        ),
     )
     harness = f"""
 const assert = require("assert");
@@ -1725,6 +1733,52 @@ const snapshot = {{
   playback: {{ output_running: false }},
 }};
 const derive = globalThis.__secretPondTest.deriveDashboardControlState;
+const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
+
+assert.deepStrictEqual(
+  derivePending({{
+    runtimeConfigChanged: false,
+    changedRuntimeFields: [],
+    changedSections: [],
+    runtimeConfigFields: ["audio.sample_rate"],
+  }}, false),
+  {{
+    settingsChanged: false,
+    sourceFilesChanged: false,
+    pendingChanges: false,
+    runtimeConfigChanged: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  derivePending({{
+    runtimeConfigChanged: false,
+    changedRuntimeFields: [],
+    changedSections: ["layers"],
+    runtimeConfigFields: ["audio.sample_rate"],
+  }}, false),
+  {{
+    settingsChanged: true,
+    sourceFilesChanged: false,
+    pendingChanges: true,
+    runtimeConfigChanged: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  derivePending({{
+    runtimeConfigChanged: true,
+    changedRuntimeFields: ["audio.sample_rate"],
+    changedSections: ["audio"],
+    runtimeConfigFields: ["audio.sample_rate"],
+  }}, true),
+  {{
+    settingsChanged: true,
+    sourceFilesChanged: true,
+    pendingChanges: true,
+    runtimeConfigChanged: true,
+  }},
+);
 
 assert.deepStrictEqual(
   derive({{
