@@ -220,24 +220,31 @@ def test_recording_processing_limits_peak_without_flat_top_clipping() -> None:
     assert harmonic_ratio(steady_state, sample_rate=48_000, fundamental_hz=1_000.0) < 0.03
 
 
-def test_recording_processing_defers_reverb_and_delay_for_now() -> None:
-    source = sine_wave(500.0) * 0.20
+def test_recording_processing_applies_reverb_and_delay_when_enabled() -> None:
+    source = np.zeros(48_000, dtype=np.float32)
+    source[1_000:1_120] = sine_wave(500.0, seconds=120 / 48_000) * 0.20
     base_settings = RecordingProcessingSettings(
         gain_db=0.0,
         normalize_peak=0.35,
-        highpass_hz=90.0,
-        lowpass_hz=8_000.0,
-        presence_gain_db=-3.0,
+        highpass_hz=20.0,
+        lowpass_hz=20_000.0,
+        presence_gain_db=0.0,
         reverb_mix=0.0,
         delay_mix=0.0,
         fade_ms=0,
     )
-    ambience_settings = base_settings.model_copy(update={"reverb_mix": 1.0, "delay_mix": 1.0})
+    ambience_settings = base_settings.model_copy(update={"reverb_mix": 0.6, "delay_mix": 0.5})
 
     dry = apply_recording_processing(AudioBuffer(samples=source, sample_rate=48_000), base_settings)
-    ambience_deferred = apply_recording_processing(
+    ambience = apply_recording_processing(
         AudioBuffer(samples=source, sample_rate=48_000),
         ambience_settings,
     )
+    tail = slice(int(0.25 * 48_000), int(0.45 * 48_000))
 
-    np.testing.assert_allclose(ambience_deferred.samples, dry.samples)
+    assert ambience.samples.shape == dry.samples.shape
+    assert ambience.sample_rate == dry.sample_rate
+    assert ambience.channels == dry.channels
+    assert float(np.max(np.abs(ambience.samples))) <= 1.0
+    assert not np.allclose(ambience.samples, dry.samples)
+    assert rms(ambience.samples[tail]) > max(rms(dry.samples[tail]) * 4.0, 1e-4)

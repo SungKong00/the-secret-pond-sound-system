@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import numpy as np
+from pedalboard import Delay, Pedalboard, Reverb
 from scipy.signal import butter, sosfilt
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.config import RecordingProcessingSettings
 
 _PRESENCE_CROSSOVER_HZ = 1_500.0
+_DELAY_SECONDS = 0.28
+_DELAY_FEEDBACK = 0.18
+_REVERB_ROOM_SIZE = 0.55
+_REVERB_DAMPING = 0.55
+_REVERB_MAX_WET_LEVEL = 0.55
 
 
 def apply_gain_db(buffer: AudioBuffer, gain_db: float) -> AudioBuffer:
@@ -76,8 +82,12 @@ def apply_recording_processing(
     samples = _apply_filter_samples(samples, buffer.sample_rate, settings.highpass_hz, "highpass")
     samples = _apply_filter_samples(samples, buffer.sample_rate, settings.lowpass_hz, "lowpass")
     samples = _apply_presence_tone_samples(samples, buffer.sample_rate, settings.presence_gain_db)
-    # Reverb and delay are deferred for the MVP offline chain; settings remain
-    # modeled so the UI/config contract does not need to change later.
+    samples = _apply_ambience_samples(
+        samples,
+        buffer.sample_rate,
+        reverb_mix=settings.reverb_mix,
+        delay_mix=settings.delay_mix,
+    )
     samples = _apply_fade_samples(samples, buffer.sample_rate, settings.fade_ms, settings.fade_ms)
     samples = _limit_peak_samples(samples)
     return AudioBuffer(samples=samples, sample_rate=buffer.sample_rate)
@@ -150,6 +160,39 @@ def _apply_presence_tone_samples(
     high = _apply_filter_samples(samples, sample_rate, crossover_hz, "highpass")
     high_gain = 10 ** (gain_db / 20.0)
     return (low + (high * high_gain)).astype(np.float32)
+
+
+def _apply_ambience_samples(
+    samples: np.ndarray,
+    sample_rate: int,
+    *,
+    reverb_mix: float,
+    delay_mix: float,
+) -> np.ndarray:
+    if samples.shape[0] == 0 or (reverb_mix <= 0.0 and delay_mix <= 0.0):
+        return samples.astype(np.float32, copy=True)
+
+    plugins = []
+    if delay_mix > 0.0:
+        plugins.append(
+            Delay(
+                delay_seconds=_DELAY_SECONDS,
+                feedback=_DELAY_FEEDBACK,
+                mix=delay_mix,
+            ),
+        )
+    if reverb_mix > 0.0:
+        plugins.append(
+            Reverb(
+                room_size=_REVERB_ROOM_SIZE,
+                damping=_REVERB_DAMPING,
+                wet_level=min(_REVERB_MAX_WET_LEVEL, reverb_mix * _REVERB_MAX_WET_LEVEL),
+                dry_level=1.0,
+            ),
+        )
+
+    processed = Pedalboard(plugins)(samples.astype(np.float32, copy=True), sample_rate)
+    return processed.astype(np.float32)
 
 
 def _apply_fade_samples(
