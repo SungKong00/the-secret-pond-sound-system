@@ -1395,7 +1395,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "참여자 수를 초기화하기 전에 녹음을 중지하세요." in script.text
     assert "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다." in script.text
-    assert "snapshot.settings.change?.runtime_config_changed" in script.text
+    assert "const canUseServerSettingsChangePlan = (snapshot, draft) => (" in script.text
+    assert "snapshot?.settings?.change?.runtime_config_changed" in script.text
+    assert "if (canUseServerSettingsChangePlan(snapshot, draft))" in script.text
     assert "const commitDraftChange = (mutator, options = {}) => {" in script.text
     assert "syncDraftSnapshot();" in script.text
     assert "scheduleDraftSave();" in script.text
@@ -2068,8 +2070,8 @@ def test_static_ui_settings_change_plan_uses_server_runtime_field_policy(
     run_static_app_harness(
         tmp_path,
         exports=(
-            "{ localSettingsChangePlan, normalizeSettingsChangePlan, "
-            "toServerSettingsChangePayload }"
+            "{ state, settingsChangePlan, canUseServerSettingsChangePlan, "
+            "localSettingsChangePlan, normalizeSettingsChangePlan, toServerSettingsChangePayload }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -2103,6 +2105,37 @@ assert.deepStrictEqual(helpers.toServerSettingsChangePayload(normalized), {{
   changed_sections: ["devices"],
   runtime_config_fields: ["audio.sample_rate"],
 }});
+
+const serverDraft = JSON.parse(JSON.stringify(active));
+const localDraft = JSON.parse(JSON.stringify(active));
+localDraft.devices.input_device_id = "mic-3";
+const staleSnapshot = {{
+  settings: {{
+    active,
+    draft: serverDraft,
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+      runtime_config_fields: ["audio.sample_rate"],
+    }},
+  }},
+}};
+helpers.state.draft = localDraft;
+assert.strictEqual(
+  helpers.canUseServerSettingsChangePlan(staleSnapshot, localDraft),
+  false,
+);
+assert.deepStrictEqual(helpers.settingsChangePlan(staleSnapshot), {{
+  runtimeConfigChanged: false,
+  changedRuntimeFields: [],
+  changedSections: ["devices"],
+  runtimeConfigFields: ["audio.sample_rate"],
+}});
+assert.strictEqual(
+  helpers.canUseServerSettingsChangePlan(staleSnapshot, serverDraft),
+  true,
+);
 """,
     )
 

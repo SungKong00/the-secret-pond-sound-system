@@ -2081,12 +2081,16 @@ const settingsPayloadMatchesDraft = (snapshot, draft) => (
   JSON.stringify(snapshot.settings.draft) === JSON.stringify(draft)
 );
 
+const canUseServerSettingsChangePlan = (snapshot, draft) => (
+  snapshot?.settings?.change?.runtime_config_changed !== undefined &&
+  settingsPayloadMatchesDraft(snapshot, draft)
+);
+
 const settingsChangePlan = (snapshot = state.snapshot) => {
   if (!snapshot?.settings) return normalizeSettingsChangePlan(null);
   const draft = state.draft || snapshot.settings.draft;
   if (!snapshot.settings.active || !draft) return normalizeSettingsChangePlan(null);
-  if (snapshot.settings.change?.runtime_config_changed !== undefined &&
-      settingsPayloadMatchesDraft(snapshot, draft)) {
+  if (canUseServerSettingsChangePlan(snapshot, draft)) {
     return normalizeSettingsChangePlan(snapshot.settings.change);
   }
   const runtimeConfigFields = normalizeSettingsChangePlan(
