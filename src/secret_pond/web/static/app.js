@@ -28,6 +28,7 @@ const state = {
   deviceError: null,
   diagnosticsError: null,
   sourcesError: null,
+  appliedSourceSignature: null,
   saveTimer: null,
   spaceRecording: false,
   stateSocket: null,
@@ -37,6 +38,12 @@ const state = {
   recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
   applyInFlight: false,
+  deviceChangeInFlight: false,
+  activeInteractiveControl: null,
+  presetSelections: {
+    layers: {},
+    recording: null,
+  },
   workspaceTab: workspaceTabFromUrl(),
   deferredInteractiveRenders: {},
 };
@@ -576,10 +583,104 @@ const setPath = (object, path, value) => {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const isPlainObject = (value) =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const presetValueMatches = (current, expected) => {
+  if (isPlainObject(expected)) return presetValuesMatch(current, expected);
+  const currentNumber = Number(current);
+  const expectedNumber = Number(expected);
+  if (Number.isFinite(currentNumber) && Number.isFinite(expectedNumber)) {
+    return currentNumber === expectedNumber;
+  }
+  return current === expected;
+};
+
+const presetValuesMatch = (draft, preset) => {
+  if (!draft || !preset) return false;
+  return Object.entries(preset).every(([key, value]) => presetValueMatches(draft[key], value));
+};
+
+const mergePresetValues = (draft, preset) => {
+  const next = clone(draft);
+  const mergeInto = (target, values) => {
+    Object.entries(values).forEach(([key, value]) => {
+      if (isPlainObject(value)) {
+        target[key] = isPlainObject(target[key]) ? { ...target[key] } : {};
+        mergeInto(target[key], value);
+      } else {
+        target[key] = value;
+      }
+    });
+  };
+  mergeInto(next, preset);
+  return next;
+};
+
+const presetSelectionMatches = (draft, presetDefs, selection) => {
+  if (!selection?.name) return false;
+  const preset = presetDefs[selection.name];
+  return Boolean(preset && presetValuesMatch(draft, preset));
+};
+
+const reversiblePresetDraft = (currentDraft, presetDefs, presetName, currentSelection = null) => {
+  const preset = presetDefs[presetName];
+  if (!currentDraft || !preset) {
+    return { draft: currentDraft, selection: currentSelection || null };
+  }
+  if (
+    currentSelection?.name === presetName &&
+    presetSelectionMatches(currentDraft, presetDefs, currentSelection)
+  ) {
+    return { draft: clone(currentSelection.previousDraft), selection: null };
+  }
+  return {
+    draft: mergePresetValues(currentDraft, preset),
+    selection: {
+      name: presetName,
+      previousDraft: clone(currentDraft),
+    },
+  };
+};
+
+const clearLayerPresetSelection = (layerId) => {
+  delete state.presetSelections.layers[layerId];
+};
+
+const clearRecordingPresetSelection = () => {
+  state.presetSelections.recording = null;
+};
+
+const selectedLayerPresetName = (layerId) => {
+  const selection = state.presetSelections.layers[layerId];
+  const layer = state.draft?.layers?.[layerId];
+  if (!selection) return null;
+  if (presetSelectionMatches(layer, layerPresetDefs, selection)) return selection.name;
+  clearLayerPresetSelection(layerId);
+  return null;
+};
+
+const layerPresetIsSelected = (layerId, presetName) =>
+  selectedLayerPresetName(layerId) === presetName;
+
+const selectedRecordingPresetName = () => {
+  const selection = state.presetSelections.recording;
+  if (!selection) return null;
+  if (presetSelectionMatches(state.draft?.recording, recordingPresetDefs, selection)) {
+    return selection.name;
+  }
+  clearRecordingPresetSelection();
+  return null;
+};
+
+const recordingPresetIsSelected = (name) => selectedRecordingPresetName() === name;
+
 const deferredInteractiveRenderTargets = new WeakSet();
 const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
 
 const activeInteractiveControlFor = (container) => {
+  const tracked = state.activeInteractiveControl;
+  if (tracked && (tracked === container || container.contains?.(tracked))) return tracked;
   const active = document.activeElement;
   if (!active || !container) return null;
   if (active === container) return active;
@@ -601,12 +702,25 @@ const deferInteractiveRender = (key, container, renderFn) => {
     deferredInteractiveRenderTargets.add(active);
     active.addEventListener("blur", () => {
       deferredInteractiveRenderTargets.delete(active);
+      if (state.activeInteractiveControl === active) {
+        state.activeInteractiveControl = null;
+      }
       const deferred = state.deferredInteractiveRenders[key];
       delete state.deferredInteractiveRenders[key];
       deferred?.();
     }, { once: true });
   }
   return true;
+};
+
+const trackInteractiveControl = (element) => {
+  state.activeInteractiveControl = element;
+};
+
+const releaseInteractiveControl = (element) => {
+  if (state.activeInteractiveControl === element) {
+    state.activeInteractiveControl = null;
+  }
 };
 
 const renderErrorBadge = (message) => {
@@ -671,14 +785,18 @@ const requestDiagnostics = async () => {
   renderErrors();
 };
 
-const requestSources = async () => {
+const requestSources = async (options = {}) => {
   try {
     state.sources = await api("/api/sources");
     state.sourcesError = null;
+    if (options.syncAppliedSourceSignature) {
+      syncAppliedSourceSignature();
+    }
   } catch (error) {
     state.sources = null;
     state.sourcesError = error.message;
   }
+  renderState();
   renderSourceLibrary();
   renderErrors();
 };
@@ -687,7 +805,7 @@ const refreshAll = async () => {
   await requestState().catch((error) => showError(translateUiErrorMessage(error.message)));
   await requestDevices();
   await requestDiagnostics();
-  await requestSources();
+  await requestSources({ syncAppliedSourceSignature: true });
 };
 
 const applyState = (payload, options = {}) => {
@@ -726,6 +844,7 @@ const renderState = () => {
   const recordingStopBusy = state.recordingStopInFlight;
   const outputControlBusy = state.applyInFlight || recordingStopBusy;
   const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy;
+  const pendingChanges = hasPendingChanges(snapshot);
 
   $("armedBadge").textContent = snapshot.armed ? "녹음 준비 켜짐" : "녹음 준비 꺼짐";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
@@ -754,18 +873,25 @@ const renderState = () => {
   document.querySelector(".record-core").classList.toggle("armed", captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
   renderRecordReadiness(snapshot, recordingStopBusy);
-  $("pendingBadge").textContent = hasPendingChanges(snapshot)
-    ? "저장 안 된 오디오 변경"
-    : "저장 안 된 변경 없음";
-  $("pendingBadge").className = `status-pill ${hasPendingChanges(snapshot) ? "hot" : "muted"}`;
+  $("pendingBadge").hidden = !pendingChanges;
+  $("pendingBadge").textContent = pendingChanges ? "저장 안 된 오디오 변경" : "";
+  $("pendingBadge").className = "status-pill hot";
   $("outputControlSummary").textContent = state.applyInFlight
     ? "준비된 오디오 설정을 렌더링하는 중입니다."
     : snapshot.playback.output_running
       ? "출력 스트림이 실행 중입니다."
-      : hasPendingChanges(snapshot)
+      : pendingChanges
         ? "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다."
         : "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
   const captureGateOn = snapshot.armed || snapshot.is_recording;
+  const captureGateClass = recordingStopBusy
+    ? "capture-gate-processing"
+    : snapshot.is_recording
+      ? "capture-gate-recording"
+      : snapshot.armed
+        ? "capture-gate-on"
+        : "capture-gate-off";
+  $("captureGate").className = `capture-gate ${captureGateClass}`;
   $("captureGateSwitch").disabled = recordingStopBusy || snapshot.is_recording;
   $("captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false");
   $("captureGateSwitch").classList.toggle("checked", captureGateOn);
@@ -785,8 +911,9 @@ const renderState = () => {
   if (state.applyInFlight) {
     $("applyButton").textContent = "적용 중…";
   } else {
-    $("applyButton").textContent = "적용 후 재시작";
+    $("applyButton").textContent = "변경사항 적용 후 재생";
   }
+  $("applyButton").classList.toggle("attention", pendingChanges && !runtimeConfigChanges);
   $("resetButton").disabled = state.applyInFlight || snapshot.is_recording;
   $("resetButton").title = snapshot.is_recording
     ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
@@ -802,7 +929,7 @@ const renderState = () => {
       : state.applyInFlight
         ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
         : runtimeConfigChanges
-          ? "준비된 장치 변경을 적용하려면 앱을 재시작하세요."
+          ? "샘플레이트나 채널 변경은 앱을 재시작해야 적용됩니다."
           : snapshot.playback.output_running
             ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
             : "";
@@ -874,6 +1001,7 @@ const currentErrorMessages = () => {
     state.deviceError,
     state.diagnosticsError,
     state.sourcesError,
+    ...(state.devices?.warnings || []),
   ].filter(Boolean).map(translateUiErrorMessage);
 };
 
@@ -888,48 +1016,8 @@ const renderErrors = () => {
 };
 
 const renderDevices = () => {
-  const devices = state.devices;
   renderDeviceHealthBadge();
-  if (!devices) {
-    $("inputDeviceName").textContent = state.deviceError ? "사용 불가" : "확인 중...";
-    $("outputDeviceName").textContent = state.deviceError ? "사용 불가" : "확인 중...";
-    renderDeviceSelect("inputDeviceSelect", [], null);
-    renderDeviceSelect("outputDeviceSelect", [], null);
-    $("deviceRestartNotice").textContent = state.deviceError
-      ? "오디오 장치를 사용할 수 없습니다."
-      : "오디오 장치를 확인하는 중입니다...";
-    $("deviceWarnings").innerHTML = "";
-    renderSystemStatus();
-    return;
-  }
-
-  $("inputDeviceName").textContent = deviceOptionLabel(
-    devices.selected_input_device,
-    "입력 장치 없음",
-  );
-  $("outputDeviceName").textContent = deviceOptionLabel(
-    devices.selected_output_device,
-    "출력 장치 없음",
-  );
-  renderDeviceSelect(
-    "inputDeviceSelect",
-    devices.input_devices,
-    state.draft?.devices.input_device_id ?? null,
-  );
-  renderDeviceSelect(
-    "outputDeviceSelect",
-    devices.output_devices,
-    state.draft?.devices.output_device_id ?? null,
-    Boolean(state.snapshot?.playback.output_running),
-  );
-  renderDeviceRestartNotice();
-  const warningList = $("deviceWarnings");
-  warningList.innerHTML = "";
-  devices.warnings.forEach((warning) => {
-    const item = document.createElement("li");
-    item.textContent = translateUiErrorMessage(warning);
-    warningList.appendChild(item);
-  });
+  renderSystemDevices();
   renderSystemStatus();
 };
 
@@ -978,20 +1066,36 @@ const renderSystemStatus = () => {
 };
 
 const renderSystemDevices = () => {
-  $("systemInputDeviceName").textContent = systemDeviceName(
-    "selected_input_device",
-    "입력 장치 없음",
+  const devices = state.devices;
+  const activeDevices = state.snapshot?.settings.active.devices || {};
+  if (!devices) {
+    renderSystemDeviceSelect("inputDeviceSelect", [], null, true);
+    renderSystemDeviceSelect("outputDeviceSelect", [], null, true);
+    renderDeviceWarnings([]);
+    return;
+  }
+  renderSystemDeviceSelect(
+    "inputDeviceSelect",
+    devices.input_devices,
+    activeDevices.input_device_id ?? null,
+    Boolean(state.snapshot?.is_recording),
   );
-  $("systemOutputDeviceName").textContent = systemDeviceName(
-    "selected_output_device",
-    "출력 장치 없음",
+  renderSystemDeviceSelect(
+    "outputDeviceSelect",
+    devices.output_devices,
+    activeDevices.output_device_id ?? null,
   );
+  renderDeviceWarnings(devices.warnings || []);
 };
 
-const systemDeviceName = (key, emptyLabel) => {
-  if (state.deviceError) return "사용 불가";
-  if (!state.devices) return "확인 중...";
-  return deviceOptionLabel(state.devices[key], emptyLabel);
+const renderDeviceWarnings = (warnings) => {
+  const warningList = $("deviceWarnings");
+  warningList.innerHTML = "";
+  warnings.forEach((warning) => {
+    const item = document.createElement("li");
+    item.textContent = translateUiErrorMessage(warning);
+    warningList.appendChild(item);
+  });
 };
 
 const renderSourceHealthList = (sources) => {
@@ -1065,7 +1169,7 @@ const sourceCategoryCard = (category) => {
     </div>
     <label class="source-select-row">
       <span>사용 파일</span>
-      <select data-source-select="${escapeHtml(category.id)}">${options}</select>
+      <select class="source-file-select" data-source-select="${escapeHtml(category.id)}">${options}</select>
     </label>
     <div class="source-file-list">
       ${sourceFileRows(category)}
@@ -1239,9 +1343,9 @@ const deleteSourceFile = async (category, path) => {
   }
 };
 
-const renderDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
+const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
   const select = $(selectId);
-  const disabled = forceDisabled || !state.draft || !state.devices;
+  const disabled = forceDisabled || state.deviceChangeInFlight || !state.devices;
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.disabled = disabled;
     return;
@@ -1284,39 +1388,63 @@ const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
   ].filter(Boolean).join(" · ");
 };
 
-const renderDeviceRestartNotice = () => {
-  const outputRunning = Boolean(state.snapshot?.playback.output_running);
-  const changed = hasDraftDeviceChanges();
-  if (outputRunning) {
-    $("deviceRestartNotice").textContent = "출력 장치를 바꾸기 전에 출력을 중지하세요.";
-  } else if (changed) {
-    $("deviceRestartNotice").textContent = "장치 변경이 준비되었습니다. 앱 재시작 후 적용됩니다.";
-  } else {
-    $("deviceRestartNotice").textContent = "장치 변경은 앱 재시작 후 적용됩니다.";
-  }
-};
-
-const hasDraftDeviceChanges = (snapshot = state.snapshot) => {
-  if (!snapshot || !state.draft) return false;
-  return (
-    snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id ||
-    snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id
-  );
-};
-
 const hasDraftRuntimeConfigChanges = (snapshot = state.snapshot) => {
   if (!snapshot || !state.draft) return false;
   return (
     snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate ||
-    snapshot.settings.active.audio.channels !== state.draft.audio.channels ||
-    snapshot.settings.active.devices.input_device_id !== state.draft.devices.input_device_id ||
-    snapshot.settings.active.devices.output_device_id !== state.draft.devices.output_device_id
+    snapshot.settings.active.audio.channels !== state.draft.audio.channels
   );
 };
 
-const hasPendingChanges = (snapshot) =>
+const sourceSettingsFields = {
+  low: "low_path",
+  mid: "mid_path",
+  voice_raw: "voice_raw_path",
+  voice_stack: "voice_stack_path",
+};
+
+const selectedSourcePathFor = (settings, categoryId) => {
+  const field = sourceSettingsFields[categoryId];
+  if (!field) return null;
+  return settings?.sources?.[field] || null;
+};
+
+const sourceSignatureForSettings = (settings) => {
+  if (!state.sources?.categories || !settings) return null;
+  return state.sources.categories
+    .map((category) => {
+      const selectedPath = selectedSourcePathFor(settings, category.id) || category.legacy_path || null;
+      const file = (category.files || []).find((item) => item.path === selectedPath);
+      const legacySelected = selectedPath && selectedPath === category.legacy_path;
+      return [
+        category.id,
+        selectedPath || "",
+        file?.size_bytes ?? (legacySelected ? category.legacy_size_bytes : ""),
+        file?.modified_at ?? (legacySelected ? category.legacy_modified_at : ""),
+      ].join(":");
+    })
+    .join("|");
+};
+
+const syncAppliedSourceSignature = () => {
+  const signature = sourceSignatureForSettings(state.snapshot?.settings?.active);
+  if (signature !== null) {
+    state.appliedSourceSignature = signature;
+  }
+};
+
+const hasSettingsDraftChanges = (snapshot) =>
   JSON.stringify(snapshot.settings.active) !==
   JSON.stringify(state.draft || snapshot.settings.draft);
+
+const hasSourceFileChanges = (snapshot = state.snapshot) => {
+  if (!snapshot || state.appliedSourceSignature === null) return false;
+  const draftSignature = sourceSignatureForSettings(state.draft || snapshot.settings.draft);
+  return draftSignature !== null && draftSignature !== state.appliedSourceSignature;
+};
+
+const hasPendingChanges = (snapshot) =>
+  hasSettingsDraftChanges(snapshot) || hasSourceFileChanges(snapshot);
 
 const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
@@ -1386,8 +1514,8 @@ const renderStorageModeControls = () => {
   $("storageModeSummary").textContent = pending
     ? `${activeDetails.label} · 재시작 시 적용: ${draftDetails.optionLabel}`
     : `${activeDetails.label} · ${activeDetails.summary}`;
-  $("storageModePanel").className = `storage-mode-panel ${
-    pending ? "pending" : activeDetails.className
+  $("storageModePanel").className = `storage-mode-panel ${draftDetails.className}${
+    pending ? " pending" : ""
   }`;
   const disabled = state.applyInFlight || state.snapshot.is_recording || state.recordingStopInFlight;
   [
@@ -1476,6 +1604,8 @@ const renderLayerCard = (layerId) => {
         activeLayer,
         (control, value) => {
           setPath(state.draft.layers[layerId], control.path, value);
+          clearLayerPresetSelection(layerId);
+          updateLayerPresetButtons(card, layerId);
           renderState();
           scheduleDraftSave();
         },
@@ -1486,6 +1616,7 @@ const renderLayerCard = (layerId) => {
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
     button.addEventListener("click", () => applyLayerPreset(layerId, button.dataset.layerPreset));
   });
+  updateLayerPresetButtons(card, layerId);
   return card;
 };
 
@@ -1493,28 +1624,44 @@ const layerPresetMarkup = (layerId) => `
   <div class="layer-preset-row" role="group" aria-label="${labelText(layerLabels[layerId])} 톤 프리셋">
     ${Object.entries(layerPresetLabels)
       .map(
-        ([name, label]) => `
-          <button class="layer-preset-button" type="button" data-layer-preset="${name}">
+        ([name, label]) => {
+          const active = layerPresetIsSelected(layerId, name);
+          return `
+          <button
+            class="layer-preset-button ${active ? "active" : ""}"
+            type="button"
+            data-layer-preset="${name}"
+            aria-pressed="${active ? "true" : "false"}"
+          >
             ${labelMarkup(label)}
           </button>
-        `,
+        `;
+        },
       )
       .join("")}
   </div>
 `;
 
+const updateLayerPresetButtons = (card, layerId) => {
+  card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
+    const active = layerPresetIsSelected(layerId, button.dataset.layerPreset);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+};
+
 const applyLayerPreset = (layerId, presetName) => {
-  const preset = layerPresetDefs[presetName];
-  if (!preset || !state.draft?.layers[layerId]) return;
-  const current = state.draft.layers[layerId];
-  state.draft.layers[layerId] = {
-    ...current,
-    volume_db: preset.volume_db,
-    eq: {
-      ...current.eq,
-      ...preset.eq,
-    },
-  };
+  const current = state.draft?.layers?.[layerId];
+  if (!current || !layerPresetDefs[presetName]) return;
+  const next = reversiblePresetDraft(
+    current,
+    layerPresetDefs,
+    presetName,
+    state.presetSelections.layers[layerId],
+  );
+  state.draft.layers[layerId] = next.draft;
+  if (next.selection) state.presetSelections.layers[layerId] = next.selection;
+  else clearLayerPresetSelection(layerId);
   state.snapshot.settings.draft = clone(state.draft);
   renderLayerControls();
   renderState();
@@ -1543,6 +1690,7 @@ const renderRecordingControls = () => {
     container.appendChild(
       controlGroup(group, state.draft.recording, activeRecording, (control, value) => {
         setPath(state.draft.recording, control.path, value);
+        clearRecordingPresetSelection();
         renderRecordingPresets();
         renderState();
         scheduleDraftSave();
@@ -1561,16 +1709,18 @@ const renderRecordingPresets = () => {
   });
 };
 
-const recordingPresetMatches = (name) => {
-  const settings = recordingPresetDefs[name];
-  if (!settings || !state.draft) return false;
-  return Object.entries(settings).every(([key, value]) => state.draft.recording[key] === value);
-};
+const recordingPresetMatches = (name) => recordingPresetIsSelected(name);
 
 const applyRecordingPreset = (name) => {
-  const settings = recordingPresetDefs[name];
-  if (!settings || !state.draft) return;
-  state.draft.recording = { ...state.draft.recording, ...settings };
+  if (!recordingPresetDefs[name] || !state.draft) return;
+  const next = reversiblePresetDraft(
+    state.draft.recording,
+    recordingPresetDefs,
+    name,
+    state.presetSelections.recording,
+  );
+  state.draft.recording = next.draft;
+  state.presetSelections.recording = next.selection;
   state.snapshot.settings.draft = clone(state.draft);
   renderRecordingPresets();
   renderRecordingControls();
@@ -1993,7 +2143,7 @@ const applyAndRestart = async () => {
     const payload = await api("/api/settings/apply", { method: "POST" });
     applyState(payload.state);
     await requestDiagnostics();
-    await requestSources();
+    await requestSources({ syncAppliedSourceSignature: true });
   } catch (error) {
     applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
@@ -2042,12 +2192,27 @@ const toggleCaptureGate = () => {
   control(snapshot.armed ? "/api/input/disarm" : "/api/input/arm");
 };
 
-const changeDraftDevice = (key, value) => {
-  if (!state.draft) return;
-  state.draft.devices[key] = value || null;
-  renderState();
+const changeDevice = async (key, value) => {
+  if (state.deviceChangeInFlight) return;
+  state.deviceChangeInFlight = true;
   renderDevices();
-  scheduleDraftSave();
+  try {
+    const payload = await api("/api/devices", {
+      method: "PUT",
+      body: JSON.stringify({ [key]: value || null }),
+    });
+    applyState(payload.state);
+    state.devices = payload.devices;
+    renderDevices();
+    await requestDiagnostics();
+  } catch (error) {
+    await requestState({ syncDraft: false }).catch(() => {});
+    await requestDevices().catch(() => {});
+    showError(translateUiErrorMessage(error.message));
+  } finally {
+    state.deviceChangeInFlight = false;
+    renderDevices();
+  }
 };
 
 const shouldIgnoreSpace = () => {
@@ -2213,15 +2378,35 @@ const bindEvents = () => {
   document.querySelectorAll("[data-storage-mode]").forEach((button) => {
     button.addEventListener("click", () => setStorageMode(button.dataset.storageMode));
   });
+  for (const select of [$("inputDeviceSelect"), $("outputDeviceSelect")]) {
+    select.addEventListener("pointerdown", () => trackInteractiveControl(select));
+    select.addEventListener("focus", () => trackInteractiveControl(select));
+    select.addEventListener("blur", () => releaseInteractiveControl(select));
+  }
   $("inputDeviceSelect").addEventListener("change", (event) => {
-    changeDraftDevice("input_device_id", event.target.value);
+    releaseInteractiveControl(event.target);
+    changeDevice("input_device_id", event.target.value);
   });
   $("outputDeviceSelect").addEventListener("change", (event) => {
-    changeDraftDevice("output_device_id", event.target.value);
+    releaseInteractiveControl(event.target);
+    changeDevice("output_device_id", event.target.value);
+  });
+  $("sourceLibraryList").addEventListener("pointerdown", (event) => {
+    const select = event.target.closest("[data-source-select]");
+    if (select) trackInteractiveControl(select);
+  });
+  $("sourceLibraryList").addEventListener("focusin", (event) => {
+    const select = event.target.closest("[data-source-select]");
+    if (select) trackInteractiveControl(select);
+  });
+  $("sourceLibraryList").addEventListener("focusout", (event) => {
+    const select = event.target.closest("[data-source-select]");
+    if (select) releaseInteractiveControl(select);
   });
   $("sourceLibraryList").addEventListener("change", (event) => {
     const select = event.target.closest("[data-source-select]");
     if (!select) return;
+    releaseInteractiveControl(select);
     selectSourceFile(select.dataset.sourceSelect, select.value);
   });
   $("sourceLibraryList").addEventListener("dragover", (event) => {

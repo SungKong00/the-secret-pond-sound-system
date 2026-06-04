@@ -124,6 +124,7 @@ def category_payload(
         for file_path in _wav_files(directory)
     ]
     legacy = getattr(paths, config.legacy_attr) if config.legacy_attr is not None else None
+    legacy_stat = legacy.stat() if legacy is not None and legacy.exists() else None
     return {
         "id": config.id,
         "label": config.label,
@@ -133,6 +134,12 @@ def category_payload(
         "active_exists": active.exists() if active is not None else False,
         "legacy_path": _relative_path(paths.root, legacy) if legacy is not None else None,
         "legacy_exists": legacy.exists() if legacy is not None else False,
+        "legacy_size_bytes": legacy_stat.st_size if legacy_stat is not None else 0,
+        "legacy_modified_at": (
+            datetime.fromtimestamp(legacy_stat.st_mtime, UTC).isoformat()
+            if legacy_stat is not None
+            else None
+        ),
         "files": files,
     }
 

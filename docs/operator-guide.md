@@ -85,14 +85,16 @@ The doctor report does not prove microphone permission, actual stream startup, r
 
 ## Device Selection
 
-Input and output devices can be selected in the dashboard as pending settings. Device names and IDs can differ across Mac and Windows, and can also change when an audio interface is unplugged, renamed, or reconnected.
+Input and output devices are selected from the System panel dropdowns. Device names and IDs can differ across Mac and Windows, and can also change when an audio interface is unplugged, renamed, or reconnected.
 
 Current MVP behavior:
 
-- Device, sample-rate, and channel changes do not apply through `Apply and Restart`.
-- Select the pending device, then restart the app.
-- On startup, the app promotes pending startup device/audio-format settings to active settings, then loads only rendered playback caches that match the active sample rate, channel count, and loop length. Stale or missing caches trigger an automatic render attempt. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
-- If a device disappears or is renamed, choose an available device again, restart the app, and rerun `secret-pond doctor`.
+- Input and output device changes apply as soon as you choose a dropdown option.
+- If output is running and the output device changes, the app briefly stops the output stream and starts it again on the selected device.
+- Input device changes are blocked while a recording is active.
+- Sample-rate and channel changes still do not apply through `Apply and Restart`; restart the app after changing those startup audio-format settings.
+- On startup, the app loads only rendered playback caches that match the active sample rate, channel count, and loop length. Stale or missing caches trigger an automatic render attempt. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
+- If a device disappears or is renamed, choose an available device again and rerun `secret-pond doctor`.
 
 ## Operation
 
@@ -126,7 +128,7 @@ The Voice Stack panel also includes `Voice loop` for the voice stack loop length
 
 `Apply and Restart` normalizes the selected voice stack source to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. Accepted recordings also save a timestamped processed voice raw snapshot under `data/sources/voice/raw/`. New voice stack outputs are saved as timestamped files under `data/sources/voice/stack/`, while `data/voice/voice_stack_raw.wav` remains as a legacy compatibility mirror. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.
 
-Use `Apply and Restart` to render the current pending audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply device, sample-rate, or channel changes in the MVP.
+Use `Apply and Restart` to render the current pending audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply sample-rate or channel changes in the MVP; use the System panel dropdowns for device changes.
 
 The Voice Treatment panel has four non-technical presets:
 
@@ -144,7 +146,7 @@ Use `Maintenance` > `Reset Participants` only when intentionally zeroing the sho
 ## Error Recovery
 
 - If startup playback is unavailable, check the recent System event. If prepared files are missing, add or select low/mid WAV files in Source Library, or add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
-- If a selected device is unavailable, choose a new pending device, restart the app, and rerun `secret-pond doctor`.
+- If a selected device is unavailable, choose a new device in the System panel and rerun `secret-pond doctor`.
 - If `Apply and Restart` fails, the app tries to keep or restore the previous rendered playback state.
 - If `Restart Output` fails, stop output, check the device, and restart the app if the device state is unclear.
 - If the browser appears stale, refresh the page. Active backend state is preserved by the Python process.

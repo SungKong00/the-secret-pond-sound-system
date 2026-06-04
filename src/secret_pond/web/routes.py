@@ -107,7 +107,7 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         current = runtime.settings_store.load()
         try:
             devices = _device_settings_from_payload(current.active.devices, payload)
-            _validate_device_selection(runtime, devices)
+            _validate_device_selection(runtime, current.active.devices, devices)
             apply_runtime_devices(runtime, devices)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -359,7 +359,10 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
         runtime_config_changed = _runtime_configuration_changed(current.active, draft)
         was_running = runtime.output.is_running
         if runtime_config_changed:
-            detail = "audio output format and device changes require an app restart in this MVP"
+            detail = (
+                "audio output format changes require an app restart; "
+                "device changes must be applied from the System panel"
+            )
             _log_event_best_effort(
                 runtime,
                 "settings.apply_rejected",
@@ -610,12 +613,22 @@ def _device_settings_from_payload(
     return current.model_copy(update=updates)
 
 
-def _validate_device_selection(runtime: SecretPondRuntime, devices: DeviceSettings) -> None:
-    if devices.input_device_id is not None:
+def _validate_device_selection(
+    runtime: SecretPondRuntime,
+    current: DeviceSettings,
+    devices: DeviceSettings,
+) -> None:
+    if (
+        devices.input_device_id != current.input_device_id
+        and devices.input_device_id is not None
+    ):
         selected_input = runtime.device_registry.validate_input(devices.input_device_id)
         if selected_input is None:
             raise ValueError(f"input device is unavailable: {devices.input_device_id}")
-    if devices.output_device_id is not None:
+    if (
+        devices.output_device_id != current.output_device_id
+        and devices.output_device_id is not None
+    ):
         selected_output = runtime.device_registry.validate_output(devices.output_device_id)
         if selected_output is None:
             raise ValueError(f"output device is unavailable: {devices.output_device_id}")

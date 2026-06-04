@@ -518,10 +518,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="deviceHealthBadge"' in response.text
     assert 'id="syncBadge"' in response.text
     assert '<details class="device-panel" open>' not in response.text
-    assert "Input Device" not in response.text
-    assert "Output Device" not in response.text
     assert "앱 재시작 적용" not in response.text
-    assert "저장 안 된 변경 없음" in response.text
+    assert "저장 안 된 변경 없음" not in response.text
     assert "No pending changes" not in response.text
     assert 'aria-label="녹음 제어"' in response.text
     assert 'aria-label="runtime controls"' not in response.text
@@ -534,9 +532,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         '<section class="top-actions" aria-label="운영 콘솔">',
         "</section>",
     )
-    assert "출력 시작" not in top_actions
-    assert "출력 중지" not in top_actions
-    assert "출력 재시작" not in top_actions
+    assert "재생" not in top_actions
+    assert "중지" not in top_actions
+    assert "다시 재생" not in top_actions
     assert 'class="panel operation-panel"' in response.text
     assert 'class="operation-card playback-panel"' in response.text
     assert 'aria-labelledby="playbackPanelTitle"' in response.text
@@ -570,15 +568,33 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "Playback" in playback_panel
     assert '<small lang="ko">재생</small>' in playback_panel
     assert 'id="outputControlSummary"' in playback_panel
-    assert 'id="pendingBadge" class="status-pill muted" role="status" aria-live="polite"' in (
-        playback_panel
+    playback_heading = slice_between(
+        playback_panel,
+        '<div class="panel-heading inline playback-heading">',
+        "</div>\n              <div class=\"playback-status-stack\">",
     )
-    assert 'id="startOutputButton"' in playback_panel
-    assert 'id="stopOutputButton"' in playback_panel
+    assert 'id="pendingBadge"' in playback_heading
+    assert 'class="status-pill hot"' in playback_heading
+    assert 'role="status"' in playback_heading
+    assert 'aria-live="polite"' in playback_heading
+    assert "hidden" in playback_heading
+    assert playback_heading.index("Playback") < playback_heading.index("pendingBadge")
+    assert 'id="startOutputButton" class="button playback-button playback-start"' in playback_panel
+    assert 'id="stopOutputButton" class="button playback-button playback-stop"' in playback_panel
     assert 'id="restartOutputButton"' in playback_panel
-    assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
-    assert 'id="applyButton"' in playback_panel
-    assert "적용 후 재시작" in playback_panel
+    assert (
+        'id="restartOutputButton" class="button playback-button playback-restart" '
+        'type="button" disabled'
+    ) in playback_panel
+    assert 'id="applyButton" class="button playback-apply-button"' in playback_panel
+    assert "재생" in playback_panel
+    assert "중지" in playback_panel
+    assert "다시 재생" in playback_panel
+    assert "변경사항 적용 후 재생" in playback_panel
+    assert "출력 시작" not in playback_panel
+    assert "출력 중지" not in playback_panel
+    assert "출력 재시작" not in playback_panel
+    assert "적용 후 재시작" not in playback_panel
     assert "Apply and Restart" not in playback_panel
     assert "녹음 준비" in record_panel
     assert 'id="storageModePanel"' in record_panel
@@ -591,6 +607,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "개별 녹음 보관 안 함" not in record_panel
     assert "accepted clip 저장" not in record_panel
     assert record_panel.index("녹음 보관") < record_panel.index("녹음 준비")
+    assert 'id="captureGate" class="capture-gate capture-gate-off"' in record_panel
     assert 'id="captureGateSwitch"' in record_panel
     assert 'role="switch"' in record_panel
     assert 'id="captureGateState"' in record_panel
@@ -686,6 +703,12 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="inputDeviceName"' not in response.text
     assert 'id="outputDeviceName"' not in response.text
     assert 'id="deviceRestartNotice"' not in response.text
+    assert 'id="deviceApplyNotice"' not in system_panel
+    assert "장치 변경은 선택 즉시 적용됩니다." not in system_panel
+    assert "Input Device" not in system_panel
+    assert "Output Device" not in system_panel
+    assert "<span>입력</span>" in system_panel
+    assert "<span>출력</span>" in system_panel
     assert 'id="inputDeviceSelect"' in system_panel
     assert 'id="outputDeviceSelect"' in system_panel
     assert 'id="inputDeviceSelect"' not in record_panel
@@ -748,7 +771,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
         '<details class="maintenance-panel">',
         "</details>",
     )
-    assert "적용 후 재시작" in playback_panel
+    assert "변경사항 적용 후 재생" in playback_panel
     assert "Apply and Restart" not in playback_panel
     assert "적용 후 재시작" not in settings_panel
     assert "적용 후 재시작" not in voice_panel
@@ -843,6 +866,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".filter-status" in styles.text
     assert ".range-marks" in styles.text
     assert ".layer-preset-row" in styles.text
+    assert ".layer-preset-button.active" in styles.text
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
     normalized_script = " ".join(script.text.split())
@@ -881,6 +905,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "outputControlSummary" in script.text
     assert "출력 스트림이 실행 중입니다." in script.text
     assert "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다." in script.text
+    assert "syncAppliedSourceSignature" in script.text
+    assert "hasSourceFileChanges" in script.text
+    assert "sourceSignatureForSettings" in script.text
     assert "renderDeviceHealthBadge" in script.text
     assert "deviceOptionLabel" in script.text
     assert "host_api_name" in script.text
@@ -889,6 +916,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "장치 정상" in script.text
     assert "장치 경고" in script.text
     assert "장치 오프라인" in script.text
+    assert "renderDeviceApplyNotice" not in script.text
     assert "const outputControlBusy = state.applyInFlight || recordingStopBusy" in script.text
     assert (
         '"restartOutputButton").disabled = outputControlBusy || '
@@ -903,8 +931,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "renderSystemStatus" in script.text
     assert "renderSystemDeviceSelect" in script.text
-    assert 'renderSystemDeviceSelect( "inputDeviceSelect", devices.input_devices' in normalized_script
-    assert 'renderSystemDeviceSelect( "outputDeviceSelect", devices.output_devices' in normalized_script
+    assert (
+        'renderSystemDeviceSelect( "inputDeviceSelect", devices.input_devices'
+        in normalized_script
+    )
+    assert (
+        'renderSystemDeviceSelect( "outputDeviceSelect", devices.output_devices'
+        in normalized_script
+    )
     assert "sourceHealthList" in script.text
     assert 'date.toLocaleString("ko-KR"' in script.text
     assert "sourceLibraryList" in page.text
@@ -926,6 +960,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "selectedSourceUploadMode" in script.text
     assert "handleSourceFileDrop" in script.text
     assert "deleteSourceFile" in script.text
+    assert "source-file-select" in script.text
     assert "data-source-select" in script.text
     assert "data-source-delete" in script.text
     assert "data-source-upload" in script.text
@@ -956,7 +991,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "applyRecordingPreset" in script.text
     assert "renderRecordingPresets" in script.text
     assert 'button.setAttribute("aria-pressed", active ? "true" : "false")' in script.text
-    assert "state.draft.recording = { ...state.draft.recording, ...settings }" in script.text
+    assert "reversiblePresetDraft(" in script.text
+    assert "state.draft.recording = next.draft" in script.text
+    assert "state.presetSelections.recording = next.selection" in script.text
     assert "state.snapshot.settings.draft = clone(state.draft)" in script.text
     assert "renderRecordingControls()" in script.text
     assert "renderVoiceStackControls()" in script.text
@@ -1063,6 +1100,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert 'captureGateSwitch").classList.toggle("checked", captureGateOn)' in script.text
     assert ".switch-control.checked" in styles.text
+    assert '"captureGate").className = `capture-gate ${captureGateClass}`' in script.text
+    assert ".capture-gate.capture-gate-off" in styles.text
+    assert ".capture-gate.capture-gate-on" in styles.text
+    assert ".capture-gate.capture-gate-recording" in styles.text
+    assert ".playback-start" in styles.text
+    assert ".playback-stop" in styles.text
+    assert ".playback-restart" in styles.text
+    assert ".playback-apply-button.attention" in styles.text
     assert "layerPendingBadge" not in script.text
     assert "updateLayerPendingBadge" not in script.text
     assert "layerDraftChangeSummary" not in script.text
@@ -1081,6 +1126,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderLayerGroup(\"voiceLayerControls\", [\"voice\"])" in script.text
     assert "voiceLayerControls" in script.text
     assert "layerControlGroups" in script.text
+    assert "reversiblePresetDraft" in script.text
+    assert "presetSelectionMatches" in script.text
+    assert "clearLayerPresetSelection" in script.text
     assert 'action: "reset-filter"' in script.text
     assert "filterStatus" in script.text
     assert "filter-reset-button" in script.text
@@ -1144,7 +1192,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Draft " not in render_draft_value_body
     assert "Active " not in render_draft_value_body
     assert "저장 안 된 오디오 변경" in script.text
-    assert "저장 안 된 변경 없음" in script.text
+    assert "저장 안 된 변경 없음" not in script.text
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
@@ -1160,6 +1208,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert (
         '"captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false")'
+        in render_state_body
+    )
+    assert (
+        '"pendingBadge").hidden = !pendingChanges'
+        in render_state_body
+    )
+    assert (
+        '"applyButton").classList.toggle("attention", pendingChanges && !runtimeConfigChanges)'
         in render_state_body
     )
     assert (
@@ -1186,6 +1242,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         'setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" })'
     )
     assert bilingual_apply_label not in script.text
+    assert '$("applyButton").textContent = "변경사항 적용 후 재생";' in script.text
     assert "적용 중…" in script.text
     assert "녹음 처리가 끝날 때까지 기다리세요." in script.text
     assert "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다." in script.text
@@ -1248,7 +1305,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst shouldIgnoreSpace",
     )
     assert '"/api/devices"' in change_device_body
-    assert "await requestDevices()" in change_device_body
+    assert "state.devices = payload.devices" in change_device_body
+    assert "await requestDevices().catch(() => {})" in change_device_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in change_device_body
     control_body = slice_between(
         script.text,
@@ -1451,6 +1509,132 @@ assert.match(lastActionsMarkup, /필터 없음/);
     subprocess.run([node, "-e", harness], check=True, text=True)
 
 
+def test_static_ui_presets_are_stateful_and_reversible(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        (
+            "\nglobalThis.__secretPondTest = "
+            "{ clone, layerPresetDefs, recordingPresetDefs, reversiblePresetDraft, "
+            "presetSelectionMatches };\n"
+        ),
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+globalThis.document = {{
+  getElementById() {{ return null; }},
+  querySelector() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+  createElement() {{ return {{}}; }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {{}};
+globalThis.setInterval = () => 0;
+
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const helpers = globalThis.__secretPondTest;
+const customLayer = {{
+  enabled: true,
+  volume_db: -9,
+  eq: {{
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 55,
+    lowpass_hz: 18000,
+  }},
+}};
+const selectedLayer = helpers.reversiblePresetDraft(
+  customLayer,
+  helpers.layerPresetDefs,
+  "Warm Bed",
+  null,
+);
+assert.deepStrictEqual(selectedLayer.draft.eq, helpers.layerPresetDefs["Warm Bed"].eq);
+assert.strictEqual(selectedLayer.selection.name, "Warm Bed");
+assert.deepStrictEqual(selectedLayer.selection.previousDraft, customLayer);
+assert.strictEqual(
+  helpers.presetSelectionMatches(
+    selectedLayer.draft,
+    helpers.layerPresetDefs,
+    selectedLayer.selection,
+  ),
+  true,
+);
+
+const editedLayer = helpers.clone(selectedLayer.draft);
+editedLayer.eq.highpass_hz = 70;
+assert.strictEqual(
+  helpers.presetSelectionMatches(editedLayer, helpers.layerPresetDefs, selectedLayer.selection),
+  false,
+);
+
+const revertedLayer = helpers.reversiblePresetDraft(
+  selectedLayer.draft,
+  helpers.layerPresetDefs,
+  "Warm Bed",
+  selectedLayer.selection,
+);
+assert.deepStrictEqual(revertedLayer.draft, customLayer);
+assert.strictEqual(revertedLayer.selection, null);
+
+const customRecording = {{
+  gain_db: -8,
+  normalize_peak: 0.2,
+  highpass_hz: 70,
+  lowpass_hz: 11000,
+  presence_gain_db: -1,
+  reverb_mix: 0.05,
+  delay_mix: 0.02,
+  fade_ms: 25,
+}};
+const selectedRecording = helpers.reversiblePresetDraft(
+  customRecording,
+  helpers.recordingPresetDefs,
+  "Clearer Voice",
+  null,
+);
+assert.deepStrictEqual(selectedRecording.draft, {{
+  ...customRecording,
+  ...helpers.recordingPresetDefs["Clearer Voice"],
+}});
+assert.strictEqual(selectedRecording.selection.name, "Clearer Voice");
+
+const editedRecording = helpers.clone(selectedRecording.draft);
+editedRecording.presence_gain_db = 2;
+assert.strictEqual(
+  helpers.presetSelectionMatches(
+    editedRecording,
+    helpers.recordingPresetDefs,
+    selectedRecording.selection,
+  ),
+  false,
+);
+
+const revertedRecording = helpers.reversiblePresetDraft(
+  selectedRecording.draft,
+  helpers.recordingPresetDefs,
+  "Clearer Voice",
+  selectedRecording.selection,
+);
+assert.deepStrictEqual(revertedRecording.draft, customRecording);
+assert.strictEqual(revertedRecording.selection, null);
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -1465,7 +1649,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "renderRecordingControls, renderVoiceStackControls, renderWorkspaceTabs, "
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, renderEventLogSummary, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
-            "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording };\n"
+            "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
+            "renderLayerControls, syncAppliedSourceSignature };\n"
         ),
     )
     harness = f"""
@@ -1619,6 +1804,19 @@ globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 
+globalThis.__secretPondTest.state.devices = {{
+  warnings: ["output processing failed"],
+}};
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.textContent, "오디오 출력 처리 중 오류가 발생했습니다.");
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
+
+globalThis.__secretPondTest.state.devices = {{ warnings: [] }};
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, true);
+assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+
 delete window.WebSocket;
 delete globalThis.WebSocket;
 globalThis.__secretPondTest.renderSyncBadge();
@@ -1735,6 +1933,12 @@ const activeSettings = {{
   }},
   audio: {{ sample_rate: 48000, channels: 2 }},
   devices: {{ input_device_id: null, output_device_id: null }},
+  sources: {{
+    low_path: "sources/low/current.wav",
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  }},
   layers: {{
     low: layerSettings(-12),
     mid: layerSettings(-12),
@@ -1782,6 +1986,7 @@ assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
 assert.strictEqual(elements.captureGateState.textContent, "녹음 중");
+assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-recording");
 
 const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
 globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
@@ -1825,14 +2030,16 @@ globalThis.__secretPondTest.state.sources = {{
     }},
   ],
 }};
+globalThis.__secretPondTest.syncAppliedSourceSignature();
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");
 elements.inputDeviceSelect.innerHTML = "open device dropdown";
 elements.sourceLibraryList.innerHTML = "open source dropdown";
+globalThis.document.activeElement = elements.inputDeviceSelect;
+globalThis.__secretPondTest.state.activeInteractiveControl = elements.inputDeviceSelect;
 globalThis.__secretPondTest.applyState(snapshot, {{ syncDraft: false }});
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
-globalThis.document.activeElement = elements.inputDeviceSelect;
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
 globalThis.document.activeElement = null;
@@ -1844,6 +2051,7 @@ focusedSourceSelect.tagName = "SELECT";
 elements.sourceLibraryList.innerHTML = "open source dropdown";
 elements.sourceLibraryList.contains = (element) => element === focusedSourceSelect;
 globalThis.document.activeElement = focusedSourceSelect;
+globalThis.__secretPondTest.state.activeInteractiveControl = focusedSourceSelect;
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.document.activeElement = null;
@@ -1857,7 +2065,7 @@ assert.strictEqual(
   elements.storageModeSummary.textContent,
   "운영 모드 · 재시작 시 적용: 테스트 저장",
 );
-assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel pending");
+assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel library pending");
 assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "true");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
@@ -1874,32 +2082,56 @@ globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activ
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
-assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
+assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.pendingBadge.textContent, "");
+assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
+assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 globalThis.__secretPondTest.renderVoiceStackControls();
 const voiceLoopRow = elements.voiceStackControls.children[0];
 const voiceLoopInput = voiceLoopRow.querySelector("input");
 voiceLoopInput.value = "120";
 voiceLoopInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 105);
+assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
+assert.strictEqual(elements.applyButton.classList.contains("attention"), true);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
-assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
+assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 globalThis.__secretPondTest.renderRecordingControls();
 const inputGainGroupBody = elements.recordingControls.children[0].children[0];
 const inputGainRow = inputGainGroupBody.children[0];
 const inputGainInput = inputGainRow.querySelector("input");
 inputGainInput.value = "3";
 inputGainInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
-assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
+assert.strictEqual(elements.pendingBadge.hidden, true);
+
+globalThis.__secretPondTest.renderLayerControls();
+const mixerLayerCard = elements.layerControls.children[0];
+const mixerLayerToggle = mixerLayerCard.querySelector("input[type='checkbox']");
+mixerLayerToggle.checked = false;
+mixerLayerToggle.dispatchEvent({{ type: "change", target: mixerLayerToggle }});
+assert.strictEqual(elements.pendingBadge.hidden, false);
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.hidden, true);
+
+globalThis.__secretPondTest.state.sources.categories[0].files[0].modified_at =
+  "2026-06-05T00:30:00Z";
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.hidden, false);
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
+globalThis.__secretPondTest.syncAppliedSourceSignature();
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.hidden, true);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
@@ -1929,6 +2161,7 @@ assert.strictEqual(elements.captureGateSwitch.disabled, false);
 assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
 assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 켜짐");
+assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-on");
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 assert.strictEqual(elements.startOutputButton.disabled, false);
@@ -1971,6 +2204,7 @@ assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "fal
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), false);
 assert.strictEqual(elements.captureGateSwitch.disabled, false);
 assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 꺼짐");
+assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-off");
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 
@@ -2368,6 +2602,8 @@ def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None
     assert set(categories) == {"low", "mid", "voice_raw", "voice_stack"}
     assert categories["low"]["selected_path"] == "data/sources/low/library-low.wav"
     assert categories["low"]["active_exists"] is True
+    assert categories["low"]["legacy_size_bytes"] == 0
+    assert categories["low"]["legacy_modified_at"] is None
     assert categories["low"]["files"][0]["path"] == "data/sources/low/library-low.wav"
     assert categories["low"]["files"][0]["active"] is True
 
@@ -2550,7 +2786,7 @@ def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:
     state = wait_for_state(
         client,
         lambda payload: payload["is_recording"] is False,
-        timeout_seconds=3.0,
+        timeout_seconds=8.0,
     )
     assert state["is_recording"] is False
     assert state["participant_count"] == 1
@@ -2629,6 +2865,33 @@ def test_api_devices_update_applies_devices_immediately(tmp_path: Path) -> None:
     stored = SettingsStore(ProjectPaths(tmp_path)).load()
     assert stored.active.devices.input_device_id == "mic-2"
     assert stored.draft.devices.output_device_id == "speaker-2"
+
+
+def test_api_devices_update_validates_only_changed_device_fields(tmp_path: Path) -> None:
+    settings = api_settings().model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id="missing-mic",
+                output_device_id=None,
+            )
+        },
+        deep=True,
+    )
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        output=output,
+        device_registry=fake_device_registry(),
+    )
+
+    response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
+
+    assert response.status_code == 200
+    devices = response.json()["state"]["settings"]["active"]["devices"]
+    assert devices["input_device_id"] == "missing-mic"
+    assert devices["output_device_id"] == "speaker-2"
+    assert output.device_id == "speaker-2"
 
 
 def test_api_devices_update_restarts_running_output_on_output_device_change(

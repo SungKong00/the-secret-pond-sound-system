@@ -56,9 +56,10 @@ Use this checklist before rehearsal and before show operation.
 ## Device Recovery
 
 - [ ] Unplugging or renaming an input/output device is visible in `secret-pond doctor` or the dashboard warnings.
-- [ ] A new input/output pending device can be selected.
-- [ ] Restarting the app promotes pending startup device/audio-format settings, rejects stale rendered caches, and then `secret-pond doctor` plus dashboard warnings are checked.
-- [ ] Device, sample-rate, and channel changes are not expected to apply through Apply and Restart in the MVP.
+- [ ] A new input/output device can be selected from the System panel dropdowns.
+- [ ] Changing the output device while output is running briefly restarts output on the selected device.
+- [ ] Changing the input device while recording is blocked.
+- [ ] Sample-rate and channel changes are not expected to apply through Apply and Restart in the MVP.
 
 ## macOS
 

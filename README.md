@@ -36,7 +36,7 @@ secret-pond serve
 - `low`, `mid`, `voice` 3레이어 렌더링과 staged EQ/필터 적용
 - 단일 출력 엔진용 레이어 믹서와 `sounddevice` 출력 스트림 래퍼
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
-- FastAPI 기반 로컬 API와 운영자 웹 대시보드, 입력/출력 장치 변경 예정 UI
+- FastAPI 기반 로컬 API와 운영자 웹 대시보드, System 패널 입력/출력 장치 즉시 변경 UI
 - Source Library 파일 관리: `data/sources/low/*.wav`, `data/sources/mid/*.wav`,
   `data/sources/voice/raw/*.wav`, `data/sources/voice/stack/*.wav` 조회/선택/추가/삭제
 - 대시보드 System 패널: 준비 음원 파일 상태, 선택된 입출력 장치, 최근 JSONL 이벤트 요약
@@ -61,7 +61,7 @@ secret-pond serve
    기존 호환 경로인 `data/sources/low.wav`, `data/sources/mid.wav`를 준비합니다.
 2. `secret-pond doctor`로 장치와 의존성을 확인합니다. 로그용 JSON이 필요하면 `secret-pond doctor --json`을 사용하고, 준비 음원이 배치된 뒤에는 `secret-pond doctor --strict`를 현장 준비 상태 게이트로 사용할 수 있습니다.
 3. `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
-4. System 패널에서 선택된 소스 상태와 장치를 확인하고, Source Library에서 사용할 파일을 고릅니다.
+4. System 패널에서 선택된 소스 상태를 확인하고, 입력/출력 장치 드롭다운과 Source Library에서 사용할 파일을 고릅니다.
 5. 시작 시 렌더 캐시가 활성 오디오 설정과 맞으면 자동으로 player에 로드됩니다. 캐시가 없거나 맞지 않으면 준비 음원에서 자동 렌더를 시도하며, 실패 원인은 System 패널의 최근 이벤트에서 확인합니다.
 6. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.
 7. Loop Mixer와 Voice Stack panel의 EQ/볼륨 또는 `Voice loop`를 바꾼 뒤에는 `Apply and Restart`로 새 렌더를 만들고 player에 다시 로드합니다.
@@ -76,7 +76,8 @@ secret-pond serve
 현재 MVP 제약:
 
 - 출력 중 `Apply and Restart`를 누르면 출력 스트림을 잠시 멈추고 새 렌더를 검증한 뒤 다시 시작합니다. 적용 실패 시 가능한 범위에서 이전 렌더/플레이어/출력을 복원합니다.
-- `sample_rate`, `channels`, `input_device_id`, `output_device_id` 변경은 현재 UI Apply로 처리하지 않습니다. 대시보드에서 변경할 장치를 고른 뒤 앱을 재시작하면 시작 설정으로 승격됩니다.
+- 입력/출력 장치는 System 패널 드롭다운에서 바꾸는 즉시 적용됩니다. 출력 중 출력 장치를 바꾸면 출력 스트림을 잠시 멈췄다가 새 장치로 다시 시작하고, 녹음 중 입력 장치 변경은 차단됩니다.
+- `sample_rate`, `channels` 변경은 현재 UI Apply로 처리하지 않습니다. 이 값은 앱을 재시작해 활성 시작 설정으로 맞춰야 합니다.
 - Source Library 선택값이 있으면 선택된 WAV를 사용하고, 선택값이 없으면 기존
   `data/sources/low.wav`, `data/sources/mid.wav`, `data/voice/voice_stack_raw.wav`를
   legacy fallback으로 사용합니다.

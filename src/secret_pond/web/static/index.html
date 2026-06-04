@@ -35,32 +35,34 @@
         <section class="panel operation-panel" aria-label="운영 콘솔">
           <div class="operation-stack">
             <section class="operation-card playback-panel" aria-labelledby="playbackPanelTitle">
-              <div class="panel-heading">
-                <p class="eyebrow">출력</p>
-                <h2 id="playbackPanelTitle">Playback <small lang="ko">재생</small></h2>
+              <div class="panel-heading inline playback-heading">
+                <div>
+                  <p class="eyebrow">출력</p>
+                  <h2 id="playbackPanelTitle">Playback <small lang="ko">재생</small></h2>
+                </div>
+                <span id="pendingBadge" class="status-pill hot" role="status" aria-live="polite" hidden>
+                  저장 안 된 오디오 변경
+                </span>
               </div>
               <div class="playback-status-stack">
-                <span id="pendingBadge" class="status-pill muted" role="status" aria-live="polite">
-                  저장 안 된 변경 없음
-                </span>
                 <p id="outputControlSummary" class="playback-summary">
                   준비된 오디오를 렌더링한 뒤 출력을 시작합니다.
                 </p>
               </div>
               <div class="button-row playback-actions">
-                <button id="startOutputButton" class="button primary" type="button">
-                  출력 시작
+                <button id="startOutputButton" class="button playback-button playback-start" type="button">
+                  재생
                 </button>
-                <button id="stopOutputButton" class="button" type="button">
-                  출력 중지
+                <button id="stopOutputButton" class="button playback-button playback-stop" type="button">
+                  중지
                 </button>
-                <button id="restartOutputButton" class="button" type="button" disabled>
-                  출력 재시작
+                <button id="restartOutputButton" class="button playback-button playback-restart" type="button" disabled>
+                  다시 재생
                 </button>
               </div>
               <div class="playback-apply-strip">
-                <button id="applyButton" class="button primary" type="button">
-                  적용 후 재시작
+                <button id="applyButton" class="button playback-apply-button" type="button">
+                  변경사항 적용 후 재생
                 </button>
               </div>
             </section>
@@ -82,7 +84,7 @@
                 <div class="storage-mode-options" role="group" aria-label="녹음 보관 모드 선택">
                   <button
                     id="storageModeLiveButton"
-                    class="storage-mode-button"
+                    class="storage-mode-button live"
                     type="button"
                     data-storage-mode="live_ephemeral"
                     aria-pressed="false"
@@ -100,7 +102,7 @@
                   </button>
                 </div>
               </section>
-              <div class="capture-gate">
+              <div id="captureGate" class="capture-gate capture-gate-off">
                 <div id="captureGateCopy" class="capture-gate-copy">
                   <strong>녹음 준비</strong>
                   <small>스페이스바 녹음 허용</small>
@@ -146,32 +148,6 @@
                 <strong id="recordOutcomeDetail">녹음 준비를 켠 뒤 스페이스바를 누르세요.</strong>
               </div>
               <p class="hint">녹음 준비 상태에서만 스페이스바 누름 녹음이 작동합니다.</p>
-              <details class="device-panel" open>
-                <summary>
-                  <span>Audio Routing <small lang="ko">장치 라우팅</small></span>
-                  <strong>앱 재시작 적용</strong>
-                </summary>
-                <div id="deviceStatus" class="diagnostic-stack" aria-label="오디오 장치">
-                  <div class="diagnostic-row device-summary">
-                    <span>입력</span>
-                    <strong id="inputDeviceName">확인 중...</strong>
-                  </div>
-                  <label class="device-select-row" for="inputDeviceSelect">
-                    <span>Input Device <small lang="ko">변경 예정 입력 장치</small></span>
-                    <select id="inputDeviceSelect" disabled></select>
-                  </label>
-                  <div class="diagnostic-row device-summary">
-                    <span>출력</span>
-                    <strong id="outputDeviceName">확인 중...</strong>
-                  </div>
-                  <label class="device-select-row" for="outputDeviceSelect">
-                    <span>Output Device <small lang="ko">변경 예정 출력 장치</small></span>
-                    <select id="outputDeviceSelect" disabled></select>
-                  </label>
-                  <p id="deviceRestartNotice" class="device-note">장치 변경은 앱 재시작 후 적용됩니다.</p>
-                  <ul id="deviceWarnings" class="warning-list"></ul>
-                </div>
-              </details>
             </section>
           </div>
         </section>
@@ -344,15 +320,20 @@
               <span id="systemStatus" class="status-pill muted">확인 중</span>
             </div>
             <div id="sourceHealthList" class="diagnostic-stack" aria-label="소스 파일 상태"></div>
-            <div class="diagnostic-stack" aria-label="선택된 오디오 장치">
-              <div class="diagnostic-row device-summary">
+            <div
+              id="systemDeviceControls"
+              class="diagnostic-stack system-device-controls"
+              aria-label="선택된 오디오 장치"
+            >
+              <label class="diagnostic-row device-select-row" for="inputDeviceSelect">
                 <span>입력</span>
-                <strong id="systemInputDeviceName">확인 중...</strong>
-              </div>
-              <div class="diagnostic-row device-summary">
+                <select id="inputDeviceSelect" disabled></select>
+              </label>
+              <label class="diagnostic-row device-select-row" for="outputDeviceSelect">
                 <span>출력</span>
-                <strong id="systemOutputDeviceName">확인 중...</strong>
-              </div>
+                <select id="outputDeviceSelect" disabled></select>
+              </label>
+              <ul id="deviceWarnings" class="warning-list"></ul>
             </div>
             <ul id="eventLogSummary" class="event-list" aria-label="최근 실행 이벤트"></ul>
           </section>
