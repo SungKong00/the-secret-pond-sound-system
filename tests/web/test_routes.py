@@ -458,14 +458,14 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="modeBadge"' in response.text
     assert 'id="lastEventBadge"' in response.text
     assert 'id="errorBadge"' in response.text
-    assert "Error None" in response.text
+    assert "오류 없음" in response.text
     assert 'id="deviceHealthBadge"' in response.text
     assert 'id="syncBadge"' in response.text
-    assert "No unsaved changes" in response.text
+    assert "저장 안 된 변경 없음" in response.text
     assert "No pending changes" not in response.text
-    assert 'aria-label="capture controls"' in response.text
+    assert 'aria-label="녹음 제어"' in response.text
     assert 'aria-label="runtime controls"' not in response.text
-    assert 'aria-label="spacebar capture mode"' in response.text
+    assert 'aria-label="스페이스바 녹음 모드"' in response.text
     assert (
         'id="armButton" class="button primary" type="button" aria-pressed="false"'
         in response.text
@@ -476,33 +476,44 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     )
     top_actions = slice_between(
         response.text,
-        '<section class="top-actions" aria-label="capture controls">',
+        '<section class="top-actions" aria-label="운영 콘솔">',
         "</section>",
     )
-    assert "Start Output" not in top_actions
-    assert "Stop Output" not in top_actions
-    assert "Restart Output" not in top_actions
-    assert 'class="panel playback-panel"' in response.text
+    assert "출력 시작" not in top_actions
+    assert "출력 중지" not in top_actions
+    assert "출력 재시작" not in top_actions
+    assert 'class="panel operation-panel"' in response.text
+    assert 'class="operation-card playback-panel"' in response.text
     assert 'aria-labelledby="playbackPanelTitle"' in response.text
-    assert 'class="ops-stack-panel"' in response.text
-    ops_stack = slice_between(
+    operation_panel = slice_between(
         response.text,
-        '<div class="ops-stack-panel">',
-        '<div class="layer-stack-panel">',
+        '<section class="panel operation-panel" aria-label="운영 콘솔">',
+        '<div class="main-workspace-panel">',
     )
     playback_panel = slice_between(
-        ops_stack,
-        '<section class="panel playback-panel"',
-        '<section class="panel system-panel"',
+        operation_panel,
+        '<section class="operation-card playback-panel"',
+        '<section class="operation-card record-panel"',
+    )
+    record_panel = slice_between(
+        operation_panel,
+        '<section class="operation-card record-panel"',
+        "</section>\n          </div>",
+    )
+    right_stack = slice_between(
+        response.text,
+        '<div class="right-stack-panel">',
+        "\n        </div>\n      </section>",
     )
     system_panel = slice_between(
-        ops_stack,
+        right_stack,
         '<section class="panel system-panel"',
         "</section>",
     )
-    assert ops_stack.index("Playback") < ops_stack.index("System")
+    assert operation_panel.index("Playback") < operation_panel.index("Voice Capture")
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
+    assert '<small lang="ko">재생</small>' in playback_panel
     assert 'id="outputControlSummary"' in playback_panel
     assert 'id="pendingBadge" class="status-pill muted" role="status" aria-live="polite"' in (
         playback_panel
@@ -513,28 +524,50 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="restartOutputButton" class="button" type="button" disabled' in playback_panel
     assert 'id="applyButton"' in playback_panel
     assert "Apply and Restart" in playback_panel
+    assert '<small lang="ko">적용 후 재시작</small>' in playback_panel
+    assert "Capture Gate" in record_panel
+    assert 'id="armButton"' in record_panel
+    assert 'id="disarmButton"' in record_panel
+    assert 'id="startButton"' in record_panel
+    assert 'id="stopButton"' in record_panel
+    assert "Start Take" in record_panel
+    assert record_panel.index('id="startButton"') < record_panel.index('class="record-orbit"')
     assert 'id="systemStatus"' in system_panel
     assert 'id="sourceHealthList"' in system_panel
     assert 'id="eventLogSummary"' in system_panel
-    assert 'class="layer-stack-panel"' in response.text
+    assert 'class="main-workspace-panel"' in response.text
+    main_workspace = slice_between(
+        response.text,
+        '<div class="main-workspace-panel">',
+        '<div class="right-stack-panel">',
+    )
     assert 'class="panel voice-panel"' in response.text
     assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
-    mixer_panel = slice_between(
-        response.text,
-        '<section class="panel mixer-panel"',
+    settings_panel = slice_between(
+        main_workspace,
+        '<section class="panel settings-panel"',
         '<section class="panel voice-panel"',
     )
     voice_panel = slice_between(
-        response.text,
+        main_workspace,
         '<section class="panel voice-panel"',
-        '<section class="panel settings-panel"',
+        '<section class="panel mixer-panel"',
     )
+    mixer_panel = slice_between(
+        main_workspace,
+        '<section class="panel mixer-panel"',
+        "\n        </div>",
+    )
+    assert main_workspace.index("Voice Treatment") < main_workspace.index("Voice Stack")
+    assert main_workspace.index("Voice Stack") < main_workspace.index("Loop Mixer")
+    assert "Voice Treatment" in settings_panel
     assert 'id="layerControls"' in mixer_panel
     assert 'id="voiceLayerControls"' not in mixer_panel
     assert 'id="voiceStackControls"' in voice_panel
     assert 'id="voiceLayerControls"' in voice_panel
     assert 'id="voiceStackPanelTitle"' in voice_panel
     assert "Voice Stack" in voice_panel
+    assert '<small lang="ko">목소리 스택</small>' in voice_panel
     assert 'id="deviceStatus"' in response.text
     assert 'id="inputDeviceName"' in response.text
     assert 'id="outputDeviceName"' in response.text
@@ -548,14 +581,17 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="maximumRecordingTime"' in response.text
     assert 'id="recordingPresets"' in response.text
     assert 'role="group"' in response.text
-    assert 'aria-label="recording treatment presets"' in response.text
+    assert 'aria-label="녹음 처리 프리셋"' in response.text
     assert 'aria-pressed="false"' in response.text
     assert response.text.count('class="preset-button"') == 4
     assert "Soft" in response.text
     assert "Misty" in response.text
     assert "Dense" in response.text
     assert "Clearer Voice" in response.text
-    assert 'aria-label="system diagnostics"' in ops_stack
+    assert '<small lang="ko">부드럽게</small>' in response.text
+    assert '<small lang="ko">선명한 목소리</small>' in response.text
+    assert 'class="right-stack-panel"' in response.text
+    assert 'aria-label="시스템 진단"' in right_stack
     assert 'id="systemInputDeviceName"' in system_panel
     assert 'id="systemOutputDeviceName"' in system_panel
 
@@ -566,25 +602,30 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     response = client.get("/")
 
     assert response.status_code == 200
-    ops_stack = slice_between(
+    operation_panel = slice_between(
         response.text,
-        '<div class="ops-stack-panel">',
-        '<div class="layer-stack-panel">',
+        '<section class="panel operation-panel" aria-label="운영 콘솔">',
+        '<div class="main-workspace-panel">',
     )
     playback_panel = slice_between(
-        ops_stack,
-        '<section class="panel playback-panel"',
-        '<section class="panel system-panel"',
+        operation_panel,
+        '<section class="operation-card playback-panel"',
+        '<section class="operation-card record-panel"',
     )
-    voice_panel = slice_between(
+    main_workspace = slice_between(
         response.text,
-        '<section class="panel voice-panel"',
-        '<section class="panel settings-panel"',
+        '<div class="main-workspace-panel">',
+        '<div class="right-stack-panel">',
     )
     settings_panel = slice_between(
-        response.text,
+        main_workspace,
         '<section class="panel settings-panel"',
-        "\n\n      </section>",
+        '<section class="panel voice-panel"',
+    )
+    voice_panel = slice_between(
+        main_workspace,
+        '<section class="panel voice-panel"',
+        '<section class="panel mixer-panel"',
     )
     maintenance_panel = slice_between(
         settings_panel,
@@ -595,7 +636,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     assert "Apply and Restart" not in settings_panel
     assert "Apply and Restart" not in voice_panel
     assert "Reset Draft" not in playback_panel
-    assert "<summary>Maintenance</summary>" in maintenance_panel
+    assert "<summary>Maintenance" in maintenance_panel
     assert 'id="resetButton"' in maintenance_panel
     assert 'id="resetParticipantsButton"' in maintenance_panel
     assert "Reset Draft" in maintenance_panel
@@ -614,41 +655,55 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     topbar_rule = slice_between(styles.text, ".topbar {", "}")
     status_strip_rule = slice_between(styles.text, ".status-strip {", "}")
     last_event_badge_rule = slice_between(styles.text, "#lastEventBadge {", "}")
-    assert "grid-template-columns: minmax(180px, max-content) minmax(0, 1fr) auto;" in (
+    assert "grid-template-columns: minmax(210px, 0.72fr) minmax(0, 1fr) auto;" in (
         " ".join(topbar_rule.split())
     )
     assert "min-width: 0;" in status_strip_rule
     assert "min-width: 0;" in last_event_badge_rule
-    assert "max-width: min(30ch, 100%);" in last_event_badge_rule
+    assert "max-width: min(26ch, 100%);" in last_event_badge_rule
     assert "overflow: hidden;" in last_event_badge_rule
     assert "text-overflow: ellipsis;" in last_event_badge_rule
     assert "white-space: nowrap;" in last_event_badge_rule
     assert (
-        "grid-template-columns: minmax(240px, 0.72fr) minmax(260px, 0.78fr) "
-        "minmax(340px, 1.2fr) minmax(280px, 0.86fr);"
+        "grid-template-columns: minmax(300px, 0.82fr) minmax(620px, 1.7fr) "
+        "minmax(300px, 0.84fr);"
         in normalized_styles
     )
     assert (
-        'grid-template-areas: "record ops mixer settings";'
+        'grid-template-areas: "ops main side";'
         in normalized_styles
     )
     assert '"record playback mixer settings"' not in styles.text
     assert "align-items: start;" in styles.text
-    assert "@media (max-width: 1240px)" in styles.text
+    assert "@media (max-width: 1120px)" in styles.text
+    assert ".operation-panel" in styles.text
+    assert ".operation-card" in styles.text
+    assert ".capture-gate" in styles.text
     assert ".playback-panel" in styles.text
     assert ".playback-actions" in styles.text
     assert ".playback-apply-strip" in styles.text
-    assert ".ops-stack-panel" in styles.text
-    assert ".layer-stack-panel" in styles.text
+    assert ".main-workspace-panel" in styles.text
+    assert ".right-stack-panel" in styles.text
     assert ".voice-panel" in styles.text
-    assert ".ops-stack-panel,\n.layer-stack-panel" in styles.text
+    assert ".device-panel" in styles.text
+    assert ".control-group" in styles.text
+    assert ".eq-band-grid" in styles.text
+    assert ".frequency-guide" in styles.text
+    assert ".label-with-helper" in styles.text
+    assert ".label-with-helper small" in styles.text
+    assert ".operation-panel,\n.main-workspace-panel,\n.right-stack-panel" in styles.text
     assert "align-content: start;" in styles.text
     assert ".settings-panel .control-row" in styles.text
     assert (
-        "grid-template-columns: minmax(76px, 0.7fr) minmax(90px, 1fr) "
-        "minmax(44px, auto);"
+        "grid-template-columns: minmax(96px, 0.82fr) minmax(130px, 1fr) "
+        "minmax(112px, auto);"
         in normalized_styles
     )
+    assert ".precision-control" in styles.text
+    assert ".value-input" in styles.text
+    assert ".nudge-button" in styles.text
+    assert ".range-marks" in styles.text
+    assert ".layer-preset-row" in styles.text
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
     normalized_script = " ".join(script.text.split())
@@ -657,34 +712,34 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "new WebSocket" in script.text
     assert 'api("/api/diagnostics")' in script.text
     assert "renderModeBadge(snapshot.settings.active.voice_stack.mode)" in script.text
-    assert '"live_ephemeral": "Mode Live"' in script.text
-    assert '"test_library": "Mode Test"' in script.text
+    assert '"live_ephemeral": "운영 모드"' in script.text
+    assert '"test_library": "테스트 모드"' in script.text
     assert "renderLastEventBadge" in script.text
-    assert "Last Event None" in script.text
-    assert "Last Event Unavailable" in script.text
+    assert "최근 이벤트 없음" in script.text
+    assert "최근 이벤트 불러오기 실패" in script.text
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
     assert "currentErrorMessages" in script.text
     assert "renderErrorBadge" in script.text
-    assert "Error Active" in script.text
-    assert "Error None" in script.text
+    assert "오류 있음" in script.text
+    assert "오류 없음" in script.text
     assert '"errorBadge").className = "status-pill hot"' in script.text
     assert '"errorBadge").className = "status-pill muted"' in script.text
     assert "renderSyncBadge" in script.text
-    assert "Sync Live" in script.text
-    assert "Sync Connecting" in script.text
-    assert "Sync Polling" in script.text
+    assert "실시간 동기화" in script.text
+    assert "동기화 연결 중" in script.text
+    assert "동기화 확인" in script.text
     assert '"syncBadge").className = "status-pill safe"' in script.text
     assert '"syncBadge").className = "status-pill muted"' in script.text
     assert '!("WebSocket" in window)' in script.text
     assert "renderSyncBadge();\n  const snapshot = state.snapshot;" in script.text
     assert "outputControlSummary" in script.text
-    assert "Output stream is live." in script.text
-    assert "Unsaved audio changes are staged for Apply and Restart." in script.text
+    assert "출력 스트림이 실행 중입니다." in script.text
+    assert "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다." in script.text
     assert "renderDeviceHealthBadge" in script.text
-    assert "Devices Checking" in script.text
-    assert "Devices OK" in script.text
-    assert "Device Warning" in script.text
-    assert "Devices Offline" in script.text
+    assert "장치 확인 중" in script.text
+    assert "장치 정상" in script.text
+    assert "장치 경고" in script.text
+    assert "장치 오프라인" in script.text
     assert "const outputControlBusy = state.applyInFlight || recordingStopBusy" in script.text
     assert (
         '"restartOutputButton").disabled = outputControlBusy || '
@@ -699,15 +754,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "renderSystemStatus" in script.text
     assert "const systemDeviceName" in script.text
-    assert 'systemDeviceName( "selected_input_device", "No input device", )' in normalized_script
-    assert 'systemDeviceName( "selected_output_device", "No output device", )' in normalized_script
+    assert 'systemDeviceName( "selected_input_device", "입력 장치 없음", )' in normalized_script
+    assert 'systemDeviceName( "selected_output_device", "출력 장치 없음", )' in normalized_script
     assert "sourceHealthList" in script.text
     assert "eventLogSummary" in script.text
     assert "syncDraft: false" in script.text
     assert "!state.websocketConnected && state.snapshot?.is_recording" in script.text
     assert "requestState({ syncDraft: false })" in script.text
     assert 'control("/api/recording/poll-auto-stop", { syncDraft: false })' in script.text
-    assert "setRecordStatus(\"processing\", \"Processing recording...\")" in script.text
+    assert "setRecordStatus(\"processing\", \"녹음 처리 중...\")" in script.text
     assert 'path !== "/api/recording/poll-auto-stop"' in script.text
     assert "recordingStopInFlight" in script.text
     assert 'path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight' in script.text
@@ -731,13 +786,18 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const renderVoiceStackControls = () => {" in script.text
     assert '"voiceStackControls"' in script.text
     assert "voiceStackControlDefs" in script.text
-    assert '"Voice loop"' in script.text
-    assert '"loop_seconds", "Voice loop", 30, 600, 5, " s"' in script.text
+    assert 'label: { ko: "목소리 루프 길이", en: "Voice Loop" }' in script.text
+    assert "1m center" in script.text
+    assert "{ value: 60, label: \"1m\" }" in script.text
+    assert "max: 105" in script.text
+    assert 'lang="ko"' in script.text
+    assert "return `<span class=\"label-with-helper\">${label.en}<small lang=\"ko\">" in (
+        script.text
+    )
     assert "scheduleDraftSave()" in script.text
-    assert "Soft" in script.text
-    assert "Misty" in script.text
-    assert "Dense" in script.text
-    assert "Clearer Voice" in script.text
+    assert "presetLabels" in script.text
+    assert 'Soft: { ko: "부드럽게", en: "Soft" }' in script.text
+    assert '"Clearer Voice": { ko: "선명한 목소리", en: "Clearer Voice" }' in script.text
     for preset in RECORDING_PRESETS.values():
         for key, value in preset.items():
             assert key in script.text
@@ -757,15 +817,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "maximumRecordingTime" in script.text
     assert ".record-limits" in styles.text
     assert "renderRecordReadiness" in script.text
-    assert "Hold Space to Record" in script.text
-    assert "Arm capture before holding Space." in script.text
+    assert "스페이스바를 눌러 녹음" in script.text
+    assert "먼저 녹음을 준비한 뒤 스페이스바를 누르세요." in script.text
     assert ".record-outcome.armed-ready" in styles.text
     assert "overflow-wrap: anywhere" in styles.text
-    assert "Recording Added" in script.text
-    assert "Too Short" in script.text
-    assert "Empty Recording" in script.text
-    assert "Recording Disarmed" in script.text
-    assert "Recording Failed" in script.text
+    assert "녹음 추가됨" in script.text
+    assert "너무 짧음" in script.text
+    assert "빈 녹음" in script.text
+    assert "녹음 준비 해제됨" in script.text
+    assert "녹음 실패" in script.text
     assert (
         "const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy"
         in script.text
@@ -793,16 +853,30 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "layerPendingBadge" in script.text
     assert "updateLayerPendingBadge" in script.text
     assert "renderLayerCard" in script.text
+    assert "layerPresetDefs" in script.text
+    assert "applyLayerPreset" in script.text
+    assert "Warm Bed" in script.text
+    assert "Clear Pocket" in script.text
+    assert "Distant Air" in script.text
     assert "renderLayerGroup(\"layerControls\", [\"low\", \"mid\"])" in script.text
     assert "renderLayerGroup(\"voiceLayerControls\", [\"voice\"])" in script.text
     assert "voiceLayerControls" in script.text
+    assert "layerControlGroups" in script.text
+    assert "recordingControlGroups" in script.text
+    assert "frequencyGuideMarkup" in script.text
+    assert "20-250 Hz" in script.text
+    assert "250 Hz-2 kHz" in script.text
+    assert "2 kHz+" in script.text
     assert "Pending Draft" in script.text
     assert "Active" in script.text
     assert "renderDraftValue" in script.text
+    assert "precisionControlMarkup" in script.text
+    assert "snappedValue" in script.text
     assert "active-value" in styles.text
     assert "Draft " in script.text
-    assert "Unsaved audio changes" in script.text
-    assert "No unsaved changes" in script.text
+    assert "Active " in script.text
+    assert "저장 안 된 오디오 변경" in script.text
+    assert "저장 안 된 변경 없음" in script.text
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
     assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
@@ -831,25 +905,27 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         '"stopButton").disabled = recordingStopBusy || !snapshot.is_recording'
         in render_state_body
     )
-    assert 'recordingStopBusy\n    ? "Processing"' in render_state_body
+    assert 'recordingStopBusy\n    ? "처리 중"' in render_state_body
     assert "applyInFlight: false" in script.text
     assert (
         '"applyButton").disabled =\n    state.applyInFlight || recordingStopBusy || '
         "snapshot.is_recording || runtimeConfigChanges"
         in render_state_body
     )
-    assert '"applyButton").textContent = state.applyInFlight' in script.text
-    assert "Applying..." in script.text
-    assert "Wait for recording processing to finish." in script.text
-    assert "Rendering and reloading staged audio settings." in script.text
+    assert 'setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" })' in (
+        script.text
+    )
+    assert "적용 중..." in script.text
+    assert "녹음 처리가 끝날 때까지 기다리세요." in script.text
+    assert "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다." in script.text
     assert '"resetButton").disabled = state.applyInFlight || snapshot.is_recording' in script.text
-    assert "Stop recording before resetting draft settings." in script.text
+    assert "초안 설정을 초기화하기 전에 녹음을 중지하세요." in script.text
     assert (
         '"resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording'
         in script.text
     )
-    assert "Stop recording before resetting participant count." in script.text
-    assert "Will stop and restart output while applying staged audio settings." in script.text
+    assert "참여자 수를 초기화하기 전에 녹음을 중지하세요." in script.text
+    assert "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다." in script.text
     assert (
         "snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate"
         in script.text
@@ -915,7 +991,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
     assert "if (controlError) showError(controlError.message);" in control_body
     assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
-        "setRecordStatus(\"processing\", \"Processing recording...\")",
+        "setRecordStatus(\"processing\", \"녹음 처리 중...\")",
     )
     final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
     final_render = control_body.index("renderState();", final_recording_stop_reset)
@@ -926,14 +1002,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
         "}\n    if (path.startsWith(\"/api/playback/\"))",
     )
-    assert 'setRecordStatus("failed", "Recording Failed", error.message)' in recording_error_branch
+    assert 'setRecordStatus("failed", "녹음 실패", error.message)' in recording_error_branch
     assert "await requestState({ syncDraft: false }).catch(() => {})" in recording_error_branch
     assert "await requestDiagnostics().catch(() => {})" in recording_error_branch
     recording_branch_start = control_body.index(
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',
     )
     recording_failed_status = control_body.index(
-        'setRecordStatus("failed", "Recording Failed", error.message)',
+        'setRecordStatus("failed", "녹음 실패", error.message)',
         recording_branch_start,
     )
     recording_state_refresh = control_body.index(
@@ -1067,58 +1143,58 @@ vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
 const recordOutcome = makeTrackedElement();
 recordOutcome.className = "record-outcome ready";
 elements.recordOutcomeStatus = makeTrackedElement();
-elements.recordOutcomeStatus.textContent = "Ready";
+elements.recordOutcomeStatus.textContent = "준비";
 elements.recordOutcomeStatus.parentElement = recordOutcome;
 elements.recordOutcomeDetail = makeTrackedElement();
-elements.recordOutcomeDetail.textContent = "Arm capture before holding Space.";
+elements.recordOutcomeDetail.textContent = "먼저 녹음을 준비한 뒤 스페이스바를 누르세요.";
 elements.recordOutcomeDetail.parentElement = recordOutcome;
 
 globalThis.__secretPondTest.showError("action failed");
 assert.strictEqual(elements.errorBanner.hidden, false);
 assert.strictEqual(elements.errorBanner.textContent, "action failed");
-assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
 
 globalThis.__secretPondTest.showError("");
 assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBanner.textContent, "");
-assert.strictEqual(elements.errorBadge.textContent, "Error None");
+assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 assert.strictEqual(elements.errorBadge.className, "status-pill muted");
 
 globalThis.__secretPondTest.state.snapshot = null;
 globalThis.__secretPondTest.state.deviceError = "devices failed";
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.textContent, "devices failed");
-assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
 globalThis.__secretPondTest.state.deviceError = null;
 globalThis.__secretPondTest.state.diagnosticsError = null;
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, true);
-assert.strictEqual(elements.errorBadge.textContent, "Error None");
+assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 
 delete window.WebSocket;
 delete globalThis.WebSocket;
 globalThis.__secretPondTest.renderSyncBadge();
-assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 assert.strictEqual(elements.syncBadge.className, "status-pill muted");
 
 window.WebSocket = function FakeWebSocket() {{}};
 globalThis.__secretPondTest.state.stateSocket = {{}};
 globalThis.__secretPondTest.state.websocketConnected = false;
 globalThis.__secretPondTest.renderSyncBadge();
-assert.strictEqual(elements.syncBadge.textContent, "Sync Connecting");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 연결 중");
 assert.strictEqual(elements.syncBadge.className, "status-pill muted");
 
 globalThis.__secretPondTest.state.websocketConnected = true;
 globalThis.__secretPondTest.renderSyncBadge();
-assert.strictEqual(elements.syncBadge.textContent, "Sync Live");
+assert.strictEqual(elements.syncBadge.textContent, "실시간 동기화");
 assert.strictEqual(elements.syncBadge.className, "status-pill safe");
 
 globalThis.__secretPondTest.state.stateSocket = null;
 globalThis.__secretPondTest.state.websocketConnected = false;
 globalThis.__secretPondTest.renderSyncBadge();
-assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 
 class FakeStateSocket {{
   static instances = [];
@@ -1145,23 +1221,23 @@ window.WebSocket = FakeStateSocket;
 globalThis.WebSocket = FakeStateSocket;
 globalThis.__secretPondTest.state.snapshot = null;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 
 globalThis.__secretPondTest.connectStateSocket();
 const connectedSocket = FakeStateSocket.instances[0];
 assert.strictEqual(connectedSocket.url, "ws://127.0.0.1:8000/ws/state");
 assert.strictEqual(globalThis.__secretPondTest.state.stateSocket, connectedSocket);
-assert.strictEqual(elements.syncBadge.textContent, "Sync Connecting");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 연결 중");
 
 connectedSocket.emit("open");
 assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, true);
-assert.strictEqual(elements.syncBadge.textContent, "Sync Live");
+assert.strictEqual(elements.syncBadge.textContent, "실시간 동기화");
 assert.strictEqual(elements.syncBadge.className, "status-pill safe");
 
 connectedSocket.emit("close");
 assert.strictEqual(globalThis.__secretPondTest.state.stateSocket, null);
 assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, false);
-assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
+assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 assert.strictEqual(scheduledReconnect.delay, 1500);
 
 const layerSettings = (volumeDb) => ({{
@@ -1222,21 +1298,21 @@ assert.strictEqual(
   elements.errorBanner.textContent,
   "stack failed · stream failed · diagnostics failed",
 );
-assert.strictEqual(elements.errorBadge.textContent, "Error Active");
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
 globalThis.__secretPondTest.state.snapshot.last_error = null;
 globalThis.__secretPondTest.state.snapshot.playback.output_latest_error = null;
 globalThis.__secretPondTest.state.diagnosticsError = null;
 globalThis.__secretPondTest.renderErrors();
-assert.strictEqual(elements.errorBadge.textContent, "Error None");
+assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, false);
 assert.strictEqual(elements.disarmButton.disabled, false);
-assert.strictEqual(elements.recordCoreStatus.textContent, "Capturing");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop.");
+assert.strictEqual(elements.recordCoreStatus.textContent, "녹음 중");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 중");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지합니다.");
 assert.strictEqual(recordCore.classList.contains("recording"), true);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
@@ -1247,37 +1323,38 @@ globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activ
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
 assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
 globalThis.__secretPondTest.renderVoiceStackControls();
 const voiceLoopRow = elements.voiceStackControls.children[0];
 const voiceLoopInput = voiceLoopRow.querySelector("input");
 voiceLoopInput.value = "120";
 voiceLoopInput.dispatchEvent({{ type: "input" }});
-assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 120);
-assert.strictEqual(elements.pendingBadge.textContent, "Unsaved audio changes");
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 105);
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
 assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
 globalThis.__secretPondTest.renderRecordingControls();
-const inputGainRow = elements.recordingControls.children[0];
+const inputGainGroupBody = elements.recordingControls.children[0].children[0];
+const inputGainRow = inputGainGroupBody.children[0];
 const inputGainInput = inputGainRow.querySelector("input");
 inputGainInput.value = "3";
 inputGainInput.dispatchEvent({{ type: "input" }});
-assert.strictEqual(elements.pendingBadge.textContent, "Unsaved audio changes");
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 변경 없음");
 assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.applyButton.disabled, true);
-assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
+assert.strictEqual(elements.applyButton.title, "녹음 처리가 끝날 때까지 기다리세요.");
 assert.strictEqual(elements.startOutputButton.disabled, true);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
 globalThis.__secretPondTest.renderState();
@@ -1288,9 +1365,12 @@ globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Hold Space to Record");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop recording.");
+assert.strictEqual(elements.recordCoreStatus.textContent, "준비됨");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "스페이스바를 눌러 녹음");
+assert.strictEqual(
+  elements.recordOutcomeDetail.textContent,
+  "스페이스바를 떼면 녹음을 중지합니다.",
+);
 assert.strictEqual(recordOutcome.className, "record-outcome armed-ready");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(recordCore.classList.contains("armed"), true);
@@ -1307,10 +1387,10 @@ assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.startButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, true);
-assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
+assert.strictEqual(elements.applyButton.title, "녹음 처리가 끝날 때까지 기다리세요.");
 assert.strictEqual(elements.startOutputButton.disabled, true);
-assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Processing recording...");
+assert.strictEqual(elements.recordCoreStatus.textContent, "처리 중");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 처리 중...");
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
@@ -1327,9 +1407,12 @@ globalThis.__secretPondTest.state.applyInFlight = false;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordCoreStatus.textContent, "Safe");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Ready");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "Arm capture before holding Space.");
+assert.strictEqual(elements.recordCoreStatus.textContent, "안전");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "준비");
+assert.strictEqual(
+  elements.recordOutcomeDetail.textContent,
+  "먼저 녹음을 준비한 뒤 스페이스바를 누르세요.",
+);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "false");
@@ -1339,19 +1422,19 @@ assert.strictEqual(elements.disarmButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 
-elements.recordOutcomeStatus.textContent = "Recording Added";
-elements.recordOutcomeDetail.textContent = "Participant 8 · 4.2s";
+elements.recordOutcomeStatus.textContent = "녹음 추가됨";
+elements.recordOutcomeDetail.textContent = "참여자 8 · 4.2s";
 recordOutcome.className = "record-outcome added";
 globalThis.__secretPondTest.state.snapshot.armed = true;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording Added");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "Participant 8 · 4.2s");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 추가됨");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "참여자 8 · 4.2s");
 assert.strictEqual(recordOutcome.className, "record-outcome added");
 
 globalThis.__secretPondTest.state.snapshot.is_recording = true;
 globalThis.__secretPondTest.renderState();
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "Recording");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "Release Space to stop.");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 중");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지합니다.");
 assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
