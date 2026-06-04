@@ -1464,6 +1464,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "if (currentSettingsActionState().applyDisabled) return" in apply_body
     assert "state.applyInFlight = true" in apply_body
     assert "state.applyInFlight = false" in apply_body
+    assert "renderDevices();" in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
     assert "showError(applyError.message)" in apply_body
@@ -1495,6 +1496,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const changeDevice = async (key, value) => {",
         "};\n\nconst shouldIgnoreSpace",
     )
+    assert "if (state.deviceChangeInFlight || state.applyInFlight) return" in change_device_body
     assert '"/api/devices"' in change_device_body
     assert "state.devices = payload.devices" in change_device_body
     assert "await requestDevices().catch(() => {})" in change_device_body
@@ -3070,6 +3072,9 @@ globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
 assert.strictEqual(elements.startOutputButton.disabled, true);
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+assert.strictEqual(elements.outputDeviceSelect.disabled, true);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopOutputButton.disabled, true);
@@ -3126,6 +3131,18 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  let applyDeviceChangePath = null;
+  globalThis.__secretPondTest.state.applyInFlight = true;
+  globalThis.fetch = (path) => {{
+    applyDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(applyDeviceChangePath, null);
+  globalThis.__secretPondTest.state.applyInFlight = false;
+  globalThis.__secretPondTest.renderDevices();
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+
   let cleanApplyFetchPath = null;
   globalThis.fetch = (path) => {{
     cleanApplyFetchPath = path;

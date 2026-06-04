@@ -1984,7 +1984,8 @@ const deleteSourceFile = async (category, path) => {
 
 const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
   const select = $(selectId);
-  const disabled = forceDisabled || state.deviceChangeInFlight || !state.devices;
+  const disabled = forceDisabled || state.deviceChangeInFlight || state.applyInFlight ||
+    !state.devices;
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.disabled = disabled;
     return;
@@ -2968,6 +2969,7 @@ const applyAndRestart = async () => {
   let applyError = null;
   state.applyInFlight = true;
   renderState();
+  renderDevices();
   try {
     clearDraftSaveTimer();
     await saveDraft();
@@ -2983,6 +2985,7 @@ const applyAndRestart = async () => {
   } finally {
     state.applyInFlight = false;
     renderState();
+    renderDevices();
     if (applyError) showError(applyError.message);
   }
 };
@@ -3025,7 +3028,7 @@ const toggleCaptureGate = () => {
 };
 
 const changeDevice = async (key, value) => {
-  if (state.deviceChangeInFlight) return;
+  if (state.deviceChangeInFlight || state.applyInFlight) return;
   state.deviceChangeInFlight = true;
   renderDevices();
   try {
