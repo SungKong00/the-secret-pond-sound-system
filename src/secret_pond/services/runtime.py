@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LayerId
 from secret_pond.audio.output import SoundDeviceOutput
 from secret_pond.audio.player import LayeredLoopPlayer
@@ -105,6 +106,14 @@ def build_runtime(
         logger=startup_logger or logger,
         device_registry=resolved_device_registry,
     )
+    _prepare_startup_playback_best_effort(
+        paths=paths,
+        settings=active_settings,
+        renderer=renderer,
+        player=resolved_player,
+        output=resolved_output,
+        logger=startup_logger or logger,
+    )
     controller = RecordingController(
         settings=active_settings,
         recorder=resolved_recorder,
@@ -172,6 +181,87 @@ def _log_startup_diagnostics_best_effort(
     }
     try:
         logger.log_event("system.startup", payload)
+    except Exception:
+        return
+
+
+def _prepare_startup_playback_best_effort(
+    *,
+    paths: ProjectPaths,
+    settings: Any,
+    renderer: LayerRenderer,
+    player: LayeredLoopPlayer,
+    output: PlaybackOutput,
+    logger: StartupLogger,
+) -> None:
+    layer_paths = rendered_layer_paths(paths)
+    missing_layers: list[LayerId] = []
+    prepared_from = "cache"
+    try:
+        missing_layers = [layer_id for layer_id, path in layer_paths.items() if not path.exists()]
+        if missing_layers or not _rendered_layers_match_settings(layer_paths, settings):
+            renderer.render_all(settings)
+            prepared_from = "render"
+        player.load_rendered_layers(layer_paths)
+        _apply_startup_player_settings(player, settings)
+    except Exception as exc:
+        _log_startup_event_best_effort(
+            logger,
+            "system.startup_playback_unavailable",
+            {
+                "error": str(exc),
+                "missing_layers": missing_layers,
+                "prepared_from": prepared_from,
+                "auto_start_requested": settings.playback.auto_start,
+            },
+        )
+        return
+
+    if not settings.playback.auto_start:
+        return
+
+    try:
+        output.start()
+    except Exception as exc:
+        _log_startup_event_best_effort(
+            logger,
+            "system.startup_playback_autostart_failed",
+            {
+                "error": str(exc),
+                "prepared_from": prepared_from,
+            },
+        )
+
+
+def _apply_startup_player_settings(player: LayeredLoopPlayer, settings: Any) -> None:
+    for layer_id, layer_settings in settings.layers.items():
+        player.set_enabled(layer_id, layer_settings.enabled)
+    player.set_peak_ceiling(settings.audio.peak_ceiling)
+
+
+def _rendered_layers_match_settings(layer_paths: dict[LayerId, Path], settings: Any) -> bool:
+    target_frames = settings.audio.sample_rate * settings.audio.loop_seconds
+    for path in layer_paths.values():
+        try:
+            buffer = read_wav(path)
+        except Exception:
+            return False
+        if (
+            buffer.sample_rate != settings.audio.sample_rate
+            or buffer.channels != settings.audio.channels
+            or buffer.frames != target_frames
+        ):
+            return False
+    return True
+
+
+def _log_startup_event_best_effort(
+    logger: StartupLogger,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    try:
+        logger.log_event(event_type, payload)
     except Exception:
         return
 

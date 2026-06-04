@@ -56,7 +56,8 @@ def test_operator_guide_covers_required_operations() -> None:
         "renamed",
         "Restart the app",
         "Python 3.11 or 3.12",
-        "press `Apply and Restart` once before `Start Output`",
+        "loads existing compatible playback caches",
+        "startup playback is unavailable",
         "Playback panel",
         "Voice Stack panel",
         "verify `secret-pond doctor` and dashboard warnings",
@@ -83,6 +84,7 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "secret-pond doctor --strict",
         "missing-source warning",
         "valid low/mid files",
+        "Startup loads compatible rendered playback caches",
         "Playback starts",
         "Low layer",
         "Mid layer",
@@ -128,6 +130,7 @@ def test_readme_links_operator_docs() -> None:
     assert "Unsaved audio changes" in readme
     assert "min/max duration" in readme
     assert "System" in readme
+    assert "렌더 캐시" in readme
 
 
 def test_request_file_records_current_mvp_docs_decisions() -> None:
@@ -139,6 +142,7 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "하드웨어 센서" in request
     assert "Apply and Restart" in request
     assert "앱 재시작" in request
+    assert "기존 렌더 캐시는 활성 샘플레이트" in request
     assert "docs/operator-guide.md" in request
     assert "docs/audio-setup-checklist.md" in request
     assert "secret-pond doctor --json" in request

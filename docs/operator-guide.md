@@ -73,12 +73,12 @@ Current MVP behavior:
 
 - Device, sample-rate, and channel changes do not apply through `Apply and Restart`.
 - Select the device draft, then restart the app.
-- On startup, the app promotes startup device/audio-format drafts to active settings. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
+- On startup, the app promotes startup device/audio-format drafts to active settings, then loads only rendered playback caches that match the active sample rate, channel count, and loop length. Stale or missing caches trigger an automatic render attempt. After restart, verify `secret-pond doctor` and dashboard warnings because device compatibility still depends on the host audio stack.
 - If a device disappears or is renamed, choose an available device again, restart the app, and rerun `secret-pond doctor`.
 
 ## Operation
 
-On a fresh startup, use the Playback panel: press `Apply and Restart` once before `Start Output`; this renders and loads the playback layers. Use `Start Output` to begin playback after layers are loaded. Use `Stop Output` to stop the stream. Use `Restart Output` to restart the current loaded playback from the beginning without applying new settings.
+On startup, the app loads existing compatible playback caches. If caches are missing or stale and `data/sources/low.wav` plus `data/sources/mid.wav` are available, startup automatically renders and loads fresh playback layers. Use `Start Output` to begin playback after startup preparation succeeds. Use `Apply and Restart` after staged settings changes or when the System panel reports startup playback is unavailable. Use `Stop Output` to stop the stream. Use `Restart Output` to restart the current loaded playback from the beginning without applying new settings.
 
 Use `Arm` before recording. Spacebar recording only works while Armed.
 
@@ -121,7 +121,7 @@ Use `Maintenance` > `Reset Participants` only when intentionally zeroing the sho
 
 ## Error Recovery
 
-- If prepared files are missing, add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
+- If startup playback is unavailable, check the recent System event. If prepared files are missing, add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
 - If a selected device is unavailable, choose a new draft device, restart the app, and rerun `secret-pond doctor`.
 - If `Apply and Restart` fails, the app tries to keep or restore the previous rendered playback state.
 - If `Restart Output` fails, stop output, check the device, and restart the app if the device state is unclear.

@@ -9,13 +9,14 @@ Use this checklist before rehearsal and before show operation.
 - [ ] After prepared source files are in place, `secret-pond doctor --strict` exits successfully.
 - [ ] App starts without source files and shows a clear missing-source warning.
 - [ ] App starts with valid low/mid files at `data/sources/low.wav` and `data/sources/mid.wav`.
+- [ ] Startup loads compatible rendered playback caches, or renders fresh caches when prepared sources are available.
 - [ ] System panel shows source health, selected devices, and recent events.
 - [ ] The browser opens at `http://127.0.0.1:8000`.
 
 ## Playback
 
 - [ ] `Apply and Restart` renders new audio.
-- [ ] Playback starts with `Start Output`.
+- [ ] Playback starts with `Start Output` after startup preload or `Apply and Restart`.
 - [ ] `Restart Output` restarts the loaded playback without changing settings.
 - [ ] `Stop Output` stops the output stream.
 - [ ] A failed render keeps the previous good playback layer where possible.
@@ -48,7 +49,7 @@ Use this checklist before rehearsal and before show operation.
 
 - [ ] Unplugging or renaming an input/output device is visible in `secret-pond doctor` or the dashboard warnings.
 - [ ] A new input/output draft can be selected.
-- [ ] Restarting the app promotes startup device drafts; `secret-pond doctor` and dashboard warnings are checked afterward.
+- [ ] Restarting the app promotes startup device/audio-format drafts, rejects stale rendered caches, and then `secret-pond doctor` plus dashboard warnings are checked.
 - [ ] Device, sample-rate, and channel changes are not expected to apply through Apply and Restart in the MVP.
 
 ## macOS
