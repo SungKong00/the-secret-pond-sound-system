@@ -7,7 +7,7 @@ import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
-from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import FakeRecorder
 from secret_pond.config import (
@@ -301,6 +301,63 @@ def test_build_runtime_rerenders_stale_playback_layers_when_audio_format_changes
     assert runtime.player.snapshot().layers["low"].sample_rate == 8_000
     assert runtime.player.snapshot().layers["low"].frames == 8_000
     assert block.samples.shape == (4, 2)
+
+
+def test_build_runtime_rerenders_voice_playback_when_raw_stack_is_normalized(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+        voice_stack=VoiceStackSettings(loop_seconds=2),
+    )
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    write_source_layers(paths, settings)
+    write_rendered_layers(paths, settings)
+    stale_voice = np.ones((8_000, 2), dtype=np.float32) * 0.4
+    write_wav_atomic(paths.voice_playback, AudioBuffer(samples=stale_voice, sample_rate=8_000))
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+
+    build_runtime(
+        tmp_path,
+        recorder=fake_recorder(),
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+
+    assert read_wav(paths.voice_stack_raw).frames == 16_000
+    voice_playback = read_wav(paths.voice_playback)
+    assert voice_playback.frames == 8_000
+    assert not np.allclose(voice_playback.samples, stale_voice, atol=1e-4)
+
+
+def test_build_runtime_keeps_cache_only_startup_when_missing_raw_stack_is_created(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = playback_ready_settings()
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    write_rendered_layers(paths, settings)
+
+    runtime = build_runtime(
+        tmp_path,
+        recorder=fake_recorder(),
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+    runtime.player.start()
+    block = runtime.player.next_block(4)
+
+    assert paths.voice_stack_raw.exists()
+    assert not [
+        event
+        for event in read_events(paths)
+        if event["event_type"] == "system.startup_playback_unavailable"
+    ]
+    np.testing.assert_allclose(block.samples, np.ones((4, 2), dtype=np.float32) * 0.5)
 
 
 def test_build_runtime_keeps_startup_alive_when_playback_prepare_fails(

@@ -82,7 +82,7 @@ def build_runtime(
     active_settings = settings_state.active
 
     voice_stack = VoiceStackStore(paths)
-    voice_stack.ensure_initialized(active_settings)
+    voice_stack_snapshot = voice_stack.ensure_initialized(active_settings)
 
     resolved_recorder = recorder or SoundDeviceRecorder(
         sample_rate=active_settings.audio.sample_rate,
@@ -113,6 +113,7 @@ def build_runtime(
         player=resolved_player,
         output=resolved_output,
         logger=startup_logger or logger,
+        voice_stack_source_normalized=voice_stack_snapshot.raw_normalized,
     )
     controller = RecordingController(
         settings=active_settings,
@@ -193,13 +194,18 @@ def _prepare_startup_playback_best_effort(
     player: LayeredLoopPlayer,
     output: PlaybackOutput,
     logger: StartupLogger,
+    voice_stack_source_normalized: bool = False,
 ) -> None:
     layer_paths = rendered_layer_paths(paths)
     missing_layers: list[LayerId] = []
     prepared_from = "cache"
     try:
         missing_layers = [layer_id for layer_id, path in layer_paths.items() if not path.exists()]
-        if missing_layers or not _rendered_layers_match_settings(layer_paths, settings):
+        if (
+            missing_layers
+            or voice_stack_source_normalized
+            or not _rendered_layers_match_settings(layer_paths, settings)
+        ):
             renderer.render_all(settings)
             prepared_from = "render"
         player.load_rendered_layers(layer_paths)
@@ -213,6 +219,7 @@ def _prepare_startup_playback_best_effort(
                 "missing_layers": missing_layers,
                 "prepared_from": prepared_from,
                 "auto_start_requested": settings.playback.auto_start,
+                "voice_stack_source_normalized": voice_stack_source_normalized,
             },
         )
         return
