@@ -146,6 +146,17 @@ def twenty_second_voice_take() -> AudioBuffer:
     return AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate)
 
 
+def assert_timestamped_voice_filename(path: str, suffix: str) -> None:
+    name = Path(path).name
+    assert name.endswith(suffix)
+    timestamp = name.removesuffix(suffix)
+    assert len(timestamp) == 22
+    assert timestamp[8] == "T"
+    assert timestamp[-1] == "Z"
+    assert timestamp[:8].isdigit()
+    assert timestamp[9:-1].isdigit()
+
+
 class FakeOutput:
     def __init__(
         self,
@@ -3489,6 +3500,8 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
     assert selected_stack is not None
     assert selected_raw.startswith("data/sources/voice/raw/")
     assert selected_stack.startswith("data/sources/voice/stack/")
+    assert_timestamped_voice_filename(selected_raw, "-raw.wav")
+    assert_timestamped_voice_filename(selected_stack, "-stack.wav")
     assert len(list(paths.voice_raw_sources_dir.glob("*.wav"))) == 1
     assert len(list(paths.voice_stack_sources_dir.glob("*.wav"))) == 1
 
@@ -3536,6 +3549,8 @@ def test_api_test_library_recording_persists_timestamped_raw_and_accepted_clip(
     assert selected_stack is not None
     assert selected_raw.startswith("data/sources/voice/raw/")
     assert selected_stack.startswith("data/sources/voice/stack/")
+    assert_timestamped_voice_filename(selected_raw, "-raw.wav")
+    assert_timestamped_voice_filename(selected_stack, "-stack.wav")
     assert (tmp_path / selected_raw).exists()
     assert (tmp_path / selected_stack).exists()
     manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
