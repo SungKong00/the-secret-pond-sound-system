@@ -33,6 +33,8 @@ const state = {
   sourcesError: null,
   appliedSourceSignature: null,
   saveTimer: null,
+  draftSaveRequestId: 0,
+  sourceMutationRequestId: 0,
   spaceRecording: false,
   stateSocket: null,
   websocketConnected: false,
@@ -1310,21 +1312,34 @@ const renderEventLogSummary = (events, error = null) => {
   });
 };
 
+const nextSourceMutationRequestId = () => {
+  state.sourceMutationRequestId += 1;
+  return state.sourceMutationRequestId;
+};
+
+const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutationRequestId;
+
 const selectSourceFile = async (category, path) => {
+  const requestId = nextSourceMutationRequestId();
   try {
     const payload = await api(`/api/sources/${encodeURIComponent(category)}/select`, {
       method: "PUT",
       body: JSON.stringify({ path: path || null }),
     });
+    if (!isCurrentSourceMutation(requestId)) return payload;
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
     state.sources = payload.sources;
     renderState();
     renderSourceLibrary();
     await requestDiagnostics();
+    return payload;
   } catch (error) {
-    showError(translateUiErrorMessage(error.message));
-    await requestSources().catch(() => {});
+    if (isCurrentSourceMutation(requestId)) {
+      showError(translateUiErrorMessage(error.message));
+      await requestSources().catch(() => {});
+    }
+    return null;
   }
 };
 
@@ -1344,6 +1359,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
     showError("WAV 파일만 추가할 수 있습니다.");
     return;
   }
+  const requestId = nextSourceMutationRequestId();
   const params = new URLSearchParams({
     filename: file.name,
     select: String(selectedSourceUploadMode(category)),
@@ -1357,6 +1373,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
         body: file,
       },
     );
+    if (!isCurrentSourceMutation(requestId)) return payload;
     if (payload.settings) {
       state.snapshot.settings = payload.settings;
       state.draft = clone(payload.settings.draft);
@@ -1366,9 +1383,13 @@ const uploadSourceFile = async (category, droppedFile = null) => {
     renderState();
     renderSourceLibrary();
     await requestDiagnostics();
+    return payload;
   } catch (error) {
-    showError(translateUiErrorMessage(error.message));
-    await requestSources().catch(() => {});
+    if (isCurrentSourceMutation(requestId)) {
+      showError(translateUiErrorMessage(error.message));
+      await requestSources().catch(() => {});
+    }
+    return null;
   }
 };
 
@@ -1386,17 +1407,23 @@ const handleSourceFileDrop = (event, category) => {
 
 const deleteSourceFile = async (category, path) => {
   if (!window.confirm("선택한 WAV 파일을 삭제할까요?")) return;
+  const requestId = nextSourceMutationRequestId();
   try {
     const payload = await api(
       `/api/sources/${encodeURIComponent(category)}/files?path=${encodeURIComponent(path)}`,
       { method: "DELETE" },
     );
+    if (!isCurrentSourceMutation(requestId)) return payload;
     state.sources = payload.sources;
     renderSourceLibrary();
     await requestDiagnostics();
+    return payload;
   } catch (error) {
-    showError(translateUiErrorMessage(error.message));
-    await requestSources().catch(() => {});
+    if (isCurrentSourceMutation(requestId)) {
+      showError(translateUiErrorMessage(error.message));
+      await requestSources().catch(() => {});
+    }
+    return null;
   }
 };
 
@@ -2085,27 +2112,42 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
   return row;
 };
 
-const scheduleDraftSave = () => {
+const clearDraftSaveTimer = () => {
   clearTimeout(state.saveTimer);
+  state.saveTimer = null;
+};
+
+const scheduleDraftSave = () => {
+  clearDraftSaveTimer();
   state.saveTimer = setTimeout(() => {
+    state.saveTimer = null;
     saveDraft().catch(() => {});
   }, 280);
 };
 
 const saveDraft = async () => {
-  if (!state.draft) return;
+  if (!state.draft) return null;
+  clearDraftSaveTimer();
+  const requestId = state.draftSaveRequestId + 1;
+  state.draftSaveRequestId = requestId;
+  const draftPayload = clone(state.draft);
   try {
     const payload = await api("/api/settings/draft", {
       method: "PUT",
-      body: JSON.stringify(state.draft),
+      body: JSON.stringify(draftPayload),
     });
+    if (requestId !== state.draftSaveRequestId) return payload;
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
     renderState();
     renderDevices();
+    return payload;
   } catch (error) {
-    showError(translateUiErrorMessage(error.message));
-    throw error;
+    if (requestId === state.draftSaveRequestId) {
+      showError(translateUiErrorMessage(error.message));
+      throw error;
+    }
+    return null;
   }
 };
 
@@ -2204,6 +2246,7 @@ const applyAndRestart = async () => {
   state.applyInFlight = true;
   renderState();
   try {
+    clearDraftSaveTimer();
     await saveDraft();
     const payload = await api("/api/settings/apply", { method: "POST" });
     applyState(payload.state);

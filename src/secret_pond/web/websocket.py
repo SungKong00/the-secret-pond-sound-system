@@ -5,6 +5,8 @@ import asyncio
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from secret_pond.services.recording_transaction import RecordingControlError
+from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.web.state import state_payload
 
@@ -50,8 +52,8 @@ async def _poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
 def _locked_poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
     try:
         with runtime.operation_lock:
-            runtime.controller.poll_auto_stop()
-    except RuntimeError:
+            run_recording_workflow(runtime, runtime.controller.poll_auto_stop)
+    except (RecordingControlError, RuntimeError):
         return
 
 
@@ -64,8 +66,8 @@ def _locked_stop_recording_if_active(runtime: SecretPondRuntime) -> None:
         with runtime.operation_lock:
             if not runtime.controller.is_recording:
                 return
-            runtime.controller.stop_recording()
-    except RuntimeError:
+            run_recording_workflow(runtime, runtime.controller.stop_recording)
+    except (RecordingControlError, RuntimeError):
         return
 
 

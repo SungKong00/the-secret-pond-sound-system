@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
@@ -23,6 +21,16 @@ from secret_pond.audio.source_library import (
 )
 from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
+from secret_pond.services.file_snapshots import (
+    FileSnapshot,
+    capture_file_snapshot,
+    restore_file_snapshot,
+)
+from secret_pond.services.player_settings import apply_player_layer_settings
+from secret_pond.services.recording_transaction import (
+    RecordingControlError,
+)
+from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.web.state import outcome_payload, settings_payload, state_payload
@@ -50,7 +58,6 @@ def disarm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_control(runtime.controller.disarm_input)
-        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -70,7 +77,6 @@ def stop_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_recording_control(runtime, runtime.controller.stop_recording)
-        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -82,7 +88,6 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_recording_control(runtime, runtime.controller.poll_auto_stop)
-        _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
             "state": state_payload(runtime),
@@ -382,17 +387,17 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
         player_snapshot = runtime.player.snapshot()
         staged = None
-        raw_snapshot: tuple[bool, bytes] | None = None
+        raw_snapshot: FileSnapshot | None = None
         try:
             if was_running:
                 runtime.output.stop()
             if current.active.voice_stack.loop_seconds != draft.voice_stack.loop_seconds:
-                raw_snapshot = _file_snapshot(runtime.paths.voice_stack_raw)
+                raw_snapshot = capture_file_snapshot(runtime.paths.voice_stack_raw)
                 runtime.voice_stack.ensure_initialized(draft)
             staged = runtime.renderer.stage_all(draft)
             staged.commit()
             runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-            _apply_player_layer_settings(runtime, draft)
+            apply_player_layer_settings(runtime, draft)
             runtime.player.set_peak_ceiling(draft.audio.peak_ceiling)
             if was_running:
                 runtime.output.start()
@@ -408,7 +413,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 cause=exc,
             )
             if raw_snapshot is not None:
-                _restore_file_snapshot(runtime.paths.voice_stack_raw, raw_snapshot)
+                restore_file_snapshot(runtime.paths.voice_stack_raw, raw_snapshot)
             _log_event_best_effort(
                 runtime,
                 "settings.apply_failed",
@@ -440,55 +445,6 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
         }
 
 
-def _file_snapshot(path: Path) -> tuple[bool, bytes]:
-    return (True, path.read_bytes()) if path.exists() else (False, b"")
-
-
-def _restore_file_snapshot(path: Path, snapshot: tuple[bool, bytes]) -> None:
-    existed, data = snapshot
-    if not existed:
-        path.unlink(missing_ok=True)
-        return
-
-    temp_path = path.with_name(f".{path.stem}.{uuid4().hex}.rollback.tmp")
-    try:
-        temp_path.write_bytes(data)
-        temp_path.replace(path)
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
-
-
-@dataclass(frozen=True)
-class _RecordingSideEffectSnapshot:
-    voice_stack_raw: tuple[bool, bytes]
-    voice_manifest: tuple[bool, bytes]
-    voice_playback: tuple[bool, bytes]
-    voice_raw_files: set[Path]
-    voice_stack_files: set[Path]
-    accepted_files: set[Path]
-    controller_sources: Any
-    settings_state: SettingsState
-
-
-def _recording_side_effect_snapshot(runtime: SecretPondRuntime) -> _RecordingSideEffectSnapshot:
-    paths = runtime.paths
-    current = runtime.settings_store.load()
-    return _RecordingSideEffectSnapshot(
-        voice_stack_raw=_file_snapshot(paths.voice_stack_raw),
-        voice_manifest=_file_snapshot(paths.voice_manifest),
-        voice_playback=_file_snapshot(paths.voice_playback),
-        voice_raw_files=set(paths.voice_raw_sources_dir.glob("*.wav")),
-        voice_stack_files=set(paths.voice_stack_sources_dir.glob("*.wav")),
-        accepted_files=set(paths.accepted_dir.glob("*.wav")),
-        controller_sources=runtime.controller.settings.sources.model_copy(deep=True),
-        settings_state=SettingsState(
-            active=current.active.model_copy(deep=True),
-            draft=current.draft.model_copy(deep=True),
-        ),
-    )
-
-
 def _runtime(request: Request) -> SecretPondRuntime:
     runtime = getattr(request.app.state, "runtime", None)
     if runtime is None:
@@ -504,82 +460,10 @@ def _run_control(fn):
 
 
 def _run_recording_control(runtime: SecretPondRuntime, fn):
-    snapshot = _recording_side_effect_snapshot(runtime)
     try:
-        return fn()
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        rollback_detail = _restore_recording_side_effects(runtime, snapshot)
-        detail = str(exc)
-        if rollback_detail:
-            detail = f"{detail}; rollback issues: {rollback_detail}"
-        raise HTTPException(status_code=409, detail=detail) from exc
-
-
-def _restore_recording_side_effects(
-    runtime: SecretPondRuntime,
-    snapshot: _RecordingSideEffectSnapshot,
-) -> str:
-    paths = runtime.paths
-    rollback_errors: list[str] = []
-    for path, file_snapshot in (
-        (paths.voice_stack_raw, snapshot.voice_stack_raw),
-        (paths.voice_manifest, snapshot.voice_manifest),
-        (paths.voice_playback, snapshot.voice_playback),
-    ):
-        try:
-            _restore_file_snapshot(path, file_snapshot)
-        except Exception as exc:
-            rollback_errors.append(f"{path.name} restore failed: {exc}")
-
-    for directory, before in (
-        (paths.voice_raw_sources_dir, snapshot.voice_raw_files),
-        (paths.voice_stack_sources_dir, snapshot.voice_stack_files),
-        (paths.accepted_dir, snapshot.accepted_files),
-    ):
-        try:
-            _remove_new_wavs(directory, before)
-        except Exception as exc:
-            rollback_errors.append(f"{directory.name} cleanup failed: {exc}")
-
-    try:
-        runtime.controller.settings.sources = snapshot.controller_sources.model_copy(deep=True)
-    except Exception as exc:
-        rollback_errors.append(f"controller source restore failed: {exc}")
-    try:
-        runtime.settings_store.save(snapshot.settings_state)
-        runtime.settings_state = snapshot.settings_state
-    except Exception as exc:
-        rollback_errors.append(f"settings restore failed: {exc}")
-
-    return "; ".join(rollback_errors)
-
-
-def _remove_new_wavs(directory: Path, before: set[Path]) -> None:
-    for path in set(directory.glob("*.wav")) - before:
-        path.unlink(missing_ok=True)
-
-
-def _refresh_playback_after_recording(runtime: SecretPondRuntime, outcome: Any) -> None:
-    if outcome is None or not getattr(outcome, "accepted", False):
-        return
-
-    settings = runtime.controller.settings
-    try:
-        if runtime.output.is_running:
-            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-        else:
-            runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
-        _apply_player_layer_settings(runtime, settings)
-        runtime.player.set_peak_ceiling(settings.audio.peak_ceiling)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        _log_event_best_effort(
-            runtime,
-            "recording.playback_refresh_failed",
-            {
-                "error": str(exc),
-                "output_running": runtime.output.is_running,
-            },
-        )
+        return run_recording_workflow(runtime, fn)
+    except RecordingControlError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @contextmanager
@@ -620,11 +504,6 @@ def _log_playback_event(
     if error is not None:
         payload["error"] = error
     _log_event_best_effort(runtime, event_type, payload)
-
-
-def _apply_player_layer_settings(runtime: SecretPondRuntime, settings: AppSettings) -> None:
-    for layer_id, layer_settings in settings.layers.items():
-        runtime.player.set_enabled(layer_id, layer_settings.enabled)
 
 
 def _rollback_apply_failure(

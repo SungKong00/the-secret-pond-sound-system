@@ -1706,7 +1706,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, renderEventLogSummary, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
-            "renderLayerControls, syncAppliedSourceSignature };\n"
+            "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile };\n"
         ),
     )
     harness = f"""
@@ -2297,6 +2297,120 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  const draftSaveResponses = [];
+  globalThis.fetch = (path, options = {{}}) =>
+    new Promise((resolve) => {{
+      draftSaveResponses.push({{ path, options, resolve }});
+    }});
+  const olderDraft = cloneSettings(activeSettings);
+  olderDraft.voice_stack.loop_seconds = 61;
+  globalThis.__secretPondTest.state.draft = cloneSettings(olderDraft);
+  const olderSave = globalThis.__secretPondTest.saveDraft();
+  const newerDraft = cloneSettings(activeSettings);
+  newerDraft.voice_stack.loop_seconds = 62;
+  globalThis.__secretPondTest.state.draft = cloneSettings(newerDraft);
+  const newerSave = globalThis.__secretPondTest.saveDraft();
+  assert.strictEqual(draftSaveResponses.length, 2);
+  draftSaveResponses[1].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(newerDraft),
+      }},
+    }}),
+  }});
+  await newerSave;
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 62);
+  draftSaveResponses[0].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(olderDraft),
+      }},
+    }}),
+  }});
+  await olderSave;
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 62);
+
+  const sourceSettingsFor = (lowPath) => {{
+    const active = cloneSettings(activeSettings);
+    active.sources.low_path = lowPath;
+    const draft = cloneSettings(active);
+    return {{ active, draft }};
+  }};
+  const sourcePayloadFor = (lowPath) => ({{
+    settings: sourceSettingsFor(lowPath),
+    sources: {{
+      categories: [
+        {{
+          id: "low",
+          label: "Low",
+          directory: "sources/low",
+          active_exists: true,
+          legacy_exists: true,
+          selected_path: lowPath,
+          files: [
+            {{
+              name: "older.wav",
+              path: "sources/low/older.wav",
+              size_bytes: 10,
+              modified_at: "2026-06-05T00:00:00Z",
+              active: lowPath === "sources/low/older.wav",
+            }},
+            {{
+              name: "newer.wav",
+              path: "sources/low/newer.wav",
+              size_bytes: 10,
+              modified_at: "2026-06-05T00:01:00Z",
+              active: lowPath === "sources/low/newer.wav",
+            }},
+          ],
+        }},
+      ],
+    }},
+  }});
+  const sourceSelectResponses = [];
+  globalThis.fetch = (path, options = {{}}) => {{
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    return new Promise((resolve) => {{
+      sourceSelectResponses.push({{ path, options, resolve }});
+    }});
+  }};
+  const olderSelect = globalThis.__secretPondTest.selectSourceFile(
+    "low",
+    "sources/low/older.wav",
+  );
+  const newerSelect = globalThis.__secretPondTest.selectSourceFile(
+    "low",
+    "sources/low/newer.wav",
+  );
+  assert.strictEqual(sourceSelectResponses.length, 2);
+  sourceSelectResponses[1].resolve({{
+    ok: true,
+    json: async () => sourcePayloadFor("sources/low/newer.wav"),
+  }});
+  await newerSelect;
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.draft.sources.low_path,
+    "sources/low/newer.wav",
+  );
+  sourceSelectResponses[0].resolve({{
+    ok: true,
+    json: async () => sourcePayloadFor("sources/low/older.wav"),
+  }});
+  await olderSelect;
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.draft.sources.low_path,
+    "sources/low/newer.wav",
+  );
+
   const busySpaceEvent = {{
     code: "Space",
     repeat: false,
@@ -2913,6 +3027,33 @@ def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:
     assert state["participant_count"] == 1
 
 
+def test_ws_state_disconnect_refreshes_running_voice_playback_layer(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=api_settings_with_voice_only_layers(),
+    )
+    runtime = client.app.state.runtime
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    before = runtime.player.next_block(8_000)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    with client.websocket_connect("/ws/state") as websocket:
+        assert websocket.receive_json()["is_recording"] is True
+
+    after = runtime.player.next_block(8_000)
+
+    assert output.is_running is True
+    assert float(np.max(np.abs(before.samples))) == pytest.approx(0.0)
+    assert float(np.max(np.abs(after.samples))) > 0.00001
+
+
 def test_ws_state_polls_recording_auto_stop_before_sending_state(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
     client.post("/api/input/arm")
@@ -2924,6 +3065,63 @@ def test_ws_state_polls_recording_auto_stop_before_sending_state(tmp_path: Path)
 
     assert payload["is_recording"] is False
     assert payload["participant_count"] == 1
+
+
+def test_ws_state_auto_stop_refreshes_running_voice_playback_layer(tmp_path: Path) -> None:
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=api_settings_with_voice_only_layers(),
+    )
+    runtime = client.app.state.runtime
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    before = runtime.player.next_block(8_000)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    runtime.controller._recording_started_at -= 2.0
+    with client.websocket_connect("/ws/state") as websocket:
+        payload = websocket.receive_json()
+    after = runtime.player.next_block(8_000)
+
+    assert payload["is_recording"] is False
+    assert output.is_running is True
+    assert float(np.max(np.abs(before.samples))) == pytest.approx(0.0)
+    assert float(np.max(np.abs(after.samples))) > 0.00001
+
+
+def test_ws_state_auto_stop_rolls_back_voice_stack_when_voice_render_fails(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+    paths = ProjectPaths(tmp_path)
+    runtime = client.app.state.runtime
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
+    runtime.controller._renderer = FailingLayerRenderer(  # noqa: SLF001
+        runtime.renderer,
+        FileNotFoundError("voice missing"),
+    )
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    runtime.controller._recording_started_at -= 2.0
+    with client.websocket_connect("/ws/state") as websocket:
+        payload = websocket.receive_json()
+
+    assert payload["is_recording"] is False
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert json.loads(paths.voice_manifest.read_text(encoding="utf-8")) == before_manifest
+    assert list(paths.voice_raw_sources_dir.glob("*.wav")) == []
+    assert list(paths.voice_stack_sources_dir.glob("*.wav")) == []
+    assert runtime.controller.settings.sources.voice_raw_path is None
+    assert runtime.controller.settings.sources.voice_stack_path is None
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.voice_raw_path is None
+    assert stored.active.sources.voice_stack_path is None
 
 
 def test_api_devices_returns_device_lists_and_selected_devices(tmp_path: Path) -> None:
