@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from secret_pond.app import create_app
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
-from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.output import SoundDeviceOutput
 from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import FakeRecorder
@@ -338,6 +338,17 @@ def draft_with_sample_rate(sample_rate: int) -> dict:
 def draft_with_peak_ceiling(peak_ceiling: float) -> dict:
     return api_settings().model_copy(
         update={"audio": api_settings().audio.model_copy(update={"peak_ceiling": peak_ceiling})},
+        deep=True,
+    ).model_dump(mode="json")
+
+
+def draft_with_voice_stack_loop_seconds(loop_seconds: int) -> dict:
+    return api_settings().model_copy(
+        update={
+            "voice_stack": api_settings().voice_stack.model_copy(
+                update={"loop_seconds": loop_seconds}
+            )
+        },
         deep=True,
     ).model_dump(mode="json")
 
@@ -2013,6 +2024,38 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     assert paths.low_playback.exists()
     assert paths.mid_playback.exists()
     assert paths.voice_playback.exists()
+
+
+def test_api_settings_apply_and_restart_prepares_voice_stack_loop_length(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_voice_stack_loop_seconds(2))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 2
+    raw = read_wav(ProjectPaths(tmp_path).voice_stack_raw)
+    assert raw.sample_rate == 8_000
+    assert raw.frames == 16_000
+
+
+def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=False)
+    paths = ProjectPaths(tmp_path)
+    before_raw = paths.voice_stack_raw.read_bytes()
+    client.put("/api/settings/draft", json=draft_with_voice_stack_loop_seconds(2))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
 
 
 def test_api_settings_apply_and_restart_logs_success_event(tmp_path: Path) -> None:

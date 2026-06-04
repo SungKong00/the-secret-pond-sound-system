@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
@@ -246,9 +247,13 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
         player_snapshot = runtime.player.snapshot()
         staged = None
+        raw_snapshot: tuple[bool, bytes] | None = None
         try:
             if was_running:
                 runtime.output.stop()
+            if current.active.voice_stack.loop_seconds != draft.voice_stack.loop_seconds:
+                raw_snapshot = _file_snapshot(runtime.paths.voice_stack_raw)
+                runtime.voice_stack.ensure_initialized(draft)
             staged = runtime.renderer.stage_all(draft)
             staged.commit()
             runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
@@ -267,6 +272,8 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 restore_output=was_running,
                 cause=exc,
             )
+            if raw_snapshot is not None:
+                _restore_file_snapshot(runtime.paths.voice_stack_raw, raw_snapshot)
             _log_event_best_effort(
                 runtime,
                 "settings.apply_failed",
@@ -296,6 +303,25 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
             "settings": settings_payload(runtime),
             "state": state_payload(runtime),
         }
+
+
+def _file_snapshot(path: Path) -> tuple[bool, bytes]:
+    return (True, path.read_bytes()) if path.exists() else (False, b"")
+
+
+def _restore_file_snapshot(path: Path, snapshot: tuple[bool, bytes]) -> None:
+    existed, data = snapshot
+    if not existed:
+        path.unlink(missing_ok=True)
+        return
+
+    temp_path = path.with_name(f".{path.stem}.{uuid4().hex}.rollback.tmp")
+    try:
+        temp_path.write_bytes(data)
+        temp_path.replace(path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def _runtime(request: Request) -> SecretPondRuntime:
