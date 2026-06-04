@@ -2089,6 +2089,22 @@ def test_api_playback_restart_requires_running_output(tmp_path: Path) -> None:
     assert "running" in response.json()["detail"]
 
 
+def test_api_playback_restart_precondition_failure_logs_event(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.post("/api/settings/apply-and-restart")
+
+    response = client.post("/api/playback/restart")
+
+    assert response.status_code == 409
+    events = events_by_type(client, "playback.restart_failed")
+    assert len(events) == 1
+    assert events[0]["payload"] == {
+        "error": "output must be running before restart",
+        "frame_cursor": 0,
+        "output_running": False,
+    }
+
+
 def test_api_playback_restart_resets_frame_cursor(tmp_path: Path) -> None:
     output = FakeOutput()
     client = create_test_client(tmp_path, with_sources=True, output=output)

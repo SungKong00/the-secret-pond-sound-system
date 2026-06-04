@@ -136,7 +136,9 @@ def restart_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         if not runtime.output.is_running:
-            raise HTTPException(status_code=409, detail="output must be running before restart")
+            detail = "output must be running before restart"
+            _log_playback_event(runtime, "playback.restart_failed", error=detail)
+            raise HTTPException(status_code=409, detail=detail)
 
         player_snapshot = runtime.player.snapshot()
         try:
