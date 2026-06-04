@@ -61,6 +61,8 @@ const recordingControlDefs = [
   ["fade_ms", "Fade", 0, 5000, 10, " ms"],
 ];
 
+const voiceStackControlDefs = [["loop_seconds", "Voice loop", 30, 600, 5, " s"]];
+
 const recordingPresetDefs = {
   Soft: {
     gain_db: -3.0,
@@ -628,6 +630,7 @@ const updateLayerPendingBadge = (layerId, card) => {
 const renderControls = () => {
   if (!state.draft) return;
   renderLayerControls();
+  renderVoiceStackControls();
   renderRecordingPresets();
   renderRecordingControls();
 };
@@ -635,6 +638,30 @@ const renderControls = () => {
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["low", "mid"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
+};
+
+const renderVoiceStackControls = () => {
+  const container = $("voiceStackControls");
+  container.innerHTML = "";
+  const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
+  voiceStackControlDefs.forEach(([path, label, min, max, step, suffix]) => {
+    container.appendChild(
+      rangeControl(
+        label,
+        getPath(state.draft.voice_stack, path),
+        min,
+        max,
+        step,
+        suffix,
+        (value) => {
+          setPath(state.draft.voice_stack, path, value);
+          renderState();
+          scheduleDraftSave();
+        },
+        getPath(activeVoiceStack, path),
+      ),
+    );
+  });
 };
 
 const renderLayerGroup = (containerId, layerIds) => {

@@ -531,6 +531,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     )
     assert 'id="layerControls"' in mixer_panel
     assert 'id="voiceLayerControls"' not in mixer_panel
+    assert 'id="voiceStackControls"' in voice_panel
     assert 'id="voiceLayerControls"' in voice_panel
     assert 'id="voiceStackPanelTitle"' in voice_panel
     assert "Voice Stack" in voice_panel
@@ -714,6 +715,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.draft.recording = { ...state.draft.recording, ...settings }" in script.text
     assert "state.snapshot.settings.draft = clone(state.draft)" in script.text
     assert "renderRecordingControls()" in script.text
+    assert "renderVoiceStackControls()" in script.text
+    assert "const renderVoiceStackControls = () => {" in script.text
+    assert '"voiceStackControls"' in script.text
+    assert "voiceStackControlDefs" in script.text
+    assert '"Voice loop"' in script.text
+    assert '"loop_seconds", "Voice loop", 30, 600, 5, " s"' in script.text
     assert "scheduleDraftSave()" in script.text
     assert "Soft" in script.text
     assert "Misty" in script.text
@@ -953,7 +960,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
         (
             "\nglobalThis.__secretPondTest = "
             "{ state, renderState, renderSyncBadge, "
-            "renderRecordingControls, "
+            "renderRecordingControls, renderVoiceStackControls, "
             "connectStateSocket, showError, renderErrors, control, startFromSpace, "
             "stopFromSpace, stopIfRecording };\n"
         ),
@@ -1157,7 +1164,7 @@ const layerSettings = (volumeDb) => ({{
   }},
 }});
 const activeSettings = {{
-  voice_stack: {{ mode: "live_ephemeral" }},
+  voice_stack: {{ mode: "live_ephemeral", loop_seconds: 60 }},
   input_control: {{
     minimum_recording_seconds: 3,
     maximum_recording_seconds: 120,
@@ -1226,6 +1233,18 @@ assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "false");
 const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
 globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
+globalThis.__secretPondTest.renderVoiceStackControls();
+const voiceLoopRow = elements.voiceStackControls.children[0];
+const voiceLoopInput = voiceLoopRow.querySelector("input");
+voiceLoopInput.value = "120";
+voiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 120);
+assert.strictEqual(elements.pendingBadge.textContent, "Unsaved audio changes");
+assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");

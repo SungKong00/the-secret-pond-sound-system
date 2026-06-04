@@ -614,6 +614,10 @@ select:disabled {
   gap: 8px;
 }
 
+.voice-stack-controls {
+  margin-bottom: 10px;
+}
+
 .control-row {
   display: grid;
   grid-template-columns: minmax(96px, 0.8fr) minmax(120px, 1fr) minmax(52px, auto);
