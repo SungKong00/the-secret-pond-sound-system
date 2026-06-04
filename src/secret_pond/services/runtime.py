@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import platform
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from secret_pond.audio.devices import AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.layers import LayerId
 from secret_pond.audio.output import SoundDeviceOutput
 from secret_pond.audio.player import LayeredLoopPlayer
@@ -37,6 +39,10 @@ class PlaybackOutput(Protocol):
     def stop(self) -> None: ...
 
 
+class StartupLogger(Protocol):
+    def log_event(self, event_type: str, payload: dict[str, Any] | None = None) -> Any: ...
+
+
 @dataclass
 class SecretPondRuntime:
     paths: ProjectPaths
@@ -65,6 +71,7 @@ def build_runtime(
     player: LayeredLoopPlayer | None = None,
     output: PlaybackOutput | None = None,
     device_registry: AudioDeviceRegistry | None = None,
+    startup_logger: StartupLogger | None = None,
 ) -> SecretPondRuntime:
     paths = ProjectPaths(root)
     paths.ensure_directories()
@@ -92,6 +99,12 @@ def build_runtime(
     participants = ParticipantCounter(paths)
     logger = EventLogger(paths)
     resolved_device_registry = device_registry or SoundDeviceRegistry()
+    _log_startup_diagnostics_best_effort(
+        paths=paths,
+        settings=active_settings,
+        logger=startup_logger or logger,
+        device_registry=resolved_device_registry,
+    )
     controller = RecordingController(
         settings=active_settings,
         recorder=resolved_recorder,
@@ -122,4 +135,55 @@ def rendered_layer_paths(paths: ProjectPaths) -> dict[LayerId, Path]:
         "low": paths.low_playback,
         "mid": paths.mid_playback,
         "voice": paths.voice_playback,
+    }
+
+
+def _log_startup_diagnostics_best_effort(
+    *,
+    paths: ProjectPaths,
+    settings: Any,
+    logger: StartupLogger,
+    device_registry: AudioDeviceRegistry,
+) -> None:
+    device_error = None
+    selected_input = None
+    selected_output = None
+    try:
+        selected_input = device_registry.validate_input(settings.devices.input_device_id)
+        selected_output = device_registry.validate_output(settings.devices.output_device_id)
+    except Exception as exc:
+        device_error = str(exc)
+
+    payload = {
+        "os_name": platform.platform(),
+        "python_version": sys.version.split()[0],
+        "data_dir": str(paths.data_dir),
+        "requested_sample_rate": settings.audio.sample_rate,
+        "requested_channels": settings.audio.channels,
+        "configured_input_device_id": settings.devices.input_device_id,
+        "configured_output_device_id": settings.devices.output_device_id,
+        "selected_input_device": _device_payload(selected_input),
+        "selected_output_device": _device_payload(selected_output),
+        "actual_input_sample_rate": None,
+        "actual_input_channels": None,
+        "actual_output_sample_rate": None,
+        "actual_output_channels": None,
+        "device_error": device_error,
+    }
+    try:
+        logger.log_event("system.startup", payload)
+    except Exception:
+        return
+
+
+def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
+    if device is None:
+        return None
+    return {
+        "id": device.id,
+        "name": device.name,
+        "kind": device.kind,
+        "max_input_channels": device.max_input_channels,
+        "max_output_channels": device.max_output_channels,
+        "default_sample_rate": device.default_sample_rate,
     }

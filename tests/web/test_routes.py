@@ -277,12 +277,15 @@ def create_test_client(
     if with_sources:
         write_source_files(paths, resolved_settings)
     SettingsStore(paths).save(SettingsState(active=resolved_settings, draft=resolved_settings))
+    resolved_device_registry = (
+        device_registry if device_registry is not None else fake_device_registry()
+    )
     runtime = build_runtime(
         tmp_path,
         recorder=FakeRecorder(recorder_take()),
         player=player,
         output=output,
-        device_registry=device_registry,
+        device_registry=resolved_device_registry,
     )
     return TestClient(create_app(runtime=runtime))
 
@@ -1603,7 +1606,11 @@ def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:
     with client.websocket_connect("/ws/state") as websocket:
         assert websocket.receive_json()["is_recording"] is True
 
-    state = wait_for_state(client, lambda payload: payload["is_recording"] is False)
+    state = wait_for_state(
+        client,
+        lambda payload: payload["is_recording"] is False,
+        timeout_seconds=3.0,
+    )
     assert state["is_recording"] is False
     assert state["participant_count"] == 1
 
