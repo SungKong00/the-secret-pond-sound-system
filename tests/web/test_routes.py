@@ -3527,6 +3527,34 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(globalThis.__secretPondTest.state.sourceUploads.low.file, null);
   assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
 
+  const unsavedSourceDraft = cloneSettings(activeSettings);
+  unsavedSourceDraft.voice_stack.loop_seconds = 88;
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.draft = cloneSettings(unsavedSourceDraft);
+  globalThis.fetch = (path) => {{
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    return Promise.resolve({{
+      ok: true,
+      json: async () => sourcePayloadFor("sources/low/newer.wav"),
+    }});
+  }};
+  await globalThis.__secretPondTest.selectSourceFile("low", "sources/low/newer.wav");
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.draft.sources.low_path,
+    "sources/low/newer.wav",
+  );
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 88);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
+    88,
+  );
+
   const sourceSelectResponses = [];
   globalThis.fetch = (path, options = {{}}) => {{
     if (path === "/api/diagnostics") {{

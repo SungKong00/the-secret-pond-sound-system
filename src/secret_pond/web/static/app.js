@@ -1215,6 +1215,23 @@ const refreshAll = async () => {
   renderErrors();
 };
 
+const applySettingsPayload = (settingsPayload, options = {}) => {
+  if (!state.snapshot || !settingsPayload) return false;
+  const syncDraft = options.syncDraft ?? true;
+  const nextSettings = clone(settingsPayload);
+  state.snapshot.settings = nextSettings;
+  if (syncDraft || !state.draft) {
+    state.draft = clone(nextSettings.draft);
+    renderControls();
+  } else {
+    if (options.mergeDraftSources && nextSettings.draft?.sources && state.draft.sources) {
+      state.draft.sources = clone(nextSettings.draft.sources);
+    }
+    syncDraftSnapshot();
+  }
+  return true;
+};
+
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   const nextServerStateSignature = serverStateSignature(payload);
@@ -1224,12 +1241,7 @@ const applyState = (payload, options = {}) => {
   }
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
-  if (syncDraft || !state.draft) {
-    state.draft = clone(payload.settings.draft);
-    renderControls();
-  } else {
-    syncDraftSnapshot();
-  }
+  applySettingsPayload(payload.settings, { syncDraft });
   renderState();
   renderSystemStatus();
   return true;
@@ -1924,8 +1936,10 @@ const finishSourceMutation = (requestId) => {
 
 const applySourceMutationPayload = (payload, options = {}) => {
   if (payload.settings) {
-    state.snapshot.settings = payload.settings;
-    state.draft = clone(payload.settings.draft);
+    applySettingsPayload(payload.settings, {
+      syncDraft: false,
+      mergeDraftSources: true,
+    });
   }
   if (payload.sources) {
     state.sources = payload.sources;
