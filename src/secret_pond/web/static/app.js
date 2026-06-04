@@ -34,6 +34,7 @@ const state = {
   appliedSourceSignature: null,
   serverStateSignature: null,
   sourceUploads: {},
+  sourceMutationInFlight: false,
   saveTimer: null,
   draftSaveRequestId: 0,
   sourceMutationRequestId: 0,
@@ -1687,7 +1688,8 @@ const renderSourceLibrary = () => {
   });
 };
 
-const sourceLibrarySignature = (categories) => JSON.stringify(
+const sourceLibrarySignature = (categories) => JSON.stringify([
+  state.sourceMutationInFlight,
   categories.map((category) => [
     category.id,
     category.label,
@@ -1707,7 +1709,7 @@ const sourceLibrarySignature = (categories) => JSON.stringify(
     ]),
     sourceUploadSignature(category.id),
   ]),
-);
+]);
 
 const sourceUploadState = (category) => {
   if (!state.sourceUploads[category]) {
@@ -1725,26 +1727,34 @@ const sourceUploadSignature = (category) => {
   ];
 };
 
-const deriveSourceUploadActionState = (upload = {}) => {
+const sourceMutationBusyTitle = "소스 파일 작업이 끝날 때까지 기다리세요.";
+
+const deriveSourceUploadActionState = (upload = {}, sourceMutationInFlight = false) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
+  const busy = Boolean(sourceMutationInFlight);
   return {
     selectAfterUpload: upload.selectAfterUpload !== false,
     hasFile,
     hint: hasFile
       ? `${file.name} · ${formatBytes(file.size || 0)} 선택됨`
       : "WAV 파일을 이 폴더로 복사합니다.",
-    uploadDisabled: !hasFile,
-    uploadTitle: hasFile ? "" : "추가할 WAV 파일을 먼저 선택하세요.",
+    uploadDisabled: busy || !hasFile,
+    uploadTitle: busy
+      ? sourceMutationBusyTitle
+      : hasFile ? "" : "추가할 WAV 파일을 먼저 선택하세요.",
   };
 };
 
-const deriveSourceFileActionState = (file = {}) => {
+const deriveSourceFileActionState = (file = {}, sourceMutationInFlight = false) => {
   const active = Boolean(file.active);
+  const busy = Boolean(sourceMutationInFlight);
   return {
     active,
-    deleteDisabled: active,
-    deleteTitle: active ? "현재 선택된 파일은 삭제할 수 없습니다" : "",
+    deleteDisabled: active || busy,
+    deleteTitle: active
+      ? "현재 선택된 파일은 삭제할 수 없습니다"
+      : busy ? sourceMutationBusyTitle : "",
   };
 };
 
@@ -1766,7 +1776,8 @@ const sourceCategoryCard = (category) => {
     helper: category.directory,
   };
   const upload = sourceUploadState(category.id);
-  const uploadAction = deriveSourceUploadActionState(upload);
+  const sourceMutationDisabled = state.sourceMutationInFlight ? " disabled" : "";
+  const uploadAction = deriveSourceUploadActionState(upload, state.sourceMutationInFlight);
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
   const uploadTitle = uploadAction.uploadTitle
@@ -1793,7 +1804,11 @@ const sourceCategoryCard = (category) => {
     </div>
     <label class="source-select-row">
       <span>사용 파일</span>
-      <select class="source-file-select" data-source-select="${escapeHtml(category.id)}">${options}</select>
+      <select
+        class="source-file-select"
+        data-source-select="${escapeHtml(category.id)}"
+        ${sourceMutationDisabled}
+      >${options}</select>
     </label>
     <div class="source-file-list">
       ${sourceFileRows(category)}
@@ -1805,6 +1820,7 @@ const sourceCategoryCard = (category) => {
           type="file"
           accept=".wav,audio/wav,audio/x-wav"
           data-source-file="${escapeHtml(category.id)}"
+          ${sourceMutationDisabled}
         />
         <strong>파일 선택 또는 드롭</strong>
         <small>${escapeHtml(uploadAction.hint)}</small>
@@ -1817,7 +1833,7 @@ const sourceCategoryCard = (category) => {
         ${uploadTitle}
       >추가</button>
       <label class="source-upload-select">
-        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked} />
+        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked}${sourceMutationDisabled} />
         <span>업로드 후 바로 선택</span>
       </label>
     </div>
@@ -1830,7 +1846,7 @@ const sourceFileRows = (category) => {
     return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
   }
   return category.files.map((file) => {
-    const action = deriveSourceFileActionState(file);
+    const action = deriveSourceFileActionState(file, state.sourceMutationInFlight);
     const active = action.active ? `<span class="source-file-badge">사용 중</span>` : "";
     const disabled = action.deleteDisabled ? " disabled" : "";
     const deleteTitle = action.deleteTitle
@@ -1891,6 +1907,19 @@ const nextSourceMutationRequestId = () => {
 
 const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutationRequestId;
 
+const beginSourceMutation = () => {
+  const requestId = nextSourceMutationRequestId();
+  state.sourceMutationInFlight = true;
+  renderSourceLibrary();
+  return requestId;
+};
+
+const finishSourceMutation = (requestId) => {
+  if (!isCurrentSourceMutation(requestId)) return;
+  state.sourceMutationInFlight = false;
+  renderSourceLibrary();
+};
+
 const applySourceMutationPayload = (payload, options = {}) => {
   if (payload.settings) {
     state.snapshot.settings = payload.settings;
@@ -1914,7 +1943,7 @@ const recoverSourceMutationError = async (error) => {
 };
 
 const selectSourceFile = async (category, path) => {
-  const requestId = nextSourceMutationRequestId();
+  const requestId = beginSourceMutation();
   try {
     const payload = await api(`/api/sources/${encodeURIComponent(category)}/select`, {
       method: "PUT",
@@ -1929,6 +1958,8 @@ const selectSourceFile = async (category, path) => {
       await recoverSourceMutationError(error);
     }
     return null;
+  } finally {
+    finishSourceMutation(requestId);
   }
 };
 
@@ -1952,7 +1983,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
     showError("WAV 파일만 추가할 수 있습니다.");
     return;
   }
-  const requestId = nextSourceMutationRequestId();
+  const requestId = beginSourceMutation();
   const params = new URLSearchParams({
     filename: file.name,
     select: String(selectedSourceUploadMode(category)),
@@ -1976,6 +2007,8 @@ const uploadSourceFile = async (category, droppedFile = null) => {
       await recoverSourceMutationError(error);
     }
     return null;
+  } finally {
+    finishSourceMutation(requestId);
   }
 };
 
@@ -1994,7 +2027,7 @@ const handleSourceFileDrop = (event, category) => {
 
 const deleteSourceFile = async (category, path) => {
   if (!window.confirm("선택한 WAV 파일을 삭제할까요?")) return;
-  const requestId = nextSourceMutationRequestId();
+  const requestId = beginSourceMutation();
   try {
     const payload = await api(
       `/api/sources/${encodeURIComponent(category)}/files?path=${encodeURIComponent(path)}`,
@@ -2009,6 +2042,8 @@ const deleteSourceFile = async (category, path) => {
       await recoverSourceMutationError(error);
     }
     return null;
+  } finally {
+    finishSourceMutation(requestId);
   }
 };
 
@@ -3315,11 +3350,13 @@ const bindEvents = () => {
   $("sourceLibraryList").addEventListener("click", (event) => {
     const uploadButton = event.target.closest("[data-source-upload]");
     if (uploadButton) {
+      if (uploadButton.disabled) return;
       uploadSourceFile(uploadButton.dataset.sourceUpload);
       return;
     }
     const deleteButton = event.target.closest("[data-source-delete]");
     if (deleteButton) {
+      if (deleteButton.disabled) return;
       deleteSourceFile(deleteButton.dataset.sourceDelete, deleteButton.dataset.sourcePath);
     }
   });

@@ -2214,13 +2214,13 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}),
+  }}, true),
   {{
     selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: false,
-    uploadTitle: "",
+    uploadDisabled: true,
+    uploadTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2230,6 +2230,15 @@ assert.deepStrictEqual(
     active: true,
     deleteDisabled: true,
     deleteTitle: "현재 선택된 파일은 삭제할 수 없습니다",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}, true),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2761,22 +2770,24 @@ globalThis.__secretPondTest.syncAppliedSourceSignature();
 globalThis.__secretPondTest.renderSourceLibrary();
 const latestSourceLibraryHtml = () =>
   elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
+const sourceUploadButtonHtml = () => {{
+  const html = latestSourceLibraryHtml();
+  const start = html.indexOf('data-source-upload="low"');
+  const end = html.indexOf('data-source-upload-select="low"');
+  return html.slice(start, end);
+}};
 assert.strictEqual(
   latestSourceLibraryHtml().includes(
     'data-source-upload-select="low" checked',
   ),
   true,
 );
-const emptyUploadDisabled = new RegExp(
-  [
-    'data-source-upload="low"',
-    '[\\\\s\\\\S]*disabled',
-    '[\\\\s\\\\S]*title="추가할 WAV 파일을 먼저 선택하세요\\\\."',
-  ].join(""),
-  "u",
+assert.strictEqual(
+  sourceUploadButtonHtml().includes("disabled"),
+  true,
 );
 assert.strictEqual(
-  emptyUploadDisabled.test(latestSourceLibraryHtml()),
+  sourceUploadButtonHtml().includes('title="추가할 WAV 파일을 먼저 선택하세요."'),
   true,
 );
 globalThis.__secretPondTest.state.sourceUploads.low = {{
@@ -2794,9 +2805,24 @@ assert.strictEqual(
   latestSourceLibraryHtml().includes("picked-low.wav · 4.0 KB 선택됨"),
   true,
 );
-const selectedUploadDisabled = /data-source-upload="low"[\\s\\S]*disabled/u;
 assert.strictEqual(
-  selectedUploadDisabled.test(latestSourceLibraryHtml()),
+  sourceUploadButtonHtml().includes("disabled"),
+  false,
+);
+globalThis.__secretPondTest.state.sourceMutationInFlight = true;
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(
+  sourceUploadButtonHtml().includes("disabled"),
+  true,
+);
+assert.strictEqual(
+  latestSourceLibraryHtml().includes("소스 파일 작업이 끝날 때까지 기다리세요."),
+  true,
+);
+globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(
+  sourceUploadButtonHtml().includes("disabled"),
   false,
 );
 elements.sourceLibraryList.children = [];
@@ -3392,6 +3418,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(uploadRequests[0].path.includes("select=false"), true);
   assert.strictEqual(uploadRequests[0].options.body.name, "stored-low.wav");
   assert.strictEqual(globalThis.__secretPondTest.state.sourceUploads.low.file, null);
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
 
   const sourceSelectResponses = [];
   globalThis.fetch = (path, options = {{}}) => {{
@@ -3414,6 +3441,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     "sources/low/newer.wav",
   );
   assert.strictEqual(sourceSelectResponses.length, 2);
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, true);
   sourceSelectResponses[1].resolve({{
     ok: true,
     json: async () => sourcePayloadFor("sources/low/newer.wav"),
@@ -3423,6 +3451,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.draft.sources.low_path,
     "sources/low/newer.wav",
   );
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
   sourceSelectResponses[0].resolve({{
     ok: true,
     json: async () => sourcePayloadFor("sources/low/older.wav"),
@@ -3432,6 +3461,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.draft.sources.low_path,
     "sources/low/newer.wav",
   );
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
 
   const busySpaceEvent = {{
     code: "Space",
