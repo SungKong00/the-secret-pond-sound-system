@@ -3464,6 +3464,62 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await olderSave;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 62);
 
+  const resetRaceSaveRequests = [];
+  const resetDraftValue = cloneSettings(activeSettings);
+  const staleDraftValue = cloneSettings(activeSettings);
+  staleDraftValue.voice_stack.loop_seconds = 89;
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(staleDraftValue);
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  globalThis.__secretPondTest.state.draft = cloneSettings(staleDraftValue);
+  window.confirm = () => true;
+  globalThis.fetch = (path, options = {{}}) => {{
+    if (path === "/api/settings/draft") {{
+      return new Promise((resolve) => {{
+        resetRaceSaveRequests.push({{ path, options, resolve }});
+      }});
+    }}
+    if (path === "/api/settings/reset-draft") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          settings: {{
+            active: cloneSettings(activeSettings),
+            draft: cloneSettings(resetDraftValue),
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const staleSaveAfterReset = globalThis.__secretPondTest.saveDraft();
+  assert.strictEqual(resetRaceSaveRequests.length, 1);
+  await globalThis.__secretPondTest.resetDraft();
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+  resetRaceSaveRequests[0].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(staleDraftValue),
+      }},
+    }}),
+  }});
+  await staleSaveAfterReset;
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+
   const sourceSettingsFor = (lowPath) => {{
     const active = cloneSettings(activeSettings);
     active.sources.low_path = lowPath;

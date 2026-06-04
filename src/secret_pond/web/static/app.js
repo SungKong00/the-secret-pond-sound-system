@@ -2968,6 +2968,11 @@ const clearDraftSaveTimer = () => {
   state.saveTimer = null;
 };
 
+const invalidatePendingDraftSaves = () => {
+  clearDraftSaveTimer();
+  state.draftSaveRequestId += 1;
+};
+
 const scheduleDraftSave = () => {
   clearDraftSaveTimer();
   state.saveTimer = setTimeout(() => {
@@ -3132,6 +3137,7 @@ const applyAndRestart = async () => {
 const resetDraft = async () => {
   if (currentSettingsActionState().resetDisabled) return;
   if (!window.confirm("저장하지 않은 설정 변경을 취소할까요?")) return;
+  invalidatePendingDraftSaves();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     state.snapshot.settings = payload.settings;
