@@ -33,6 +33,21 @@ def classify_settings_change(active: AppSettings, draft: AppSettings) -> Setting
     )
 
 
+def promote_runtime_config(active: AppSettings, draft: AppSettings) -> AppSettings:
+    return active.model_copy(
+        update={
+            "audio": active.audio.model_copy(
+                update={
+                    "sample_rate": draft.audio.sample_rate,
+                    "channels": draft.audio.channels,
+                }
+            ),
+            "devices": draft.devices,
+        },
+        deep=True,
+    )
+
+
 def _changed_runtime_fields(active: AppSettings, draft: AppSettings) -> list[str]:
     changed: list[str] = []
     for field_name, read_field in _RUNTIME_CONFIG_FIELDS:

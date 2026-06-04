@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.settings_changes import classify_settings_change, promote_runtime_config
 
 _SCHEMA_VERSION = 1
 
@@ -32,10 +33,10 @@ class SettingsStore:
 
     def load_for_startup(self) -> SettingsState:
         state = self.load()
-        if _startup_configuration_changed(state.active, state.draft):
+        if classify_settings_change(state.active, state.draft).runtime_config_changed:
             return self.save(
                 SettingsState(
-                    active=_active_with_startup_fields(state.active, state.draft),
+                    active=promote_runtime_config(state.active, state.draft),
                     draft=state.draft,
                 )
             )
@@ -130,26 +131,3 @@ def _validated_settings_payload(payload: Any, key: str) -> dict[str, Any]:
 def _validated_settings_copy(settings: AppSettings) -> AppSettings:
     return AppSettings.model_validate(settings.model_dump(mode="json"))
 
-
-def _startup_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:
-    return (
-        active.audio.sample_rate != draft.audio.sample_rate
-        or active.audio.channels != draft.audio.channels
-        or active.devices.input_device_id != draft.devices.input_device_id
-        or active.devices.output_device_id != draft.devices.output_device_id
-    )
-
-
-def _active_with_startup_fields(active: AppSettings, draft: AppSettings) -> AppSettings:
-    return active.model_copy(
-        update={
-            "audio": active.audio.model_copy(
-                update={
-                    "sample_rate": draft.audio.sample_rate,
-                    "channels": draft.audio.channels,
-                }
-            ),
-            "devices": draft.devices,
-        },
-        deep=True,
-    )

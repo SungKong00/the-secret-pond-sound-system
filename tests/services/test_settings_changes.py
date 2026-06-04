@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from secret_pond.config import AppSettings, DeviceSettings
-from secret_pond.services.settings_changes import classify_settings_change
+from secret_pond.services.settings_changes import classify_settings_change, promote_runtime_config
 
 
 def test_classify_settings_change_reports_runtime_config_fields_and_sections() -> None:
@@ -48,3 +48,33 @@ def test_classify_settings_change_reports_noop_plan_for_identical_settings() -> 
     assert plan.runtime_config_changed is False
     assert plan.changed_runtime_fields == []
     assert plan.changed_sections == []
+
+
+def test_promote_runtime_config_clears_only_runtime_fields() -> None:
+    active = AppSettings()
+    layers = {
+        **active.layers,
+        "voice": active.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(
+                update={"sample_rate": 44_100, "channels": 1, "loop_seconds": 120},
+            ),
+            "devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2"),
+            "layers": layers,
+        },
+        deep=True,
+    )
+
+    promoted = promote_runtime_config(active, draft)
+    plan = classify_settings_change(promoted, draft)
+
+    assert promoted.audio.sample_rate == 44_100
+    assert promoted.audio.channels == 1
+    assert promoted.devices.input_device_id == "mic-2"
+    assert promoted.devices.output_device_id == "speaker-2"
+    assert promoted.audio.loop_seconds == active.audio.loop_seconds
+    assert promoted.layers["voice"].volume_db == active.layers["voice"].volume_db
+    assert plan.changed_runtime_fields == []
+    assert plan.changed_sections == ["audio", "layers"]

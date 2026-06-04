@@ -7,6 +7,7 @@ import pytest
 
 from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.settings_changes import classify_settings_change
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
@@ -119,6 +120,7 @@ def test_settings_store_load_for_startup_promotes_restart_required_draft(
     assert state.active.devices.input_device_id == "mic-2"
     assert state.active.devices.output_device_id == "speaker-2"
     assert state.draft.devices.input_device_id == "mic-2"
+    assert classify_settings_change(state.active, state.draft).changed_runtime_fields == []
     assert store.load().active.devices.output_device_id == "speaker-2"
 
 
@@ -154,6 +156,7 @@ def test_settings_store_load_for_startup_promotes_only_restart_required_fields(
     assert state.active.devices.output_device_id == "speaker-2"
     assert state.active.layers["voice"].volume_db == -18.0
     assert state.draft.layers["voice"].volume_db == -9.0
+    assert classify_settings_change(state.active, state.draft).changed_runtime_fields == []
     assert store.load().draft.layers["voice"].volume_db == -9.0
 
 
