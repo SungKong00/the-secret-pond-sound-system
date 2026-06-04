@@ -38,6 +38,7 @@ data/sources/*
 *.local.json
 *.tmp
 *.tmp.wav
+.lazyweb/
 
 # IDE
 .idea/
