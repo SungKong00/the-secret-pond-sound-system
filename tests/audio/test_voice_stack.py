@@ -397,6 +397,54 @@ def test_voice_stack_rebuild_preserves_raw_when_accepted_file_is_missing(tmp_pat
     assert paths.voice_manifest.read_text(encoding="utf-8") == before_manifest
 
 
+def test_voice_stack_rebuild_rejects_empty_test_library_manifest(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+    paths.voice_manifest.write_text(
+        json.dumps({"schema_version": 1, "revision": 1, "entries": []}),
+        encoding="utf-8",
+    )
+    before_raw = read_wav(paths.voice_stack_raw).samples.copy()
+
+    with pytest.raises(ValueError, match="test_library"):
+        VoiceStackStore(paths).rebuild_from_test_library(settings)
+
+    np.testing.assert_allclose(read_wav(paths.voice_stack_raw).samples, before_raw, atol=1e-4)
+
+
+def test_voice_stack_rebuild_rejects_manifest_with_only_live_entries(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {"id": "live", "source_mode": "live_ephemeral", "offset_frames": 0}
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    before_raw = read_wav(paths.voice_stack_raw).samples.copy()
+
+    with pytest.raises(ValueError, match="test_library"):
+        VoiceStackStore(paths).rebuild_from_test_library(settings)
+
+    np.testing.assert_allclose(read_wav(paths.voice_stack_raw).samples, before_raw, atol=1e-4)
+
+
 def test_voice_stack_rebuild_rejects_test_library_entry_without_path(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     settings = voice_stack_settings()

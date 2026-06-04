@@ -430,6 +430,45 @@ def test_run_rebuild_test_library_preserves_files_when_manifest_is_invalid(
     assert paths.voice_playback.read_bytes() == before_rendered
 
 
+def test_run_rebuild_test_library_rejects_manifest_without_test_library_entries(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = rebuild_settings(mode="test_library")
+    save_settings(paths, settings)
+    paths.voice_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {"id": "live", "source_mode": "live_ephemeral", "offset_frames": 0}
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.full((8_000, 2), 0.4, dtype=np.float32), sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(samples=np.full((8_000, 2), 0.1, dtype=np.float32), sample_rate=8_000),
+    )
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_rendered = paths.voice_playback.read_bytes()
+
+    result = cli.run_rebuild_test_library(tmp_path)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "test_library manifest has no accepted clips" in f"{captured.out}{captured.err}"
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert paths.voice_playback.read_bytes() == before_rendered
+
+
 def rebuild_settings(*, mode: str) -> AppSettings:
     return AppSettings(
         audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),

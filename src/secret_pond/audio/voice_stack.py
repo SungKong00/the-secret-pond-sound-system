@@ -196,6 +196,9 @@ class VoiceStackStore:
         target_frames = settings.audio.sample_rate * settings.voice_stack.loop_seconds
         manifest = _read_manifest(self._paths.voice_manifest)
         test_entries = _test_library_entries(manifest)
+        if not test_entries:
+            msg = "test_library manifest has no accepted clips to rebuild"
+            raise ValueError(msg)
         stack_samples = np.zeros(
             (target_frames, settings.audio.channels),
             dtype=np.float32,
