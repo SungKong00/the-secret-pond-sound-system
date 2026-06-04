@@ -1347,6 +1347,35 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "commitDraftChange(" in recording_controls_body
     assert "afterSync: renderRecordingPresets" in recording_controls_body
+    render_layer_card_body = slice_between(
+        script.text,
+        "const renderLayerCard = (layerId) => {",
+        "};\n\nconst layerPresetMarkup",
+    )
+    assert "commitDraftChange(" in render_layer_card_body
+    assert "afterSync: () => {" in render_layer_card_body
+    apply_layer_preset_body = slice_between(
+        script.text,
+        "const applyLayerPreset = (layerId, presetName) => {",
+        "};\n\nconst resetLayerFilter",
+    )
+    assert "commitDraftChange(" in apply_layer_preset_body
+    assert "afterSync: renderLayerControls" in apply_layer_preset_body
+    reset_layer_filter_body = slice_between(
+        script.text,
+        "const resetLayerFilter = (layerId) => {",
+        "};\n\nconst renderRecordingControls",
+    )
+    assert "commitDraftChange(" in reset_layer_filter_body
+    assert "afterSync: renderLayerControls" in reset_layer_filter_body
+    apply_recording_preset_body = slice_between(
+        script.text,
+        "const applyRecordingPreset = (name) => {",
+        "};\n\nconst workspaceTabs",
+    )
+    assert "commitDraftChange(" in apply_recording_preset_body
+    assert "renderRecordingPresets();" in apply_recording_preset_body
+    assert "renderRecordingControls();" in apply_recording_preset_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     apply_body = slice_between(
         script.text,

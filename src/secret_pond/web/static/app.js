@@ -2240,12 +2240,17 @@ const renderLayerCard = (layerId) => {
     <div class="layer-controls"></div>
   `;
   card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
-    state.draft.layers[layerId].enabled = event.target.checked;
-    syncDraftSnapshot();
-    event.target.setAttribute("aria-checked", event.target.checked ? "true" : "false");
-    updateLayerEnabledControl(card, layerId, event.target.checked);
-    renderState();
-    scheduleDraftSave();
+    commitDraftChange(
+      () => {
+        state.draft.layers[layerId].enabled = event.target.checked;
+      },
+      {
+        afterSync: () => {
+          event.target.setAttribute("aria-checked", event.target.checked ? "true" : "false");
+          updateLayerEnabledControl(card, layerId, event.target.checked);
+        },
+      },
+    );
   });
 
   const controls = card.querySelector(".layer-controls");
@@ -2256,12 +2261,13 @@ const renderLayerCard = (layerId) => {
         layer,
         activeLayer,
         (control, value) => {
-          setPath(state.draft.layers[layerId], control.path, value);
-          clearLayerPresetSelection(layerId);
-          syncDraftSnapshot();
-          updateLayerPresetButtons(card, layerId);
-          renderState();
-          scheduleDraftSave();
+          commitDraftChange(
+            () => {
+              setPath(state.draft.layers[layerId], control.path, value);
+              clearLayerPresetSelection(layerId);
+            },
+            { afterSync: () => updateLayerPresetButtons(card, layerId) },
+          );
         },
         group.action === "reset-filter" ? () => resetLayerFilter(layerId) : undefined,
       ),
@@ -2313,27 +2319,29 @@ const applyLayerPreset = (layerId, presetName) => {
     presetName,
     state.presetSelections.layers[layerId],
   );
-  state.draft.layers[layerId] = next.draft;
-  if (next.selection) state.presetSelections.layers[layerId] = next.selection;
-  else clearLayerPresetSelection(layerId);
-  syncDraftSnapshot();
-  renderLayerControls();
-  renderState();
-  scheduleDraftSave();
+  commitDraftChange(
+    () => {
+      state.draft.layers[layerId] = next.draft;
+      if (next.selection) state.presetSelections.layers[layerId] = next.selection;
+      else clearLayerPresetSelection(layerId);
+    },
+    { afterSync: renderLayerControls },
+  );
 };
 
 const resetLayerFilter = (layerId) => {
   const layer = state.draft?.layers?.[layerId];
   const filterGroup = layerControlGroups.find((group) => group.action === "reset-filter");
   if (!layer || !filterGroup) return;
-  filterGroup.controls.forEach((control) => {
-    const resetValue = control.path.endsWith("highpass_hz") ? control.min : control.max;
-    setPath(layer, control.path, resetValue);
-  });
-  syncDraftSnapshot();
-  renderLayerControls();
-  renderState();
-  scheduleDraftSave();
+  commitDraftChange(
+    () => {
+      filterGroup.controls.forEach((control) => {
+        const resetValue = control.path.endsWith("highpass_hz") ? control.min : control.max;
+        setPath(layer, control.path, resetValue);
+      });
+    },
+    { afterSync: renderLayerControls },
+  );
 };
 
 const renderRecordingControls = () => {
@@ -2375,13 +2383,18 @@ const applyRecordingPreset = (name) => {
     name,
     state.presetSelections.recording,
   );
-  state.draft.recording = next.draft;
-  state.presetSelections.recording = next.selection;
-  syncDraftSnapshot();
-  renderRecordingPresets();
-  renderRecordingControls();
-  renderState();
-  scheduleDraftSave();
+  commitDraftChange(
+    () => {
+      state.draft.recording = next.draft;
+      state.presetSelections.recording = next.selection;
+    },
+    {
+      afterSync: () => {
+        renderRecordingPresets();
+        renderRecordingControls();
+      },
+    },
+  );
 };
 
 const workspaceTabs = () => Array.from(document.querySelectorAll("[data-workspace-tab]"));
