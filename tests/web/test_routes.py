@@ -1814,6 +1814,18 @@ assert.strictEqual(
 );
 assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage(
+    "Selected output default sample rate is 44100, but settings request 48000.",
+  ),
+  "선택한 출력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
+    "Selected input supports 1 channels, but settings request 2.",
+  ),
+  "선택한 입력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
     "low source file does not exist: /Users/nohsungbeen/dev/project/" +
       "The Secret Pond/data/sources/low.wav",
   ),
@@ -1859,7 +1871,7 @@ globalThis.__secretPondTest.state.devices = {{
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, false);
 assert.strictEqual(elements.errorBanner.textContent, "오디오 출력 처리 중 오류가 발생했습니다.");
-assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
+assert.strictEqual(elements.errorBadge.textContent, "장치 경고");
 
 globalThis.__secretPondTest.state.devices = {{ warnings: [] }};
 globalThis.__secretPondTest.renderErrors();

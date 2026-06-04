@@ -82,6 +82,40 @@ const translateUiErrorMessage = (message) => {
   if (normalized.includes("audio devices unavailable")) {
     return "오디오 장치를 사용할 수 없습니다.";
   }
+  if (normalized.includes("configured input device is unavailable")) {
+    return "설정된 입력 장치를 사용할 수 없습니다.";
+  }
+  if (normalized.includes("configured output device is unavailable")) {
+    return "설정된 출력 장치를 사용할 수 없습니다.";
+  }
+  if (
+    normalized.includes("selected input") &&
+    normalized.includes("default sample rate") &&
+    normalized.includes("settings request")
+  ) {
+    return "선택한 입력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.";
+  }
+  if (
+    normalized.includes("selected output") &&
+    normalized.includes("default sample rate") &&
+    normalized.includes("settings request")
+  ) {
+    return "선택한 출력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.";
+  }
+  if (
+    normalized.includes("selected input") &&
+    normalized.includes("supports") &&
+    normalized.includes("channels")
+  ) {
+    return "선택한 입력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.";
+  }
+  if (
+    normalized.includes("selected output") &&
+    normalized.includes("supports") &&
+    normalized.includes("channels")
+  ) {
+    return "선택한 출력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.";
+  }
   if (normalized.includes("devices failed") || normalized.includes("device")) {
     return "오디오 장치 정보를 불러오지 못했습니다.";
   }
@@ -734,9 +768,9 @@ const isStaleRecordingStopError = (error) => {
   return String(error?.detail || error?.message || "").toLowerCase().includes("not recording");
 };
 
-const renderErrorBadge = (message) => {
+const renderErrorBadge = (message, kind = "error") => {
   if (message) {
-    $("errorBadge").textContent = "오류 있음";
+    $("errorBadge").textContent = kind === "warning" ? "장치 경고" : "오류 있음";
     $("errorBadge").className = "status-pill hot";
   } else {
     $("errorBadge").textContent = "오류 없음";
@@ -746,10 +780,10 @@ const renderErrorBadge = (message) => {
 
 const replaceableRecordOutcomeKinds = new Set(["ready", "armed-ready", "recording", "processing"]);
 
-const setErrorBanner = (message) => {
+const setErrorBanner = (message, kind = "error") => {
   const banner = $("errorBanner");
   const translatedMessage = translateUiErrorMessage(message);
-  renderErrorBadge(translatedMessage);
+  renderErrorBadge(translatedMessage, kind);
   if (!translatedMessage) {
     banner.hidden = true;
     banner.textContent = "";
@@ -1012,8 +1046,11 @@ const currentErrorMessages = () => {
     state.deviceError,
     state.diagnosticsError,
     state.sourcesError,
-    ...(state.devices?.warnings || []),
   ].filter(Boolean).map(translateUiErrorMessage);
+};
+
+const currentWarningMessages = () => {
+  return (state.devices?.warnings || []).filter(Boolean).map(translateUiErrorMessage);
 };
 
 const renderErrors = () => {
@@ -1023,7 +1060,16 @@ const renderErrors = () => {
     setErrorBanner(messages.join(" · "));
     return;
   }
-  setErrorBanner(state.transientError || "");
+  if (state.transientError) {
+    setErrorBanner(state.transientError);
+    return;
+  }
+  const warnings = currentWarningMessages();
+  if (warnings.length) {
+    setErrorBanner(warnings.join(" · "), "warning");
+    return;
+  }
+  setErrorBanner("");
 };
 
 const renderDevices = () => {
