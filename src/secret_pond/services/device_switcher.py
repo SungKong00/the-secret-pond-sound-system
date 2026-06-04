@@ -31,6 +31,7 @@ def apply_runtime_devices(
     if output_changed and was_output_running:
         runtime.output.stop()
 
+    save_succeeded = False
     try:
         if input_changed:
             _set_device_id(runtime.recorder, devices.input_device_id)
@@ -38,6 +39,14 @@ def apply_runtime_devices(
             _set_device_id(runtime.output, devices.output_device_id)
         if output_changed and was_output_running:
             runtime.output.start()
+        next_active = current.active.model_copy(update={"devices": devices}, deep=True)
+        next_draft = current.draft.model_copy(update={"devices": devices}, deep=True)
+        next_state = runtime.settings_store.save(
+            SettingsState(active=next_active, draft=next_draft),
+        )
+        save_succeeded = True
+        runtime.apply_settings_state(next_state)
+        return next_state
     except Exception as exc:
         _rollback_runtime_devices(
             runtime,
@@ -46,13 +55,12 @@ def apply_runtime_devices(
             output_changed=output_changed,
             restore_output=output_changed and was_output_running,
         )
+        if save_succeeded:
+            with suppress(Exception):
+                previous_state = runtime.settings_store.save(current)
+                runtime.settings_state = previous_state
+                runtime.controller.update_settings(previous_state.active)
         raise DeviceSelectionError(str(exc)) from exc
-
-    next_active = current.active.model_copy(update={"devices": devices}, deep=True)
-    next_draft = current.draft.model_copy(update={"devices": devices}, deep=True)
-    next_state = runtime.settings_store.save(SettingsState(active=next_active, draft=next_draft))
-    runtime.apply_settings_state(next_state)
-    return next_state
 
 
 def _set_device_id(component: Any, device_id: str | None) -> None:

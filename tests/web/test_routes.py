@@ -3235,6 +3235,44 @@ def test_api_devices_update_restarts_running_output_on_output_device_change(
     assert response.json()["state"]["playback"]["output_running"] is True
 
 
+def test_api_devices_update_rolls_back_runtime_devices_when_save_fails(
+    tmp_path: Path,
+) -> None:
+    recorder = DeviceAwareFakeRecorder(recorder_take())
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        recorder=recorder,
+        output=output,
+        device_registry=fake_device_registry(),
+        raise_server_exceptions=False,
+    )
+    runtime = client.app.state.runtime
+    start_response = client.post("/api/playback/start")
+    runtime.settings_store = FailingSaveSettingsStore(
+        runtime.settings_store,
+        OSError("settings save failed"),
+    )
+
+    response = client.put(
+        "/api/devices",
+        json={"input_device_id": "mic-2", "output_device_id": "speaker-2"},
+    )
+
+    assert start_response.status_code == 200
+    assert response.status_code == 409
+    assert "settings save failed" in response.json()["detail"]
+    assert recorder.device_id is None
+    assert output.device_id is None
+    assert output.is_running is True
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["devices"]["input_device_id"] is None
+    assert state["settings"]["active"]["devices"]["output_device_id"] is None
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.devices.input_device_id is None
+    assert stored.draft.devices.output_device_id is None
+
+
 def test_api_devices_update_blocks_input_change_while_recording(tmp_path: Path) -> None:
     client = create_test_client(tmp_path, device_registry=fake_device_registry())
     client.post("/api/input/arm")
