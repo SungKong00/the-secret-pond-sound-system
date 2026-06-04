@@ -33,6 +33,7 @@ const state = {
   sourcesError: null,
   appliedSourceSignature: null,
   serverStateSignature: null,
+  sourceUploads: {},
   saveTimer: null,
   draftSaveRequestId: 0,
   sourceMutationRequestId: 0,
@@ -1677,14 +1678,52 @@ const sourceLibrarySignature = (categories) => JSON.stringify(
       file.modified_at,
       file.active,
     ]),
+    sourceUploadSignature(category.id),
   ]),
 );
+
+const sourceUploadState = (category) => {
+  if (!state.sourceUploads[category]) {
+    state.sourceUploads[category] = { selectAfterUpload: true, file: null };
+  }
+  return state.sourceUploads[category];
+};
+
+const sourceUploadSignature = (category) => {
+  const upload = sourceUploadState(category);
+  const file = upload.file;
+  return [
+    upload.selectAfterUpload,
+    file ? [file.name, file.size, file.lastModified] : null,
+  ];
+};
+
+const sourceUploadHint = (category) => {
+  const file = sourceUploadState(category).file;
+  return file
+    ? `${file.name} · ${formatBytes(file.size || 0)} 선택됨`
+    : "WAV 파일을 이 폴더로 복사합니다.";
+};
+
+const rememberSourceUploadFile = (category, file) => {
+  sourceUploadState(category).file = file || null;
+};
+
+const clearSourceUploadFile = (category) => {
+  rememberSourceUploadFile(category, null);
+};
+
+const rememberSourceUploadMode = (category, selectAfterUpload) => {
+  sourceUploadState(category).selectAfterUpload = selectAfterUpload;
+};
 
 const sourceCategoryCard = (category) => {
   const label = sourceCategoryLabels[category.id] || {
     title: category.label || category.id,
     helper: category.directory,
   };
+  const upload = sourceUploadState(category.id);
+  const uploadChecked = upload.selectAfterUpload ? " checked" : "";
   const card = document.createElement("section");
   card.className = "source-category-card";
   const options = [
@@ -1720,11 +1759,11 @@ const sourceCategoryCard = (category) => {
           data-source-file="${escapeHtml(category.id)}"
         />
         <strong>파일 선택 또는 드롭</strong>
-        <small>WAV 파일을 이 폴더로 복사합니다.</small>
+        <small>${escapeHtml(sourceUploadHint(category.id))}</small>
       </label>
       <button class="button" type="button" data-source-upload="${escapeHtml(category.id)}">추가</button>
       <label class="source-upload-select">
-        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}" checked />
+        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked} />
         <span>업로드 후 바로 선택</span>
       </label>
     </div>
@@ -1821,12 +1860,16 @@ const selectSourceFile = async (category, path) => {
 
 const selectedSourceUploadMode = (category) => {
   const checkbox = document.querySelector(`[data-source-upload-select="${category}"]`);
-  return checkbox ? checkbox.checked : true;
+  if (typeof checkbox?.checked === "boolean") {
+    rememberSourceUploadMode(category, checkbox.checked);
+  }
+  return sourceUploadState(category).selectAfterUpload;
 };
 
 const uploadSourceFile = async (category, droppedFile = null) => {
   const input = document.querySelector(`[data-source-file="${category}"]`);
-  const file = droppedFile || input?.files?.[0];
+  const selectedFile = input?.files?.[0] || sourceUploadState(category).file;
+  const file = droppedFile || selectedFile;
   if (!file) {
     showError("추가할 WAV 파일을 선택하세요.");
     return;
@@ -1856,6 +1899,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
     }
     state.sources = payload.sources;
     if (input) input.value = "";
+    clearSourceUploadFile(category);
     renderState();
     renderSourceLibrary();
     await requestDiagnostics();
@@ -1878,6 +1922,7 @@ const handleSourceFileDrop = (event, category) => {
     showError("추가할 WAV 파일을 선택하세요.");
     return;
   }
+  rememberSourceUploadFile(category, file);
   uploadSourceFile(category, file);
 };
 
@@ -3135,9 +3180,22 @@ const bindEvents = () => {
   });
   $("sourceLibraryList").addEventListener("change", (event) => {
     const select = event.target.closest("[data-source-select]");
-    if (!select) return;
-    releaseInteractiveControl(select);
-    selectSourceFile(select.dataset.sourceSelect, select.value);
+    if (select) {
+      releaseInteractiveControl(select);
+      selectSourceFile(select.dataset.sourceSelect, select.value);
+      return;
+    }
+    const fileInput = event.target.closest("[data-source-file]");
+    if (fileInput) {
+      rememberSourceUploadFile(fileInput.dataset.sourceFile, fileInput.files?.[0] || null);
+      renderSourceLibrary();
+      return;
+    }
+    const uploadMode = event.target.closest("[data-source-upload-select]");
+    if (uploadMode) {
+      rememberSourceUploadMode(uploadMode.dataset.sourceUploadSelect, uploadMode.checked);
+      renderSourceLibrary();
+    }
   });
   $("sourceLibraryList").addEventListener("dragover", (event) => {
     const dropZone = event.target.closest("[data-source-drop]");

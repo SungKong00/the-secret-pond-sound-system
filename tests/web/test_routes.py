@@ -2114,7 +2114,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
             "releaseInteractiveControl, refreshAll, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
-            "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile };\n"
+            "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
+            "uploadSourceFile };\n"
         ),
     )
     harness = f"""
@@ -2611,6 +2612,33 @@ globalThis.__secretPondTest.state.sources = {{
   ],
 }};
 globalThis.__secretPondTest.syncAppliedSourceSignature();
+globalThis.__secretPondTest.renderSourceLibrary();
+const latestSourceLibraryHtml = () =>
+  elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
+assert.strictEqual(
+  latestSourceLibraryHtml().includes(
+    'data-source-upload-select="low" checked',
+  ),
+  true,
+);
+globalThis.__secretPondTest.state.sourceUploads.low = {{
+  selectAfterUpload: false,
+  file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+}};
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(
+  latestSourceLibraryHtml().includes(
+    'data-source-upload-select="low" checked',
+  ),
+  false,
+);
+assert.strictEqual(
+  latestSourceLibraryHtml().includes("picked-low.wav · 4.0 KB 선택됨"),
+  true,
+);
+elements.sourceLibraryList.children = [];
+elements.sourceLibraryList.innerHTML = "";
+globalThis.__secretPondTest.state.renderSignatures.sourceLibrary = null;
 const runSourceSocketRefreshCheck = async () => {{
   globalThis.__secretPondTest.state.sources = {{
     categories: [
@@ -3130,6 +3158,31 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
       ],
     }},
   }});
+  const uploadRequests = [];
+  globalThis.__secretPondTest.state.sourceUploads.low = {{
+    selectAfterUpload: false,
+    file: {{ name: "stored-low.wav", size: 4096, lastModified: 2 }},
+  }};
+  globalThis.fetch = (path, options = {{}}) => {{
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    uploadRequests.push({{ path, options }});
+    return Promise.resolve({{
+      ok: true,
+      json: async () => sourcePayloadFor("sources/low/current.wav"),
+    }});
+  }};
+  await globalThis.__secretPondTest.uploadSourceFile("low");
+  assert.strictEqual(uploadRequests.length, 1);
+  assert.strictEqual(uploadRequests[0].path.includes("filename=stored-low.wav"), true);
+  assert.strictEqual(uploadRequests[0].path.includes("select=false"), true);
+  assert.strictEqual(uploadRequests[0].options.body.name, "stored-low.wav");
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceUploads.low.file, null);
+
   const sourceSelectResponses = [];
   globalThis.fetch = (path, options = {{}}) => {{
     if (path === "/api/diagnostics") {{
