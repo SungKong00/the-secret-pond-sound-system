@@ -145,7 +145,13 @@ def test_readme_links_operator_docs() -> None:
 
 def test_request_file_records_current_mvp_docs_decisions() -> None:
     request = read_text(REQUEST_FILE)
+    recording_recommendations = request.split("권장값:", 1)[1].split(
+        "2) 간단한 사운드 처리 기능", 1
+    )[0]
 
+    assert "- 최대 녹음 시간: 120초" in recording_recommendations
+    assert "- 최대 녹음 시간: 60초" not in recording_recommendations
+    assert "기존 권장값 60초가 아니라 120초" in request
     assert "11) 현재 운영자 UI와 문서화 반영" in request
     assert "Restart Output" in request
     assert "Soft / Misty / Dense / Clearer Voice" in request
