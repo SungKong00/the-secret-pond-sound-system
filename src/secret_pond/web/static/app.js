@@ -601,7 +601,8 @@ const hasDraftRuntimeConfigChanges = (snapshot = state.snapshot) => {
 };
 
 const hasPendingChanges = (snapshot) =>
-  JSON.stringify(snapshot.settings.active) !== JSON.stringify(snapshot.settings.draft);
+  JSON.stringify(snapshot.settings.active) !==
+  JSON.stringify(state.draft || snapshot.settings.draft);
 
 const hasLayerDraftChanges = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
@@ -698,6 +699,7 @@ const renderRecordingControls = () => {
       rangeControl(label, getPath(state.draft.recording, path), min, max, step, suffix, (value) => {
         setPath(state.draft.recording, path, value);
         renderRecordingPresets();
+        renderState();
         scheduleDraftSave();
       }),
     );

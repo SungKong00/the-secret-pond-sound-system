@@ -937,6 +937,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
         (
             "\nglobalThis.__secretPondTest = "
             "{ state, renderState, renderSyncBadge, "
+            "renderRecordingControls, "
             "connectStateSocket, showError, renderErrors, control, startFromSpace, "
             "stopFromSpace, stopIfRecording };\n"
         ),
@@ -955,6 +956,8 @@ const makeElement = () => ({{
   disabled: false,
   title: "",
   attributes: {{}},
+  listeners: {{}},
+  _queryElements: {{}},
   _classes: new Set(),
   classList: {{
     toggle(name, force) {{
@@ -977,9 +980,17 @@ const makeElement = () => ({{
   append(...children) {{
     this.children.push(...children);
   }},
-  addEventListener() {{}},
-  querySelector() {{
-    return makeElement();
+  addEventListener(eventName, handler) {{
+    this.listeners[eventName] = handler;
+  }},
+  dispatchEvent(event) {{
+    this.listeners[event.type]?.(event);
+  }},
+  querySelector(selector) {{
+    if (!this._queryElements[selector]) {{
+      this._queryElements[selector] = makeTrackedElement();
+    }}
+    return this._queryElements[selector];
   }},
 }});
 const makeTrackedElement = () => {{
@@ -1195,6 +1206,25 @@ assert.strictEqual(recordCore.classList.contains("recording"), true);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.armButton.getAttribute("aria-pressed"), "true");
 assert.strictEqual(elements.disarmButton.getAttribute("aria-pressed"), "false");
+
+const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
+globalThis.__secretPondTest.renderRecordingControls();
+const inputGainRow = elements.recordingControls.children[0];
+const inputGainInput = inputGainRow.querySelector("input");
+inputGainInput.value = "3";
+inputGainInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(elements.pendingBadge.textContent, "Unsaved audio changes");
+assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
+assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.renderState();
