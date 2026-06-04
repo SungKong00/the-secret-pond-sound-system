@@ -571,6 +571,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="lastEventBadge"' in response.text
     assert 'id="errorBadge"' in response.text
     assert "오류 없음" in response.text
+    assert 'class="error-banner notice-banner"' in response.text
+    assert 'aria-live="polite"' in response.text
     assert 'id="deviceHealthBadge"' in response.text
     assert 'id="syncBadge"' in response.text
     assert '<details class="device-panel" open>' not in response.text
@@ -946,9 +948,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.diagnostics?.events?.recent?.[0]" in script.text
     assert "currentErrorMessages" in script.text
     assert "renderErrorBadge" in script.text
+    assert "describeUiNotice" in script.text
+    assert "renderNoticeBanner" in script.text
     assert "오류 있음" in script.text
     assert "오류 없음" in script.text
+    assert "주의 있음" in script.text
     assert '"errorBadge").className = "status-pill hot"' in script.text
+    assert '"errorBadge").className = "status-pill caution"' in script.text
     assert '"errorBadge").className = "status-pill muted"' in script.text
     assert "renderSyncBadge" in script.text
     assert "실시간 동기화" in script.text
@@ -970,13 +976,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '`${channelCount}ch`' in script.text
     assert "장치 확인 중" in script.text
     assert "장치 정상" in script.text
-    assert "장치 경고" in script.text
+    assert "장치 주의" in script.text
     assert "장치 오프라인" in script.text
     assert "renderDeviceApplyNotice" not in script.text
-    assert "const outputControlBusy = state.applyInFlight || recordingStopBusy" in script.text
+    assert "const deriveDashboardControlState = ({" in script.text
+    assert "const outputControlBusy = Boolean(applyInFlight || recordingStopBusy)" in script.text
     assert (
-        '"restartOutputButton").disabled = outputControlBusy || '
-        "!snapshot.playback.output_running"
+        "restartOutputDisabled: outputControlBusy || !outputRunning"
         in script.text
     )
     assert 'control("/api/playback/restart")' in script.text
@@ -1136,12 +1142,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "빈 녹음" in script.text
     assert "녹음 준비 꺼짐" in script.text
     assert "녹음 실패" in script.text
+    assert "captureReady: armed && !isRecording && !recordingStopBusy" in script.text
     assert (
-        "const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy"
-        in script.text
-    )
-    assert (
-        'document.querySelector(".record-core").classList.toggle("armed", captureReady)'
+        'document.querySelector(".record-core").classList.toggle('
+        '"armed", controlState.captureReady)'
         in script.text
     )
     assert (
@@ -1151,12 +1155,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert ".record-core.armed" in styles.text
     assert ".record-core.recording" in styles.text
-    assert 'captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false")' in (
+    assert "controlState.captureGateOn ? \"true\" : \"false\"" in script.text
+    assert (
+        'captureGateSwitch").classList.toggle("checked", controlState.captureGateOn)'
+        in script.text
+    )
+    assert ".switch-control.checked" in styles.text
+    assert '"captureGate").className = `capture-gate ${controlState.captureGateClass}`' in (
         script.text
     )
-    assert 'captureGateSwitch").classList.toggle("checked", captureGateOn)' in script.text
-    assert ".switch-control.checked" in styles.text
-    assert '"captureGate").className = `capture-gate ${captureGateClass}`' in script.text
     assert ".capture-gate.capture-gate-off" in styles.text
     assert ".capture-gate.capture-gate-on" in styles.text
     assert ".capture-gate.capture-gate-recording" in styles.text
@@ -1257,13 +1264,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const renderState = () => {",
         "};\n\nconst renderLastEventBadge",
     )
-    assert "const recordingStopBusy = state.recordingStopInFlight" in render_state_body
+    assert "const controlState = deriveDashboardControlState({" in render_state_body
     assert (
-        '"captureGateSwitch").disabled = recordingStopBusy || snapshot.is_recording'
+        '"captureGateSwitch").disabled = controlState.captureGateSwitchDisabled'
         in render_state_body
     )
     assert (
-        '"captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false")'
+        "controlState.captureGateOn ? \"true\" : \"false\""
         in render_state_body
     )
     assert (
@@ -1271,7 +1278,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in render_state_body
     )
     assert (
-        '"applyButton").classList.toggle("attention", pendingChanges && !runtimeConfigChanges)'
+        '"applyButton").classList.toggle("attention", controlState.applyAttention)'
         in render_state_body
     )
     assert (
@@ -1279,33 +1286,28 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in render_state_body
     )
     assert (
-        '"startButton").disabled = recordingStopBusy || !snapshot.armed || '
-        "snapshot.is_recording"
+        '"startButton").disabled = controlState.startDisabled'
         in render_state_body
     )
     assert (
-        '"stopButton").disabled = recordingStopBusy || !snapshot.is_recording'
+        '"stopButton").disabled = controlState.stopDisabled'
         in render_state_body
     )
-    assert 'recordingStopBusy\n    ? "처리 중"' in render_state_body
+    assert 'controlState.recordingStopBusy\n    ? "처리 중"' in render_state_body
     assert "applyInFlight: false" in script.text
-    assert (
-        '"applyButton").disabled =\n    state.applyInFlight || recordingStopBusy || '
-        "snapshot.is_recording || runtimeConfigChanges"
-        in render_state_body
-    )
+    assert '"applyButton").disabled = controlState.applyDisabled' in render_state_body
     bilingual_apply_label = (
         'setLabelMarkup("applyButton", { ko: "적용 후 재시작", en: "Apply and Restart" })'
     )
     assert bilingual_apply_label not in script.text
-    assert '$("applyButton").textContent = "변경사항 적용 후 재생";' in script.text
+    assert 'applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생"' in script.text
     assert "적용 중…" in script.text
     assert "녹음 처리가 끝날 때까지 기다리세요." in script.text
     assert "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다." in script.text
-    assert '"resetButton").disabled = state.applyInFlight || snapshot.is_recording' in script.text
+    assert '"resetButton").disabled = controlState.resetDisabled' in script.text
     assert "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요." in script.text
     assert (
-        '"resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording'
+        '"resetParticipantsButton").disabled = controlState.resetParticipantsDisabled'
         in script.text
     )
     assert "참여자 수를 초기화하기 전에 녹음을 중지하세요." in script.text
@@ -1681,6 +1683,156 @@ assert.strictEqual(revertedRecording.selection, null);
     subprocess.run([node, "-e", harness], check=True, text=True)
 
 
+def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
+    tmp_path: Path,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        "\nglobalThis.__secretPondTest = { deriveDashboardControlState };\n",
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+globalThis.document = {{
+  getElementById() {{ return null; }},
+  querySelector() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+  createElement() {{ return {{}}; }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {{}};
+globalThis.setInterval = () => 0;
+
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const snapshot = {{
+  armed: true,
+  is_recording: false,
+  playback: {{ output_running: false }},
+}};
+const derive = globalThis.__secretPondTest.deriveDashboardControlState;
+
+assert.deepStrictEqual(
+  derive({{
+    snapshot,
+    applyInFlight: false,
+    recordingStopInFlight: false,
+    pendingChanges: true,
+    runtimeConfigChanged: false,
+  }}),
+  {{
+    recordingStopBusy: false,
+    outputControlBusy: false,
+    captureReady: true,
+    captureGateOn: true,
+    captureGateClass: "capture-gate-on",
+    captureGateSwitchDisabled: false,
+    startDisabled: false,
+    stopDisabled: true,
+    startOutputDisabled: false,
+    stopOutputDisabled: true,
+    restartOutputDisabled: true,
+    applyDisabled: false,
+    applyLabel: "변경사항 적용 후 재생",
+    applyAttention: true,
+    applyTitle: "",
+    resetDisabled: false,
+    resetTitle: "",
+    resetParticipantsDisabled: false,
+    resetParticipantsTitle: "",
+  }},
+);
+
+const runtimeChange = derive({{
+  snapshot,
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: true,
+}});
+assert.strictEqual(runtimeChange.applyDisabled, true);
+assert.strictEqual(runtimeChange.applyAttention, false);
+assert.strictEqual(
+  runtimeChange.applyTitle,
+  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+);
+
+const recordingStopBusy = derive({{
+  snapshot,
+  applyInFlight: false,
+  recordingStopInFlight: true,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(recordingStopBusy.captureReady, false);
+assert.strictEqual(recordingStopBusy.captureGateClass, "capture-gate-processing");
+assert.strictEqual(recordingStopBusy.captureGateSwitchDisabled, true);
+assert.strictEqual(recordingStopBusy.startDisabled, true);
+assert.strictEqual(recordingStopBusy.applyDisabled, true);
+assert.strictEqual(recordingStopBusy.applyTitle, "녹음 처리가 끝날 때까지 기다리세요.");
+assert.strictEqual(recordingStopBusy.startOutputDisabled, true);
+
+const activeRecording = derive({{
+  snapshot: {{ ...snapshot, is_recording: true, playback: {{ output_running: true }} }},
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(activeRecording.captureGateClass, "capture-gate-recording");
+assert.strictEqual(activeRecording.stopDisabled, false);
+assert.strictEqual(activeRecording.applyDisabled, true);
+assert.strictEqual(activeRecording.resetDisabled, true);
+assert.strictEqual(
+  activeRecording.resetTitle,
+  "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요.",
+);
+
+const applyInFlight = derive({{
+  snapshot: {{ ...snapshot, playback: {{ output_running: true }} }},
+  applyInFlight: true,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(applyInFlight.outputControlBusy, true);
+assert.strictEqual(applyInFlight.applyDisabled, true);
+assert.strictEqual(applyInFlight.applyLabel, "적용 중…");
+assert.strictEqual(
+  applyInFlight.applyTitle,
+  "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다.",
+);
+assert.strictEqual(applyInFlight.resetDisabled, true);
+
+const outputRunning = derive({{
+  snapshot: {{ ...snapshot, playback: {{ output_running: true }} }},
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(outputRunning.startOutputDisabled, true);
+assert.strictEqual(outputRunning.stopOutputDisabled, false);
+assert.strictEqual(outputRunning.restartOutputDisabled, false);
+assert.strictEqual(
+  outputRunning.applyTitle,
+  "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
+);
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -1693,7 +1845,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "\nglobalThis.__secretPondTest = "
             "{ state, applyState, renderState, renderSyncBadge, "
             "renderRecordingControls, renderVoiceStackControls, renderWorkspaceTabs, "
-            "setWorkspaceTab, setStorageMode, translateUiErrorMessage, renderEventLogSummary, "
+            "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
+            "renderEventLogSummary, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile };\n"
@@ -1817,7 +1970,22 @@ assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage(
     "Selected output default sample rate is 44100, but settings request 48000.",
   ),
-  "선택한 출력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.",
+  "출력 장치 기본 샘플레이트가 앱 설정과 다릅니다.",
+);
+const sampleRateNotice = globalThis.__secretPondTest.describeUiNotice(
+  "Selected output default sample rate is 44100, but settings request 48000.",
+  "caution",
+);
+assert.strictEqual(sampleRateNotice.severity, "caution");
+assert.strictEqual(
+  sampleRateNotice.detail,
+  "선택한 출력 장치의 기본값은 44100 Hz이고 앱은 48000 Hz로 출력하도록 " +
+    "설정되어 있습니다. 재생은 가능할 수 있지만 macOS 오디오 MIDI 설정이나 " +
+    "앱 출력 장치를 확인하세요.",
+);
+assert.strictEqual(
+  sampleRateNotice.technical,
+  "Selected output default sample rate is 44100, but settings request 48000.",
 );
 assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage(
@@ -1839,22 +2007,38 @@ assert.strictEqual(
 
 globalThis.__secretPondTest.showError("action failed");
 assert.strictEqual(elements.errorBanner.hidden, false);
-assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
+assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner error");
+assert.strictEqual(elements.errorBanner.getAttribute("role"), "alert");
+assert.strictEqual(elements.errorBanner.children[0].children[0].textContent, "오류");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "작업 중 오류가 발생했습니다.",
+);
+assert.strictEqual(
+  elements.errorBanner.children[1].textContent,
+  "문제가 반복되면 최근 이벤트와 시스템 진단을 확인하세요.",
+);
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
 
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, false);
-assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
+assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner error");
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
 globalThis.__secretPondTest.state.deviceError = "devices failed";
 globalThis.__secretPondTest.renderErrors();
-assert.strictEqual(elements.errorBanner.textContent, "오디오 장치 정보를 불러오지 못했습니다.");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "오디오 장치 정보를 불러오지 못했습니다.",
+);
 globalThis.__secretPondTest.state.deviceError = null;
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, false);
-assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "작업 중 오류가 발생했습니다.",
+);
 
 globalThis.__secretPondTest.showError("");
 assert.strictEqual(elements.errorBanner.hidden, true);
@@ -1865,7 +2049,10 @@ assert.strictEqual(elements.errorBadge.className, "status-pill muted");
 globalThis.__secretPondTest.state.snapshot = null;
 globalThis.__secretPondTest.state.deviceError = "devices failed";
 globalThis.__secretPondTest.renderErrors();
-assert.strictEqual(elements.errorBanner.textContent, "오디오 장치 정보를 불러오지 못했습니다.");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "오디오 장치 정보를 불러오지 못했습니다.",
+);
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
 globalThis.__secretPondTest.state.deviceError = null;
@@ -1875,12 +2062,40 @@ assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 
 globalThis.__secretPondTest.state.devices = {{
-  warnings: ["output processing failed"],
+  warnings: ["Selected output default sample rate is 44100, but settings request 48000."],
 }};
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, false);
-assert.strictEqual(elements.errorBanner.textContent, "오디오 출력 처리 중 오류가 발생했습니다.");
-assert.strictEqual(elements.errorBadge.textContent, "장치 경고");
+assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner caution");
+assert.strictEqual(elements.errorBanner.getAttribute("role"), "status");
+assert.strictEqual(elements.errorBanner.children[0].children[0].textContent, "주의");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "출력 장치 기본 샘플레이트가 앱 설정과 다릅니다.",
+);
+assert.strictEqual(
+  elements.errorBanner.children[1].textContent,
+  "선택한 출력 장치의 기본값은 44100 Hz이고 앱은 48000 Hz로 출력하도록 " +
+    "설정되어 있습니다. 재생은 가능할 수 있지만 macOS 오디오 MIDI 설정이나 " +
+    "앱 출력 장치를 확인하세요.",
+);
+assert.strictEqual(elements.errorBanner.children[2].children[0].textContent, "자세히");
+assert.strictEqual(
+  elements.errorBanner.children[2].children[1].textContent.includes("원문:"),
+  true,
+);
+assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
+assert.strictEqual(elements.errorBadge.className, "status-pill caution");
+
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.deviceHealthBadge.textContent, "장치 주의");
+assert.strictEqual(elements.deviceHealthBadge.className, "status-pill caution");
+assert.strictEqual(elements.deviceWarnings.children.length, 1);
+assert.strictEqual(elements.deviceWarnings.children[0].className, "notice-list-item caution");
+assert.strictEqual(
+  elements.deviceWarnings.children[0].children[0].children[0].children[1].textContent,
+  "출력 장치 기본 샘플레이트가 앱 설정과 다릅니다.",
+);
 
 globalThis.__secretPondTest.state.devices = {{ warnings: [] }};
 globalThis.__secretPondTest.renderErrors();
@@ -2044,6 +2259,10 @@ globalThis.__secretPondTest.state.diagnosticsError = "diagnostics failed";
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(
   elements.errorBanner.textContent,
+  "",
+);
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
   "시스템 진단 정보를 불러오지 못했습니다.",
 );
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");

@@ -61,6 +61,54 @@ const $ = (id) => document.getElementById(id);
 
 const containsKorean = (message) => /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(message);
 
+const noticeSeverityRank = {
+  info: 0,
+  caution: 1,
+  error: 2,
+};
+
+const noticeSeverityDisplay = {
+  error: {
+    label: "오류",
+    badge: "오류 있음",
+    badgeClass: "hot",
+    role: "alert",
+    live: "assertive",
+  },
+  caution: {
+    label: "주의",
+    badge: "주의 있음",
+    badgeClass: "caution",
+    role: "status",
+    live: "polite",
+  },
+  info: {
+    label: "안내",
+    badge: "안내 있음",
+    badgeClass: "muted",
+    role: "status",
+    live: "polite",
+  },
+};
+
+const normalizeNoticeSeverity = (severity = "error") => {
+  if (severity === "warning") return "caution";
+  return noticeSeverityDisplay[severity] ? severity : "error";
+};
+
+const highestNoticeSeverity = (notices) => notices.reduce((highest, notice) => (
+  noticeSeverityRank[notice.severity] > noticeSeverityRank[highest] ? notice.severity : highest
+), "info");
+
+const genericNoticeDetail = "문제가 반복되면 최근 이벤트와 시스템 진단을 확인하세요.";
+
+const uiNotice = (message, summary, detail, severity = "error") => ({
+  summary,
+  detail,
+  severity: normalizeNoticeSeverity(severity),
+  technical: message,
+});
+
 const sourceCategoryLabels = {
   low: { title: "Low", helper: "낮은 배경 루프" },
   mid: { title: "Mid", helper: "중간 배경 루프" },
@@ -68,78 +116,162 @@ const sourceCategoryLabels = {
   voice_stack: { title: "Voice Stack", helper: "목소리 스택 소스" },
 };
 
-const translateUiErrorMessage = (message) => {
+const describeUiNotice = (message, defaultSeverity = "error") => {
   if (!message) return "";
   const text = String(message).trim();
   if (!text) return "";
-  if (containsKorean(text)) return text;
+  const fallbackSeverity = normalizeNoticeSeverity(defaultSeverity);
+  if (containsKorean(text)) {
+    return uiNotice(text, text, genericNoticeDetail, fallbackSeverity);
+  }
 
   const normalized = text.toLowerCase();
   const requestStatus = normalized.match(/request failed:\s*(\d+)/);
   if (requestStatus) {
-    return `요청을 처리하지 못했습니다. HTTP ${requestStatus[1]} 상태입니다.`;
+    return uiNotice(
+      text,
+      `요청을 처리하지 못했습니다. HTTP ${requestStatus[1]} 상태입니다.`,
+      "서버가 요청을 완료하지 못했습니다. 같은 작업이 반복해서 실패하면 서버 상태와 최근 이벤트를 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("failed to fetch") || normalized.includes("load failed")) {
-    return "서버에 연결하지 못했습니다.";
+    return uiNotice(
+      text,
+      "서버에 연결하지 못했습니다.",
+      "로컬 서버가 실행 중인지, 브라우저가 같은 주소에 연결되어 있는지 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("not recording")) {
-    return "녹음은 이미 중지되어 있습니다.";
+    return uiNotice(
+      text,
+      "녹음은 이미 중지되어 있습니다.",
+      "현재 녹음 세션이 없어서 중지 요청을 적용하지 않았습니다. 화면 상태를 새로고침한 뒤 다시 확인하세요.",
+      "info",
+    );
   }
   if (normalized.includes("audio devices unavailable")) {
-    return "오디오 장치를 사용할 수 없습니다.";
+    return uiNotice(
+      text,
+      "오디오 장치를 사용할 수 없습니다.",
+      "운영체제의 오디오 장치 목록을 읽지 못했습니다. 장치를 다시 연결하거나 앱을 재시작한 뒤 System 패널을 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("configured input device is unavailable")) {
-    return "설정된 입력 장치를 사용할 수 없습니다.";
+    return uiNotice(
+      text,
+      "설정된 입력 장치를 사용할 수 없습니다.",
+      "저장된 입력 장치가 현재 시스템 목록에 없습니다. System 패널에서 사용 가능한 입력 장치를 다시 선택하세요.",
+      "error",
+    );
   }
   if (normalized.includes("configured output device is unavailable")) {
-    return "설정된 출력 장치를 사용할 수 없습니다.";
+    return uiNotice(
+      text,
+      "설정된 출력 장치를 사용할 수 없습니다.",
+      "저장된 출력 장치가 현재 시스템 목록에 없습니다. System 패널에서 사용 가능한 출력 장치를 다시 선택하세요.",
+      "error",
+    );
   }
-  if (
-    normalized.includes("selected input") &&
-    normalized.includes("default sample rate") &&
-    normalized.includes("settings request")
-  ) {
-    return "선택한 입력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.";
+  const sampleRateMismatch = normalized.match(
+    /selected (input|output) default sample rate is (\d+), but settings request (\d+)/,
+  );
+  if (sampleRateMismatch) {
+    const [, direction, deviceRate, settingsRate] = sampleRateMismatch;
+    const target = direction === "input" ? "입력" : "출력";
+    return uiNotice(
+      text,
+      `${target} 장치 기본 샘플레이트가 앱 설정과 다릅니다.`,
+      `선택한 ${target} 장치의 기본값은 ${deviceRate} Hz이고 앱은 ${settingsRate} Hz로 ${
+        direction === "input" ? "녹음" : "출력"
+      }하도록 설정되어 있습니다. ${
+        direction === "input" ? "녹음" : "재생"
+      }은 가능할 수 있지만 macOS 오디오 MIDI 설정이나 앱 ${target} 장치를 확인하세요.`,
+      "caution",
+    );
   }
-  if (
-    normalized.includes("selected output") &&
-    normalized.includes("default sample rate") &&
-    normalized.includes("settings request")
-  ) {
-    return "선택한 출력 장치 기본 샘플레이트가 현재 오디오 설정과 다릅니다.";
+  const channelMismatch = normalized.match(
+    /selected (input|output) supports (\d+) channels, but settings request (\d+)/,
+  );
+  if (channelMismatch) {
+    const [, direction, deviceChannels, settingsChannels] = channelMismatch;
+    const target = direction === "input" ? "입력" : "출력";
+    return uiNotice(
+      text,
+      `선택한 ${target} 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.`,
+      `선택한 ${target} 장치는 ${deviceChannels}채널까지 지원하지만 앱 설정은 ${settingsChannels}채널을 요청합니다. 채널 수를 맞추거나 다른 ${target} 장치를 선택하세요.`,
+      "error",
+    );
   }
   if (
     normalized.includes("selected input") &&
     normalized.includes("supports") &&
     normalized.includes("channels")
   ) {
-    return "선택한 입력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.";
+    return uiNotice(
+      text,
+      "선택한 입력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.",
+      "입력 장치의 지원 채널 수와 앱 설정 채널 수를 맞춰야 합니다.",
+      "error",
+    );
   }
   if (
     normalized.includes("selected output") &&
     normalized.includes("supports") &&
     normalized.includes("channels")
   ) {
-    return "선택한 출력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.";
+    return uiNotice(
+      text,
+      "선택한 출력 장치의 채널 수가 현재 오디오 설정과 맞지 않습니다.",
+      "출력 장치의 지원 채널 수와 앱 설정 채널 수를 맞춰야 합니다.",
+      "error",
+    );
   }
   if (normalized.includes("devices failed") || normalized.includes("device")) {
-    return "오디오 장치 정보를 불러오지 못했습니다.";
+    return uiNotice(
+      text,
+      "오디오 장치 정보를 불러오지 못했습니다.",
+      "System 패널의 장치 목록을 갱신하지 못했습니다. 장치 연결 상태와 로컬 서버 상태를 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("diagnostics failed") || normalized.includes("diagnostic")) {
-    return "시스템 진단 정보를 불러오지 못했습니다.";
+    return uiNotice(
+      text,
+      "시스템 진단 정보를 불러오지 못했습니다.",
+      "소스 파일 상태와 최근 이벤트를 가져오지 못했습니다. 로컬 서버 로그를 확인하고 다시 시도하세요.",
+      "error",
+    );
   }
   if (normalized.includes("event log")) {
-    return "최근 이벤트를 불러오지 못했습니다.";
+    return uiNotice(
+      text,
+      "최근 이벤트를 불러오지 못했습니다.",
+      "이벤트 로그 파일을 읽지 못했습니다. 파일 권한과 data 디렉터리 상태를 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("source file") && normalized.includes("does not exist")) {
-    return "선택된 소스 파일을 찾지 못했습니다.";
+    return uiNotice(
+      text,
+      "선택된 소스 파일을 찾지 못했습니다.",
+      "현재 설정이 가리키는 WAV 파일이 없습니다. Source Library에서 존재하는 파일을 다시 선택하세요.",
+      "error",
+    );
   }
   if (
     normalized.includes("stack") ||
     normalized.includes("voice") ||
     normalized.includes("accepted_clip_path")
   ) {
-    return "목소리 스택 처리 중 오류가 발생했습니다.";
+    return uiNotice(
+      text,
+      "목소리 스택 처리 중 오류가 발생했습니다.",
+      "녹음 파일을 스택에 반영하지 못했습니다. 최근 이벤트와 Voice Stack 소스 상태를 확인하세요.",
+      "error",
+    );
   }
   if (
     normalized.includes("stream") ||
@@ -149,40 +281,95 @@ const translateUiErrorMessage = (message) => {
     normalized.includes("mix") ||
     normalized.includes("render")
   ) {
-    return "오디오 출력 처리 중 오류가 발생했습니다.";
+    return uiNotice(
+      text,
+      "오디오 출력 처리 중 오류가 발생했습니다.",
+      "출력 스트림, 렌더링 파일, 또는 믹서 상태에서 문제가 발생했습니다. 출력 장치와 최근 이벤트를 확인하세요.",
+      fallbackSeverity,
+    );
   }
   if (normalized.includes("recording") || normalized.includes("recorder")) {
-    return "녹음 처리 중 오류가 발생했습니다.";
+    return uiNotice(
+      text,
+      "녹음 처리 중 오류가 발생했습니다.",
+      "녹음을 시작하거나 저장하는 중 문제가 발생했습니다. 입력 장치와 녹음 준비 상태를 확인하세요.",
+      "error",
+    );
   }
   if (
     normalized.includes("settings") ||
     normalized.includes("draft") ||
     normalized.includes("invalid json")
   ) {
-    return "설정 처리 중 오류가 발생했습니다.";
+    return uiNotice(
+      text,
+      "설정 처리 중 오류가 발생했습니다.",
+      "설정 저장 또는 불러오기에 실패했습니다. 저장하지 않은 변경을 확인하고 다시 시도하세요.",
+      "error",
+    );
   }
   if (normalized.includes("participant")) {
-    return "참여자 정보를 처리하는 중 오류가 발생했습니다.";
+    return uiNotice(
+      text,
+      "참여자 정보를 처리하는 중 오류가 발생했습니다.",
+      "참여자 수 저장 파일을 처리하지 못했습니다. data 디렉터리 쓰기 권한을 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("websocket") || normalized.includes("json")) {
-    return "실시간 상태를 해석하지 못했습니다.";
+    return uiNotice(
+      text,
+      "실시간 상태를 해석하지 못했습니다.",
+      "브라우저가 받은 실시간 상태 메시지를 읽지 못했습니다. 잠시 후 자동 재연결 상태를 확인하세요.",
+      "caution",
+    );
   }
   if (normalized.includes("not ready") || normalized.includes("runtime")) {
-    return "앱 실행 준비가 아직 끝나지 않았습니다.";
+    return uiNotice(
+      text,
+      "앱 실행 준비가 아직 끝나지 않았습니다.",
+      "서버가 오디오 런타임을 준비하는 중입니다. 계속 반복되면 서버를 재시작하세요.",
+      "caution",
+    );
   }
   if (normalized.includes("unavailable") || normalized.includes("busy")) {
-    return "현재 이 작업을 사용할 수 없습니다.";
+    return uiNotice(
+      text,
+      "현재 이 작업을 사용할 수 없습니다.",
+      "다른 작업이 진행 중이거나 필요한 장치가 준비되지 않았습니다. 진행 중인 작업이 끝난 뒤 다시 시도하세요.",
+      "caution",
+    );
   }
   if (normalized.includes("missing") || normalized.includes("not found")) {
-    return "필요한 파일이나 데이터를 찾지 못했습니다.";
+    return uiNotice(
+      text,
+      "필요한 파일이나 데이터를 찾지 못했습니다.",
+      "설정이 가리키는 파일이나 데이터가 없습니다. System 패널과 Source Library를 확인하세요.",
+      "error",
+    );
   }
   if (normalized.includes("invalid")) {
-    return "입력값이 올바르지 않습니다.";
+    return uiNotice(
+      text,
+      "입력값이 올바르지 않습니다.",
+      "요청에 포함된 값이 허용 범위를 벗어났습니다. 값을 확인하고 다시 시도하세요.",
+      "error",
+    );
   }
   if (normalized.includes("cannot")) {
-    return "현재 상태에서는 이 작업을 실행할 수 없습니다.";
+    return uiNotice(
+      text,
+      "현재 상태에서는 이 작업을 실행할 수 없습니다.",
+      "현재 녹음, 적용, 또는 출력 상태와 충돌하는 작업입니다. 상태가 바뀐 뒤 다시 시도하세요.",
+      "caution",
+    );
   }
-  return "작업 중 오류가 발생했습니다.";
+  return uiNotice(text, "작업 중 오류가 발생했습니다.", genericNoticeDetail, fallbackSeverity);
+};
+
+const translateUiErrorMessage = (message) => {
+  const notice = describeUiNotice(message);
+  return notice ? notice.summary : "";
 };
 
 const layerLabels = {
@@ -774,10 +961,33 @@ const isStaleRecordingStopError = (error) => {
   return String(error?.detail || error?.message || "").toLowerCase().includes("not recording");
 };
 
-const renderErrorBadge = (message, kind = "error") => {
-  if (message) {
-    $("errorBadge").textContent = kind === "warning" ? "장치 경고" : "오류 있음";
-    $("errorBadge").className = "status-pill hot";
+const clearElement = (element) => {
+  element.innerHTML = "";
+  element.textContent = "";
+  if (Array.isArray(element.children)) {
+    element.children.length = 0;
+  }
+};
+
+const noticeFromMessage = (message, defaultSeverity = "error") => {
+  if (!message) return null;
+  if (typeof message === "object" && message.summary) return message;
+  return describeUiNotice(message, defaultSeverity) || null;
+};
+
+const renderErrorBadge = (notices = []) => {
+  const activeNotices = notices.filter(Boolean);
+  if (activeNotices.length) {
+    const severity = highestNoticeSeverity(activeNotices);
+    const display = noticeSeverityDisplay[severity];
+    $("errorBadge").textContent = display.badge;
+    if (severity === "caution") {
+      $("errorBadge").className = "status-pill caution";
+    } else if (severity === "error") {
+      $("errorBadge").className = "status-pill hot";
+    } else {
+      $("errorBadge").className = "status-pill muted";
+    }
   } else {
     $("errorBadge").textContent = "오류 없음";
     $("errorBadge").className = "status-pill muted";
@@ -786,23 +996,111 @@ const renderErrorBadge = (message, kind = "error") => {
 
 const replaceableRecordOutcomeKinds = new Set(["ready", "armed-ready", "recording", "processing"]);
 
-const setErrorBanner = (message, kind = "error") => {
+const noticeHeadingElement = (notice) => {
+  const heading = document.createElement("div");
+  heading.className = "notice-heading";
+  const label = document.createElement("span");
+  label.className = "notice-label";
+  label.textContent = noticeSeverityDisplay[notice.severity].label;
+  const summary = document.createElement("strong");
+  summary.textContent = notice.summary;
+  heading.append(label, summary);
+  return heading;
+};
+
+const noticeDetailElement = (notice) => {
+  const detail = document.createElement("p");
+  detail.className = "notice-detail";
+  detail.textContent = notice.detail;
+  return detail;
+};
+
+const noticeTechnicalElement = (notice) => {
+  const details = document.createElement("details");
+  details.className = "notice-technical";
+  const summary = document.createElement("summary");
+  summary.textContent = "자세히";
+  const technical = document.createElement("p");
+  technical.textContent = `원문: ${notice.technical}`;
+  details.append(summary, technical);
+  return details;
+};
+
+const appendNoticeContent = (container, notice) => {
+  container.append(
+    noticeHeadingElement(notice),
+    noticeDetailElement(notice),
+    noticeTechnicalElement(notice),
+  );
+};
+
+const renderNoticeBanner = (notices) => {
   const banner = $("errorBanner");
-  const translatedMessage = translateUiErrorMessage(message);
-  renderErrorBadge(translatedMessage, kind);
-  if (!translatedMessage) {
+  const activeNotices = notices.filter(Boolean);
+  renderErrorBadge(activeNotices);
+  clearElement(banner);
+  if (!activeNotices.length) {
     banner.hidden = true;
-    banner.textContent = "";
+    banner.className = "error-banner notice-banner";
     return;
   }
+
+  const severity = highestNoticeSeverity(activeNotices);
+  const display = noticeSeverityDisplay[severity];
   banner.hidden = false;
-  banner.textContent = translatedMessage;
+  banner.className = `error-banner notice-banner ${severity}`;
+  banner.setAttribute("role", display.role);
+  banner.setAttribute("aria-live", display.live);
+
+  if (activeNotices.length === 1) {
+    appendNoticeContent(banner, activeNotices[0]);
+    return;
+  }
+
+  const groupNotice = uiNotice(
+    "",
+    `${display.label} ${activeNotices.length}개`,
+    "아래 항목을 하나씩 확인하세요.",
+    severity,
+  );
+  banner.append(noticeHeadingElement(groupNotice), noticeDetailElement(groupNotice));
+  const list = document.createElement("ul");
+  list.className = "notice-list";
+  activeNotices.forEach((notice) => {
+    const item = document.createElement("li");
+    item.className = `notice-list-item ${notice.severity}`;
+    appendNoticeContent(item, notice);
+    list.appendChild(item);
+  });
+  banner.appendChild(list);
+};
+
+const renderNoticeList = (container, notices) => {
+  clearElement(container);
+  notices.filter(Boolean).forEach((notice) => {
+    const item = document.createElement("li");
+    item.className = `notice-list-item ${notice.severity}`;
+    const body = document.createElement("div");
+    body.className = "notice-list-item-body";
+    appendNoticeContent(body, notice);
+    item.appendChild(body);
+    container.appendChild(item);
+  });
+};
+
+const setErrorBanner = (message, kind = "error") => {
+  const severity = normalizeNoticeSeverity(kind);
+  const messages = Array.isArray(message) ? message : [message];
+  const notices = messages
+    .map((item) => noticeFromMessage(item, severity))
+    .filter(Boolean);
+  renderNoticeBanner(notices);
 };
 
 const showError = (message) => {
-  const translatedMessage = translateUiErrorMessage(message);
-  state.transientError = translatedMessage || null;
-  setErrorBanner(translatedMessage);
+  const notice = noticeFromMessage(message, "error");
+  state.transientError = notice?.technical || null;
+  renderNoticeBanner(notice ? [notice] : []);
 };
 
 const requestState = async (options = {}) => {
@@ -896,14 +1194,77 @@ const renderSyncBadge = () => {
   }
 };
 
+const deriveDashboardControlState = ({
+  snapshot,
+  applyInFlight = false,
+  recordingStopInFlight = false,
+  pendingChanges = false,
+  runtimeConfigChanged = false,
+}) => {
+  const recordingStopBusy = Boolean(recordingStopInFlight);
+  const outputControlBusy = Boolean(applyInFlight || recordingStopBusy);
+  const isRecording = Boolean(snapshot?.is_recording);
+  const armed = Boolean(snapshot?.armed);
+  const outputRunning = Boolean(snapshot?.playback?.output_running);
+  const captureGateClass = recordingStopBusy
+    ? "capture-gate-processing"
+    : isRecording
+      ? "capture-gate-recording"
+      : armed
+        ? "capture-gate-on"
+        : "capture-gate-off";
+  const applyTitle = recordingStopBusy
+    ? "녹음 처리가 끝날 때까지 기다리세요."
+    : isRecording
+      ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
+      : applyInFlight
+        ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
+        : runtimeConfigChanged
+          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+          : outputRunning
+            ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
+            : "";
+  const resetTitle = isRecording
+    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
+    : "";
+  const resetParticipantsTitle = isRecording
+    ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
+    : "";
+  return {
+    recordingStopBusy,
+    outputControlBusy,
+    captureReady: armed && !isRecording && !recordingStopBusy,
+    captureGateOn: armed || isRecording,
+    captureGateClass,
+    captureGateSwitchDisabled: recordingStopBusy || isRecording,
+    startDisabled: recordingStopBusy || !armed || isRecording,
+    stopDisabled: recordingStopBusy || !isRecording,
+    startOutputDisabled: outputControlBusy || outputRunning,
+    stopOutputDisabled: outputControlBusy || !outputRunning,
+    restartOutputDisabled: outputControlBusy || !outputRunning,
+    applyDisabled: applyInFlight || recordingStopBusy || isRecording || runtimeConfigChanged,
+    applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
+    applyAttention: pendingChanges && !runtimeConfigChanged,
+    applyTitle,
+    resetDisabled: applyInFlight || isRecording,
+    resetTitle,
+    resetParticipantsDisabled: applyInFlight || isRecording,
+    resetParticipantsTitle,
+  };
+};
+
 const renderState = () => {
   renderSyncBadge();
   const snapshot = state.snapshot;
   if (!snapshot) return;
-  const recordingStopBusy = state.recordingStopInFlight;
-  const outputControlBusy = state.applyInFlight || recordingStopBusy;
-  const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy;
   const pendingChanges = hasPendingChanges(snapshot);
+  const controlState = deriveDashboardControlState({
+    snapshot,
+    applyInFlight: state.applyInFlight,
+    recordingStopInFlight: state.recordingStopInFlight,
+    pendingChanges,
+    runtimeConfigChanged: settingsChangePlan(snapshot).runtimeConfigChanged,
+  });
 
   $("armedBadge").textContent = snapshot.armed ? "녹음 준비 켜짐" : "녹음 준비 꺼짐";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
@@ -922,16 +1283,16 @@ const renderState = () => {
   $("maximumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.maximum_recording_seconds,
   );
-  $("recordCoreStatus").textContent = recordingStopBusy
+  $("recordCoreStatus").textContent = controlState.recordingStopBusy
     ? "처리 중"
     : snapshot.is_recording
       ? "녹음 중"
       : snapshot.armed
         ? "준비 완료"
         : "준비 전";
-  document.querySelector(".record-core").classList.toggle("armed", captureReady);
+  document.querySelector(".record-core").classList.toggle("armed", controlState.captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
-  renderRecordReadiness(snapshot, recordingStopBusy);
+  renderRecordReadiness(snapshot, controlState.recordingStopBusy);
   $("pendingBadge").hidden = !pendingChanges;
   $("pendingBadge").textContent = pendingChanges ? "저장 안 된 오디오 변경" : "";
   $("pendingBadge").className = "status-pill hot";
@@ -942,56 +1303,31 @@ const renderState = () => {
       : pendingChanges
         ? "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다."
         : "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
-  const captureGateOn = snapshot.armed || snapshot.is_recording;
-  const captureGateClass = recordingStopBusy
-    ? "capture-gate-processing"
-    : snapshot.is_recording
-      ? "capture-gate-recording"
-      : snapshot.armed
-        ? "capture-gate-on"
-        : "capture-gate-off";
-  $("captureGate").className = `capture-gate ${captureGateClass}`;
-  $("captureGateSwitch").disabled = recordingStopBusy || snapshot.is_recording;
-  $("captureGateSwitch").setAttribute("aria-checked", captureGateOn ? "true" : "false");
-  $("captureGateSwitch").classList.toggle("checked", captureGateOn);
+  $("captureGate").className = `capture-gate ${controlState.captureGateClass}`;
+  $("captureGateSwitch").disabled = controlState.captureGateSwitchDisabled;
+  $("captureGateSwitch").setAttribute(
+    "aria-checked",
+    controlState.captureGateOn ? "true" : "false",
+  );
+  $("captureGateSwitch").classList.toggle("checked", controlState.captureGateOn);
   $("captureGateState").textContent = snapshot.is_recording
     ? "녹음 중"
     : snapshot.armed
       ? "녹음 준비 켜짐"
       : "녹음 준비 꺼짐";
-  $("startButton").disabled = recordingStopBusy || !snapshot.armed || snapshot.is_recording;
-  $("stopButton").disabled = recordingStopBusy || !snapshot.is_recording;
-  $("startOutputButton").disabled = outputControlBusy || snapshot.playback.output_running;
-  $("stopOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
-  $("restartOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
-  const runtimeConfigChanges = settingsChangePlan(snapshot).runtimeConfigChanged;
-  $("applyButton").disabled =
-    state.applyInFlight || recordingStopBusy || snapshot.is_recording || runtimeConfigChanges;
-  if (state.applyInFlight) {
-    $("applyButton").textContent = "적용 중…";
-  } else {
-    $("applyButton").textContent = "변경사항 적용 후 재생";
-  }
-  $("applyButton").classList.toggle("attention", pendingChanges && !runtimeConfigChanges);
-  $("resetButton").disabled = state.applyInFlight || snapshot.is_recording;
-  $("resetButton").title = snapshot.is_recording
-    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
-    : "";
-  $("resetParticipantsButton").disabled = state.applyInFlight || snapshot.is_recording;
-  $("resetParticipantsButton").title = snapshot.is_recording
-    ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
-    : "";
-  $("applyButton").title = recordingStopBusy
-    ? "녹음 처리가 끝날 때까지 기다리세요."
-    : snapshot.is_recording
-      ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
-      : state.applyInFlight
-        ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
-        : runtimeConfigChanges
-          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
-          : snapshot.playback.output_running
-            ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
-            : "";
+  $("startButton").disabled = controlState.startDisabled;
+  $("stopButton").disabled = controlState.stopDisabled;
+  $("startOutputButton").disabled = controlState.startOutputDisabled;
+  $("stopOutputButton").disabled = controlState.stopOutputDisabled;
+  $("restartOutputButton").disabled = controlState.restartOutputDisabled;
+  $("applyButton").disabled = controlState.applyDisabled;
+  $("applyButton").textContent = controlState.applyLabel;
+  $("applyButton").classList.toggle("attention", controlState.applyAttention);
+  $("resetButton").disabled = controlState.resetDisabled;
+  $("resetButton").title = controlState.resetTitle;
+  $("resetParticipantsButton").disabled = controlState.resetParticipantsDisabled;
+  $("resetParticipantsButton").title = controlState.resetParticipantsTitle;
+  $("applyButton").title = controlState.applyTitle;
   renderErrors();
 };
 
@@ -1056,33 +1392,43 @@ const renderRecordingOutcome = (outcome) => {
 };
 
 const currentErrorMessages = () => {
+  return currentErrorNotices().map((notice) => notice.summary);
+};
+
+const currentErrorNotices = () => {
   return [
     state.deviceError,
     state.diagnosticsError,
     state.sourcesError,
-  ].filter(Boolean).map(translateUiErrorMessage);
+  ].map((message) => noticeFromMessage(message, "error")).filter(Boolean);
 };
 
 const currentWarningMessages = () => {
-  return (state.devices?.warnings || []).filter(Boolean).map(translateUiErrorMessage);
+  return currentWarningNotices().map((notice) => notice.summary);
+};
+
+const currentWarningNotices = () => {
+  return (state.devices?.warnings || [])
+    .map((message) => noticeFromMessage(message, "caution"))
+    .filter(Boolean);
 };
 
 const renderErrors = () => {
-  const messages = currentErrorMessages();
-  if (messages.length) {
-    setErrorBanner(messages.join(" · "));
+  const notices = currentErrorNotices();
+  if (notices.length) {
+    renderNoticeBanner(notices);
     return;
   }
   if (state.transientError) {
     setErrorBanner(state.transientError);
     return;
   }
-  const warnings = currentWarningMessages();
+  const warnings = currentWarningNotices();
   if (warnings.length) {
-    setErrorBanner(warnings.join(" · "), "warning");
+    renderNoticeBanner(warnings);
     return;
   }
-  setErrorBanner("");
+  renderNoticeBanner([]);
 };
 
 const renderDevices = () => {
@@ -1099,8 +1445,10 @@ const renderDeviceHealthBadge = () => {
     $("deviceHealthBadge").textContent = "장치 확인 중";
     $("deviceHealthBadge").className = "status-pill muted";
   } else if (state.devices.warnings.length) {
-    $("deviceHealthBadge").textContent = "장치 경고";
-    $("deviceHealthBadge").className = "status-pill hot";
+    const severity = highestNoticeSeverity(currentWarningNotices());
+    $("deviceHealthBadge").textContent = severity === "error" ? "장치 오류" : "장치 주의";
+    $("deviceHealthBadge").className =
+      `status-pill ${noticeSeverityDisplay[severity].badgeClass}`;
   } else {
     $("deviceHealthBadge").textContent = "장치 정상";
     $("deviceHealthBadge").className = "status-pill safe";
@@ -1146,13 +1494,13 @@ const renderSystemDevices = () => {
   }
   renderSystemDeviceSelect(
     "inputDeviceSelect",
-    devices.input_devices,
+    devices.input_devices || [],
     activeDevices.input_device_id ?? null,
     Boolean(state.snapshot?.is_recording),
   );
   renderSystemDeviceSelect(
     "outputDeviceSelect",
-    devices.output_devices,
+    devices.output_devices || [],
     activeDevices.output_device_id ?? null,
   );
   renderDeviceWarnings(devices.warnings || []);
@@ -1160,12 +1508,10 @@ const renderSystemDevices = () => {
 
 const renderDeviceWarnings = (warnings) => {
   const warningList = $("deviceWarnings");
-  warningList.innerHTML = "";
-  warnings.forEach((warning) => {
-    const item = document.createElement("li");
-    item.textContent = translateUiErrorMessage(warning);
-    warningList.appendChild(item);
-  });
+  renderNoticeList(
+    warningList,
+    warnings.map((warning) => noticeFromMessage(warning, "caution")),
+  );
 };
 
 const renderSourceHealthList = (sources) => {
@@ -1322,11 +1668,13 @@ const sourceFileRows = (category) => {
 
 const renderEventLogSummary = (events, error = null) => {
   const list = $("eventLogSummary");
-  list.innerHTML = "";
+  clearElement(list);
   if (error) {
+    const notice = noticeFromMessage(error, "error");
     const item = document.createElement("li");
     item.className = "event-item event-error";
-    item.textContent = translateUiErrorMessage(error);
+    item.textContent = notice.summary;
+    item.title = notice.detail;
     list.appendChild(item);
     return;
   }
