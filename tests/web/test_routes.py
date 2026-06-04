@@ -661,7 +661,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Devices OK" in script.text
     assert "Device Warning" in script.text
     assert "Devices Offline" in script.text
-    assert '"restartOutputButton").disabled = !snapshot.playback.output_running' in script.text
+    assert "const outputControlBusy = state.applyInFlight || recordingStopBusy" in script.text
+    assert (
+        '"restartOutputButton").disabled = outputControlBusy || '
+        "!snapshot.playback.output_running"
+        in script.text
+    )
     assert 'control("/api/playback/restart")' in script.text
     assert 'socket.addEventListener("message", (event) => {' in script.text
     assert (
@@ -1227,11 +1232,18 @@ assert.strictEqual(elements.pendingBadge.textContent, "No unsaved changes");
 assert.strictEqual(elements.pendingBadge.className, "status-pill muted");
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
+globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
+assert.strictEqual(elements.startOutputButton.disabled, true);
+globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.stopOutputButton.disabled, true);
+assert.strictEqual(elements.restartOutputButton.disabled, true);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
+globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Armed");
@@ -1244,6 +1256,7 @@ assert.strictEqual(elements.armButton.disabled, true);
 assert.strictEqual(elements.disarmButton.disabled, false);
 assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
+assert.strictEqual(elements.startOutputButton.disabled, false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.renderState();
@@ -1253,11 +1266,23 @@ assert.strictEqual(elements.startButton.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, true);
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "Wait for recording processing to finish.");
+assert.strictEqual(elements.startOutputButton.disabled, true);
 assert.strictEqual(elements.recordCoreStatus.textContent, "Processing");
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "Processing recording...");
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
+globalThis.__secretPondTest.state.applyInFlight = true;
+globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.startOutputButton.disabled, true);
+globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.stopOutputButton.disabled, true);
+assert.strictEqual(elements.restartOutputButton.disabled, true);
+
+globalThis.__secretPondTest.state.applyInFlight = false;
+globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "Safe");

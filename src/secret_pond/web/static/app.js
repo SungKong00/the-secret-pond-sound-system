@@ -240,6 +240,7 @@ const renderState = () => {
   const snapshot = state.snapshot;
   if (!snapshot) return;
   const recordingStopBusy = state.recordingStopInFlight;
+  const outputControlBusy = state.applyInFlight || recordingStopBusy;
   const captureReady = snapshot.armed && !snapshot.is_recording && !recordingStopBusy;
 
   $("armedBadge").textContent = snapshot.armed ? "Armed" : "Disarmed";
@@ -285,9 +286,9 @@ const renderState = () => {
     recordingStopBusy || (!snapshot.armed && !snapshot.is_recording);
   $("startButton").disabled = recordingStopBusy || !snapshot.armed || snapshot.is_recording;
   $("stopButton").disabled = recordingStopBusy || !snapshot.is_recording;
-  $("startOutputButton").disabled = snapshot.playback.output_running;
-  $("stopOutputButton").disabled = !snapshot.playback.output_running;
-  $("restartOutputButton").disabled = !snapshot.playback.output_running;
+  $("startOutputButton").disabled = outputControlBusy || snapshot.playback.output_running;
+  $("stopOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
+  $("restartOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
   $("armButton").setAttribute("aria-pressed", snapshot.armed ? "true" : "false");
   $("disarmButton").setAttribute("aria-pressed", snapshot.armed ? "false" : "true");
   const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
