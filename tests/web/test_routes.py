@@ -2086,6 +2086,9 @@ assert.strictEqual(
 );
 assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill caution");
+elements.errorBanner.children[2].open = true;
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.children[2].open, true);
 
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.deviceHealthBadge.textContent, "장치 주의");

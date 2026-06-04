@@ -91,6 +91,8 @@ const noticeSeverityDisplay = {
   },
 };
 
+const openNoticeDetailKeys = new Set();
+
 const normalizeNoticeSeverity = (severity = "error") => {
   if (severity === "warning") return "caution";
   return noticeSeverityDisplay[severity] ? severity : "error";
@@ -1015,9 +1017,53 @@ const noticeDetailElement = (notice) => {
   return detail;
 };
 
+const noticeDetailKey = (notice) => [notice.severity, notice.summary, notice.technical || ""].join("::");
+
+const collectNoticeDetailElements = (element, result = []) => {
+  if (!element?.children) return result;
+  Array.from(element.children).forEach((child) => {
+    if (child.noticeDetailKey || child.getAttribute?.("data-notice-key")) {
+      result.push(child);
+    }
+    collectNoticeDetailElements(child, result);
+  });
+  return result;
+};
+
+const noticeDetailElements = (container) => {
+  const detailElements = container.querySelectorAll?.("details[data-notice-key]");
+  if (detailElements) return Array.from(detailElements);
+  return collectNoticeDetailElements(container);
+};
+
+const rememberNoticeDetailState = (container) => {
+  noticeDetailElements(container).forEach((details) => {
+    const key = details.getAttribute?.("data-notice-key") || details.noticeDetailKey;
+    if (!key) return;
+    if (details.open) {
+      openNoticeDetailKeys.add(key);
+    } else {
+      openNoticeDetailKeys.delete(key);
+    }
+  });
+};
+
 const noticeTechnicalElement = (notice) => {
   const details = document.createElement("details");
+  const key = noticeDetailKey(notice);
   details.className = "notice-technical";
+  details.setAttribute("data-notice-key", key);
+  details.noticeDetailKey = key;
+  if (openNoticeDetailKeys.has(key)) {
+    details.open = true;
+  }
+  details.addEventListener("toggle", () => {
+    if (details.open) {
+      openNoticeDetailKeys.add(key);
+    } else {
+      openNoticeDetailKeys.delete(key);
+    }
+  });
   const summary = document.createElement("summary");
   summary.textContent = "자세히";
   const technical = document.createElement("p");
@@ -1038,6 +1084,7 @@ const renderNoticeBanner = (notices) => {
   const banner = $("errorBanner");
   const activeNotices = notices.filter(Boolean);
   renderErrorBadge(activeNotices);
+  rememberNoticeDetailState(banner);
   clearElement(banner);
   if (!activeNotices.length) {
     banner.hidden = true;
@@ -1076,6 +1123,7 @@ const renderNoticeBanner = (notices) => {
 };
 
 const renderNoticeList = (container, notices) => {
+  rememberNoticeDetailState(container);
   clearElement(container);
   notices.filter(Boolean).forEach((notice) => {
     const item = document.createElement("li");
