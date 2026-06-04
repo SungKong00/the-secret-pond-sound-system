@@ -3348,6 +3348,75 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.title, "");
 
+  const unsavedDeviceDraft = cloneSettings(activeSettings);
+  unsavedDeviceDraft.voice_stack.loop_seconds = 91;
+  const serverDeviceActive = cloneSettings(activeSettings);
+  serverDeviceActive.devices.output_device_id = "speaker-2";
+  const serverDeviceDraft = cloneSettings(activeSettings);
+  serverDeviceDraft.devices.output_device_id = "speaker-2";
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.draft = cloneSettings(unsavedDeviceDraft);
+  globalThis.fetch = (path) => {{
+    if (path === "/api/devices") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: {{
+            ...snapshot,
+            is_recording: false,
+            settings: {{
+              active: cloneSettings(serverDeviceActive),
+              draft: cloneSettings(serverDeviceDraft),
+              change: {{
+                runtime_config_changed: false,
+                changed_runtime_fields: [],
+                changed_sections: ["devices"],
+              }},
+            }},
+          }},
+          devices: {{
+            input_devices: [],
+            output_devices: [],
+            selected_input_device: null,
+            selected_output_device: {{ id: "speaker-2", name: "Speaker 2" }},
+            warnings: [],
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.draft.devices.output_device_id,
+    "speaker-2",
+  );
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 91);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
+    91,
+  );
+  globalThis.__secretPondTest.applyState({{
+    ...snapshot,
+    is_recording: false,
+    settings: {{
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      }},
+    }},
+  }});
+
   let cleanApplyFetchPath = null;
   globalThis.fetch = (path) => {{
     cleanApplyFetchPath = path;

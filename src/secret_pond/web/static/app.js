@@ -1222,15 +1222,21 @@ const refreshAll = async () => {
 const applySettingsPayload = (settingsPayload, options = {}) => {
   if (!state.snapshot || !settingsPayload) return false;
   const syncDraft = options.syncDraft ?? true;
+  const mergeDraftSections = options.mergeDraftSections || [];
   const nextSettings = clone(settingsPayload);
   state.snapshot.settings = nextSettings;
   if (syncDraft || !state.draft) {
     state.draft = clone(nextSettings.draft);
     renderControls();
   } else {
-    if (options.mergeDraftSources && nextSettings.draft?.sources && state.draft.sources) {
-      state.draft.sources = clone(nextSettings.draft.sources);
-    }
+    mergeDraftSections.forEach((sectionName) => {
+      if (
+        Object.prototype.hasOwnProperty.call(nextSettings.draft || {}, sectionName) &&
+        Object.prototype.hasOwnProperty.call(state.draft, sectionName)
+      ) {
+        state.draft[sectionName] = clone(nextSettings.draft[sectionName]);
+      }
+    });
     syncDraftSnapshot();
   }
   return true;
@@ -1238,6 +1244,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
 
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
+  const mergeDraftSections = options.mergeDraftSections || [];
   const nextServerStateSignature = serverStateSignature(payload);
   const serverStateChanged = state.serverStateSignature !== nextServerStateSignature;
   if (!serverStateChanged && !syncDraft && state.snapshot) {
@@ -1245,7 +1252,7 @@ const applyState = (payload, options = {}) => {
   }
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
-  applySettingsPayload(payload.settings, { syncDraft });
+  applySettingsPayload(payload.settings, { syncDraft, mergeDraftSections });
   renderState();
   renderSystemStatus();
   return true;
@@ -1942,7 +1949,7 @@ const applySourceMutationPayload = (payload, options = {}) => {
   if (payload.settings) {
     applySettingsPayload(payload.settings, {
       syncDraft: false,
-      mergeDraftSources: true,
+      mergeDraftSections: ["sources"],
     });
   }
   if (payload.sources) {
@@ -3185,7 +3192,7 @@ const changeDevice = async (key, value) => {
       method: "PUT",
       body: JSON.stringify({ [key]: value || null }),
     });
-    applyState(payload.state);
+    applyState(payload.state, { syncDraft: false, mergeDraftSections: ["devices"] });
     state.devices = payload.devices;
     renderDevices();
     await requestDiagnostics();
