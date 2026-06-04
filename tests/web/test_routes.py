@@ -893,10 +893,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const startFromSpace = async (event) => {",
         "};\n\nconst stopFromSpace",
     )
-    assert (
-        "state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording"
-        in start_from_space_body
-    )
+    assert "state.recordingStartInFlight" in start_from_space_body
+    assert "state.recordingStopInFlight" in start_from_space_body
+    assert "!state.snapshot?.armed" in start_from_space_body
+    assert "state.snapshot?.is_recording" in start_from_space_body
     assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
     assert "if (event.repeat) return;" in start_from_space_body
 
@@ -912,7 +912,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
         (
             "\nglobalThis.__secretPondTest = "
             "{ state, renderState, renderSyncBadge, "
-            "connectStateSocket, showError, renderErrors, control, startFromSpace };\n"
+            "connectStateSocket, showError, renderErrors, control, startFromSpace, "
+            "stopFromSpace, stopIfRecording };\n"
         ),
     )
     harness = f"""
@@ -1092,15 +1093,40 @@ assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, false);
 assert.strictEqual(elements.syncBadge.textContent, "Sync Polling");
 assert.strictEqual(scheduledReconnect.delay, 1500);
 
+const layerSettings = (volumeDb) => ({{
+  enabled: true,
+  volume_db: volumeDb,
+  eq: {{
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+  }},
+}});
 const activeSettings = {{
   voice_stack: {{ mode: "live_ephemeral" }},
   input_control: {{
     minimum_recording_seconds: 3,
     maximum_recording_seconds: 120,
   }},
+  recording: {{
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  }},
   audio: {{ sample_rate: 48000, channels: 2 }},
   devices: {{ input_device_id: null, output_device_id: null }},
-  layers: {{}},
+  layers: {{
+    low: layerSettings(-12),
+    mid: layerSettings(-12),
+    voice: layerSettings(-18),
+  }},
 }};
 const snapshot = {{
   armed: true,
@@ -1270,6 +1296,182 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     assert.strictEqual(unexpectedStartPath, null, tagName);
   }}
   globalThis.document.activeElement = null;
+
+  let resolveStart = null;
+  let stopSeenBeforeDiagnostics = null;
+  const recordingPaths = [];
+  globalThis.fetch = (path) => {{
+    if (path.startsWith("/api/recording/")) recordingPaths.push(path);
+    if (path === "/api/recording/start") {{
+      return new Promise((resolve) => {{
+        resolveStart = () => {{
+          snapshot.is_recording = true;
+          resolve({{
+            ok: true,
+            json: async () => ({{ state: snapshot }}),
+          }});
+        }};
+      }});
+    }}
+    if (path === "/api/recording/stop") {{
+      snapshot.is_recording = false;
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: snapshot,
+          outcome: {{ accepted: false, reason: "too_short", duration_seconds: 0.2 }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      if (stopSeenBeforeDiagnostics === null) {{
+        stopSeenBeforeDiagnostics = recordingPaths.includes("/api/recording/stop");
+      }}
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  globalThis.__secretPondTest.state.snapshot.armed = true;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  const raceStartEvent = {{
+    code: "Space",
+    repeat: false,
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  const raceStopEvent = {{
+    code: "Space",
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  const startPromise = globalThis.__secretPondTest.startFromSpace(raceStartEvent);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, true);
+  await globalThis.__secretPondTest.stopFromSpace(raceStopEvent);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStopRequestedAfterStart, true);
+  assert.deepStrictEqual(recordingPaths, ["/api/recording/start"]);
+  resolveStart();
+  await startPromise;
+  assert.strictEqual(stopSeenBeforeDiagnostics, true);
+  assert.deepStrictEqual(recordingPaths, ["/api/recording/start", "/api/recording/stop"]);
+  assert.strictEqual(globalThis.__secretPondTest.state.snapshot.is_recording, false);
+
+  let unexpectedSecondStartPath = null;
+  globalThis.fetch = (path) => {{
+    unexpectedSecondStartPath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const secondStartWhilePendingEvent = {{
+    code: "Space",
+    repeat: false,
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.recordingStartInFlight = true;
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  globalThis.__secretPondTest.state.snapshot.armed = true;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  await globalThis.__secretPondTest.startFromSpace(secondStartWhilePendingEvent);
+  assert.strictEqual(secondStartWhilePendingEvent.defaultPrevented, true);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+  assert.strictEqual(unexpectedSecondStartPath, null);
+
+  let resolveBlurStart = null;
+  let blurStopSeenBeforeDiagnostics = null;
+  const blurRacePaths = [];
+  globalThis.fetch = (path) => {{
+    if (path.startsWith("/api/recording/")) blurRacePaths.push(path);
+    if (path === "/api/recording/start") {{
+      return new Promise((resolve) => {{
+        resolveBlurStart = () => {{
+          snapshot.is_recording = true;
+          resolve({{
+            ok: true,
+            json: async () => ({{ state: snapshot }}),
+          }});
+        }};
+      }});
+    }}
+    if (path === "/api/recording/stop") {{
+      snapshot.is_recording = false;
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: snapshot,
+          outcome: {{ accepted: false, reason: "too_short", duration_seconds: 0.2 }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      if (blurStopSeenBeforeDiagnostics === null) {{
+        blurStopSeenBeforeDiagnostics = blurRacePaths.includes("/api/recording/stop");
+      }}
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.recordingStartInFlight = false;
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  globalThis.__secretPondTest.state.snapshot.armed = true;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  const blurStartEvent = {{
+    code: "Space",
+    repeat: false,
+    defaultPrevented: false,
+    preventDefault() {{
+      this.defaultPrevented = true;
+    }},
+  }};
+  const blurStartPromise = globalThis.__secretPondTest.startFromSpace(blurStartEvent);
+  await globalThis.__secretPondTest.stopIfRecording();
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStopRequestedAfterStart, true);
+  assert.deepStrictEqual(blurRacePaths, ["/api/recording/start"]);
+  resolveBlurStart();
+  await blurStartPromise;
+  assert.strictEqual(blurStopSeenBeforeDiagnostics, true);
+  assert.deepStrictEqual(blurRacePaths, ["/api/recording/start", "/api/recording/stop"]);
+
+  const blurStopPaths = [];
+  globalThis.fetch = (path) => {{
+    if (path.startsWith("/api/recording/")) blurStopPaths.push(path);
+    if (path === "/api/recording/stop") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: snapshot,
+          outcome: {{ accepted: false, reason: "too_short", duration_seconds: 0.1 }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  globalThis.__secretPondTest.state.spaceRecording = true;
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+  globalThis.__secretPondTest.state.recordingStartInFlight = false;
+  await globalThis.__secretPondTest.stopIfRecording();
+  assert.deepStrictEqual(blurStopPaths, ["/api/recording/stop"]);
 
   let resolvePoll = null;
   globalThis.fetch = (path) => {{

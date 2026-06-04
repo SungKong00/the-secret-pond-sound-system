@@ -22,6 +22,8 @@ const state = {
   stateSocket: null,
   websocketConnected: false,
   websocketReconnectTimer: null,
+  recordingStartInFlight: false,
+  recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
   applyInFlight: false,
 };
@@ -783,11 +785,16 @@ const saveDraft = async () => {
 
 const control = async (path, options = {}) => {
   let controlError = null;
+  const startsStartRequest = path === "/api/recording/start";
+  const allowStaleRecordingStop = options.allowStaleRecordingStop === true;
   const expectsRecordingOutcome =
     path === "/api/recording/stop" ||
     path === "/api/recording/poll-auto-stop" ||
     (path === "/api/input/disarm" && state.snapshot?.is_recording);
-  if (path === "/api/recording/stop" && !state.snapshot?.is_recording) return;
+  if (startsStartRequest && state.recordingStartInFlight) return;
+  if (path === "/api/recording/stop" && !state.snapshot?.is_recording && !allowStaleRecordingStop) {
+    return;
+  }
   if (path === "/api/input/disarm" && !state.snapshot?.is_recording && !state.snapshot?.armed) {
     return;
   }
@@ -796,10 +803,14 @@ const control = async (path, options = {}) => {
     state.snapshot?.is_recording;
   const startsStopRequest =
     ((path === "/api/recording/stop" || path === "/api/input/disarm") &&
-      state.snapshot?.is_recording) ||
+      (state.snapshot?.is_recording ||
+        (path === "/api/recording/stop" && allowStaleRecordingStop))) ||
     pollAutoStopRequest;
   if (path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight) return;
   if (startsStopRequest && state.recordingStopInFlight) return;
+  if (startsStartRequest) {
+    state.recordingStartInFlight = true;
+  }
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
     renderState();
@@ -819,7 +830,16 @@ const control = async (path, options = {}) => {
     } else if (path === "/api/recording/start") {
       setRecordStatus("recording", "Recording", "Release Space to stop.");
     }
-    await requestDiagnostics();
+    let deferredStopHandled = false;
+    if (startsStartRequest && state.recordingStopRequestedAfterStart) {
+      state.recordingStartInFlight = false;
+      state.recordingStopRequestedAfterStart = false;
+      await control("/api/recording/stop", { allowStaleRecordingStop: true });
+      deferredStopHandled = true;
+    }
+    if (!deferredStopHandled) {
+      await requestDiagnostics();
+    }
   } catch (error) {
     controlError = error;
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
@@ -834,6 +854,10 @@ const control = async (path, options = {}) => {
     if (startsStopRequest) {
       state.recordingStopInFlight = false;
       renderState();
+    }
+    if (startsStartRequest) {
+      state.recordingStartInFlight = false;
+      state.recordingStopRequestedAfterStart = false;
     }
     if (controlError) showError(controlError.message);
   }
@@ -912,7 +936,12 @@ const startFromSpace = async (event) => {
   releaseButtonFocusForSpace();
   event.preventDefault();
   if (event.repeat) return;
-  if (state.recordingStopInFlight || !state.snapshot?.armed || state.snapshot?.is_recording) {
+  if (
+    state.recordingStartInFlight ||
+    state.recordingStopInFlight ||
+    !state.snapshot?.armed ||
+    state.snapshot?.is_recording
+  ) {
     return;
   }
   state.spaceRecording = true;
@@ -924,14 +953,24 @@ const stopFromSpace = async (event) => {
   releaseButtonFocusForSpace();
   event.preventDefault();
   if (!state.spaceRecording && !state.snapshot?.is_recording) return;
-  state.spaceRecording = false;
-  await control("/api/recording/stop");
+  await requestRecordingStop();
 };
 
 const stopIfRecording = async () => {
-  if (!state.snapshot?.is_recording) return;
+  if (!state.spaceRecording && !state.snapshot?.is_recording && !state.recordingStartInFlight) {
+    return;
+  }
+  await requestRecordingStop();
+};
+
+const requestRecordingStop = async () => {
+  const allowStaleRecordingStop = state.spaceRecording;
   state.spaceRecording = false;
-  await control("/api/recording/stop");
+  if (state.recordingStartInFlight && !state.snapshot?.is_recording) {
+    state.recordingStopRequestedAfterStart = true;
+    return;
+  }
+  await control("/api/recording/stop", { allowStaleRecordingStop });
 };
 
 const stateSocketUrl = () => {
