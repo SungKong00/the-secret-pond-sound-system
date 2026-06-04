@@ -1080,6 +1080,13 @@ const appendNoticeContent = (container, notice) => {
   );
 };
 
+const noticeItemElement = (notice, elementName = "li", extraClass = "") => {
+  const item = document.createElement(elementName);
+  item.className = `${extraClass ? `${extraClass} ` : ""}notice-list-item ${notice.severity}`;
+  appendNoticeContent(item, notice);
+  return item;
+};
+
 const renderNoticeBanner = (notices) => {
   const banner = $("errorBanner");
   const activeNotices = notices.filter(Boolean);
@@ -1199,7 +1206,7 @@ const requestSources = async (options = {}) => {
 };
 
 const refreshAll = async () => {
-  await requestState().catch((error) => showError(translateUiErrorMessage(error.message)));
+  await requestState().catch((error) => showError(error.message));
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });
@@ -1592,11 +1599,18 @@ const renderSourceLibrary = () => {
     if (state.renderSignatures.sourceLibrary === nextSignature) return;
     state.renderSignatures.sourceLibrary = nextSignature;
     container.innerHTML = "";
-    const placeholder = document.createElement("div");
-    placeholder.className = "source-library-empty";
-    placeholder.textContent = state.sourcesError
-      ? translateUiErrorMessage(state.sourcesError)
-      : "파일 목록을 확인하는 중입니다.";
+    let placeholder;
+    if (state.sourcesError) {
+      placeholder = noticeItemElement(
+        noticeFromMessage(state.sourcesError, "error"),
+        "div",
+        "source-library-empty",
+      );
+    } else {
+      placeholder = document.createElement("div");
+      placeholder.className = "source-library-empty";
+      placeholder.textContent = "파일 목록을 확인하는 중입니다.";
+    }
     container.appendChild(placeholder);
     return;
   }
@@ -1720,11 +1734,7 @@ const renderEventLogSummary = (events, error = null) => {
   clearElement(list);
   if (error) {
     const notice = noticeFromMessage(error, "error");
-    const item = document.createElement("li");
-    item.className = "event-item event-error";
-    item.textContent = notice.summary;
-    item.title = notice.detail;
-    list.appendChild(item);
+    list.appendChild(noticeItemElement(notice));
     return;
   }
   if (!events.length) {
@@ -1771,7 +1781,7 @@ const selectSourceFile = async (category, path) => {
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(translateUiErrorMessage(error.message));
+      showError(error.message);
       await requestSources().catch(() => {});
     }
     return null;
@@ -1821,7 +1831,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(translateUiErrorMessage(error.message));
+      showError(error.message);
       await requestSources().catch(() => {});
     }
     return null;
@@ -1855,7 +1865,7 @@ const deleteSourceFile = async (category, path) => {
     return payload;
   } catch (error) {
     if (isCurrentSourceMutation(requestId)) {
-      showError(translateUiErrorMessage(error.message));
+      showError(error.message);
       await requestSources().catch(() => {});
     }
     return null;
@@ -2677,7 +2687,7 @@ const saveDraft = async () => {
     return payload;
   } catch (error) {
     if (requestId === state.draftSaveRequestId) {
-      showError(translateUiErrorMessage(error.message));
+      showError(error.message);
       throw error;
     }
     return null;
@@ -2769,7 +2779,7 @@ const control = async (path, options = {}) => {
       state.recordingStartInFlight = false;
       state.recordingStopRequestedAfterStart = false;
     }
-    if (controlError) showError(translateUiErrorMessage(controlError.message));
+    if (controlError) showError(controlError.message);
   }
 };
 
@@ -2793,7 +2803,7 @@ const applyAndRestart = async () => {
   } finally {
     state.applyInFlight = false;
     renderState();
-    if (applyError) showError(translateUiErrorMessage(applyError.message));
+    if (applyError) showError(applyError.message);
   }
 };
 
@@ -2810,7 +2820,7 @@ const resetDraft = async () => {
     await requestSources();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(translateUiErrorMessage(error.message));
+    showError(error.message);
   }
 };
 
@@ -2823,7 +2833,7 @@ const resetParticipants = async () => {
     await requestSources();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(translateUiErrorMessage(error.message));
+    showError(error.message);
   }
 };
 
@@ -2849,7 +2859,7 @@ const changeDevice = async (key, value) => {
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
     await requestDevices().catch(() => {});
-    showError(translateUiErrorMessage(error.message));
+    showError(error.message);
   } finally {
     state.deviceChangeInFlight = false;
     renderDevices();
@@ -2938,7 +2948,7 @@ const connectStateSocket = () => {
     try {
       applyState(JSON.parse(event.data), { syncDraft: false });
     } catch (error) {
-      showError(translateUiErrorMessage(error.message));
+      showError(error.message);
     }
   });
   socket.addEventListener("close", () => {

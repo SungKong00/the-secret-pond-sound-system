@@ -1331,7 +1331,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.applyInFlight = false" in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
-    assert "showError(translateUiErrorMessage(applyError.message))" in apply_body
+    assert "showError(applyError.message)" in apply_body
     assert '"/api/settings/apply"' in apply_body
     assert '"/api/settings/apply-and-restart"' not in apply_body
     assert "const resetDraft = async () => {" in script.text
@@ -1352,7 +1352,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "applyState(payload.state, { syncDraft: false })" in reset_participants_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
-    assert "showError(translateUiErrorMessage(error.message))" in script.text
+    assert "showError(error.message)" in script.text
     assert "const changeDevice = async (key, value) => {" in script.text
     change_device_body = slice_between(
         script.text,
@@ -1380,17 +1380,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "state.recordingStopInFlight = true;\n    renderState();" in control_body
     assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
-    assert "if (controlError) showError(translateUiErrorMessage(controlError.message));" in (
-        control_body
-    )
+    assert "if (controlError) showError(controlError.message);" in control_body
     assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
         "setRecordStatus(\"processing\", \"녹음 처리 중...\")",
     )
     final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
     final_render = control_body.index("renderState();", final_recording_stop_reset)
-    final_error = control_body.index(
-        "if (controlError) showError(translateUiErrorMessage(controlError.message));"
-    )
+    final_error = control_body.index("if (controlError) showError(controlError.message);")
     assert final_recording_stop_reset < final_render < final_error
     recording_error_branch = slice_between(
         control_body,
@@ -1417,7 +1413,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "await requestDiagnostics().catch(() => {})",
         recording_branch_start,
     )
-    show_error = control_body.index("showError(translateUiErrorMessage(controlError.message))")
+    show_error = control_body.index("showError(controlError.message)")
     assert recording_branch_start < recording_failed_status < recording_state_refresh
     assert recording_state_refresh < recording_diagnostics_refresh
     assert recording_diagnostics_refresh < show_error
@@ -2097,6 +2093,11 @@ assert.strictEqual(
   elements.errorBanner.children[1].textContent,
   "문제가 반복되면 최근 이벤트와 시스템 진단을 확인하세요.",
 );
+assert.strictEqual(elements.errorBanner.children[2].children[0].textContent, "자세히");
+assert.strictEqual(
+  elements.errorBanner.children[2].children[1].textContent,
+  "원문: action failed",
+);
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 assert.strictEqual(elements.errorBadge.className, "status-pill hot");
 
@@ -2253,9 +2254,19 @@ assert.strictEqual(scheduledReconnect.delay, 1500);
 
 globalThis.__secretPondTest.renderEventLogSummary([], "stream start failed");
 assert.strictEqual(elements.eventLogSummary.children.length, 1);
+assert.strictEqual(elements.eventLogSummary.children[0].className, "notice-list-item error");
 assert.strictEqual(
-  elements.eventLogSummary.children[0].textContent,
+  elements.eventLogSummary.children[0].children[0].children[1].textContent,
   "오디오 출력 처리 중 오류가 발생했습니다.",
+);
+assert.strictEqual(
+  elements.eventLogSummary.children[0].children[1].textContent,
+  "출력 스트림, 렌더링 파일, 또는 믹서 상태에서 문제가 발생했습니다. " +
+    "출력 장치와 최근 이벤트를 확인하세요.",
+);
+assert.strictEqual(
+  elements.eventLogSummary.children[0].children[2].children[1].textContent,
+  "원문: stream start failed",
 );
 elements.eventLogSummary.children = [];
 globalThis.__secretPondTest.renderEventLogSummary([
@@ -2412,6 +2423,48 @@ globalThis.__secretPondTest.state.sources = {{
 globalThis.__secretPondTest.syncAppliedSourceSignature();
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");
+globalThis.__secretPondTest.state.sources = null;
+globalThis.__secretPondTest.state.sourcesError = "source file does not exist: data/sources/low.wav";
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(elements.sourceLibraryStatus.textContent, "목록 실패");
+assert.strictEqual(
+  elements.sourceLibraryList.children[0].className,
+  "source-library-empty notice-list-item error",
+);
+assert.strictEqual(
+  elements.sourceLibraryList.children[0].children[0].children[1].textContent,
+  "선택된 소스 파일을 찾지 못했습니다.",
+);
+assert.strictEqual(
+  elements.sourceLibraryList.children[0].children[1].textContent,
+  "현재 설정이 가리키는 WAV 파일이 없습니다. Source Library에서 존재하는 파일을 다시 선택하세요.",
+);
+assert.strictEqual(
+  elements.sourceLibraryList.children[0].children[2].children[1].textContent,
+  "원문: source file does not exist: data/sources/low.wav",
+);
+globalThis.__secretPondTest.state.sourcesError = null;
+globalThis.__secretPondTest.state.sources = {{
+  categories: [
+    {{
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      active_exists: true,
+      legacy_exists: true,
+      selected_path: "sources/low/current.wav",
+      files: [
+        {{
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+        }},
+      ],
+    }},
+  ],
+}};
 globalThis.__secretPondTest.renderDevices();
 elements.inputDeviceSelect.innerHTML = "native device dropdown still open";
 globalThis.__secretPondTest.renderDevices();
