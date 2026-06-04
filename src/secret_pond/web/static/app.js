@@ -37,6 +37,7 @@ const state = {
   sourceMutationInFlight: false,
   saveTimer: null,
   draftSaveRequestId: 0,
+  draftEditRevision: 0,
   sourceMutationRequestId: 0,
   spaceRecording: false,
   stateSocket: null,
@@ -1269,9 +1270,14 @@ const syncDraftSnapshot = () => {
 
 const draftEditLocked = () => state.applyInFlight;
 
+const markDraftEdited = () => {
+  state.draftEditRevision += 1;
+};
+
 const commitDraftChange = (mutator, options = {}) => {
   if (!state.draft || draftEditLocked()) return false;
   mutator?.();
+  markDraftEdited();
   syncDraftSnapshot();
   options.afterSync?.();
   renderState();
@@ -2984,6 +2990,16 @@ const invalidatePendingDraftSaves = () => {
   state.draftSaveRequestId += 1;
 };
 
+const beginDraftSave = () => {
+  const requestId = state.draftSaveRequestId + 1;
+  state.draftSaveRequestId = requestId;
+  return { requestId, draftEditRevision: state.draftEditRevision };
+};
+
+const isCurrentDraftSave = (request) =>
+  request.requestId === state.draftSaveRequestId &&
+  request.draftEditRevision === state.draftEditRevision;
+
 const scheduleDraftSave = () => {
   clearDraftSaveTimer();
   state.saveTimer = setTimeout(() => {
@@ -2995,22 +3011,21 @@ const scheduleDraftSave = () => {
 const saveDraft = async () => {
   if (!state.draft) return null;
   clearDraftSaveTimer();
-  const requestId = state.draftSaveRequestId + 1;
-  state.draftSaveRequestId = requestId;
+  const request = beginDraftSave();
   const draftPayload = clone(state.draft);
   try {
     const payload = await api("/api/settings/draft", {
       method: "PUT",
       body: JSON.stringify(draftPayload),
     });
-    if (requestId !== state.draftSaveRequestId) return payload;
+    if (!isCurrentDraftSave(request)) return payload;
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
     renderState();
     renderDevices();
     return payload;
   } catch (error) {
-    if (requestId === state.draftSaveRequestId) {
+    if (isCurrentDraftSave(request)) {
       showError(error.message);
       throw error;
     }

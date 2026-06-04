@@ -3569,6 +3569,37 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await olderSave;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 62);
 
+  const inFlightEditSaveRequests = [];
+  const inFlightOlderDraft = cloneSettings(activeSettings);
+  inFlightOlderDraft.voice_stack.loop_seconds = 63;
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(inFlightOlderDraft);
+  globalThis.__secretPondTest.state.draft = cloneSettings(inFlightOlderDraft);
+  globalThis.fetch = (path, options = {{}}) =>
+    new Promise((resolve) => {{
+      inFlightEditSaveRequests.push({{ path, options, resolve }});
+    }});
+  const saveBeforeNewEdit = globalThis.__secretPondTest.saveDraft();
+  assert.strictEqual(inFlightEditSaveRequests.length, 1);
+  globalThis.__secretPondTest.setStorageMode("test_library");
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(inFlightEditSaveRequests.length, 1);
+  inFlightEditSaveRequests[0].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(inFlightOlderDraft),
+      }},
+    }}),
+  }});
+  await saveBeforeNewEdit;
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.mode,
+    "test_library",
+  );
+
   const resetRaceSaveRequests = [];
   const resetDraftValue = cloneSettings(activeSettings);
   const staleDraftValue = cloneSettings(activeSettings);
