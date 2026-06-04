@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -50,6 +50,43 @@ def api_settings_with_devices() -> AppSettings:
         update={"devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2")},
         deep=True,
     )
+
+
+def api_settings_for_sixty_second_voice_loop(
+    *,
+    mode: Literal["live_ephemeral", "test_library"] = "live_ephemeral",
+) -> AppSettings:
+    settings = AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+        input_control=InputControlSettings(
+            minimum_recording_seconds=0.0,
+            maximum_recording_seconds=120.0,
+        ),
+        recording=RecordingProcessingSettings(
+            gain_db=0.0,
+            normalize_peak=0.2,
+            highpass_hz=90.0,
+            lowpass_hz=3_000.0,
+            presence_gain_db=0.0,
+            reverb_mix=0.0,
+            delay_mix=0.0,
+            fade_ms=0,
+        ),
+        voice_stack=VoiceStackSettings(
+            mode=mode,
+            loop_seconds=60,
+            insert_gain_db=0.0,
+        ),
+    )
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False}),
+        "mid": settings.layers["mid"].model_copy(update={"enabled": False}),
+        "voice": settings.layers["voice"].model_copy(
+            update={"enabled": True, "volume_db": 0.0},
+        ),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True)
 
 
 RECORDING_PRESETS = {
@@ -99,6 +136,14 @@ RECORDING_PRESETS = {
 def recorder_take() -> AudioBuffer:
     samples = np.ones((2_000, 2), dtype=np.float32) * 0.05
     return AudioBuffer(samples=samples, sample_rate=48_000)
+
+
+def twenty_second_voice_take() -> AudioBuffer:
+    sample_rate = 8_000
+    frames = 20 * sample_rate
+    t = np.arange(frames, dtype=np.float32) / sample_rate
+    tone = np.sin(2 * np.pi * 500.0 * t).astype(np.float32) * 0.08
+    return AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate)
 
 
 class FakeOutput:
@@ -3031,6 +3076,35 @@ def test_api_recording_stop_maps_voice_render_failures_to_conflict(tmp_path: Pat
     assert state["last_error"] == "voice missing"
 
 
+def test_api_recording_stop_rolls_back_voice_stack_when_voice_render_fails(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    paths = ProjectPaths(tmp_path)
+    runtime = client.app.state.runtime
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
+    runtime.controller._renderer = FailingLayerRenderer(  # noqa: SLF001
+        runtime.renderer,
+        FileNotFoundError("voice missing"),
+    )
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+
+    assert response.status_code == 409
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert json.loads(paths.voice_manifest.read_text(encoding="utf-8")) == before_manifest
+    assert list(paths.voice_raw_sources_dir.glob("*.wav")) == []
+    assert list(paths.voice_stack_sources_dir.glob("*.wav")) == []
+    assert runtime.controller.settings.sources.voice_raw_path is None
+    assert runtime.controller.settings.sources.voice_stack_path is None
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.voice_raw_path is None
+    assert stored.active.sources.voice_stack_path is None
+
+
 def test_api_recording_acceptance_refreshes_running_voice_playback_layer(
     tmp_path: Path,
 ) -> None:
@@ -3360,6 +3434,104 @@ def test_recording_acceptance_persists_timestamped_voice_stack_selection(
     assert response.json()["state"]["settings"]["active"]["sources"]["voice_stack_path"] == (
         selected_stack
     )
+
+
+def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playback(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="live_ephemeral")
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        recorder=FakeRecorder(twenty_second_voice_take()),
+        output=output,
+        settings=settings,
+    )
+    paths = ProjectPaths(tmp_path)
+    runtime = client.app.state.runtime
+
+    assert list(paths.voice_raw_sources_dir.glob("*.wav")) == []
+    assert list(paths.voice_stack_sources_dir.glob("*.wav")) == []
+    apply_response = client.post("/api/settings/apply-and-restart")
+    start_response = client.post("/api/playback/start")
+    before = runtime.player.next_block(8_000)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+    after = runtime.player.next_block(8_000)
+
+    assert apply_response.status_code == 200
+    assert start_response.status_code == 200
+    assert start_response.json()["state"]["playback"]["output_running"] is True
+    assert float(np.max(np.abs(before.samples))) == pytest.approx(0.0)
+    assert response.status_code == 200
+    assert response.json()["outcome"]["accepted"] is True
+    assert response.json()["state"]["playback"]["output_running"] is True
+    assert output.is_running is True
+    stored = SettingsStore(paths).load()
+    selected_raw = stored.active.sources.voice_raw_path
+    selected_stack = stored.active.sources.voice_stack_path
+    assert selected_raw is not None
+    assert selected_stack is not None
+    assert selected_raw.startswith("data/sources/voice/raw/")
+    assert selected_stack.startswith("data/sources/voice/stack/")
+    assert len(list(paths.voice_raw_sources_dir.glob("*.wav"))) == 1
+    assert len(list(paths.voice_stack_sources_dir.glob("*.wav"))) == 1
+
+    stack = read_wav(tmp_path / selected_stack)
+    rendered = read_wav(paths.voice_playback)
+    loaded_voice = runtime.player.snapshot().layers["voice"]
+    assert stack.frames == 60 * 8_000
+    assert rendered.frames == 60 * 8_000
+    assert loaded_voice.frames == 60 * 8_000
+    np.testing.assert_allclose(
+        stack.samples[: 20 * 8_000],
+        stack.samples[20 * 8_000 : 40 * 8_000],
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        stack.samples[: 20 * 8_000],
+        stack.samples[40 * 8_000 :],
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(loaded_voice.samples, rendered.samples, atol=1e-4)
+    assert float(np.max(np.abs(after.samples))) > 0.00001
+
+
+def test_api_test_library_recording_persists_timestamped_raw_and_accepted_clip(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        recorder=FakeRecorder(twenty_second_voice_take()),
+        settings=settings,
+    )
+    paths = ProjectPaths(tmp_path)
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    selected_raw = stored.active.sources.voice_raw_path
+    selected_stack = stored.active.sources.voice_stack_path
+    assert selected_raw is not None
+    assert selected_stack is not None
+    assert selected_raw.startswith("data/sources/voice/raw/")
+    assert selected_stack.startswith("data/sources/voice/stack/")
+    assert (tmp_path / selected_raw).exists()
+    assert (tmp_path / selected_stack).exists()
+    manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
+    assert len(manifest["entries"]) == 1
+    entry = manifest["entries"][0]
+    assert entry["source_mode"] == "test_library"
+    assert entry["accepted_clip_path"].startswith("data/processed/accepted/")
+    assert (tmp_path / entry["accepted_clip_path"]).exists()
 
 
 def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(

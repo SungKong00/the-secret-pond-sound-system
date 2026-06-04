@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -68,7 +69,7 @@ def start_recording(request: Request) -> dict[str, Any]:
 def stop_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        outcome = _run_control(runtime.controller.stop_recording)
+        outcome = _run_recording_control(runtime, runtime.controller.stop_recording)
         _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
@@ -80,7 +81,7 @@ def stop_recording(request: Request) -> dict[str, Any]:
 def poll_auto_stop(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        outcome = _run_control(runtime.controller.poll_auto_stop)
+        outcome = _run_recording_control(runtime, runtime.controller.poll_auto_stop)
         _refresh_playback_after_recording(runtime, outcome)
         return {
             "outcome": outcome_payload(outcome),
@@ -458,6 +459,36 @@ def _restore_file_snapshot(path: Path, snapshot: tuple[bool, bytes]) -> None:
             temp_path.unlink()
 
 
+@dataclass(frozen=True)
+class _RecordingSideEffectSnapshot:
+    voice_stack_raw: tuple[bool, bytes]
+    voice_manifest: tuple[bool, bytes]
+    voice_playback: tuple[bool, bytes]
+    voice_raw_files: set[Path]
+    voice_stack_files: set[Path]
+    accepted_files: set[Path]
+    controller_sources: Any
+    settings_state: SettingsState
+
+
+def _recording_side_effect_snapshot(runtime: SecretPondRuntime) -> _RecordingSideEffectSnapshot:
+    paths = runtime.paths
+    current = runtime.settings_store.load()
+    return _RecordingSideEffectSnapshot(
+        voice_stack_raw=_file_snapshot(paths.voice_stack_raw),
+        voice_manifest=_file_snapshot(paths.voice_manifest),
+        voice_playback=_file_snapshot(paths.voice_playback),
+        voice_raw_files=set(paths.voice_raw_sources_dir.glob("*.wav")),
+        voice_stack_files=set(paths.voice_stack_sources_dir.glob("*.wav")),
+        accepted_files=set(paths.accepted_dir.glob("*.wav")),
+        controller_sources=runtime.controller.settings.sources.model_copy(deep=True),
+        settings_state=SettingsState(
+            active=current.active.model_copy(deep=True),
+            draft=current.draft.model_copy(deep=True),
+        ),
+    )
+
+
 def _runtime(request: Request) -> SecretPondRuntime:
     runtime = getattr(request.app.state, "runtime", None)
     if runtime is None:
@@ -470,6 +501,62 @@ def _run_control(fn):
         return fn()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _run_recording_control(runtime: SecretPondRuntime, fn):
+    snapshot = _recording_side_effect_snapshot(runtime)
+    try:
+        return fn()
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        rollback_detail = _restore_recording_side_effects(runtime, snapshot)
+        detail = str(exc)
+        if rollback_detail:
+            detail = f"{detail}; rollback issues: {rollback_detail}"
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+
+def _restore_recording_side_effects(
+    runtime: SecretPondRuntime,
+    snapshot: _RecordingSideEffectSnapshot,
+) -> str:
+    paths = runtime.paths
+    rollback_errors: list[str] = []
+    for path, file_snapshot in (
+        (paths.voice_stack_raw, snapshot.voice_stack_raw),
+        (paths.voice_manifest, snapshot.voice_manifest),
+        (paths.voice_playback, snapshot.voice_playback),
+    ):
+        try:
+            _restore_file_snapshot(path, file_snapshot)
+        except Exception as exc:
+            rollback_errors.append(f"{path.name} restore failed: {exc}")
+
+    for directory, before in (
+        (paths.voice_raw_sources_dir, snapshot.voice_raw_files),
+        (paths.voice_stack_sources_dir, snapshot.voice_stack_files),
+        (paths.accepted_dir, snapshot.accepted_files),
+    ):
+        try:
+            _remove_new_wavs(directory, before)
+        except Exception as exc:
+            rollback_errors.append(f"{directory.name} cleanup failed: {exc}")
+
+    try:
+        runtime.controller.settings.sources = snapshot.controller_sources.model_copy(deep=True)
+    except Exception as exc:
+        rollback_errors.append(f"controller source restore failed: {exc}")
+    try:
+        runtime.settings_store.save(snapshot.settings_state)
+        runtime.settings_state = snapshot.settings_state
+    except Exception as exc:
+        rollback_errors.append(f"settings restore failed: {exc}")
+
+    return "; ".join(rollback_errors)
+
+
+def _remove_new_wavs(directory: Path, before: set[Path]) -> None:
+    for path in set(directory.glob("*.wav")) - before:
+        path.unlink(missing_ok=True)
 
 
 def _refresh_playback_after_recording(runtime: SecretPondRuntime, outcome: Any) -> None:
