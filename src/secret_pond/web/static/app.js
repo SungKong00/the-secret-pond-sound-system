@@ -2047,12 +2047,36 @@ const deleteSourceFile = async (category, path) => {
   }
 };
 
+const deriveSystemDeviceSelectState = ({
+  forceDisabled = false,
+  devicesLoaded = false,
+  deviceChangeInFlight = false,
+  applyInFlight = false,
+} = {}) => {
+  const disabled = forceDisabled || deviceChangeInFlight || applyInFlight || !devicesLoaded;
+  const title = !devicesLoaded
+    ? "장치 목록을 불러오는 중입니다."
+    : applyInFlight
+      ? "설정 적용이 끝날 때까지 기다리세요."
+      : deviceChangeInFlight
+        ? "장치 변경을 적용하는 중입니다."
+        : forceDisabled
+          ? "녹음 중에는 입력 장치를 바꿀 수 없습니다."
+          : "";
+  return { disabled, title };
+};
+
 const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
   const select = $(selectId);
-  const disabled = forceDisabled || state.deviceChangeInFlight || state.applyInFlight ||
-    !state.devices;
+  const selectState = deriveSystemDeviceSelectState({
+    forceDisabled,
+    devicesLoaded: Boolean(state.devices),
+    deviceChangeInFlight: state.deviceChangeInFlight,
+    applyInFlight: state.applyInFlight,
+  });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
-    select.disabled = disabled;
+    select.disabled = selectState.disabled;
+    select.title = selectState.title;
     return;
   }
 
@@ -2081,7 +2105,8 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
   }
 
   select.value = selectedId || "";
-  select.disabled = disabled;
+  select.disabled = selectState.disabled;
+  select.title = selectState.title;
 };
 
 const deviceSelectOptionsSignature = (devices, selectedId) => {

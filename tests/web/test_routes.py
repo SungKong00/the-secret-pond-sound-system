@@ -1060,6 +1060,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "renderSystemStatus" in script.text
     assert "renderSystemDeviceSelect" in script.text
+    assert "deriveSystemDeviceSelectState" in script.text
     assert (
         'renderSystemDeviceSelect( "inputDeviceSelect", devices.input_devices'
         in normalized_script
@@ -1812,7 +1813,7 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         tmp_path,
         exports=(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
-            "deriveControlRequestState }"
+            "deriveControlRequestState, deriveSystemDeviceSelectState }"
         ),
         body="""
 const snapshot = {{
@@ -1824,6 +1825,47 @@ const derive = globalThis.__secretPondTest.deriveDashboardControlState;
 const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionState;
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
 const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
+const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: false }}),
+  {{
+    disabled: true,
+    title: "장치 목록을 불러오는 중입니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, applyInFlight: true }}),
+  {{
+    disabled: true,
+    title: "설정 적용이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, deviceChangeInFlight: true }}),
+  {{
+    disabled: true,
+    title: "장치 변경을 적용하는 중입니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, forceDisabled: true }}),
+  {{
+    disabled: true,
+    title: "녹음 중에는 입력 장치를 바꿀 수 없습니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true }}),
+  {{
+    disabled: false,
+    title: "",
+  }},
+);
 
 assert.deepStrictEqual(
   deriveControl("/api/recording/start", {{}}, {{
@@ -3173,6 +3215,8 @@ assert.strictEqual(elements.startOutputButton.disabled, true);
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.disabled, true);
 assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+assert.strictEqual(elements.inputDeviceSelect.title, "설정 적용이 끝날 때까지 기다리세요.");
+assert.strictEqual(elements.outputDeviceSelect.title, "설정 적용이 끝날 때까지 기다리세요.");
 globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopOutputButton.disabled, true);
@@ -3240,6 +3284,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.applyInFlight = false;
   globalThis.__secretPondTest.renderDevices();
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.title, "");
 
   let cleanApplyFetchPath = null;
   globalThis.fetch = (path) => {{
