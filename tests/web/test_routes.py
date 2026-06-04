@@ -1764,6 +1764,10 @@ assert.strictEqual(
   "요청을 처리하지 못했습니다. HTTP 503 상태입니다.",
 );
 assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage("not recording"),
+  "녹음은 이미 중지되어 있습니다.",
+);
+assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage(
     "low source file does not exist: /Users/nohsungbeen/dev/project/" +
       "The Secret Pond/data/sources/low.wav",
@@ -2462,7 +2466,56 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.recordingStartInFlight = false;
   await globalThis.__secretPondTest.stopIfRecording();
-  assert.deepStrictEqual(blurStopPaths, ["/api/recording/stop"]);
+  assert.deepStrictEqual(blurStopPaths, []);
+  assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
+
+  const staleStopPaths = [];
+  let staleStopStateRequested = false;
+  globalThis.fetch = (path) => {{
+    if (path.startsWith("/api/recording/")) staleStopPaths.push(path);
+    if (path === "/api/recording/stop") {{
+      snapshot.is_recording = false;
+      return Promise.resolve({{
+        ok: false,
+        status: 409,
+        json: async () => ({{ detail: "not recording" }}),
+      }});
+    }}
+    if (path === "/api/state") {{
+      staleStopStateRequested = true;
+      return Promise.resolve({{
+        ok: true,
+        json: async () => snapshot,
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  elements.errorBanner.hidden = true;
+  elements.errorBanner.textContent = "";
+  elements.errorBadge.textContent = "오류 없음";
+  globalThis.__secretPondTest.state.spaceRecording = false;
+  globalThis.__secretPondTest.state.snapshot.is_recording = true;
+  globalThis.__secretPondTest.state.recordingStartInFlight = false;
+  await globalThis.__secretPondTest.stopIfRecording();
+  assert.deepStrictEqual(staleStopPaths, ["/api/recording/stop"]);
+  assert.strictEqual(staleStopStateRequested, true);
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, false);
+  assert.strictEqual(elements.errorBanner.hidden, true);
+  assert.strictEqual(elements.errorBanner.textContent, "");
+  assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+  assert.notStrictEqual(elements.recordOutcomeStatus.textContent, "녹음 실패");
 
   let resolvePoll = null;
   globalThis.fetch = (path) => {{

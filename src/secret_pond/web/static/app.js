@@ -5,7 +5,10 @@ const api = async (path, options = {}) => {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.detail || `Request failed: ${response.status}`);
+    const error = new Error(payload.detail || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.detail = payload.detail || null;
+    throw error;
   }
   return payload;
 };
@@ -72,6 +75,9 @@ const translateUiErrorMessage = (message) => {
   }
   if (normalized.includes("failed to fetch") || normalized.includes("load failed")) {
     return "서버에 연결하지 못했습니다.";
+  }
+  if (normalized.includes("not recording")) {
+    return "녹음은 이미 중지되어 있습니다.";
   }
   if (normalized.includes("audio devices unavailable")) {
     return "오디오 장치를 사용할 수 없습니다.";
@@ -721,6 +727,11 @@ const releaseInteractiveControl = (element) => {
   if (state.activeInteractiveControl === element) {
     state.activeInteractiveControl = null;
   }
+};
+
+const isStaleRecordingStopError = (error) => {
+  if (error?.status && error.status !== 409) return false;
+  return String(error?.detail || error?.message || "").toLowerCase().includes("not recording");
 };
 
 const renderErrorBadge = (message) => {
@@ -2111,6 +2122,14 @@ const control = async (path, options = {}) => {
       await requestSources();
     }
   } catch (error) {
+    if (path === "/api/recording/stop" && isStaleRecordingStopError(error)) {
+      state.spaceRecording = false;
+      state.recordingStopRequestedAfterStart = false;
+      await requestState({ syncDraft: false }).catch(() => {});
+      await requestDiagnostics().catch(() => {});
+      await requestSources().catch(() => {});
+      return;
+    }
     controlError = error;
     if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {
       setRecordStatus("failed", "녹음 실패", translateUiErrorMessage(error.message));
@@ -2261,8 +2280,11 @@ const stopIfRecording = async () => {
 };
 
 const requestRecordingStop = async () => {
-  const allowStaleRecordingStop = state.spaceRecording;
+  const allowStaleRecordingStop = state.spaceRecording && state.recordingStartInFlight;
   state.spaceRecording = false;
+  if (!state.recordingStartInFlight && !state.snapshot?.is_recording) {
+    return;
+  }
   if (state.recordingStartInFlight && !state.snapshot?.is_recording) {
     state.recordingStopRequestedAfterStart = true;
     return;
