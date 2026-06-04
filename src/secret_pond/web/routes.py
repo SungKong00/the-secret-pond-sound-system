@@ -166,6 +166,7 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
         return {"settings": settings_payload(runtime)}
 
 
+@router.post("/settings/reset-draft")
 @router.post("/settings/reset")
 def reset_draft_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -199,6 +200,7 @@ def reset_participant_count(request: Request) -> dict[str, Any]:
         return {"state": state_payload(runtime)}
 
 
+@router.post("/settings/apply")
 @router.post("/settings/apply-and-restart")
 def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)

@@ -1723,6 +1723,18 @@ def test_api_settings_reset_discards_draft_changes(tmp_path: Path) -> None:
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -18.0
 
 
+def test_api_settings_reset_draft_alias_discards_draft_changes(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/reset-draft")
+
+    assert response.status_code == 200
+    settings = response.json()["settings"]
+    assert settings["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert settings["draft"]["layers"]["voice"]["volume_db"] == -18.0
+
+
 def test_api_settings_reset_is_blocked_while_recording(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
     client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
@@ -1730,6 +1742,24 @@ def test_api_settings_reset_is_blocked_while_recording(tmp_path: Path) -> None:
     client.post("/api/recording/start")
 
     response = client.post("/api/settings/reset")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "cannot reset draft settings while recording"
+    state = client.get("/api/state").json()
+    assert state["is_recording"] is True
+    assert state["settings"]["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert state["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
+
+
+def test_api_settings_reset_draft_alias_is_blocked_while_recording(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    response = client.post("/api/settings/reset-draft")
 
     assert response.status_code == 409
     assert response.json()["detail"] == "cannot reset draft settings while recording"
@@ -1782,6 +1812,34 @@ def test_api_settings_reset_is_blocked_during_apply_and_restart(tmp_path: Path) 
         apply_future = executor.submit(client.post, "/api/settings/apply-and-restart")
         assert renderer.entered.wait(timeout=2)
         reset_future = executor.submit(client.post, "/api/settings/reset")
+        try:
+            response = wait_for_future_response(reset_future)
+            assert response.status_code == 409
+            assert response.json()["detail"] == (
+                "maintenance actions are unavailable while another operation is running"
+            )
+            assert runtime.settings_state.draft.layers["voice"].volume_db == -9.0
+        finally:
+            renderer.release.set()
+
+        apply_response = apply_future.result(timeout=2)
+
+    assert apply_response.status_code == 200
+
+
+def test_api_settings_reset_draft_alias_is_blocked_during_apply_and_restart(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    renderer = BlockingStageRenderer(runtime.renderer)
+    runtime.renderer = renderer
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        apply_future = executor.submit(client.post, "/api/settings/apply-and-restart")
+        assert renderer.entered.wait(timeout=2)
+        reset_future = executor.submit(client.post, "/api/settings/reset-draft")
         try:
             response = wait_for_future_response(reset_future)
             assert response.status_code == 409
@@ -1873,6 +1931,25 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     assert paths.voice_playback.exists()
 
 
+def test_api_settings_apply_alias_renders_layers_and_starts_player(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
+    assert payload["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
+    assert payload["state"]["playback"]["is_playing"] is True
+    paths = ProjectPaths(tmp_path)
+    assert paths.low_playback.exists()
+    assert paths.mid_playback.exists()
+    assert paths.voice_playback.exists()
+
+
 def test_api_settings_apply_and_restart_applies_layer_enabled_state(
     tmp_path: Path,
 ) -> None:
@@ -1892,6 +1969,18 @@ def test_api_settings_apply_and_restart_is_blocked_while_recording(tmp_path: Pat
     client.post("/api/recording/start")
 
     response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert "recording" in response.json()["detail"]
+
+
+def test_api_settings_apply_alias_is_blocked_while_recording(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+
+    response = client.post("/api/settings/apply")
 
     assert response.status_code == 409
     assert "recording" in response.json()["detail"]
@@ -2133,6 +2222,23 @@ def test_api_settings_apply_rejects_runtime_config_changes_without_touching_runn
     client.put("/api/settings/draft", json=draft_with_sample_rate(16_000))
 
     response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    assert output.stop_calls == 0
+    assert output.start_calls == 0
+    state = client.get("/api/state").json()
+    assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000
+
+
+def test_api_settings_apply_alias_rejects_runtime_config_changes_without_touching_output(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    output.is_running = True
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.put("/api/settings/draft", json=draft_with_sample_rate(16_000))
+
+    response = client.post("/api/settings/apply")
 
     assert response.status_code == 409
     assert output.stop_calls == 0
