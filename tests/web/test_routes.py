@@ -2102,6 +2102,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
             "renderEventLogSummary, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
+            "releaseInteractiveControl, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile };\n"
         ),
@@ -2661,9 +2662,9 @@ assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown")
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
-globalThis.document.activeElement = null;
 globalThis.__secretPondTest.state.devices.input_devices[0].name = "Renamed Mic";
-elements.inputDeviceSelect.listeners.blur();
+globalThis.__secretPondTest.releaseInteractiveControl(elements.inputDeviceSelect);
+globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "");
 
 const focusedSourceSelect = makeTrackedElement();
@@ -2674,9 +2675,9 @@ globalThis.document.activeElement = focusedSourceSelect;
 globalThis.__secretPondTest.state.activeInteractiveControl = focusedSourceSelect;
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
-globalThis.document.activeElement = null;
 globalThis.__secretPondTest.state.sources.categories[0].label = "Renamed Low";
-focusedSourceSelect.listeners.blur();
+globalThis.__secretPondTest.releaseInteractiveControl(focusedSourceSelect);
+globalThis.__secretPondTest.renderSourceLibrary();
 assert.notStrictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.document.activeElement = null;
 

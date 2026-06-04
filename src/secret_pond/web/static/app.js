@@ -915,18 +915,8 @@ const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
 
 const activeInteractiveControlFor = (container) => {
   const tracked = state.activeInteractiveControl;
-  if (tracked && (tracked === container || container.contains?.(tracked))) return tracked;
-  const active = document.activeElement;
-  if (!active || !container) return null;
-  if (active === container) return active;
-  if (
-    typeof container.contains === "function" &&
-    container.contains(active) &&
-    interactiveControlTags.has(active.tagName)
-  ) {
-    return active;
-  }
-  return null;
+  if (!tracked || !container) return null;
+  return tracked === container || container.contains?.(tracked) ? tracked : null;
 };
 
 const deferInteractiveRender = (key, container, renderFn) => {
@@ -2911,7 +2901,7 @@ const changeDevice = async (key, value) => {
 const shouldIgnoreSpace = () => {
   const element = document.activeElement;
   if (!element) return false;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName);
+  return interactiveControlTags.has(element.tagName);
 };
 
 const releaseButtonFocusForSpace = () => {
