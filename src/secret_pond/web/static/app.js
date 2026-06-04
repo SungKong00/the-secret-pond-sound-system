@@ -411,6 +411,8 @@ const storageModeDetails = {
   },
 };
 
+const storageModeBusyTitle = "녹음 중이거나 적용 중일 때는 보관 모드를 바꿀 수 없습니다.";
+
 const eventTypeLabels = {
   "system.startup": "시스템 시작",
   "system.startup_playback_unavailable": "시작 재생 준비 실패",
@@ -2066,6 +2068,30 @@ const deriveSystemDeviceSelectState = ({
   return { disabled, title };
 };
 
+const deriveStorageModeControlState = ({
+  snapshot = null,
+  draft = null,
+  mode = null,
+  applyInFlight = false,
+  recordingStopInFlight = false,
+} = {}) => {
+  const modeDetails = storageModeDetails[mode];
+  const ready = Boolean(snapshot && draft && modeDetails);
+  const activeMode = snapshot?.settings?.active?.voice_stack?.mode;
+  const draftMode = draft?.voice_stack?.mode;
+  const active = draftMode === mode;
+  const pending = Boolean(activeMode && draftMode && activeMode !== draftMode);
+  const disabled = !ready || applyInFlight || recordingStopInFlight || Boolean(snapshot?.is_recording);
+  return {
+    active,
+    ariaPressed: active ? "true" : "false",
+    pendingActive: pending && active,
+    disabled,
+    title: disabled ? storageModeBusyTitle : modeDetails.idleTitle,
+    canCommit: ready && !disabled,
+  };
+};
+
 const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled = false) => {
   const select = $(selectId);
   const selectState = deriveSystemDeviceSelectState({
@@ -2375,26 +2401,35 @@ const renderStorageModeControls = () => {
   $("storageModePanel").className = `storage-mode-panel ${draftDetails.className}${
     pending ? " pending" : ""
   }`;
-  const disabled = state.applyInFlight || state.snapshot.is_recording || state.recordingStopInFlight;
   [
     ["storageModeLiveButton", "live_ephemeral"],
     ["storageModeLibraryButton", "test_library"],
   ].forEach(([id, mode]) => {
     const button = $(id);
-    const active = draftMode === mode;
-    button.disabled = disabled;
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.classList.toggle("active", active);
-    button.classList.toggle("pending", pending && active);
-    button.title = disabled
-      ? "녹음 중이거나 적용 중일 때는 보관 모드를 바꿀 수 없습니다."
-      : (storageModeDetails[mode] || storageModeDetails.live_ephemeral).idleTitle;
+    const controlState = deriveStorageModeControlState({
+      snapshot: state.snapshot,
+      draft: state.draft,
+      mode,
+      applyInFlight: state.applyInFlight,
+      recordingStopInFlight: state.recordingStopInFlight,
+    });
+    button.disabled = controlState.disabled;
+    button.setAttribute("aria-pressed", controlState.ariaPressed);
+    button.classList.toggle("active", controlState.active);
+    button.classList.toggle("pending", controlState.pendingActive);
+    button.title = controlState.title;
   });
 };
 
 const setStorageMode = (mode) => {
-  if (!storageModeDetails[mode] || !state.draft || !state.snapshot) return;
-  if (state.snapshot.is_recording || state.recordingStopInFlight || state.applyInFlight) return;
+  const controlState = deriveStorageModeControlState({
+    snapshot: state.snapshot,
+    draft: state.draft,
+    mode,
+    applyInFlight: state.applyInFlight,
+    recordingStopInFlight: state.recordingStopInFlight,
+  });
+  if (!controlState.canCommit) return;
   commitDraftChange(() => {
     state.draft.voice_stack.mode = mode;
   });

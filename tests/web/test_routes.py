@@ -1137,6 +1137,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const renderVoiceStackControls = () => {" in script.text
     assert "storageModeDetails" in script.text
     assert "renderStorageModeControls" in script.text
+    assert "deriveStorageModeControlState" in script.text
     assert "setStorageMode" in script.text
     assert "파일 안 남김" in script.text
     assert "파일 저장" in script.text
@@ -1813,7 +1814,8 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         tmp_path,
         exports=(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
-            "deriveControlRequestState, deriveSystemDeviceSelectState }"
+            "deriveControlRequestState, deriveSystemDeviceSelectState, "
+            "deriveStorageModeControlState }"
         ),
         body="""
 const snapshot = {{
@@ -1826,6 +1828,11 @@ const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionSt
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
 const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
 const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
+const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
+const settings = {{
+  active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
+}};
+const draft = {{ voice_stack: {{ mode: "live_ephemeral" }} }};
 
 assert.deepStrictEqual(
   deriveDeviceSelect({{ devicesLoaded: false }}),
@@ -1865,6 +1872,61 @@ assert.deepStrictEqual(
     disabled: false,
     title: "",
   }},
+);
+
+assert.deepStrictEqual(
+  deriveStorageMode({{ snapshot: {{ settings }}, draft, mode: "live_ephemeral" }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: false,
+    title: "개별 accepted clip 파일을 남기지 않습니다.",
+    canCommit: true,
+  }},
+);
+
+const pendingDraft = {{ voice_stack: {{ mode: "test_library" }} }};
+assert.deepStrictEqual(
+  deriveStorageMode({{ snapshot: {{ settings }}, draft: pendingDraft, mode: "test_library" }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: true,
+    disabled: false,
+    title: "accepted clip을 data/processed/accepted에 저장합니다.",
+    canCommit: true,
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    applyInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "녹음 중이거나 적용 중일 때는 보관 모드를 바꿀 수 없습니다.",
+    canCommit: false,
+  }},
+);
+
+assert.strictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings, is_recording: true }},
+    draft,
+    mode: "live_ephemeral",
+  }}).canCommit,
+  false,
+);
+assert.strictEqual(
+  deriveStorageMode({{ snapshot: {{ settings }}, draft, mode: "unknown" }}).canCommit,
+  false,
 );
 
 assert.deepStrictEqual(
