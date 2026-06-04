@@ -1269,6 +1269,45 @@ const renderSyncBadge = () => {
   }
 };
 
+const deriveSettingsActionState = ({
+  snapshot,
+  applyInFlight = false,
+  recordingStopInFlight = false,
+  pendingChanges = false,
+  runtimeConfigChanged = false,
+}) => {
+  const recordingStopBusy = Boolean(recordingStopInFlight);
+  const isRecording = Boolean(snapshot?.is_recording);
+  const outputRunning = Boolean(snapshot?.playback?.output_running);
+  const applyTitle = recordingStopBusy
+    ? "녹음 처리가 끝날 때까지 기다리세요."
+    : isRecording
+      ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
+      : applyInFlight
+        ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
+        : runtimeConfigChanged
+          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+          : !pendingChanges
+            ? "적용할 변경사항이 없습니다."
+            : outputRunning
+              ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
+              : "";
+  const resetTitle = isRecording
+    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
+    : !pendingChanges
+      ? "취소할 설정 변경사항이 없습니다."
+      : "";
+  return {
+    applyDisabled: applyInFlight || recordingStopBusy || isRecording ||
+      runtimeConfigChanged || !pendingChanges,
+    applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
+    applyAttention: pendingChanges && !runtimeConfigChanged,
+    applyTitle,
+    resetDisabled: applyInFlight || isRecording || !pendingChanges,
+    resetTitle,
+  };
+};
+
 const deriveDashboardControlState = ({
   snapshot,
   applyInFlight = false,
@@ -1288,20 +1327,13 @@ const deriveDashboardControlState = ({
       : armed
         ? "capture-gate-on"
         : "capture-gate-off";
-  const applyTitle = recordingStopBusy
-    ? "녹음 처리가 끝날 때까지 기다리세요."
-    : isRecording
-      ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
-      : applyInFlight
-        ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
-        : runtimeConfigChanged
-          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
-          : outputRunning
-            ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
-            : "";
-  const resetTitle = isRecording
-    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
-    : "";
+  const settingsActionState = deriveSettingsActionState({
+    snapshot,
+    applyInFlight,
+    recordingStopInFlight,
+    pendingChanges,
+    runtimeConfigChanged,
+  });
   const resetParticipantsTitle = isRecording
     ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
     : "";
@@ -1317,12 +1349,7 @@ const deriveDashboardControlState = ({
     startOutputDisabled: outputControlBusy || outputRunning,
     stopOutputDisabled: outputControlBusy || !outputRunning,
     restartOutputDisabled: outputControlBusy || !outputRunning,
-    applyDisabled: applyInFlight || recordingStopBusy || isRecording || runtimeConfigChanged,
-    applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
-    applyAttention: pendingChanges && !runtimeConfigChanged,
-    applyTitle,
-    resetDisabled: applyInFlight || isRecording,
-    resetTitle,
+    ...settingsActionState,
     resetParticipantsDisabled: applyInFlight || isRecording,
     resetParticipantsTitle,
   };
@@ -2168,6 +2195,20 @@ const hasPendingChanges = (snapshot) => derivePendingChangeState(
   hasSourceFileChanges(snapshot),
 ).pendingChanges;
 
+const currentSettingsActionState = (snapshot = state.snapshot) => {
+  const pendingChangeState = derivePendingChangeState(
+    settingsChangePlan(snapshot),
+    hasSourceFileChanges(snapshot),
+  );
+  return deriveSettingsActionState({
+    snapshot,
+    applyInFlight: state.applyInFlight,
+    recordingStopInFlight: state.recordingStopInFlight,
+    pendingChanges: pendingChangeState.pendingChanges,
+    runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
+  });
+};
+
 const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
   return (
@@ -2919,7 +2960,7 @@ const control = async (path, options = {}) => {
 };
 
 const applyAndRestart = async () => {
-  if (state.applyInFlight) return;
+  if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
   state.applyInFlight = true;
   renderState();
@@ -2943,6 +2984,7 @@ const applyAndRestart = async () => {
 };
 
 const resetDraft = async () => {
+  if (currentSettingsActionState().resetDisabled) return;
   if (!window.confirm("저장하지 않은 설정 변경을 취소할까요?")) return;
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });

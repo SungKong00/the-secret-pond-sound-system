@@ -1330,6 +1330,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "저장 안 된 변경 없음" not in script.text
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
+    assert "const deriveSettingsActionState = ({" in script.text
     assert "const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false)" in (
         script.text
     )
@@ -1379,10 +1380,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert bilingual_apply_label not in script.text
     assert 'applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생"' in script.text
     assert "적용 중…" in script.text
+    assert "적용할 변경사항이 없습니다." in script.text
     assert "녹음 처리가 끝날 때까지 기다리세요." in script.text
     assert "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다." in script.text
     assert '"resetButton").disabled = controlState.resetDisabled' in script.text
     assert "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요." in script.text
+    assert "취소할 설정 변경사항이 없습니다." in script.text
+    assert "const currentSettingsActionState = (snapshot = state.snapshot) => {" in script.text
+    assert "if (currentSettingsActionState().applyDisabled) return" in script.text
+    assert "if (currentSettingsActionState().resetDisabled) return" in script.text
     assert (
         '"resetParticipantsButton").disabled = controlState.resetParticipantsDisabled'
         in script.text
@@ -1453,7 +1459,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const applyAndRestart = async () => {",
         "};\n\nconst resetDraft",
     )
-    assert "if (state.applyInFlight) return" in apply_body
+    assert "if (currentSettingsActionState().applyDisabled) return" in apply_body
     assert "state.applyInFlight = true" in apply_body
     assert "state.applyInFlight = false" in apply_body
     assert "let applyError = null" in apply_body
@@ -1469,6 +1475,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert '"/api/settings/reset-draft"' in reset_draft_body
     assert '"/api/settings/reset"' not in reset_draft_body
+    assert "if (currentSettingsActionState().resetDisabled) return" in reset_draft_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_draft_body
     assert "const resetParticipants = async () => {" in script.text
     assert 'const payload = await api("/api/participants/reset"' in script.text
@@ -1798,7 +1805,7 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
     run_static_app_harness(
         tmp_path,
         exports=(
-            "{ deriveDashboardControlState, derivePendingChangeState, "
+            "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
             "deriveControlRequestState }"
         ),
         body="""
@@ -1808,6 +1815,7 @@ const snapshot = {{
   playback: {{ output_running: false }},
 }};
 const derive = globalThis.__secretPondTest.deriveDashboardControlState;
+const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionState;
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
 const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
 
@@ -1941,6 +1949,37 @@ assert.deepStrictEqual(
     resetTitle: "",
     resetParticipantsDisabled: false,
     resetParticipantsTitle: "",
+  }},
+);
+
+const noPendingChanges = derive({{
+  snapshot,
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: false,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(noPendingChanges.applyDisabled, true);
+assert.strictEqual(noPendingChanges.applyAttention, false);
+assert.strictEqual(noPendingChanges.applyTitle, "적용할 변경사항이 없습니다.");
+assert.strictEqual(noPendingChanges.resetDisabled, true);
+assert.strictEqual(noPendingChanges.resetTitle, "취소할 설정 변경사항이 없습니다.");
+
+assert.deepStrictEqual(
+  deriveSettingsActions({{
+    snapshot,
+    applyInFlight: false,
+    recordingStopInFlight: false,
+    pendingChanges: true,
+    runtimeConfigChanged: false,
+  }}),
+  {{
+    applyDisabled: false,
+    applyLabel: "변경사항 적용 후 재생",
+    applyAttention: true,
+    applyTitle: "",
+    resetDisabled: false,
+    resetTitle: "",
   }},
 );
 
@@ -2132,7 +2171,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "releaseInteractiveControl, refreshAll, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
-            "uploadSourceFile }"
+            "uploadSourceFile, applyAndRestart, resetDraft }"
         ),
     )
     harness = f"""
@@ -2855,6 +2894,10 @@ assert.strictEqual(elements.pendingBadge.hidden, true);
 assert.strictEqual(elements.pendingBadge.textContent, "");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "적용할 변경사항이 없습니다.");
+assert.strictEqual(elements.resetButton.disabled, true);
+assert.strictEqual(elements.resetButton.title, "취소할 설정 변경사항이 없습니다.");
 globalThis.__secretPondTest.renderVoiceStackControls();
 const voiceLoopRow = elements.voiceStackControls.children[0];
 const voiceLoopInput = voiceLoopRow.querySelector("input");
@@ -2865,10 +2908,16 @@ assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
 assert.strictEqual(elements.applyButton.classList.contains("attention"), true);
+assert.strictEqual(elements.applyButton.disabled, false);
+assert.strictEqual(elements.applyButton.title, "");
+assert.strictEqual(elements.resetButton.disabled, false);
+assert.strictEqual(elements.resetButton.title, "");
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
 assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.resetButton.disabled, true);
 globalThis.__secretPondTest.renderRecordingControls();
 const inputGainGroupBody = elements.recordingControls.children[0].children[0];
 const inputGainRow = inputGainGroupBody.children[0];
@@ -2878,9 +2927,11 @@ inputGainInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.pendingBadge.className, "status-pill hot");
+assert.strictEqual(elements.applyButton.disabled, false);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.applyButton.disabled, true);
 
 globalThis.__secretPondTest.renderLayerControls();
 const mixerLayerCard = elements.layerControls.children[0];
@@ -2889,18 +2940,22 @@ mixerLayerToggle.checked = false;
 mixerLayerToggle.dispatchEvent({{ type: "change", target: mixerLayerToggle }});
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
+assert.strictEqual(elements.applyButton.disabled, false);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.applyButton.disabled, true);
 
 globalThis.__secretPondTest.state.sources.categories[0].files[0].modified_at =
   "2026-06-05T00:30:00Z";
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
+assert.strictEqual(elements.applyButton.disabled, false);
 globalThis.__secretPondTest.syncAppliedSourceSignature();
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.applyButton.disabled, true);
 
 const deviceDraft = cloneSettings(activeSettings);
 deviceDraft.devices.input_device_id = "mic-2";
@@ -2917,6 +2972,7 @@ globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+assert.strictEqual(elements.resetButton.disabled, false);
 assert.strictEqual(
   elements.applyButton.title,
   "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
@@ -2959,8 +3015,8 @@ assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "tru
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
 assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 켜짐");
 assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-on");
-assert.strictEqual(elements.applyButton.disabled, false);
-assert.strictEqual(elements.applyButton.title, "");
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "적용할 변경사항이 없습니다.");
 assert.strictEqual(elements.startOutputButton.disabled, false);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
@@ -3017,8 +3073,8 @@ assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), fal
 assert.strictEqual(elements.captureGateSwitch.disabled, false);
 assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 꺼짐");
 assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-off");
-assert.strictEqual(elements.applyButton.disabled, false);
-assert.strictEqual(elements.applyButton.title, "");
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "적용할 변경사항이 없습니다.");
 
 elements.recordOutcomeStatus.textContent = "녹음 추가됨";
 elements.recordOutcomeDetail.textContent = "참여자 8 · 4.2s";
@@ -3037,6 +3093,21 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  let cleanApplyFetchPath = null;
+  globalThis.fetch = (path) => {{
+    cleanApplyFetchPath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.applyAndRestart();
+  assert.strictEqual(cleanApplyFetchPath, null);
+  let cleanResetConfirmed = false;
+  window.confirm = () => {{
+    cleanResetConfirmed = true;
+    return true;
+  }};
+  await globalThis.__secretPondTest.resetDraft();
+  assert.strictEqual(cleanResetConfirmed, false);
+
   await runSourceSocketRefreshCheck();
 
   const unsavedDraft = cloneSettings(activeSettings);
