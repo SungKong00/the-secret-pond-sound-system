@@ -866,10 +866,18 @@ const applyState = (payload, options = {}) => {
     state.draft = clone(payload.settings.draft);
     renderControls();
   } else {
-    state.snapshot.settings.draft = clone(state.draft);
+    syncDraftSnapshot();
   }
   renderState();
   renderSystemStatus();
+};
+
+const syncDraftSnapshot = () => {
+  if (!state.snapshot?.settings || !state.draft) return;
+  state.snapshot.settings.draft = clone(state.draft);
+  state.snapshot.settings.change = toServerSettingsChangePayload(
+    localSettingsChangePlan(state.snapshot.settings.active, state.draft),
+  );
 };
 
 const renderSyncBadge = () => {
@@ -956,7 +964,7 @@ const renderState = () => {
   $("startOutputButton").disabled = outputControlBusy || snapshot.playback.output_running;
   $("stopOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
   $("restartOutputButton").disabled = outputControlBusy || !snapshot.playback.output_running;
-  const runtimeConfigChanges = hasDraftRuntimeConfigChanges(snapshot);
+  const runtimeConfigChanges = settingsChangePlan(snapshot).runtimeConfigChanged;
   $("applyButton").disabled =
     state.applyInFlight || recordingStopBusy || snapshot.is_recording || runtimeConfigChanges;
   if (state.applyInFlight) {
@@ -980,7 +988,7 @@ const renderState = () => {
       : state.applyInFlight
         ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
         : runtimeConfigChanges
-          ? "샘플레이트나 채널 변경은 앱을 재시작해야 적용됩니다."
+          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
           : snapshot.playback.output_running
             ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
             : "";
@@ -1523,13 +1531,59 @@ const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
   ].filter(Boolean).join(" · ");
 };
 
-const hasDraftRuntimeConfigChanges = (snapshot = state.snapshot) => {
-  if (!snapshot || !state.draft) return false;
-  return (
-    snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate ||
-    snapshot.settings.active.audio.channels !== state.draft.audio.channels
-  );
+const runtimeSettingsFields = [
+  ["audio.sample_rate", (settings) => settings.audio.sample_rate],
+  ["audio.channels", (settings) => settings.audio.channels],
+  ["devices.input_device_id", (settings) => settings.devices.input_device_id],
+  ["devices.output_device_id", (settings) => settings.devices.output_device_id],
+];
+
+const normalizeSettingsChangePlan = (change) => ({
+  runtimeConfigChanged: Boolean(change?.runtime_config_changed),
+  changedRuntimeFields: Array.isArray(change?.changed_runtime_fields)
+    ? change.changed_runtime_fields
+    : [],
+  changedSections: Array.isArray(change?.changed_sections) ? change.changed_sections : [],
+});
+
+const settingsPayloadMatchesDraft = (snapshot, draft) => (
+  JSON.stringify(snapshot.settings.draft) === JSON.stringify(draft)
+);
+
+const settingsChangePlan = (snapshot = state.snapshot) => {
+  if (!snapshot?.settings) return normalizeSettingsChangePlan(null);
+  const draft = state.draft || snapshot.settings.draft;
+  if (!snapshot.settings.active || !draft) return normalizeSettingsChangePlan(null);
+  if (snapshot.settings.change?.runtime_config_changed !== undefined &&
+      settingsPayloadMatchesDraft(snapshot, draft)) {
+    return normalizeSettingsChangePlan(snapshot.settings.change);
+  }
+  return localSettingsChangePlan(snapshot.settings.active, draft);
 };
+
+const localSettingsChangePlan = (active, draft) => {
+  const changedRuntimeFields = runtimeSettingsFields
+    .filter(([, readField]) => readField(active) !== readField(draft))
+    .map(([fieldName]) => fieldName);
+  const activePayload = clone(active);
+  const draftPayload = clone(draft);
+  const changedSections = Object.keys(activePayload)
+    .sort()
+    .filter((section) => (
+      JSON.stringify(activePayload[section]) !== JSON.stringify(draftPayload[section])
+    ));
+  return {
+    runtimeConfigChanged: changedRuntimeFields.length > 0,
+    changedRuntimeFields,
+    changedSections,
+  };
+};
+
+const toServerSettingsChangePayload = (change) => ({
+  runtime_config_changed: change.runtimeConfigChanged,
+  changed_runtime_fields: change.changedRuntimeFields,
+  changed_sections: change.changedSections,
+});
 
 const sourceSettingsFields = {
   low: "low_path",
@@ -1569,8 +1623,7 @@ const syncAppliedSourceSignature = () => {
 };
 
 const hasSettingsDraftChanges = (snapshot) =>
-  JSON.stringify(snapshot.settings.active) !==
-  JSON.stringify(state.draft || snapshot.settings.draft);
+  settingsChangePlan(snapshot).changedSections.length > 0;
 
 const hasSourceFileChanges = (snapshot = state.snapshot) => {
   if (!snapshot || state.appliedSourceSignature === null) return false;
@@ -1630,6 +1683,7 @@ const renderVoiceStackControls = () => {
         getPath(state.draft.voice_stack, control.path),
         (value) => {
           setPath(state.draft.voice_stack, control.path, value);
+          syncDraftSnapshot();
           renderState();
           scheduleDraftSave();
         },
@@ -1673,7 +1727,7 @@ const setStorageMode = (mode) => {
   if (!storageModeDetails[mode] || !state.draft || !state.snapshot) return;
   if (state.snapshot.is_recording || state.recordingStopInFlight || state.applyInFlight) return;
   state.draft.voice_stack.mode = mode;
-  state.snapshot.settings.draft = clone(state.draft);
+  syncDraftSnapshot();
   renderState();
   scheduleDraftSave();
 };
@@ -1724,6 +1778,7 @@ const renderLayerCard = (layerId) => {
   `;
   card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
     state.draft.layers[layerId].enabled = event.target.checked;
+    syncDraftSnapshot();
     event.target.setAttribute("aria-checked", event.target.checked ? "true" : "false");
     updateLayerEnabledControl(card, layerId, event.target.checked);
     renderState();
@@ -1740,6 +1795,7 @@ const renderLayerCard = (layerId) => {
         (control, value) => {
           setPath(state.draft.layers[layerId], control.path, value);
           clearLayerPresetSelection(layerId);
+          syncDraftSnapshot();
           updateLayerPresetButtons(card, layerId);
           renderState();
           scheduleDraftSave();
@@ -1797,7 +1853,7 @@ const applyLayerPreset = (layerId, presetName) => {
   state.draft.layers[layerId] = next.draft;
   if (next.selection) state.presetSelections.layers[layerId] = next.selection;
   else clearLayerPresetSelection(layerId);
-  state.snapshot.settings.draft = clone(state.draft);
+  syncDraftSnapshot();
   renderLayerControls();
   renderState();
   scheduleDraftSave();
@@ -1811,7 +1867,7 @@ const resetLayerFilter = (layerId) => {
     const resetValue = control.path.endsWith("highpass_hz") ? control.min : control.max;
     setPath(layer, control.path, resetValue);
   });
-  if (state.snapshot) state.snapshot.settings.draft = clone(state.draft);
+  syncDraftSnapshot();
   renderLayerControls();
   renderState();
   scheduleDraftSave();
@@ -1826,6 +1882,7 @@ const renderRecordingControls = () => {
       controlGroup(group, state.draft.recording, activeRecording, (control, value) => {
         setPath(state.draft.recording, control.path, value);
         clearRecordingPresetSelection();
+        syncDraftSnapshot();
         renderRecordingPresets();
         renderState();
         scheduleDraftSave();
@@ -1856,7 +1913,7 @@ const applyRecordingPreset = (name) => {
   );
   state.draft.recording = next.draft;
   state.presetSelections.recording = next.selection;
-  state.snapshot.settings.draft = clone(state.draft);
+  syncDraftSnapshot();
   renderRecordingPresets();
   renderRecordingControls();
   renderState();

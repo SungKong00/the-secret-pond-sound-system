@@ -4,6 +4,7 @@ from typing import Any
 
 from secret_pond.services.controller import RecordingOutcome
 from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.settings_changes import SettingsChangePlan, classify_settings_change
 
 
 def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
@@ -38,6 +39,17 @@ def settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     return {
         "active": settings_state.active.model_dump(mode="json"),
         "draft": settings_state.draft.model_dump(mode="json"),
+        "change": settings_change_payload(
+            classify_settings_change(settings_state.active, settings_state.draft),
+        ),
+    }
+
+
+def settings_change_payload(change: SettingsChangePlan) -> dict[str, Any]:
+    return {
+        "runtime_config_changed": change.runtime_config_changed,
+        "changed_runtime_fields": change.changed_runtime_fields,
+        "changed_sections": change.changed_sections,
     }
 
 

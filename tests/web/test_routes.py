@@ -1251,7 +1251,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "저장 안 된 변경 없음" not in script.text
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
-    assert "hasDraftRuntimeConfigChanges(snapshot)" in script.text
+    assert "settingsChangePlan(snapshot).runtimeConfigChanged" in script.text
     render_state_body = slice_between(
         script.text,
         "const renderState = () => {",
@@ -1310,17 +1310,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "참여자 수를 초기화하기 전에 녹음을 중지하세요." in script.text
     assert "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다." in script.text
-    assert (
-        "snapshot.settings.active.audio.sample_rate !== state.draft.audio.sample_rate"
-        in script.text
-    )
-    assert "snapshot.settings.active.audio.channels !== state.draft.audio.channels" in script.text
-    assert "active.devices.input_device_id !== state.draft.devices.input_device_id" not in (
-        script.text
-    )
-    assert "active.devices.output_device_id !== state.draft.devices.output_device_id" not in (
-        script.text
-    )
+    assert "snapshot.settings.change?.runtime_config_changed" in script.text
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     apply_body = slice_between(
         script.text,
@@ -2037,7 +2027,15 @@ const snapshot = {{
     output_latest_error: "stream failed",
     layers: {{}},
   }},
-  settings: {{ active: activeSettings, draft: activeSettings }},
+  settings: {{
+    active: activeSettings,
+    draft: activeSettings,
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+    }},
+  }},
 }};
 
 globalThis.__secretPondTest.state.snapshot = snapshot;
@@ -2158,9 +2156,16 @@ assert.strictEqual(
 assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel library pending");
 assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(elements.pendingBadge.hidden, false);
+assert.strictEqual(elements.applyButton.classList.contains("attention"), true);
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.active.voice_stack.mode = "test_library";
 globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.mode = "test_library";
+globalThis.__secretPondTest.state.snapshot.settings.change = {{
+  runtime_config_changed: false,
+  changed_runtime_fields: [],
+  changed_sections: [],
+}};
 globalThis.__secretPondTest.state.draft.voice_stack.mode = "test_library";
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(
@@ -2222,6 +2227,34 @@ assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 
 globalThis.__secretPondTest.syncAppliedSourceSignature();
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
+
+const deviceDraft = cloneSettings(activeSettings);
+deviceDraft.devices.input_device_id = "mic-2";
+deviceDraft.devices.output_device_id = "speaker-2";
+globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(deviceDraft);
+globalThis.__secretPondTest.state.snapshot.settings.change = {{
+  runtime_config_changed: true,
+  changed_runtime_fields: ["devices.input_device_id", "devices.output_device_id"],
+  changed_sections: ["devices"],
+}};
+globalThis.__secretPondTest.state.draft = cloneSettings(deviceDraft);
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.pendingBadge.hidden, false);
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+assert.strictEqual(
+  elements.applyButton.title,
+  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+);
+globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+globalThis.__secretPondTest.state.snapshot.settings.change = {{
+  runtime_config_changed: false,
+  changed_runtime_fields: [],
+  changed_sections: [],
+}};
+globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 
 globalThis.__secretPondTest.state.recordingStopInFlight = true;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
@@ -3013,6 +3046,49 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
+    assert payload["settings"]["change"] == {
+        "runtime_config_changed": False,
+        "changed_runtime_fields": [],
+        "changed_sections": [],
+    }
+
+
+def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["change"] == {
+        "runtime_config_changed": False,
+        "changed_runtime_fields": [],
+        "changed_sections": ["layers"],
+    }
+    state = client.get("/api/state").json()
+    assert state["settings"]["change"] == {
+        "runtime_config_changed": False,
+        "changed_runtime_fields": [],
+        "changed_sections": ["layers"],
+    }
+
+
+def test_api_settings_payload_reports_runtime_config_change_plan(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.put(
+        "/api/settings/draft",
+        json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["change"] == {
+        "runtime_config_changed": True,
+        "changed_runtime_fields": [
+            "devices.input_device_id",
+            "devices.output_device_id",
+        ],
+        "changed_sections": ["devices"],
+    }
 
 
 def test_ws_state_sends_initial_runtime_state(tmp_path: Path) -> None:
