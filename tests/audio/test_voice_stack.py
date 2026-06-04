@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from secret_pond.audio import voice_stack as voice_stack_module
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.voice_stack import VoiceStackStore
@@ -329,6 +330,44 @@ def test_voice_stack_add_keeps_manifest_unchanged_when_raw_write_fails(
 
     assert paths.voice_manifest.read_text(encoding="utf-8") == before_manifest
     assert list(paths.accepted_dir.glob("*.wav")) == []
+
+
+def test_voice_stack_add_restores_raw_when_manifest_write_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    settings.voice_stack.mode = "test_library"
+    settings.voice_stack.insert_gain_db = 0.0
+    store = VoiceStackStore(paths)
+    existing = AudioBuffer(
+        samples=np.ones((8_000, 2), dtype=np.float32) * 0.2,
+        sample_rate=8_000,
+    )
+    store.add_processed_voice(existing, settings, offset_frames=0)
+    before_raw = paths.voice_stack_raw.read_bytes()
+    before_manifest = paths.voice_manifest.read_text(encoding="utf-8")
+    before_accepted = sorted(path.name for path in paths.accepted_dir.glob("*.wav"))
+    real_write_json = voice_stack_module._write_json_atomic
+
+    def fail_manifest_write(path: Path, payload: dict[str, object]) -> None:
+        if path == paths.voice_manifest:
+            raise OSError("simulated manifest write failure")
+        real_write_json(path, payload)
+
+    monkeypatch.setattr(voice_stack_module, "_write_json_atomic", fail_manifest_write)
+
+    with pytest.raises(OSError, match="simulated manifest"):
+        store.add_processed_voice(
+            AudioBuffer(samples=np.ones((1_000, 2), dtype=np.float32) * 0.4, sample_rate=8_000),
+            settings,
+            offset_frames=0,
+        )
+
+    assert paths.voice_stack_raw.read_bytes() == before_raw
+    assert paths.voice_manifest.read_text(encoding="utf-8") == before_manifest
+    assert sorted(path.name for path in paths.accepted_dir.glob("*.wav")) == before_accepted
 
 
 def test_voice_stack_add_applies_insert_gain_and_canonicalizes_mono_input(tmp_path: Path) -> None:

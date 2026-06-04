@@ -102,6 +102,10 @@ class VoiceStackStore:
             msg = "offset_frames must be greater than or equal to 0 and less than the loop length"
             raise ValueError(msg)
 
+        raw_existed_before_add = self._paths.voice_stack_raw.exists()
+        previous_raw_bytes = (
+            self._paths.voice_stack_raw.read_bytes() if raw_existed_before_add else None
+        )
         snapshot = self.ensure_initialized(settings)
         manifest = _read_manifest(self._paths.voice_manifest)
         existing_entries = list(manifest.get("entries", []))
@@ -166,17 +170,21 @@ class VoiceStackStore:
         raw_buffer = AudioBuffer(samples=guarded_samples, sample_rate=settings.audio.sample_rate)
 
         written_accepted_paths: list[Path] = []
+        raw_write_succeeded = False
         try:
             for path, accepted_buffer in accepted_writes:
                 write_wav_atomic(path, accepted_buffer)
                 written_accepted_paths.append(path)
 
             write_wav_atomic(self._paths.voice_stack_raw, raw_buffer)
+            raw_write_succeeded = True
             manifest["revision"] = current_revision + 1
             manifest["entries"] = existing_entries + new_entries
             _write_json_atomic(self._paths.voice_manifest, manifest)
         except Exception:
             _cleanup_paths(written_accepted_paths)
+            if raw_write_succeeded:
+                _restore_raw_stack(self._paths.voice_stack_raw, previous_raw_bytes)
             raise
 
         return VoiceStackAddResult(
@@ -395,6 +403,20 @@ def _cleanup_paths(paths: list[Path]) -> None:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _restore_raw_stack(path: Path, previous_raw_bytes: bytes | None) -> None:
+    if previous_raw_bytes is None:
+        path.unlink(missing_ok=True)
+        return
+
+    temp_path = path.with_name(f".{path.stem}.{uuid4().hex}.rollback.tmp")
+    try:
+        temp_path.write_bytes(previous_raw_bytes)
+        temp_path.replace(path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
