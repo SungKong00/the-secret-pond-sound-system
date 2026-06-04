@@ -1962,6 +1962,80 @@ assert.deepStrictEqual(helpers.toServerSettingsChangePayload(normalized), {{
     subprocess.run([node, "-e", harness], check=True, text=True)
 
 
+def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        "\nglobalThis.__secretPondTest = { sourceSignatureForSettings };\n",
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+globalThis.document = {{
+  getElementById() {{ return null; }},
+  querySelector() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+  createElement() {{ return {{}}; }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {{}};
+globalThis.setInterval = () => 0;
+
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const settings = {{
+  sources: {{
+    low_path: "sources/low/selected.wav",
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  }},
+}};
+const categories = [
+  {{
+    id: "low",
+    legacy_path: "sources/low/legacy.wav",
+    legacy_size_bytes: 1,
+    legacy_modified_at: "legacy-low",
+    files: [
+      {{
+        path: "sources/low/selected.wav",
+        size_bytes: 10,
+        modified_at: "selected-low",
+      }},
+    ],
+  }},
+  {{
+    id: "mid",
+    legacy_path: "sources/mid/current.wav",
+    legacy_size_bytes: 20,
+    legacy_modified_at: "legacy-mid",
+    files: [],
+  }},
+];
+
+assert.strictEqual(
+  globalThis.__secretPondTest.sourceSignatureForSettings(settings, categories),
+  "low:sources/low/selected.wav:10:selected-low|mid:sources/mid/current.wav:20:legacy-mid",
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.sourceSignatureForSettings(settings, null),
+  null,
+);
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:

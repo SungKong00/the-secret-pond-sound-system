@@ -2046,9 +2046,11 @@ const selectedSourcePathFor = (settings, categoryId) => {
   return settings?.sources?.[field] || null;
 };
 
-const sourceSignatureForSettings = (settings) => {
-  if (!state.sources?.categories || !settings) return null;
-  return state.sources.categories
+const sourceCategories = () => state.sources?.categories || null;
+
+const sourceSignatureForSettings = (settings, categories) => {
+  if (!Array.isArray(categories) || !settings) return null;
+  return categories
     .map((category) => {
       const selectedPath = selectedSourcePathFor(settings, category.id) || category.legacy_path || null;
       const file = (category.files || []).find((item) => item.path === selectedPath);
@@ -2064,7 +2066,10 @@ const sourceSignatureForSettings = (settings) => {
 };
 
 const syncAppliedSourceSignature = () => {
-  const signature = sourceSignatureForSettings(state.snapshot?.settings?.active);
+  const signature = sourceSignatureForSettings(
+    state.snapshot?.settings?.active,
+    sourceCategories(),
+  );
   if (signature !== null) {
     state.appliedSourceSignature = signature;
   }
@@ -2072,7 +2077,10 @@ const syncAppliedSourceSignature = () => {
 
 const hasSourceFileChanges = (snapshot = state.snapshot) => {
   if (!snapshot || state.appliedSourceSignature === null) return false;
-  const draftSignature = sourceSignatureForSettings(state.draft || snapshot.settings.draft);
+  const draftSignature = sourceSignatureForSettings(
+    state.draft || snapshot.settings.draft,
+    sourceCategories(),
+  );
   return draftSignature !== null && draftSignature !== state.appliedSourceSignature;
 };
 
