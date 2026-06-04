@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+from secret_pond.config import AppSettings, DeviceSettings
+from secret_pond.services.settings_changes import classify_settings_change
+
+
+def test_classify_settings_change_reports_runtime_config_fields_and_sections() -> None:
+    active = AppSettings()
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(update={"sample_rate": 44_100}),
+            "devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2"),
+        },
+        deep=True,
+    )
+
+    plan = classify_settings_change(active, draft)
+
+    assert plan.runtime_config_changed is True
+    assert plan.changed_runtime_fields == [
+        "audio.sample_rate",
+        "devices.input_device_id",
+        "devices.output_device_id",
+    ]
+    assert plan.changed_sections == ["audio", "devices"]
+
+
+def test_classify_settings_change_keeps_mix_changes_render_only() -> None:
+    active = AppSettings()
+    layers = {
+        **active.layers,
+        "voice": active.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    draft = active.model_copy(update={"layers": layers}, deep=True)
+
+    plan = classify_settings_change(active, draft)
+
+    assert plan.runtime_config_changed is False
+    assert plan.changed_runtime_fields == []
+    assert plan.changed_sections == ["layers"]
+
+
+def test_classify_settings_change_reports_noop_plan_for_identical_settings() -> None:
+    settings = AppSettings()
+
+    plan = classify_settings_change(settings, settings)
+
+    assert plan.runtime_config_changed is False
+    assert plan.changed_runtime_fields == []
+    assert plan.changed_sections == []

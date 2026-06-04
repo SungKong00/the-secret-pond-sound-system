@@ -32,6 +32,7 @@ from secret_pond.services.recording_transaction import (
 )
 from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
+from secret_pond.services.settings_changes import classify_settings_change
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.web.state import outcome_payload, settings_payload, state_payload
 
@@ -362,9 +363,9 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
         current = runtime.settings_store.load()
         draft = current.draft
-        runtime_config_changed = _runtime_configuration_changed(current.active, draft)
+        change_plan = classify_settings_change(current.active, draft)
         was_running = runtime.output.is_running
-        if runtime_config_changed:
+        if change_plan.runtime_config_changed:
             detail = (
                 "audio output format changes require an app restart; "
                 "device changes must be applied from the System panel"
@@ -375,7 +376,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 {
                     "reason": detail,
                     "runtime_config_changed": True,
-                    "changed_runtime_fields": _changed_runtime_fields(current.active, draft),
+                    "changed_runtime_fields": change_plan.changed_runtime_fields,
                     "was_output_running": was_running,
                     "output_running": runtime.output.is_running,
                 },
@@ -419,8 +420,8 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 "settings.apply_failed",
                 {
                     "error": detail,
-                    "runtime_config_changed": runtime_config_changed,
-                    "changed_sections": _changed_settings_sections(current.active, draft),
+                    "runtime_config_changed": change_plan.runtime_config_changed,
+                    "changed_sections": change_plan.changed_sections,
                     "was_output_running": was_running,
                     "output_running": runtime.output.is_running,
                     "output_restore_attempted": was_running,
@@ -433,8 +434,8 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
             runtime,
             "settings.applied",
             {
-                "changed_sections": _changed_settings_sections(current.active, draft),
-                "runtime_config_changed": runtime_config_changed,
+                "changed_sections": change_plan.changed_sections,
+                "runtime_config_changed": change_plan.runtime_config_changed,
                 "was_output_running": was_running,
                 "output_running": runtime.output.is_running,
             },
@@ -705,35 +706,3 @@ def _relative_path(root: Path, path: Path) -> str:
         return path.relative_to(root).as_posix()
     except ValueError:
         return path.as_posix()
-
-
-def _runtime_configuration_changed(active: AppSettings, draft: AppSettings) -> bool:
-    return (
-        active.audio.sample_rate != draft.audio.sample_rate
-        or active.audio.channels != draft.audio.channels
-        or active.devices.input_device_id != draft.devices.input_device_id
-        or active.devices.output_device_id != draft.devices.output_device_id
-    )
-
-
-def _changed_runtime_fields(active: AppSettings, draft: AppSettings) -> list[str]:
-    changed: list[str] = []
-    if active.audio.sample_rate != draft.audio.sample_rate:
-        changed.append("audio.sample_rate")
-    if active.audio.channels != draft.audio.channels:
-        changed.append("audio.channels")
-    if active.devices.input_device_id != draft.devices.input_device_id:
-        changed.append("devices.input_device_id")
-    if active.devices.output_device_id != draft.devices.output_device_id:
-        changed.append("devices.output_device_id")
-    return changed
-
-
-def _changed_settings_sections(active: AppSettings, draft: AppSettings) -> list[str]:
-    changed: list[str] = []
-    active_payload = active.model_dump(mode="json")
-    draft_payload = draft.model_dump(mode="json")
-    for section in sorted(active_payload):
-        if active_payload[section] != draft_payload.get(section):
-            changed.append(section)
-    return changed
