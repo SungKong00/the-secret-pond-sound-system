@@ -1858,6 +1858,14 @@ assert.strictEqual(elements.errorBanner.hidden, false);
 assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
 assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
+globalThis.__secretPondTest.state.deviceError = "devices failed";
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.textContent, "오디오 장치 정보를 불러오지 못했습니다.");
+globalThis.__secretPondTest.state.deviceError = null;
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.textContent, "작업 중 오류가 발생했습니다.");
+
 globalThis.__secretPondTest.showError("");
 assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBanner.textContent, "");
@@ -2105,6 +2113,14 @@ globalThis.__secretPondTest.state.sources = {{
 globalThis.__secretPondTest.syncAppliedSourceSignature();
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");
+globalThis.__secretPondTest.renderDevices();
+elements.inputDeviceSelect.innerHTML = "native device dropdown still open";
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.inputDeviceSelect.innerHTML, "native device dropdown still open");
+globalThis.__secretPondTest.renderSourceLibrary();
+elements.sourceLibraryList.innerHTML = "native source dropdown still open";
+globalThis.__secretPondTest.renderSourceLibrary();
+assert.strictEqual(elements.sourceLibraryList.innerHTML, "native source dropdown still open");
 elements.inputDeviceSelect.innerHTML = "open device dropdown";
 elements.sourceLibraryList.innerHTML = "open source dropdown";
 globalThis.document.activeElement = elements.inputDeviceSelect;
@@ -2115,6 +2131,7 @@ assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown")
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
 globalThis.document.activeElement = null;
+globalThis.__secretPondTest.state.devices.input_devices[0].name = "Renamed Mic";
 elements.inputDeviceSelect.listeners.blur();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "");
 
@@ -2127,6 +2144,7 @@ globalThis.__secretPondTest.state.activeInteractiveControl = focusedSourceSelect
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.document.activeElement = null;
+globalThis.__secretPondTest.state.sources.categories[0].label = "Renamed Low";
 focusedSourceSelect.listeners.blur();
 assert.notStrictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.document.activeElement = null;

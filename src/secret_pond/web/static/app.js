@@ -45,6 +45,10 @@ const state = {
   applyInFlight: false,
   deviceChangeInFlight: false,
   activeInteractiveControl: null,
+  renderSignatures: {
+    deviceSelects: {},
+    sourceLibrary: null,
+  },
   presetSelections: {
     layers: {},
     recording: null,
@@ -1058,7 +1062,6 @@ const currentWarningMessages = () => {
 const renderErrors = () => {
   const messages = currentErrorMessages();
   if (messages.length) {
-    state.transientError = null;
     setErrorBanner(messages.join(" · "));
     return;
   }
@@ -1182,6 +1185,9 @@ const renderSourceLibrary = () => {
   if (!state.sources) {
     status.textContent = state.sourcesError ? "목록 실패" : "확인 중";
     status.className = `status-pill ${state.sourcesError ? "hot" : "muted"}`;
+    const nextSignature = `empty:${state.sourcesError || ""}`;
+    if (state.renderSignatures.sourceLibrary === nextSignature) return;
+    state.renderSignatures.sourceLibrary = nextSignature;
     container.innerHTML = "";
     const placeholder = document.createElement("div");
     placeholder.className = "source-library-empty";
@@ -1196,11 +1202,35 @@ const renderSourceLibrary = () => {
   const missingCount = categories.filter((category) => !category.active_exists).length;
   status.textContent = missingCount ? `${missingCount}개 선택 필요` : "파일 준비됨";
   status.className = `status-pill ${missingCount ? "hot" : "safe"}`;
+  const nextSignature = sourceLibrarySignature(categories);
+  if (state.renderSignatures.sourceLibrary === nextSignature) return;
+  state.renderSignatures.sourceLibrary = nextSignature;
   container.innerHTML = "";
   categories.forEach((category) => {
     container.appendChild(sourceCategoryCard(category));
   });
 };
+
+const sourceLibrarySignature = (categories) => JSON.stringify(
+  categories.map((category) => [
+    category.id,
+    category.label,
+    category.directory,
+    category.active_exists,
+    category.legacy_exists,
+    category.legacy_path,
+    category.legacy_size_bytes,
+    category.legacy_modified_at,
+    category.selected_path,
+    (category.files || []).map((file) => [
+      file.name,
+      file.path,
+      file.size_bytes,
+      file.modified_at,
+      file.active,
+    ]),
+  ]),
+);
 
 const sourceCategoryCard = (category) => {
   const label = sourceCategoryLabels[category.id] || {
@@ -1435,28 +1465,49 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     return;
   }
 
-  select.innerHTML = "";
-  const defaultOption = document.createElement("option");
-  defaultOption.value = "";
-  defaultOption.textContent = "시스템 기본값";
-  select.appendChild(defaultOption);
+  const nextSignature = deviceSelectOptionsSignature(devices, selectedId);
+  if (state.renderSignatures.deviceSelects[selectId] !== nextSignature) {
+    state.renderSignatures.deviceSelects[selectId] = nextSignature;
+    select.innerHTML = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "시스템 기본값";
+    select.appendChild(defaultOption);
 
-  devices.forEach((device) => {
-    const option = document.createElement("option");
-    option.value = device.id;
-    option.textContent = deviceOptionLabel(device);
-    select.appendChild(option);
-  });
+    devices.forEach((device) => {
+      const option = document.createElement("option");
+      option.value = device.id;
+      option.textContent = deviceOptionLabel(device);
+      select.appendChild(option);
+    });
 
-  if (selectedId && !devices.some((device) => device.id === selectedId)) {
-    const missingOption = document.createElement("option");
-    missingOption.value = selectedId;
-    missingOption.textContent = `사용 불가: ${selectedId}`;
-    select.appendChild(missingOption);
+    if (selectedId && !devices.some((device) => device.id === selectedId)) {
+      const missingOption = document.createElement("option");
+      missingOption.value = selectedId;
+      missingOption.textContent = `사용 불가: ${selectedId}`;
+      select.appendChild(missingOption);
+    }
   }
 
   select.value = selectedId || "";
   select.disabled = disabled;
+};
+
+const deviceSelectOptionsSignature = (devices, selectedId) => {
+  const missingSelectedId =
+    selectedId && !devices.some((device) => device.id === selectedId) ? selectedId : null;
+  return JSON.stringify({
+    devices: devices.map((device) => [
+      device.id,
+      device.name,
+      device.host_api_name,
+      device.kind,
+      device.max_input_channels,
+      device.max_output_channels,
+      device.default_sample_rate,
+    ]),
+    missingSelectedId,
+  });
 };
 
 const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
