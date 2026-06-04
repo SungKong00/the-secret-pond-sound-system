@@ -210,15 +210,26 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
 
         current = runtime.settings_store.load()
         draft = current.draft
-        if _runtime_configuration_changed(current.active, draft):
+        runtime_config_changed = _runtime_configuration_changed(current.active, draft)
+        was_running = runtime.output.is_running
+        if runtime_config_changed:
+            detail = "audio output format and device changes require an app restart in this MVP"
+            _log_event_best_effort(
+                runtime,
+                "settings.apply_rejected",
+                {
+                    "reason": detail,
+                    "runtime_config_changed": True,
+                    "changed_runtime_fields": _changed_runtime_fields(current.active, draft),
+                    "was_output_running": was_running,
+                    "output_running": runtime.output.is_running,
+                },
+            )
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "audio output format and device changes require an app restart in this MVP"
-                ),
+                detail=detail,
             )
 
-        was_running = runtime.output.is_running
         player_snapshot = runtime.player.snapshot()
         staged = None
         try:
@@ -242,9 +253,31 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
                 restore_output=was_running,
                 cause=exc,
             )
+            _log_event_best_effort(
+                runtime,
+                "settings.apply_failed",
+                {
+                    "error": detail,
+                    "runtime_config_changed": runtime_config_changed,
+                    "changed_sections": _changed_settings_sections(current.active, draft),
+                    "was_output_running": was_running,
+                    "output_running": runtime.output.is_running,
+                    "output_restore_attempted": was_running,
+                },
+            )
             raise HTTPException(status_code=409, detail=detail) from exc
         if staged is not None:
             staged.cleanup()
+        _log_event_best_effort(
+            runtime,
+            "settings.applied",
+            {
+                "changed_sections": _changed_settings_sections(current.active, draft),
+                "runtime_config_changed": runtime_config_changed,
+                "was_output_running": was_running,
+                "output_running": runtime.output.is_running,
+            },
+        )
         return {
             "settings": settings_payload(runtime),
             "state": state_payload(runtime),
@@ -451,3 +484,26 @@ def _runtime_configuration_changed(active: AppSettings, draft: AppSettings) -> b
         or active.devices.input_device_id != draft.devices.input_device_id
         or active.devices.output_device_id != draft.devices.output_device_id
     )
+
+
+def _changed_runtime_fields(active: AppSettings, draft: AppSettings) -> list[str]:
+    changed: list[str] = []
+    if active.audio.sample_rate != draft.audio.sample_rate:
+        changed.append("audio.sample_rate")
+    if active.audio.channels != draft.audio.channels:
+        changed.append("audio.channels")
+    if active.devices.input_device_id != draft.devices.input_device_id:
+        changed.append("devices.input_device_id")
+    if active.devices.output_device_id != draft.devices.output_device_id:
+        changed.append("devices.output_device_id")
+    return changed
+
+
+def _changed_settings_sections(active: AppSettings, draft: AppSettings) -> list[str]:
+    changed: list[str] = []
+    active_payload = active.model_dump(mode="json")
+    draft_payload = draft.model_dump(mode="json")
+    for section in sorted(active_payload):
+        if active_payload[section] != draft_payload.get(section):
+            changed.append(section)
+    return changed

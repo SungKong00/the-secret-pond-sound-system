@@ -263,6 +263,17 @@ class FailingDeviceRegistry:
         raise OSError("device stack unavailable")
 
 
+class FailingEventLogger:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+
+    def log_event(self, event_type, payload=None):
+        raise OSError("event log unavailable")
+
+    def read_events(self, limit=None):
+        return self.delegate.read_events(limit)
+
+
 def create_test_client(
     tmp_path: Path,
     *,
@@ -403,6 +414,14 @@ def wait_for_future_response(future) -> Any:
     except concurrent.futures.TimeoutError as exc:
         msg = "reset request waited for Apply and Restart instead of returning 409"
         raise AssertionError(msg) from exc
+
+
+def events_by_type(client: TestClient, event_type: str) -> list[dict]:
+    return [
+        event
+        for event in client.app.state.runtime.logger.read_events()
+        if event["event_type"] == event_type
+    ]
 
 
 def test_health_endpoint_still_reports_ok(tmp_path: Path) -> None:
@@ -1941,6 +1960,22 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     assert paths.voice_playback.exists()
 
 
+def test_api_settings_apply_and_restart_logs_success_event(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    events = events_by_type(client, "settings.applied")
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["changed_sections"] == ["layers"]
+    assert payload["runtime_config_changed"] is False
+    assert payload["was_output_running"] is False
+    assert payload["output_running"] is False
+
+
 def test_api_settings_apply_alias_renders_layers_and_starts_player(
     tmp_path: Path,
 ) -> None:
@@ -2176,6 +2211,31 @@ def test_api_settings_apply_and_restart_rolls_back_render_failure_after_stop(
     assert state["playback"]["output_running"] is True
 
 
+def test_api_settings_apply_and_restart_logs_failure_event_after_rollback(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    applied_before_failure = len(events_by_type(client, "settings.applied"))
+    runtime = client.app.state.runtime
+    runtime.renderer = FailingStageRenderer(runtime.renderer, FileNotFoundError("low missing"))
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    events = events_by_type(client, "settings.apply_failed")
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["error"] == "low missing"
+    assert payload["was_output_running"] is True
+    assert payload["output_running"] is True
+    assert payload["output_restore_attempted"] is True
+    assert len(events_by_type(client, "settings.applied")) == applied_before_failure
+
+
 def test_api_settings_apply_and_restart_rolls_back_failed_new_output_start(
     tmp_path: Path,
 ) -> None:
@@ -2221,6 +2281,13 @@ def test_api_settings_apply_and_restart_rolls_back_save_failure_after_restart(
     assert state["settings"]["active"]["audio"]["peak_ceiling"] == 0.98
     assert state["playback"]["output_running"] is True
     assert client.app.state.runtime.player.snapshot().peak_ceiling == 0.98
+    events = events_by_type(client, "settings.apply_failed")
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["error"] == "settings save failed"
+    assert payload["was_output_running"] is True
+    assert payload["output_running"] is True
+    assert payload["output_restore_attempted"] is True
 
 
 def test_api_settings_apply_rejects_runtime_config_changes_without_touching_running_output(
@@ -2238,6 +2305,39 @@ def test_api_settings_apply_rejects_runtime_config_changes_without_touching_runn
     assert output.start_calls == 0
     state = client.get("/api/state").json()
     assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000
+
+
+def test_api_settings_apply_logs_runtime_config_rejection(tmp_path: Path) -> None:
+    output = FakeOutput()
+    output.is_running = True
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    client.put("/api/settings/draft", json=draft_with_sample_rate(16_000))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 409
+    events = events_by_type(client, "settings.apply_rejected")
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["runtime_config_changed"] is True
+    assert payload["changed_runtime_fields"] == ["audio.sample_rate"]
+    assert "restart" in payload["reason"]
+    assert payload["was_output_running"] is True
+    assert payload["output_running"] is True
+
+
+def test_api_settings_apply_event_log_failure_does_not_mask_success(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    runtime.logger = FailingEventLogger(runtime.logger)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
 
 
 def test_api_settings_apply_alias_rejects_runtime_config_changes_without_touching_output(
