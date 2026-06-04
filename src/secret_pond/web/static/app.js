@@ -2054,6 +2054,15 @@ const selectedSourcePathFor = (settings, categoryId) => {
   return settings?.sources?.[field] || null;
 };
 
+const sourcePathSignatureForSettings = (settings) => JSON.stringify(
+  Object.values(sourceSettingsFields).map((field) => settings?.sources?.[field] || null),
+);
+
+const activeSourcePathsChanged = (previousSnapshot, nextSnapshot) => (
+  sourcePathSignatureForSettings(previousSnapshot?.settings?.active) !==
+    sourcePathSignatureForSettings(nextSnapshot?.settings?.active)
+);
+
 const sourceCategories = () => state.sources?.categories || null;
 
 const sourceSignatureForSettings = (settings, categories) => {
@@ -2996,9 +3005,14 @@ const connectStateSocket = () => {
     clearTimeout(state.websocketReconnectTimer);
     renderSyncBadge();
   });
-  socket.addEventListener("message", (event) => {
+  socket.addEventListener("message", async (event) => {
     try {
-      applyState(JSON.parse(event.data), { syncDraft: false });
+      const payload = JSON.parse(event.data);
+      const shouldRefreshSources = activeSourcePathsChanged(state.snapshot, payload);
+      applyState(payload, { syncDraft: false });
+      if (shouldRefreshSources) {
+        await requestSources({ syncAppliedSourceSignature: true });
+      }
     } catch (error) {
       showError(error.message);
     }

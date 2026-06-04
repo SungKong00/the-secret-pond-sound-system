@@ -993,9 +993,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         in script.text
     )
     assert 'control("/api/playback/restart")' in script.text
-    assert 'socket.addEventListener("message", (event) => {' in script.text
+    assert 'socket.addEventListener("message", async (event) => {' in script.text
     assert (
-        'socket.addEventListener("message", (event) => {\n    try {\n      applyState'
+        "const shouldRefreshSources = activeSourcePathsChanged(state.snapshot, payload)"
+        in script.text
+    )
+    assert (
+        "await requestSources({ syncAppliedSourceSignature: true })"
         in script.text
     )
     assert "renderSystemStatus" in script.text
@@ -2408,7 +2412,7 @@ class FakeStateSocket {{
   }}
 
   emit(eventName, payload = {{}}) {{
-    this.handlers[eventName]?.(payload);
+    return this.handlers[eventName]?.(payload);
   }}
 
   close() {{
@@ -2607,6 +2611,89 @@ globalThis.__secretPondTest.state.sources = {{
   ],
 }};
 globalThis.__secretPondTest.syncAppliedSourceSignature();
+const runSourceSocketRefreshCheck = async () => {{
+  globalThis.__secretPondTest.state.sources = {{
+    categories: [
+      {{
+        id: "low",
+        label: "Low",
+        directory: "sources/low",
+        active_exists: true,
+        legacy_exists: true,
+        selected_path: "sources/low/current.wav",
+        files: [
+          {{
+            name: "current.wav",
+            path: "sources/low/current.wav",
+            size_bytes: 10,
+            modified_at: "2026-06-05T00:00:00Z",
+            active: true,
+          }},
+        ],
+      }},
+    ],
+  }};
+  globalThis.__secretPondTest.syncAppliedSourceSignature();
+  const socketSourceSettings = cloneSettings(activeSettings);
+  socketSourceSettings.sources.low_path = "sources/low/new.wav";
+  const socketSourceState = {{
+    ...snapshot,
+    settings: {{
+      active: socketSourceSettings,
+      draft: socketSourceSettings,
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      }},
+    }},
+  }};
+  const socketSourceResponses = [];
+  globalThis.fetch = (path) => {{
+    if (path === "/api/sources") {{
+      socketSourceResponses.push(path);
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          categories: [
+            {{
+              id: "low",
+              label: "Low",
+              directory: "sources/low",
+              active_exists: true,
+              legacy_exists: true,
+              selected_path: "sources/low/new.wav",
+              files: [
+                {{
+                  name: "new.wav",
+                  path: "sources/low/new.wav",
+                  size_bytes: 20,
+                  modified_at: "2026-06-05T00:02:00Z",
+                  active: true,
+                }},
+              ],
+            }},
+          ],
+        }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  globalThis.__secretPondTest.connectStateSocket();
+  const sourceSocket = FakeStateSocket.instances[FakeStateSocket.instances.length - 1];
+  await sourceSocket.emit("message", {{ data: JSON.stringify(socketSourceState) }});
+  assert.strictEqual(socketSourceResponses.length, 1);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.sources.categories[0].selected_path,
+    "sources/low/new.wav",
+  );
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.appliedSourceSignature.includes("sources/low/new.wav"),
+    true,
+  );
+  await sourceSocket.emit("message", {{ data: JSON.stringify(socketSourceState) }});
+  assert.strictEqual(socketSourceResponses.length, 1);
+}};
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");
 globalThis.__secretPondTest.state.sources = null;
@@ -2903,6 +2990,8 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  await runSourceSocketRefreshCheck();
+
   const unsavedDraft = cloneSettings(activeSettings);
   unsavedDraft.voice_stack.loop_seconds = 77;
   const serverDraft = cloneSettings(activeSettings);
