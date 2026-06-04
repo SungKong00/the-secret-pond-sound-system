@@ -870,7 +870,7 @@ const applyAndRestart = async () => {
   renderState();
   try {
     await saveDraft();
-    const payload = await api("/api/settings/apply-and-restart", { method: "POST" });
+    const payload = await api("/api/settings/apply", { method: "POST" });
     applyState(payload.state);
     await requestDiagnostics();
   } catch (error) {
@@ -886,7 +886,7 @@ const applyAndRestart = async () => {
 
 const resetDraft = async () => {
   try {
-    const payload = await api("/api/settings/reset", { method: "POST" });
+    const payload = await api("/api/settings/reset-draft", { method: "POST" });
     state.snapshot.settings = payload.settings;
     state.draft = clone(payload.settings.draft);
     renderState();

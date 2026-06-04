@@ -818,13 +818,16 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
     assert "showError(applyError.message)" in apply_body
+    assert '"/api/settings/apply"' in apply_body
+    assert '"/api/settings/apply-and-restart"' not in apply_body
     assert "const resetDraft = async () => {" in script.text
-    assert 'const payload = await api("/api/settings/reset"' in script.text
     reset_draft_body = slice_between(
         script.text,
         "const resetDraft = async () => {",
         "};\n\nconst changeDraftDevice",
     )
+    assert '"/api/settings/reset-draft"' in reset_draft_body
+    assert '"/api/settings/reset"' not in reset_draft_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_draft_body
     assert "const resetParticipants = async () => {" in script.text
     assert 'const payload = await api("/api/participants/reset"' in script.text
