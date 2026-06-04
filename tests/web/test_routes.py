@@ -1052,13 +1052,16 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "setRecordStatus(\"processing\", \"녹음 처리 중...\")" in script.text
     assert 'path !== "/api/recording/poll-auto-stop"' in script.text
     assert "recordingStopInFlight" in script.text
-    assert 'path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight' in script.text
-    assert 'path === "/api/recording/stop" && !state.snapshot?.is_recording' in script.text
+    assert (
+        'path === "/api/recording/poll-auto-stop" && currentState.recordingStopInFlight'
+        in script.text
+    )
+    assert 'path === "/api/recording/stop" && !snapshot?.is_recording' in script.text
     assert 'path.startsWith("/api/playback/")' in script.text
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     assert (
-        'path === "/api/input/disarm" && !state.snapshot?.is_recording && '
-        "!state.snapshot?.armed"
+        'path === "/api/input/disarm" && !snapshot?.is_recording && '
+        "!snapshot?.armed"
         in script.text
     )
     assert "renderRecordingOutcome(payload.outcome)" in script.text
@@ -1431,6 +1434,22 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "state.devices = payload.devices" in change_device_body
     assert "await requestDevices().catch(() => {})" in change_device_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in change_device_body
+    derive_control_body = slice_between(
+        script.text,
+        "const deriveControlRequestState = (path, options = {}, currentState = state) => {",
+        "};\n\nconst control",
+    )
+    assert "const pollAutoStopRequest =" in derive_control_body
+    assert 'path === "/api/recording/poll-auto-stop"' in derive_control_body
+    assert (
+        "Number(state.snapshot?.recording_remaining_seconds || 0) <= 0"
+        not in derive_control_body
+    )
+    assert "pollAutoStopRequest" in slice_between(
+        derive_control_body,
+        "const startsStopRequest =",
+        ";\n  const skip =",
+    )
     control_body = slice_between(
         script.text,
         "const control = async (path, options = {}) => {",
@@ -1438,14 +1457,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "let controlError = null" in control_body
     assert "controlError = error" in control_body
-    assert "const pollAutoStopRequest =" in control_body
-    assert 'path === "/api/recording/poll-auto-stop"' in control_body
-    assert "Number(state.snapshot?.recording_remaining_seconds || 0) <= 0" not in control_body
-    assert "pollAutoStopRequest" in slice_between(
-        control_body,
-        "const startsStopRequest =",
-        ";\n  if (path === \"/api/recording/poll-auto-stop\"",
-    )
+    assert "const controlRequest = deriveControlRequestState(path, options)" in control_body
+    assert "if (controlRequest.skip) return" in control_body
     assert "state.recordingStopInFlight = true;\n    renderState();" in control_body
     assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
     assert "if (controlError) showError(controlError.message);" in control_body
@@ -1766,7 +1779,8 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
         (
             "\nglobalThis.__secretPondTest = "
-            "{ deriveDashboardControlState, derivePendingChangeState };\n"
+            "{ deriveDashboardControlState, derivePendingChangeState, "
+            "deriveControlRequestState };\n"
         ),
     )
     harness = f"""
@@ -1797,6 +1811,64 @@ const snapshot = {{
 }};
 const derive = globalThis.__secretPondTest.deriveDashboardControlState;
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
+const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
+
+assert.deepStrictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    recordingStartInFlight: false,
+    recordingStopInFlight: false,
+  }}),
+  {{
+    startsStartRequest: true,
+    allowStaleRecordingStop: false,
+    expectsRecordingOutcome: false,
+    pollAutoStopRequest: false,
+    startsStopRequest: false,
+    skip: false,
+  }},
+);
+
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    recordingStartInFlight: true,
+    recordingStopInFlight: false,
+  }}).skip,
+  true,
+);
+
+assert.deepStrictEqual(
+  deriveControl("/api/recording/stop", {{ allowStaleRecordingStop: true }}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    recordingStartInFlight: true,
+    recordingStopInFlight: false,
+  }}),
+  {{
+    startsStartRequest: false,
+    allowStaleRecordingStop: true,
+    expectsRecordingOutcome: true,
+    pollAutoStopRequest: false,
+    startsStopRequest: true,
+    skip: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveControl("/api/recording/poll-auto-stop", {{}}, {{
+    snapshot: {{ armed: true, is_recording: true }},
+    recordingStartInFlight: false,
+    recordingStopInFlight: true,
+  }}),
+  {{
+    startsStartRequest: false,
+    allowStaleRecordingStop: false,
+    expectsRecordingOutcome: true,
+    pollAutoStopRequest: true,
+    startsStopRequest: true,
+    skip: true,
+  }},
+);
 
 assert.deepStrictEqual(
   derivePending({{

@@ -2817,31 +2817,43 @@ const saveDraft = async () => {
   }
 };
 
-const control = async (path, options = {}) => {
-  let controlError = null;
+const deriveControlRequestState = (path, options = {}, currentState = state) => {
+  const snapshot = currentState.snapshot;
   const startsStartRequest = path === "/api/recording/start";
   const allowStaleRecordingStop = options.allowStaleRecordingStop === true;
   const expectsRecordingOutcome =
     path === "/api/recording/stop" ||
     path === "/api/recording/poll-auto-stop" ||
-    (path === "/api/input/disarm" && state.snapshot?.is_recording);
-  if (startsStartRequest && state.recordingStartInFlight) return;
-  if (path === "/api/recording/stop" && !state.snapshot?.is_recording && !allowStaleRecordingStop) {
-    return;
-  }
-  if (path === "/api/input/disarm" && !state.snapshot?.is_recording && !state.snapshot?.armed) {
-    return;
-  }
+    (path === "/api/input/disarm" && Boolean(snapshot?.is_recording));
   const pollAutoStopRequest =
     path === "/api/recording/poll-auto-stop" &&
-    state.snapshot?.is_recording;
+    Boolean(snapshot?.is_recording);
   const startsStopRequest =
     ((path === "/api/recording/stop" || path === "/api/input/disarm") &&
-      (state.snapshot?.is_recording ||
+      (Boolean(snapshot?.is_recording) ||
         (path === "/api/recording/stop" && allowStaleRecordingStop))) ||
     pollAutoStopRequest;
-  if (path === "/api/recording/poll-auto-stop" && state.recordingStopInFlight) return;
-  if (startsStopRequest && state.recordingStopInFlight) return;
+  const skip =
+    (startsStartRequest && currentState.recordingStartInFlight) ||
+    (path === "/api/recording/stop" && !snapshot?.is_recording && !allowStaleRecordingStop) ||
+    (path === "/api/input/disarm" && !snapshot?.is_recording && !snapshot?.armed) ||
+    (path === "/api/recording/poll-auto-stop" && currentState.recordingStopInFlight) ||
+    (startsStopRequest && currentState.recordingStopInFlight);
+  return {
+    startsStartRequest,
+    allowStaleRecordingStop,
+    expectsRecordingOutcome,
+    pollAutoStopRequest,
+    startsStopRequest,
+    skip,
+  };
+};
+
+const control = async (path, options = {}) => {
+  let controlError = null;
+  const controlRequest = deriveControlRequestState(path, options);
+  if (controlRequest.skip) return;
+  const { startsStartRequest, expectsRecordingOutcome, startsStopRequest } = controlRequest;
   if (startsStartRequest) {
     state.recordingStartInFlight = true;
   }
