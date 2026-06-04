@@ -1196,7 +1196,7 @@ const requestSources = async (options = {}) => {
 };
 
 const refreshAll = async () => {
-  await requestState().catch((error) => showError(error.message));
+  await requestState({ syncDraft: false }).catch((error) => showError(error.message));
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });

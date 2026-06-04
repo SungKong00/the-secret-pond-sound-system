@@ -1377,6 +1377,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderRecordingPresets();" in apply_recording_preset_body
     assert "renderRecordingControls();" in apply_recording_preset_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
+    refresh_all_body = slice_between(
+        script.text,
+        "const refreshAll = async () => {",
+        "};\n\nconst applyState",
+    )
+    assert "await requestState({ syncDraft: false }).catch(" in refresh_all_body
     apply_body = slice_between(
         script.text,
         "const applyAndRestart = async () => {",
@@ -2102,7 +2108,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
             "renderEventLogSummary, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
-            "releaseInteractiveControl, "
+            "releaseInteractiveControl, refreshAll, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile };\n"
         ),
@@ -2882,6 +2888,64 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  const unsavedDraft = cloneSettings(activeSettings);
+  unsavedDraft.voice_stack.loop_seconds = 77;
+  const serverDraft = cloneSettings(activeSettings);
+  serverDraft.voice_stack.loop_seconds = 60;
+  globalThis.__secretPondTest.state.draft = cloneSettings(unsavedDraft);
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(serverDraft);
+  globalThis.fetch = (path) => {{
+    if (path === "/api/state") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          ...snapshot,
+          settings: {{
+            active: cloneSettings(activeSettings),
+            draft: cloneSettings(serverDraft),
+            change: {{
+              runtime_config_changed: false,
+              changed_runtime_fields: [],
+              changed_sections: [],
+            }},
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/devices") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          input_devices: [],
+          output_devices: [],
+          selected_input_device: null,
+          selected_output_device: null,
+          warnings: [],
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.refreshAll();
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 77);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
+    77,
+  );
+
   const draftSaveResponses = [];
   globalThis.fetch = (path, options = {{}}) =>
     new Promise((resolve) => {{
