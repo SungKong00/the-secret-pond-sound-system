@@ -25,3 +25,17 @@ MVP UI direction:
 - Group transport, `Apply and Restart`, and dirty-state feedback in a compact Playback panel.
 - Treat EQ sliders as staged controls until `Apply and Restart`.
 - Keep critical controls legible under exhibition pressure; visual mood must never hide whether recording is armed, recording, rendering, or failed.
+
+## 2026-06-04 Phase 10 verification
+
+Fresh LazyWeb searches checked desktop operational dashboards for dense status rows and
+desktop audio tools for DAW-style mixer layouts. The useful reference direction stayed the same:
+compact service-health badges for scanability, dense diagnostic rows instead of large narrative
+cards, and DAW-style mixer controls for layer EQ and volume.
+
+Rendered dashboard verification used bundled Playwright against the local app. Before the final
+status-strip fix, the long `Last system.startup_playback_unavailable` badge pushed
+`Participants` onto a second header row at 1440px. The dashboard now constrains that badge with
+`text-overflow: ellipsis`; the same 1440px check measured the status badges on one row and showed
+the long event badge actually truncating. Overflow checks were clean at desktop and mobile:
+`bodyWidth=1440 viewportWidth=1440` and `bodyWidth=390 viewportWidth=390`.

@@ -8,6 +8,18 @@
 
 **Tech Stack:** Python 3.11, FastAPI, Uvicorn, sounddevice, soundfile, NumPy, SciPy signal, Spotify Pedalboard, Pydantic, pytest, plain HTML/CSS/JavaScript.
 
+## 2026-06-04 Phase 8~10 Status Addendum
+
+The unchecked Phase 8~10 boxes are original planning checklist items, not current status.
+The implemented MVP covers the recording workflow, local API/WebSocket surface, and
+operator dashboard with automated tests. MVP deviation: apply/restart/playback orchestration is
+deferred/replaced by route-owned orchestration under `runtime.operation_lock` instead of a larger
+application-controller extraction. RecordingController remains focused on recording, voice stack
+mutation, render-after-recording, and participant-count rules; API routes own staged settings
+apply/restart, playback start/stop/restart, rollback, and maintenance locking for this short-lived
+project. This keeps the MVP simpler while preserving one runtime lock around render/output
+mutation paths.
+
 ---
 
 ## 1. Scope Decisions

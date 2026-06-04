@@ -185,3 +185,38 @@ def test_request_file_records_current_mvp_docs_decisions() -> None:
     assert "오류 상태 배지" in request
     assert "Spacebar 캡처 준비 상태" in request
     assert "Hold Space to Record" in request
+
+
+def test_request_file_records_phase_10_status_and_mvp_controller_boundary() -> None:
+    request = read_text(REQUEST_FILE)
+
+    assert "12) 10단계 구현 검증 상태" in request
+    assert "Phase 8~10" in request
+    assert "RecordingController" in request
+    assert "Apply and Restart와 출력 재시작 흐름" in request
+    assert "runtime.operation_lock" in request
+    assert "MVP 단순성" in request
+
+
+def test_lazyweb_notes_record_phase_10_verification_evidence() -> None:
+    notes = read_text(ROOT / "docs" / "design" / "lazyweb-ui-notes.md")
+
+    assert "2026-06-04 Phase 10 verification" in notes
+    assert "dense status rows" in notes
+    assert "DAW-style mixer" in notes
+    assert "Last system.startup_playback_unavailable" in notes
+    assert "text-overflow: ellipsis" in notes
+    assert "bodyWidth=1440 viewportWidth=1440" in notes
+    assert "bodyWidth=390 viewportWidth=390" in notes
+
+
+def test_implementation_plan_records_current_phase_10_status() -> None:
+    plan = read_text(
+        ROOT / "docs" / "superpowers" / "plans" / "2026-06-03-secret-pond-implementation-plan.md"
+    )
+
+    assert "2026-06-04 Phase 8~10 Status Addendum" in plan
+    assert "unchecked Phase 8~10 boxes are original planning checklist items" in plan
+    assert "MVP deviation" in plan
+    assert "route-owned orchestration under `runtime.operation_lock`" in plan
+    assert "RecordingController remains focused on recording" in plan
