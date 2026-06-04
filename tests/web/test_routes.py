@@ -3427,6 +3427,42 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
   assert.strictEqual(elements.errorBanner.hidden, true);
 
+  globalThis.__secretPondTest.showError("");
+  globalThis.fetch = (path) => {{
+    if (path === "/api/state") {{
+      throw new Error("state refresh failed");
+    }}
+    if (path === "/api/devices") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          input_devices: [],
+          output_devices: [],
+          selected_input_device: null,
+          selected_output_device: null,
+          warnings: [],
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.refreshAll();
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "state refresh failed");
+  assert.strictEqual(elements.errorBanner.hidden, false);
+  globalThis.__secretPondTest.showError("");
+
   const draftSaveResponses = [];
   globalThis.fetch = (path, options = {{}}) =>
     new Promise((resolve) => {{

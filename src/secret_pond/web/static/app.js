@@ -1207,11 +1207,15 @@ const requestSources = async (options = {}) => {
 const serverStateSignature = (payload) => JSON.stringify(payload);
 
 const refreshAll = async () => {
-  await requestState({ syncDraft: false }).catch((error) => showError(error.message));
+  let stateRefreshFailed = false;
+  await requestState({ syncDraft: false }).catch((error) => {
+    stateRefreshFailed = true;
+    showError(error.message);
+  });
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });
-  clearTransientError();
+  if (!stateRefreshFailed) clearTransientError();
   renderErrors();
 };
 
