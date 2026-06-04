@@ -19,6 +19,7 @@ from secret_pond.paths import ProjectPaths
 from secret_pond.services.controller import RecordingController
 from secret_pond.services.logging_service import EventLogger
 from secret_pond.services.participants import ParticipantCounter
+from secret_pond.services.player_settings import apply_player_settings
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
@@ -258,9 +259,7 @@ def _prepare_startup_playback_best_effort(
 
 
 def _apply_startup_player_settings(player: LayeredLoopPlayer, settings: Any) -> None:
-    for layer_id, layer_settings in settings.layers.items():
-        player.set_enabled(layer_id, layer_settings.enabled)
-    player.set_peak_ceiling(settings.audio.peak_ceiling)
+    apply_player_settings(player, settings)
 
 
 def _rendered_layers_match_settings(layer_paths: dict[LayerId, Path], settings: Any) -> bool:

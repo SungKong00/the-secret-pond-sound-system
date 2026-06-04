@@ -27,7 +27,6 @@ def refresh_playback_after_recording(runtime: SecretPondRuntime, outcome: Any) -
         else:
             runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
         apply_player_layer_settings(runtime, settings)
-        runtime.player.set_peak_ceiling(settings.audio.peak_ceiling)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         _log_event_best_effort(
             runtime,

@@ -21,19 +21,12 @@ from secret_pond.audio.source_library import (
 )
 from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
-from secret_pond.services.file_snapshots import (
-    FileSnapshot,
-    capture_file_snapshot,
-    restore_file_snapshot,
-)
-from secret_pond.services.player_settings import apply_player_layer_settings
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
 from secret_pond.services.recording_workflow import run_recording_workflow
-from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
-from secret_pond.services.settings_changes import classify_settings_change
-from secret_pond.services.settings_store import SettingsState
+from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.web.state import outcome_payload, settings_payload, state_payload
 
 router = APIRouter(prefix="/api")
@@ -358,88 +351,10 @@ def reset_participant_count(request: Request) -> dict[str, Any]:
 def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        if runtime.controller.is_recording:
-            raise HTTPException(status_code=409, detail="cannot apply settings while recording")
-
-        current = runtime.settings_store.load()
-        draft = current.draft
-        change_plan = classify_settings_change(current.active, draft)
-        was_running = runtime.output.is_running
-        if change_plan.runtime_config_changed:
-            detail = (
-                "audio output format changes require an app restart; "
-                "device changes must be applied from the System panel"
-            )
-            _log_event_best_effort(
-                runtime,
-                "settings.apply_rejected",
-                {
-                    "reason": detail,
-                    "runtime_config_changed": True,
-                    "changed_runtime_fields": change_plan.changed_runtime_fields,
-                    "was_output_running": was_running,
-                    "output_running": runtime.output.is_running,
-                },
-            )
-            raise HTTPException(
-                status_code=409,
-                detail=detail,
-            )
-
-        player_snapshot = runtime.player.snapshot()
-        staged = None
-        raw_snapshot: FileSnapshot | None = None
         try:
-            if was_running:
-                runtime.output.stop()
-            if current.active.voice_stack.loop_seconds != draft.voice_stack.loop_seconds:
-                raw_snapshot = capture_file_snapshot(runtime.paths.voice_stack_raw)
-                runtime.voice_stack.ensure_initialized(draft)
-            staged = runtime.renderer.stage_all(draft)
-            staged.commit()
-            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-            apply_player_layer_settings(runtime, draft)
-            runtime.player.set_peak_ceiling(draft.audio.peak_ceiling)
-            if was_running:
-                runtime.output.start()
-
-            state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
-            runtime.apply_settings_state(state)
-        except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
-            detail = _rollback_apply_failure(
-                runtime,
-                staged=staged,
-                player_snapshot=player_snapshot,
-                restore_output=was_running,
-                cause=exc,
-            )
-            if raw_snapshot is not None:
-                restore_file_snapshot(runtime.paths.voice_stack_raw, raw_snapshot)
-            _log_event_best_effort(
-                runtime,
-                "settings.apply_failed",
-                {
-                    "error": detail,
-                    "runtime_config_changed": change_plan.runtime_config_changed,
-                    "changed_sections": change_plan.changed_sections,
-                    "was_output_running": was_running,
-                    "output_running": runtime.output.is_running,
-                    "output_restore_attempted": was_running,
-                },
-            )
-            raise HTTPException(status_code=409, detail=detail) from exc
-        if staged is not None:
-            staged.cleanup()
-        _log_event_best_effort(
-            runtime,
-            "settings.applied",
-            {
-                "changed_sections": change_plan.changed_sections,
-                "runtime_config_changed": change_plan.runtime_config_changed,
-                "was_output_running": was_running,
-                "output_running": runtime.output.is_running,
-            },
-        )
+            apply_draft_settings(runtime)
+        except SettingsApplyError as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
         return {
             "settings": settings_payload(runtime),
             "state": state_payload(runtime),
@@ -505,46 +420,6 @@ def _log_playback_event(
     if error is not None:
         payload["error"] = error
     _log_event_best_effort(runtime, event_type, payload)
-
-
-def _rollback_apply_failure(
-    runtime: SecretPondRuntime,
-    *,
-    staged,
-    player_snapshot,
-    restore_output: bool,
-    cause: Exception,
-) -> str:
-    rollback_errors: list[str] = []
-    if runtime.output.is_running:
-        try:
-            runtime.output.stop()
-        except Exception as exc:
-            rollback_errors.append(f"output stop during rollback failed: {exc}")
-    if staged is not None:
-        try:
-            staged.rollback()
-        except Exception as exc:
-            rollback_errors.append(f"render rollback failed: {exc}")
-    try:
-        runtime.player.restore(player_snapshot)
-    except Exception as exc:
-        rollback_errors.append(f"player rollback failed: {exc}")
-    if restore_output:
-        try:
-            runtime.output.start()
-        except Exception as exc:
-            rollback_errors.append(f"output restore failed: {exc}")
-    if staged is not None:
-        try:
-            staged.cleanup()
-        except Exception as exc:
-            rollback_errors.append(f"render cleanup failed: {exc}")
-
-    detail = str(cause)
-    if rollback_errors:
-        detail = f"{detail}; rollback issues: {'; '.join(rollback_errors)}"
-    return detail
 
 
 def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[str, Any]:
