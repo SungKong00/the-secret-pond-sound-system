@@ -1234,6 +1234,16 @@ const syncDraftSnapshot = () => {
   );
 };
 
+const commitDraftChange = (mutator, options = {}) => {
+  if (!state.draft) return false;
+  mutator?.();
+  syncDraftSnapshot();
+  options.afterSync?.();
+  renderState();
+  if (options.scheduleSave !== false) scheduleDraftSave();
+  return true;
+};
+
 const renderSyncBadge = () => {
   if (!("WebSocket" in window)) {
     $("syncBadge").textContent = "동기화 확인";
@@ -2137,10 +2147,9 @@ const renderVoiceStackControls = () => {
         control,
         getPath(state.draft.voice_stack, control.path),
         (value) => {
-          setPath(state.draft.voice_stack, control.path, value);
-          syncDraftSnapshot();
-          renderState();
-          scheduleDraftSave();
+          commitDraftChange(() => {
+            setPath(state.draft.voice_stack, control.path, value);
+          });
         },
         getPath(activeVoiceStack, control.path),
       ),
@@ -2181,10 +2190,9 @@ const renderStorageModeControls = () => {
 const setStorageMode = (mode) => {
   if (!storageModeDetails[mode] || !state.draft || !state.snapshot) return;
   if (state.snapshot.is_recording || state.recordingStopInFlight || state.applyInFlight) return;
-  state.draft.voice_stack.mode = mode;
-  syncDraftSnapshot();
-  renderState();
-  scheduleDraftSave();
+  commitDraftChange(() => {
+    state.draft.voice_stack.mode = mode;
+  });
 };
 
 const renderLayerGroup = (containerId, layerIds) => {
@@ -2335,12 +2343,13 @@ const renderRecordingControls = () => {
   recordingControlGroups.forEach((group) => {
     container.appendChild(
       controlGroup(group, state.draft.recording, activeRecording, (control, value) => {
-        setPath(state.draft.recording, control.path, value);
-        clearRecordingPresetSelection();
-        syncDraftSnapshot();
-        renderRecordingPresets();
-        renderState();
-        scheduleDraftSave();
+        commitDraftChange(
+          () => {
+            setPath(state.draft.recording, control.path, value);
+            clearRecordingPresetSelection();
+          },
+          { afterSync: renderRecordingPresets },
+        );
       }),
     );
   });

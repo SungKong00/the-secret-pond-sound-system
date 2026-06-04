@@ -1325,6 +1325,28 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "참여자 수를 초기화하기 전에 녹음을 중지하세요." in script.text
     assert "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다." in script.text
     assert "snapshot.settings.change?.runtime_config_changed" in script.text
+    assert "const commitDraftChange = (mutator, options = {}) => {" in script.text
+    assert "syncDraftSnapshot();" in script.text
+    assert "scheduleDraftSave();" in script.text
+    voice_stack_body = slice_between(
+        script.text,
+        "const renderVoiceStackControls = () => {",
+        "};\n\nconst renderStorageModeControls",
+    )
+    assert "commitDraftChange(() => {" in voice_stack_body
+    storage_mode_body = slice_between(
+        script.text,
+        "const setStorageMode = (mode) => {",
+        "};\n\nconst renderLayerGroup",
+    )
+    assert "commitDraftChange(() => {" in storage_mode_body
+    recording_controls_body = slice_between(
+        script.text,
+        "const renderRecordingControls = () => {",
+        "};\n\nconst renderRecordingPresets",
+    )
+    assert "commitDraftChange(" in recording_controls_body
+    assert "afterSync: renderRecordingPresets" in recording_controls_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in script.text
     apply_body = slice_between(
         script.text,
