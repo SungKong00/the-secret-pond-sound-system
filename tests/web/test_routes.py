@@ -33,6 +33,13 @@ from secret_pond.paths import ProjectPaths
 from secret_pond.services.runtime import PlaybackOutput, build_runtime
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
+RUNTIME_CONFIG_FIELDS = [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+]
+
 
 def api_settings() -> AppSettings:
     return AppSettings(
@@ -1833,6 +1840,78 @@ assert.strictEqual(
     subprocess.run([node, "-e", harness], check=True, text=True)
 
 
+def test_static_ui_settings_change_plan_uses_server_runtime_field_policy(
+    tmp_path: Path,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for static app behavior smoke test")
+
+    client = create_test_client(tmp_path)
+    script = client.get("/static/app.js").text.replace(
+        "\nbindEvents();\nrenderWorkspaceTabs();\ndrawCanvas();\nconnectStateSocket();\nrefreshAll();\n",
+        (
+            "\nglobalThis.__secretPondTest = "
+            "{ localSettingsChangePlan, normalizeSettingsChangePlan, "
+            "toServerSettingsChangePayload };\n"
+        ),
+    )
+    harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+globalThis.document = {{
+  getElementById() {{ return null; }},
+  querySelector() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+  createElement() {{ return {{}}; }},
+  addEventListener() {{}},
+}};
+globalThis.window = {{
+  addEventListener() {{}},
+  location: {{ protocol: "http:", host: "127.0.0.1:8000", search: "" }},
+}};
+globalThis.requestAnimationFrame = () => {{}};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {{}};
+globalThis.setInterval = () => 0;
+
+vm.runInThisContext({json.dumps(script)}, {{ filename: "app.js" }});
+
+const helpers = globalThis.__secretPondTest;
+const active = {{
+  audio: {{ sample_rate: 48000, channels: 2 }},
+  devices: {{ input_device_id: null, output_device_id: null }},
+  layers: {{ voice: {{ volume_db: -18 }} }},
+}};
+const draft = JSON.parse(JSON.stringify(active));
+draft.devices.input_device_id = "mic-2";
+
+const plan = helpers.localSettingsChangePlan(active, draft, ["audio.sample_rate"]);
+assert.deepStrictEqual(plan, {{
+  runtimeConfigChanged: false,
+  changedRuntimeFields: [],
+  changedSections: ["devices"],
+  runtimeConfigFields: ["audio.sample_rate"],
+}});
+
+const normalized = helpers.normalizeSettingsChangePlan({{
+  runtime_config_changed: false,
+  changed_runtime_fields: [],
+  changed_sections: ["devices"],
+  runtime_config_fields: ["audio.sample_rate"],
+}});
+assert.deepStrictEqual(normalized.runtimeConfigFields, ["audio.sample_rate"]);
+
+assert.deepStrictEqual(helpers.toServerSettingsChangePayload(normalized), {{
+  runtime_config_changed: false,
+  changed_runtime_fields: [],
+  changed_sections: ["devices"],
+  runtime_config_fields: ["audio.sample_rate"],
+}});
+"""
+    subprocess.run([node, "-e", harness], check=True, text=True)
+
+
 def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -3272,6 +3351,7 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
         "runtime_config_changed": False,
         "changed_runtime_fields": [],
         "changed_sections": [],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
 
 
@@ -3285,12 +3365,14 @@ def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
         "runtime_config_changed": False,
         "changed_runtime_fields": [],
         "changed_sections": ["layers"],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
     state = client.get("/api/state").json()
     assert state["settings"]["change"] == {
         "runtime_config_changed": False,
         "changed_runtime_fields": [],
         "changed_sections": ["layers"],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
 
 
@@ -3310,6 +3392,7 @@ def test_api_settings_payload_reports_runtime_config_change_plan(tmp_path: Path)
             "devices.output_device_id",
         ],
         "changed_sections": ["devices"],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
 
 

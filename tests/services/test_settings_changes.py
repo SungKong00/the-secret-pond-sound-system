@@ -1,7 +1,20 @@
 from __future__ import annotations
 
 from secret_pond.config import AppSettings, DeviceSettings
-from secret_pond.services.settings_changes import classify_settings_change, promote_runtime_config
+from secret_pond.services.settings_changes import (
+    classify_settings_change,
+    promote_runtime_config,
+    runtime_config_field_names,
+)
+
+
+def test_runtime_config_field_names_exposes_classification_policy() -> None:
+    assert runtime_config_field_names() == [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+    ]
 
 
 def test_classify_settings_change_reports_runtime_config_fields_and_sections() -> None:

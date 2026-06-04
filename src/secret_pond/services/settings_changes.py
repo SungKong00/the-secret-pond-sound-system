@@ -24,6 +24,10 @@ _RUNTIME_CONFIG_FIELDS: tuple[tuple[str, _RuntimeFieldReader], ...] = (
 )
 
 
+def runtime_config_field_names() -> list[str]:
+    return [field_name for field_name, _read_field in _RUNTIME_CONFIG_FIELDS]
+
+
 def classify_settings_change(active: AppSettings, draft: AppSettings) -> SettingsChangePlan:
     changed_runtime_fields = _changed_runtime_fields(active, draft)
     return SettingsChangePlan(

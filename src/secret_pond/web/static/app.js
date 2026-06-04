@@ -1221,8 +1221,9 @@ const applyState = (payload, options = {}) => {
 const syncDraftSnapshot = () => {
   if (!state.snapshot?.settings || !state.draft) return;
   state.snapshot.settings.draft = clone(state.draft);
+  const runtimeConfigFields = settingsChangePlan(state.snapshot).runtimeConfigFields;
   state.snapshot.settings.change = toServerSettingsChangePayload(
-    localSettingsChangePlan(state.snapshot.settings.active, state.draft),
+    localSettingsChangePlan(state.snapshot.settings.active, state.draft, runtimeConfigFields),
   );
 };
 
@@ -1927,20 +1928,34 @@ const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
   ].filter(Boolean).join(" · ");
 };
 
-const runtimeSettingsFields = [
-  ["audio.sample_rate", (settings) => settings.audio.sample_rate],
-  ["audio.channels", (settings) => settings.audio.channels],
-  ["devices.input_device_id", (settings) => settings.devices.input_device_id],
-  ["devices.output_device_id", (settings) => settings.devices.output_device_id],
+const defaultRuntimeConfigFields = [
+  "audio.sample_rate",
+  "audio.channels",
+  "devices.input_device_id",
+  "devices.output_device_id",
 ];
 
-const normalizeSettingsChangePlan = (change) => ({
-  runtimeConfigChanged: Boolean(change?.runtime_config_changed),
-  changedRuntimeFields: Array.isArray(change?.changed_runtime_fields)
-    ? change.changed_runtime_fields
-    : [],
-  changedSections: Array.isArray(change?.changed_sections) ? change.changed_sections : [],
-});
+const normalizeRuntimeConfigFields = (runtimeConfigFields) => (
+  Array.isArray(runtimeConfigFields) && runtimeConfigFields.length > 0
+    ? runtimeConfigFields
+    : defaultRuntimeConfigFields
+);
+
+const readSettingsPath = (settings, path) => (
+  path.split(".").reduce((value, segment) => value?.[segment], settings)
+);
+
+const normalizeSettingsChangePlan = (change) => {
+  const runtimeConfigFields = normalizeRuntimeConfigFields(change?.runtime_config_fields);
+  return {
+    runtimeConfigChanged: Boolean(change?.runtime_config_changed),
+    changedRuntimeFields: Array.isArray(change?.changed_runtime_fields)
+      ? change.changed_runtime_fields
+      : [],
+    changedSections: Array.isArray(change?.changed_sections) ? change.changed_sections : [],
+    runtimeConfigFields,
+  };
+};
 
 const settingsPayloadMatchesDraft = (snapshot, draft) => (
   JSON.stringify(snapshot.settings.draft) === JSON.stringify(draft)
@@ -1954,13 +1969,18 @@ const settingsChangePlan = (snapshot = state.snapshot) => {
       settingsPayloadMatchesDraft(snapshot, draft)) {
     return normalizeSettingsChangePlan(snapshot.settings.change);
   }
-  return localSettingsChangePlan(snapshot.settings.active, draft);
+  const runtimeConfigFields = normalizeSettingsChangePlan(
+    snapshot.settings.change,
+  ).runtimeConfigFields;
+  return localSettingsChangePlan(snapshot.settings.active, draft, runtimeConfigFields);
 };
 
-const localSettingsChangePlan = (active, draft) => {
-  const changedRuntimeFields = runtimeSettingsFields
-    .filter(([, readField]) => readField(active) !== readField(draft))
-    .map(([fieldName]) => fieldName);
+const localSettingsChangePlan = (active, draft, runtimeConfigFields = defaultRuntimeConfigFields) => {
+  const normalizedRuntimeConfigFields = normalizeRuntimeConfigFields(runtimeConfigFields);
+  const changedRuntimeFields = normalizedRuntimeConfigFields
+    .filter((fieldName) => (
+      readSettingsPath(active, fieldName) !== readSettingsPath(draft, fieldName)
+    ));
   const activePayload = clone(active);
   const draftPayload = clone(draft);
   const changedSections = Object.keys(activePayload)
@@ -1972,14 +1992,23 @@ const localSettingsChangePlan = (active, draft) => {
     runtimeConfigChanged: changedRuntimeFields.length > 0,
     changedRuntimeFields,
     changedSections,
+    runtimeConfigFields: normalizedRuntimeConfigFields,
   };
 };
 
-const toServerSettingsChangePayload = (change) => ({
-  runtime_config_changed: change.runtimeConfigChanged,
-  changed_runtime_fields: change.changedRuntimeFields,
-  changed_sections: change.changedSections,
-});
+const toServerSettingsChangePayload = (change) => {
+  const normalizedChange = change || normalizeSettingsChangePlan(null);
+  return {
+    runtime_config_changed: Boolean(normalizedChange.runtimeConfigChanged),
+    changed_runtime_fields: Array.isArray(normalizedChange.changedRuntimeFields)
+      ? normalizedChange.changedRuntimeFields
+      : [],
+    changed_sections: Array.isArray(normalizedChange.changedSections)
+      ? normalizedChange.changedSections
+      : [],
+    runtime_config_fields: normalizeRuntimeConfigFields(normalizedChange.runtimeConfigFields),
+  };
+};
 
 const sourceSettingsFields = {
   low: "low_path",
