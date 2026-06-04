@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from secret_pond.audio.device_readiness import (
+    RecordingInputFormat,
+    resolve_recording_input_format,
+)
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LayerId
@@ -85,9 +89,14 @@ def build_runtime(
     voice_stack = VoiceStackStore(paths)
     voice_stack_snapshot = voice_stack.ensure_initialized(active_settings)
 
+    resolved_device_registry = device_registry or SoundDeviceRegistry()
+    recording_input_format = _recording_input_format_best_effort(
+        active_settings,
+        resolved_device_registry,
+    )
     resolved_recorder = recorder or SoundDeviceRecorder(
-        sample_rate=active_settings.audio.sample_rate,
-        channels=active_settings.audio.channels,
+        sample_rate=recording_input_format.sample_rate,
+        channels=recording_input_format.channels,
         device_id=active_settings.devices.input_device_id,
     )
     resolved_player = player or LayeredLoopPlayer(peak_ceiling=active_settings.audio.peak_ceiling)
@@ -100,7 +109,6 @@ def build_runtime(
     renderer = LayerRenderer(paths)
     participants = ParticipantCounter(paths)
     logger = EventLogger(paths)
-    resolved_device_registry = device_registry or SoundDeviceRegistry()
     _log_startup_diagnostics_best_effort(
         paths=paths,
         settings=active_settings,
@@ -255,7 +263,18 @@ def _prepare_startup_playback_best_effort(
                 "error": str(exc),
                 "prepared_from": prepared_from,
             },
-        )
+    )
+
+
+def _recording_input_format_best_effort(
+    settings: Any,
+    device_registry: AudioDeviceRegistry,
+) -> RecordingInputFormat:
+    try:
+        input_device = device_registry.validate_input(settings.devices.input_device_id)
+    except Exception:
+        input_device = None
+    return resolve_recording_input_format(settings, input_device)
 
 
 def _apply_startup_player_settings(player: LayeredLoopPlayer, settings: Any) -> None:

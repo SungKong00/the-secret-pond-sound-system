@@ -142,6 +142,11 @@ def empty_take() -> AudioBuffer:
     return AudioBuffer(samples=np.zeros((0, 2), dtype=np.float32), sample_rate=48_000)
 
 
+def mono_device_take() -> AudioBuffer:
+    samples = np.ones(4_410, dtype=np.float32) * 0.05
+    return AudioBuffer(samples=samples, sample_rate=44_100)
+
+
 def controller_fixture(
     *,
     recorder: ScriptedRecorder | None = None,
@@ -251,6 +256,20 @@ def test_controller_processes_adds_renders_and_counts_accepted_recording() -> No
     assert controller.settings.sources.voice_stack_path == (
         "data/sources/voice/stack/generated-stack.wav"
     )
+
+
+def test_controller_canonicalizes_mono_device_take_before_stack() -> None:
+    recorder = ScriptedRecorder(mono_device_take())
+    controller, _, voice_stack, _, _, _, clock = controller_fixture(recorder=recorder)
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    controller.stop_recording()
+
+    processed = voice_stack.calls[0]["buffer"]
+    assert processed.sample_rate == 48_000
+    assert processed.channels == 2
 
 
 def test_controller_counts_after_voice_render_succeeds() -> None:

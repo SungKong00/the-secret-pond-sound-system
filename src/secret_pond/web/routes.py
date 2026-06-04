@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
 
+from secret_pond.audio.device_readiness import build_device_warnings
 from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.audio.source_library import (
     category_config,
@@ -500,21 +501,7 @@ def _device_warnings(
         warnings.append("Configured input device is unavailable.")
     if settings.devices.output_device_id is not None and output_device is None:
         warnings.append("Configured output device is unavailable.")
-    if output_device and output_device.max_output_channels < settings.audio.channels:
-        warnings.append(
-            "Selected output supports "
-            f"{output_device.max_output_channels} channels, "
-            f"but settings request {settings.audio.channels}."
-        )
-    if output_device and output_device.default_sample_rate not in (
-        None,
-        settings.audio.sample_rate,
-    ):
-        warnings.append(
-            "Selected output default sample rate is "
-            f"{output_device.default_sample_rate}, "
-            f"but settings request {settings.audio.sample_rate}."
-        )
+    warnings.extend(build_device_warnings(input_device, output_device, settings))
     return warnings
 
 

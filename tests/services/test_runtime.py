@@ -190,6 +190,26 @@ def test_build_runtime_logs_startup_diagnostics(tmp_path: Path) -> None:
     assert payload["python_version"]
 
 
+def test_build_runtime_configures_recording_for_selected_mono_input_device(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = small_settings().model_copy(
+        update={"devices": DeviceSettings(input_device_id="mic-1")},
+        deep=True,
+    )
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+
+    runtime = build_runtime(
+        tmp_path,
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+
+    assert runtime.recorder.stream_sample_rate == 48_000
+    assert runtime.recorder.stream_channels == 1
+
+
 def test_build_runtime_logs_startup_device_error_without_failing(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
 

@@ -61,6 +61,37 @@ def test_doctor_report_flags_output_device_channel_mismatch(tmp_path: Path) -> N
     assert "Selected output supports 1 channels, but settings request 2." in report.warnings
 
 
+def test_doctor_report_accepts_mono_input_for_stereo_app_audio(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    registry = FakeDeviceRegistry(
+        devices=[
+            AudioDeviceInfo(
+                id="mic-1",
+                name="Headset Microphone",
+                kind="input",
+                max_input_channels=1,
+                max_output_channels=0,
+                default_sample_rate=44_100,
+            ),
+            AudioDeviceInfo(
+                id="speaker-1",
+                name="Speakers",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=2,
+                default_sample_rate=48_000,
+            ),
+        ]
+    )
+    settings = AppSettings(audio=AudioFormatSettings(sample_rate=48_000, channels=2))
+
+    report = build_doctor_report(paths, registry, settings)
+
+    assert report.input_device is not None
+    assert report.input_device.max_input_channels == 1
+    assert report.warnings == []
+
+
 def test_doctor_report_flags_sample_rate_mismatch(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     registry = FakeDeviceRegistry(

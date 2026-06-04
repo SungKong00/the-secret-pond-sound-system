@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import suppress
 from typing import Any
 
+from secret_pond.audio.device_readiness import RecordingInputFormat, resolve_recording_input_format
 from secret_pond.config import DeviceSettings
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_store import SettingsState
@@ -20,6 +21,7 @@ def apply_runtime_devices(
     previous_devices = current.active.devices
     input_changed = previous_devices.input_device_id != devices.input_device_id
     output_changed = previous_devices.output_device_id != devices.output_device_id
+    previous_input_format = _stream_format(runtime.recorder)
 
     if input_changed and runtime.controller.is_recording:
         raise DeviceSelectionError("cannot change input device while recording")
@@ -33,13 +35,13 @@ def apply_runtime_devices(
 
     save_succeeded = False
     try:
+        next_active = current.active.model_copy(update={"devices": devices}, deep=True)
         if input_changed:
-            _set_device_id(runtime.recorder, devices.input_device_id)
+            _apply_recorder_input(runtime, next_active)
         if output_changed:
             _set_device_id(runtime.output, devices.output_device_id)
         if output_changed and was_output_running:
             runtime.output.start()
-        next_active = current.active.model_copy(update={"devices": devices}, deep=True)
         next_draft = current.draft.model_copy(update={"devices": devices}, deep=True)
         next_state = runtime.settings_store.save(
             SettingsState(active=next_active, draft=next_draft),
@@ -54,6 +56,7 @@ def apply_runtime_devices(
             input_changed=input_changed,
             output_changed=output_changed,
             restore_output=output_changed and was_output_running,
+            previous_input_format=previous_input_format,
         )
         if save_succeeded:
             with suppress(Exception):
@@ -71,6 +74,27 @@ def _set_device_id(component: Any, device_id: str | None) -> None:
     setter(device_id)
 
 
+def _apply_recorder_input(runtime: SecretPondRuntime, settings: Any) -> None:
+    selected_input = runtime.device_registry.validate_input(settings.devices.input_device_id)
+    input_format = resolve_recording_input_format(settings, selected_input)
+    _set_device_id(runtime.recorder, settings.devices.input_device_id)
+    _set_stream_format(runtime.recorder, input_format)
+
+
+def _set_stream_format(component: Any, stream_format: RecordingInputFormat) -> None:
+    setter = getattr(component, "set_stream_format", None)
+    if callable(setter):
+        setter(sample_rate=stream_format.sample_rate, channels=stream_format.channels)
+
+
+def _stream_format(component: Any) -> RecordingInputFormat | None:
+    sample_rate = getattr(component, "stream_sample_rate", None)
+    channels = getattr(component, "stream_channels", None)
+    if isinstance(sample_rate, int) and isinstance(channels, int):
+        return RecordingInputFormat(sample_rate=sample_rate, channels=channels)
+    return None
+
+
 def _rollback_runtime_devices(
     runtime: SecretPondRuntime,
     *,
@@ -78,6 +102,7 @@ def _rollback_runtime_devices(
     input_changed: bool,
     output_changed: bool,
     restore_output: bool,
+    previous_input_format: RecordingInputFormat | None,
 ) -> None:
     if runtime.output.is_running:
         with suppress(Exception):
@@ -85,6 +110,9 @@ def _rollback_runtime_devices(
     if input_changed:
         with suppress(Exception):
             _set_device_id(runtime.recorder, previous_devices.input_device_id)
+        if previous_input_format is not None:
+            with suppress(Exception):
+                _set_stream_format(runtime.recorder, previous_input_format)
     if output_changed:
         with suppress(Exception):
             _set_device_id(runtime.output, previous_devices.output_device_id)

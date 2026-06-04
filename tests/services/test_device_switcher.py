@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from secret_pond.config import AppSettings, DeviceSettings
+from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
+from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings
 from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
 from secret_pond.services.settings_store import SettingsState
 
@@ -15,6 +16,23 @@ class FakeDeviceComponent:
 
     def set_device_id(self, device_id: str | None) -> None:
         self.device_id = device_id
+
+
+class FakeRecorderDevice(FakeDeviceComponent):
+    def __init__(
+        self,
+        device_id: str | None = None,
+        *,
+        stream_sample_rate: int = 48_000,
+        stream_channels: int = 2,
+    ) -> None:
+        super().__init__(device_id)
+        self.stream_sample_rate = stream_sample_rate
+        self.stream_channels = stream_channels
+
+    def set_stream_format(self, *, sample_rate: int, channels: int) -> None:
+        self.stream_sample_rate = sample_rate
+        self.stream_channels = channels
 
 
 class FakeOutputDevice(FakeDeviceComponent):
@@ -74,12 +92,48 @@ class RuntimeHarness:
     def __init__(self, state: SettingsState, settings_store) -> None:
         self.settings_store = settings_store
         self.settings_state = state
-        self.recorder = FakeDeviceComponent(state.active.devices.input_device_id)
+        self.recorder = FakeRecorderDevice(state.active.devices.input_device_id)
         self.output = FakeOutputDevice(
             state.active.devices.output_device_id,
             is_running=True,
         )
         self.controller = FakeController(state.active)
+        self.device_registry = FakeDeviceRegistry(
+            [
+                AudioDeviceInfo(
+                    id="mic-1",
+                    name="Stereo Mic",
+                    kind="input",
+                    max_input_channels=2,
+                    max_output_channels=0,
+                    default_sample_rate=48_000,
+                ),
+                AudioDeviceInfo(
+                    id="mic-2",
+                    name="Headset Mic",
+                    kind="input",
+                    max_input_channels=1,
+                    max_output_channels=0,
+                    default_sample_rate=44_100,
+                ),
+                AudioDeviceInfo(
+                    id="speaker-1",
+                    name="Speakers",
+                    kind="output",
+                    max_input_channels=0,
+                    max_output_channels=2,
+                    default_sample_rate=48_000,
+                ),
+                AudioDeviceInfo(
+                    id="speaker-2",
+                    name="Headphones",
+                    kind="output",
+                    max_input_channels=0,
+                    max_output_channels=2,
+                    default_sample_rate=48_000,
+                ),
+            ]
+        )
 
     def apply_settings_state(self, state: SettingsState) -> None:
         self.controller.update_settings(state.active)
@@ -150,3 +204,23 @@ def test_apply_runtime_devices_restores_saved_settings_when_runtime_apply_fails(
     assert store.saved_states[-1] == state
     assert runtime.settings_state == state
     assert runtime.controller.settings.devices.input_device_id == "mic-1"
+
+
+def test_apply_runtime_devices_updates_recorder_stream_format_for_new_input() -> None:
+    active = AppSettings(
+        audio=AudioFormatSettings(sample_rate=48_000, channels=2),
+        devices=DeviceSettings(input_device_id="mic-1", output_device_id="speaker-1"),
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    next_state = apply_runtime_devices(  # type: ignore[arg-type]
+        runtime,
+        DeviceSettings(input_device_id="mic-2", output_device_id="speaker-1"),
+    )
+
+    assert next_state.active.devices.input_device_id == "mic-2"
+    assert runtime.recorder.device_id == "mic-2"
+    assert runtime.recorder.stream_sample_rate == 44_100
+    assert runtime.recorder.stream_channels == 1

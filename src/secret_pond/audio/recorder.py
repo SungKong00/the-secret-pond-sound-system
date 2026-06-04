@@ -78,11 +78,32 @@ class SoundDeviceRecorder:
     def statuses(self) -> list[Any]:
         return list(self._statuses)
 
+    @property
+    def stream_sample_rate(self) -> int:
+        return self._sample_rate
+
+    @property
+    def stream_channels(self) -> int:
+        return self._channels
+
     def set_device_id(self, device_id: str | None) -> None:
         if self._is_recording:
             msg = "cannot change input device while recording"
             raise RuntimeError(msg)
         self._device_id = device_id
+
+    def set_stream_format(self, *, sample_rate: int, channels: int) -> None:
+        if self._is_recording:
+            msg = "cannot change input format while recording"
+            raise RuntimeError(msg)
+        if sample_rate < 1:
+            msg = "sample_rate must be positive"
+            raise ValueError(msg)
+        if channels < 1:
+            msg = "channels must be at least 1"
+            raise ValueError(msg)
+        self._sample_rate = sample_rate
+        self._channels = channels
 
     def start(self) -> None:
         if self._is_recording:
@@ -91,13 +112,18 @@ class SoundDeviceRecorder:
 
         self._chunks = []
         self._statuses = []
-        self._stream = self._stream_factory(
-            samplerate=self._sample_rate,
-            channels=self._channels,
-            device=_normalize_device_id(self._device_id),
-            dtype="float32",
-            callback=self._callback,
-        )
+        try:
+            self._stream = self._stream_factory(
+                samplerate=self._sample_rate,
+                channels=self._channels,
+                device=_normalize_device_id(self._device_id),
+                dtype="float32",
+                callback=self._callback,
+            )
+        except Exception as exc:
+            self._stream = None
+            msg = f"input stream unavailable: {exc}"
+            raise RuntimeError(msg) from exc
         try:
             self._stream.start()
         except Exception:

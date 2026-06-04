@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from secret_pond.audio.device_readiness import build_device_warnings as shared_device_warnings
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.audio.source_library import selected_source_path
@@ -382,25 +383,7 @@ def build_device_warnings(
     output_device: AudioDeviceInfo | None,
     settings: AppSettings,
 ) -> list[str]:
-    warnings: list[str] = []
-    if input_device and input_device.max_input_channels < 1:
-        warnings.append("Selected input device does not expose an input channel.")
-    if output_device and output_device.max_output_channels < settings.audio.channels:
-        warnings.append(
-            "Selected output supports "
-            f"{output_device.max_output_channels} channels, "
-            f"but settings request {settings.audio.channels}."
-        )
-    if output_device and output_device.default_sample_rate not in (
-        None,
-        settings.audio.sample_rate,
-    ):
-        warnings.append(
-            "Selected output default sample rate is "
-            f"{output_device.default_sample_rate}, "
-            f"but settings request {settings.audio.sample_rate}."
-        )
-    return warnings
+    return shared_device_warnings(input_device, output_device, settings)
 
 
 def run_serve(host: str, port: int) -> int:

@@ -148,6 +148,22 @@ def test_sounddevice_recorder_passes_stream_configuration_and_normalizes_device_
     assert factory.calls[0]["dtype"] == "float32"
 
 
+def test_sounddevice_recorder_maps_stream_factory_failures_to_runtime_error() -> None:
+    def fail_factory(**_kwargs):
+        raise OSError("invalid number of channels")
+
+    recorder = SoundDeviceRecorder(
+        sample_rate=48_000,
+        channels=2,
+        stream_factory=fail_factory,
+    )
+
+    with pytest.raises(RuntimeError, match="input stream unavailable"):
+        recorder.start()
+
+    assert recorder.is_recording is False
+
+
 def test_sounddevice_recorder_returns_empty_buffer_when_no_chunks() -> None:
     factory = CapturingStreamFactory()
     recorder = SoundDeviceRecorder(

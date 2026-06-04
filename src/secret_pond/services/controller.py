@@ -195,7 +195,11 @@ class RecordingController:
             )
 
         try:
-            processed = apply_recording_processing(recorded, self._settings.recording)
+            canonical_recording = recorded.to_canonical(
+                sample_rate=max(recorded.sample_rate, self._settings.audio.sample_rate),
+                channels=self._settings.audio.channels,
+            )
+            processed = apply_recording_processing(canonical_recording, self._settings.recording)
         except Exception as exc:
             self._last_error = str(exc)
             self._log_event(
