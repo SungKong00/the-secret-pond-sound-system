@@ -16,6 +16,7 @@ from secret_pond.audio.source_library import selected_source_path
 from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.device_inventory import device_payload
 from secret_pond.services.settings_store import SettingsStore
 
 REQUIRED_NATIVE_DEPENDENCIES = ("numpy", "sounddevice", "soundfile", "scipy", "pedalboard")
@@ -235,10 +236,10 @@ def doctor_report_to_payload(
         "data_dir": str(report.data_dir),
         "data_writable": report.data_writable,
         "native_dependencies": report.native_dependencies,
-        "input_devices": [_device_to_payload(device) for device in report.input_devices],
-        "output_devices": [_device_to_payload(device) for device in report.output_devices],
-        "selected_input_device": _optional_device_to_payload(report.input_device),
-        "selected_output_device": _optional_device_to_payload(report.output_device),
+        "input_devices": [device_payload(device) for device in report.input_devices],
+        "output_devices": [device_payload(device) for device in report.output_devices],
+        "selected_input_device": device_payload(report.input_device),
+        "selected_output_device": device_payload(report.output_device),
         "missing_sources": [str(source) for source in report.missing_sources],
         "warnings": report.warnings,
         "errors": list(errors),
@@ -332,22 +333,6 @@ def _settings_to_payload(settings: AppSettings) -> dict[str, object]:
         "voice_stack_loop_seconds": settings.voice_stack.loop_seconds,
         "input_device_id": settings.devices.input_device_id,
         "output_device_id": settings.devices.output_device_id,
-    }
-
-
-def _optional_device_to_payload(device: AudioDeviceInfo | None) -> dict[str, object] | None:
-    return None if device is None else _device_to_payload(device)
-
-
-def _device_to_payload(device: AudioDeviceInfo) -> dict[str, object]:
-    return {
-        "id": device.id,
-        "name": device.name,
-        "kind": device.kind,
-        "max_input_channels": device.max_input_channels,
-        "max_output_channels": device.max_output_channels,
-        "default_sample_rate": device.default_sample_rate,
-        "host_api_name": device.host_api_name,
     }
 
 

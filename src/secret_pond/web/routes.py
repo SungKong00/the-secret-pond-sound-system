@@ -7,8 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
 
-from secret_pond.audio.device_readiness import build_device_warnings
-from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.audio.source_library import (
     category_config,
     selected_source_path,
@@ -16,6 +14,7 @@ from secret_pond.audio.source_library import (
 )
 from secret_pond.config import AppSettings
 from secret_pond.services import maintenance, playback_control
+from secret_pond.services.device_inventory import device_inventory_payload
 from secret_pond.services.device_switcher import (
     DeviceSelectionError,
     apply_runtime_devices,
@@ -414,45 +413,7 @@ def _run_recording_control(runtime: SecretPondRuntime, fn):
 
 
 def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[str, Any]:
-    input_devices = runtime.device_registry.list_input_devices()
-    output_devices = runtime.device_registry.list_output_devices()
-    selected_input = runtime.device_registry.validate_input(settings.devices.input_device_id)
-    selected_output = runtime.device_registry.validate_output(settings.devices.output_device_id)
-    return {
-        "input_devices": [_device_payload(device) for device in input_devices],
-        "output_devices": [_device_payload(device) for device in output_devices],
-        "selected_input_device": _device_payload(selected_input),
-        "selected_output_device": _device_payload(selected_output),
-        "warnings": _device_warnings(selected_input, selected_output, settings),
-    }
-
-
-def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
-    if device is None:
-        return None
-    return {
-        "id": device.id,
-        "name": device.name,
-        "kind": device.kind,
-        "max_input_channels": device.max_input_channels,
-        "max_output_channels": device.max_output_channels,
-        "default_sample_rate": device.default_sample_rate,
-        "host_api_name": device.host_api_name,
-    }
-
-
-def _device_warnings(
-    input_device: AudioDeviceInfo | None,
-    output_device: AudioDeviceInfo | None,
-    settings: AppSettings,
-) -> list[str]:
-    warnings: list[str] = []
-    if settings.devices.input_device_id is not None and input_device is None:
-        warnings.append("Configured input device is unavailable.")
-    if settings.devices.output_device_id is not None and output_device is None:
-        warnings.append("Configured output device is unavailable.")
-    warnings.extend(build_device_warnings(input_device, output_device, settings))
-    return warnings
+    return device_inventory_payload(runtime.device_registry, settings)
 
 
 def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:

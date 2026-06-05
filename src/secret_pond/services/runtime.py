@@ -11,7 +11,7 @@ from secret_pond.audio.device_readiness import (
     RecordingInputFormat,
     resolve_recording_input_format,
 )
-from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.devices import AudioDeviceRegistry, SoundDeviceRegistry
 from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LayerId
 from secret_pond.audio.output import SoundDeviceOutput
@@ -21,6 +21,7 @@ from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.controller import RecordingController
+from secret_pond.services.device_inventory import device_payload
 from secret_pond.services.logging_service import EventLogger
 from secret_pond.services.participants import ParticipantCounter
 from secret_pond.services.player_settings import apply_player_settings
@@ -198,8 +199,8 @@ def _log_startup_diagnostics_best_effort(
         "requested_channels": settings.audio.channels,
         "configured_input_device_id": settings.devices.input_device_id,
         "configured_output_device_id": settings.devices.output_device_id,
-        "selected_input_device": _device_payload(selected_input),
-        "selected_output_device": _device_payload(selected_output),
+        "selected_input_device": device_payload(selected_input),
+        "selected_output_device": device_payload(selected_output),
         "actual_input_sample_rate": None,
         "actual_input_channels": None,
         "actual_output_sample_rate": None,
@@ -306,17 +307,3 @@ def _log_startup_event_best_effort(
         logger.log_event(event_type, payload)
     except Exception:
         return
-
-
-def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
-    if device is None:
-        return None
-    return {
-        "id": device.id,
-        "name": device.name,
-        "kind": device.kind,
-        "max_input_channels": device.max_input_channels,
-        "max_output_channels": device.max_output_channels,
-        "default_sample_rate": device.default_sample_rate,
-        "host_api_name": device.host_api_name,
-    }
