@@ -50,6 +50,7 @@ const state = {
   draftEditRevision: 0,
   sourceMutationRequestId: 0,
   sourceRefreshRequestId: 0,
+  diagnosticsRefreshRequestId: 0,
   deviceChangeRequestId: 0,
   deviceRefreshRequestId: 0,
   spaceRecording: false,
@@ -1244,17 +1245,36 @@ const requestDevices = async () => {
 };
 
 const requestDiagnostics = async () => {
+  const request = beginDiagnosticsRefresh();
+  let shouldRender = false;
   try {
-    state.diagnostics = await api("/api/diagnostics");
+    const diagnostics = await api("/api/diagnostics");
+    if (!isCurrentDiagnosticsRefresh(request)) return diagnostics;
+    state.diagnostics = diagnostics;
     state.diagnosticsError = null;
+    shouldRender = true;
+    return diagnostics;
   } catch (error) {
+    if (!isCurrentDiagnosticsRefresh(request)) return null;
     state.diagnostics = null;
     state.diagnosticsError = error.message;
+    shouldRender = true;
+    return null;
+  } finally {
+    if (shouldRender) {
+      renderLastEventBadge();
+      renderSystemStatus();
+      renderErrors();
+    }
   }
-  renderLastEventBadge();
-  renderSystemStatus();
-  renderErrors();
 };
+
+const beginDiagnosticsRefresh = () => {
+  return beginTrackedRequest("diagnosticsRefreshRequestId");
+};
+
+const isCurrentDiagnosticsRefresh = (request) =>
+  isCurrentTrackedRequest(request);
 
 const beginSourceRefresh = () => {
   return beginTrackedRequest("sourceRefreshRequestId", ["sourceMutationRequestId"]);

@@ -443,6 +443,62 @@ globalThis.clearTimeout = () => {};
 globalThis.setInterval = () => 0;
 """
 
+STATIC_APP_RENDER_DOM_SETUP = """
+const elements = {};
+const makeElement = () => ({
+  children: [],
+  innerHTML: "",
+  textContent: "",
+  className: "",
+  hidden: false,
+  disabled: false,
+  title: "",
+  value: "",
+  attributes: {},
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  },
+  getAttribute(name) {
+    return this.attributes[name] || null;
+  },
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  },
+  append(...children) {
+    this.children.push(...children);
+  },
+  addEventListener() {},
+  querySelectorAll() {
+    return [];
+  },
+});
+globalThis.document = {
+  getElementById(id) {
+    if (!elements[id]) elements[id] = makeElement();
+    return elements[id];
+  },
+  createElement() {
+    return makeElement();
+  },
+  querySelector() {
+    return null;
+  },
+  querySelectorAll() {
+    return [];
+  },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+globalThis.requestAnimationFrame = () => {};
+"""
+
 
 def static_app_test_script(tmp_path: Path, exports: str) -> str:
     client = create_test_client(tmp_path)
@@ -2354,6 +2410,68 @@ const syncedDraft = helpers.mergeSettingsPayloadDraft(unsavedDraft, {{
 }});
 assert.strictEqual(syncedDraft.sources.low_path, "low-server.wav");
 assert.strictEqual(syncedDraft.layers.voice.volume_db, -24);
+""",
+    )
+
+
+def test_static_ui_ignores_stale_diagnostics_refresh_response(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, requestDiagnostics }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const diagnosticsResponses = [];
+  globalThis.fetch = (path) => {
+    if (path !== "/api/diagnostics") {
+      throw new Error(`unexpected fetch ${path}`);
+    }
+    return new Promise((resolve) => {
+      diagnosticsResponses.push(resolve);
+    });
+  };
+
+  const olderRefresh = helpers.requestDiagnostics();
+  const newerRefresh = helpers.requestDiagnostics();
+  assert.strictEqual(diagnosticsResponses.length, 2);
+
+  diagnosticsResponses[1]({
+    ok: true,
+    json: async () => ({
+      sources: [],
+      events: {
+        recent: [{ timestamp: "2026-06-05T01:32:00Z", event_type: "recording.accepted" }],
+        error: null,
+      },
+    }),
+  });
+  await newerRefresh;
+  assert.strictEqual(helpers.state.diagnostics.events.recent[0].event_type, "recording.accepted");
+  assert.strictEqual(elements.lastEventBadge.textContent, "최근 녹음 추가");
+  assert.strictEqual(elements.lastEventBadge.className, "status-pill");
+
+  diagnosticsResponses[0]({
+    ok: true,
+    json: async () => ({
+      sources: [],
+      events: {
+        recent: [{ timestamp: "2026-06-05T01:31:00Z", event_type: "playback.started" }],
+        error: "event log unavailable",
+      },
+    }),
+  });
+  await olderRefresh;
+
+  assert.strictEqual(helpers.state.diagnostics.events.recent[0].event_type, "recording.accepted");
+  assert.strictEqual(helpers.state.diagnostics.events.error, null);
+  assert.strictEqual(helpers.state.diagnosticsError, null);
+  assert.strictEqual(elements.lastEventBadge.textContent, "최근 녹음 추가");
+  assert.strictEqual(elements.lastEventBadge.className, "status-pill");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 """,
     )
 
