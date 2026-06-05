@@ -16,6 +16,7 @@ class LayerPlaybackState:
     enabled: bool = True
     realtime_trim_db: float = 0.0
     realtime_gain_ramp: RealtimeGainRampState | None = None
+    realtime_mute_ramp: RealtimeMuteRampState | None = None
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,15 @@ class RealtimeGainRampState:
     from_gain_db: float
     to_gain_db: float
     duration_frames: int
+    elapsed_frames: int = 0
+
+
+@dataclass(frozen=True)
+class RealtimeMuteRampState:
+    from_gain: float
+    to_gain: float
+    duration_frames: int
+    final_enabled: bool
     elapsed_frames: int = 0
 
 
@@ -245,10 +255,20 @@ class LayeredLoopPlayer:
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
         normalized_layer_id = _validate_layer_id(layer_id)
         current = self._states[normalized_layer_id]
-        self._states[normalized_layer_id] = LayerPlaybackState(
+        ramp = self._realtime_mute_ramp(
+            normalized_layer_id,
+            current=current,
             enabled=enabled,
+        )
+        if ramp is None:
+            next_enabled = enabled
+        else:
+            next_enabled = True
+        self._states[normalized_layer_id] = LayerPlaybackState(
+            enabled=next_enabled,
             realtime_trim_db=current.realtime_trim_db,
             realtime_gain_ramp=current.realtime_gain_ramp,
+            realtime_mute_ramp=ramp,
         )
 
     def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
@@ -263,6 +283,7 @@ class LayeredLoopPlayer:
             enabled=current.enabled,
             realtime_trim_db=realtime_trim_db,
             realtime_gain_ramp=ramp,
+            realtime_mute_ramp=current.realtime_mute_ramp,
         )
 
     def set_peak_ceiling(self, peak_ceiling: float) -> None:
@@ -291,25 +312,65 @@ class LayeredLoopPlayer:
             duration_frames=duration_frames,
         )
 
+    def _realtime_mute_ramp(
+        self,
+        layer_id: LayerId,
+        *,
+        current: LayerPlaybackState,
+        enabled: bool,
+    ) -> RealtimeMuteRampState | None:
+        if current.enabled == enabled and current.realtime_mute_ramp is None:
+            return None
+        if not self._playing or self._layers is None:
+            return None
+
+        current_gain = _current_mute_gain(current)
+        target_gain = 1.0 if enabled else 0.0
+        if current_gain == target_gain:
+            return None
+        return RealtimeMuteRampState(
+            from_gain=current_gain,
+            to_gain=target_gain,
+            duration_frames=_short_ramp_frames(self._layers[layer_id]),
+            final_enabled=enabled,
+        )
+
     def _advance_realtime_gain_ramps(self, block_size: int) -> None:
         next_states: dict[LayerId, LayerPlaybackState] = {}
         changed = False
         for layer_id, state in self._states.items():
-            ramp = state.realtime_gain_ramp
-            if ramp is None:
+            gain_ramp = state.realtime_gain_ramp
+            mute_ramp = state.realtime_mute_ramp
+            if gain_ramp is None and mute_ramp is None:
                 next_states[layer_id] = state
                 continue
-            elapsed_frames = ramp.elapsed_frames + block_size
-            if elapsed_frames >= ramp.duration_frames:
+
+            next_gain_ramp: RealtimeGainRampState | None = None
+            if gain_ramp is not None:
+                elapsed_frames = gain_ramp.elapsed_frames + block_size
+                if elapsed_frames < gain_ramp.duration_frames:
+                    next_gain_ramp = replace(gain_ramp, elapsed_frames=elapsed_frames)
+
+            next_enabled = state.enabled
+            next_mute_ramp: RealtimeMuteRampState | None = None
+            if mute_ramp is not None:
+                elapsed_frames = mute_ramp.elapsed_frames + block_size
+                if elapsed_frames >= mute_ramp.duration_frames:
+                    next_enabled = mute_ramp.final_enabled
+                else:
+                    next_mute_ramp = replace(mute_ramp, elapsed_frames=elapsed_frames)
+
+            if next_gain_ramp is None and next_mute_ramp is None:
                 next_states[layer_id] = LayerPlaybackState(
-                    enabled=state.enabled,
+                    enabled=next_enabled,
                     realtime_trim_db=state.realtime_trim_db,
                 )
             else:
                 next_states[layer_id] = LayerPlaybackState(
-                    enabled=state.enabled,
+                    enabled=next_enabled,
                     realtime_trim_db=state.realtime_trim_db,
-                    realtime_gain_ramp=replace(ramp, elapsed_frames=elapsed_frames),
+                    realtime_gain_ramp=next_gain_ramp,
+                    realtime_mute_ramp=next_mute_ramp,
                 )
             changed = True
         if changed:
@@ -517,8 +578,12 @@ def _apply_gain(samples: np.ndarray, gain_db: float) -> np.ndarray:
 
 def _apply_realtime_gain(samples: np.ndarray, state: LayerPlaybackState) -> np.ndarray:
     if state.realtime_gain_ramp is None:
-        return _apply_gain(samples, state.realtime_trim_db)
-    return _apply_gain_ramp(samples, state.realtime_gain_ramp)
+        gained = _apply_gain(samples, state.realtime_trim_db)
+    else:
+        gained = _apply_gain_ramp(samples, state.realtime_gain_ramp)
+    if state.realtime_mute_ramp is None:
+        return gained
+    return _apply_mute_ramp(gained, state.realtime_mute_ramp)
 
 
 def _apply_gain_ramp(samples: np.ndarray, ramp: RealtimeGainRampState) -> np.ndarray:
@@ -528,6 +593,21 @@ def _apply_gain_ramp(samples: np.ndarray, ramp: RealtimeGainRampState) -> np.nda
     progress = np.clip(frame_offsets / ramp.duration_frames, 0.0, 1.0)
     gains = from_gain + ((to_gain - from_gain) * progress)
     return (samples * gains[:, np.newaxis]).astype(np.float32)
+
+
+def _apply_mute_ramp(samples: np.ndarray, ramp: RealtimeMuteRampState) -> np.ndarray:
+    frame_offsets = ramp.elapsed_frames + np.arange(samples.shape[0], dtype=np.float32)
+    progress = np.clip(frame_offsets / ramp.duration_frames, 0.0, 1.0)
+    gains = ramp.from_gain + ((ramp.to_gain - ramp.from_gain) * progress)
+    return (samples * gains[:, np.newaxis]).astype(np.float32)
+
+
+def _current_mute_gain(state: LayerPlaybackState) -> float:
+    ramp = state.realtime_mute_ramp
+    if ramp is None:
+        return 1.0 if state.enabled else 0.0
+    progress = min(1.0, ramp.elapsed_frames / ramp.duration_frames)
+    return ramp.from_gain + ((ramp.to_gain - ramp.from_gain) * progress)
 
 
 def _db_to_gain(gain_db: float) -> float:

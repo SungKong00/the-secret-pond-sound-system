@@ -139,6 +139,41 @@ def test_player_realtime_trim_change_while_playing_applies_short_gain_ramp(
     )
 
 
+def test_player_enabled_change_while_playing_applies_short_mute_ramp(
+    tmp_path: Path,
+) -> None:
+    paths = write_layers(tmp_path, low=0.2, mid=0.2, voice=0.2, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    before = player.next_block(4)
+
+    player.set_enabled("voice", False)
+    muted_ramp = player.next_block(4)
+    muted_after_ramp = player.next_block(64)
+    player.set_enabled("voice", True)
+    unmuted_ramp = player.next_block(4)
+    unmuted_after_ramp = player.next_block(64)
+
+    np.testing.assert_allclose(before.samples, np.ones((4, 2)) * 0.6, atol=1e-6)
+    assert muted_ramp.samples[0, 0] == pytest.approx(0.6, abs=1e-6)
+    assert np.all(np.diff(muted_ramp.samples[:, 0]) < 0.0)
+    assert np.all(muted_ramp.samples[:, 0] > 0.4)
+    np.testing.assert_allclose(
+        muted_after_ramp.samples[-1],
+        np.array([0.4, 0.4]),
+        atol=1e-6,
+    )
+    assert unmuted_ramp.samples[0, 0] == pytest.approx(0.4, abs=1e-6)
+    assert np.all(np.diff(unmuted_ramp.samples[:, 0]) > 0.0)
+    assert np.all(unmuted_ramp.samples[:, 0] < 0.6)
+    np.testing.assert_allclose(
+        unmuted_after_ramp.samples[-1],
+        np.array([0.6, 0.6]),
+        atol=1e-6,
+    )
+
+
 def test_player_rejects_unknown_layer_state_updates() -> None:
     player = LayeredLoopPlayer()
 
