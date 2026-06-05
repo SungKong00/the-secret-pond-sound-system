@@ -4078,7 +4078,7 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, renderState, resetParticipants }",
+        exports="{ state, renderState, resetParticipants, showError }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {{
@@ -4165,6 +4165,8 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
   globalThis.__secretPondTest.renderState();
   assert.strictEqual(elements.resetParticipantsButton.disabled, false);
+  globalThis.__secretPondTest.showError("action failed");
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
 
   let confirmCount = 0;
   window.confirm = () => {{
@@ -4217,6 +4219,9 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   resolveParticipantReset();
   await reset;
   assert.strictEqual(globalThis.__secretPondTest.state.resetParticipantsInFlight, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
+  assert.strictEqual(elements.errorBanner.hidden, true);
+  assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
   assert.strictEqual(elements.resetParticipantsButton.disabled, false);
   assert.deepStrictEqual(resetFetches, [
     "/api/participants/reset",

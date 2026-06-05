@@ -3827,6 +3827,7 @@ const resetParticipants = async () => {
     state.resetParticipantsInFlight = false;
     renderState();
     if (resetError) showError(resetError.message);
+    else clearTransientError();
   }
 };
 
