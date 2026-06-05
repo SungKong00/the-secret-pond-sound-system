@@ -594,7 +594,7 @@ def _event_log_payload(runtime: SecretPondRuntime, limit: int = 5) -> dict[str, 
     path = runtime.paths.event_log_file
     try:
         events = runtime.logger.read_events()
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         return {
             "path": _relative_path(runtime.paths.root, path),
             "exists": path.exists(),

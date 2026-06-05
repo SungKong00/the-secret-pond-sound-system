@@ -388,6 +388,17 @@ class FailingEventLogger:
         return self.delegate.read_events(limit)
 
 
+class FailingEventLogReader:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+
+    def log_event(self, event_type, payload=None, timestamp=None):
+        return self.delegate.log_event(event_type, payload, timestamp=timestamp)
+
+    def read_events(self, limit=None):
+        raise OSError("event log unavailable")
+
+
 def create_test_client(
     tmp_path: Path,
     *,
@@ -4918,6 +4929,20 @@ def test_api_diagnostics_reports_source_health_and_recent_events(tmp_path: Path)
     assert payload["events"]["exists"] is True
     assert payload["events"]["recent"][0]["event_type"] == "settings.applied"
     assert payload["events"]["recent"][1]["event_type"] == "recording.accepted"
+
+
+def test_api_diagnostics_reports_event_log_read_os_error(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    runtime.logger = FailingEventLogReader(runtime.logger)
+
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["events"]["path"] == "data/logs/events.jsonl"
+    assert payload["events"]["recent"] == []
+    assert payload["events"]["error"] == "event log unavailable"
 
 
 def test_api_diagnostics_reports_selected_library_sources(tmp_path: Path) -> None:
