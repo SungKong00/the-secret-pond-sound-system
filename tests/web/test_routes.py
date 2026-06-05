@@ -2386,6 +2386,39 @@ assert.strictEqual(
   true,
 );
 
+const reorderedActive = {{
+  audio: {{ channels: 2, sample_rate: 48000 }},
+  layers: {{ voice: {{ volume_db: -18, enabled: true }} }},
+}};
+const reorderedDraft = {{
+  audio: {{ sample_rate: 48000, channels: 2 }},
+  layers: {{ voice: {{ enabled: true, volume_db: -18 }} }},
+}};
+const reorderedSnapshot = {{
+  settings: {{
+    active: reorderedActive,
+    draft: reorderedActive,
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+      runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+    }},
+  }},
+}};
+assert.strictEqual(
+  helpers.canUseServerSettingsChangePlan(reorderedSnapshot, reorderedDraft),
+  true,
+);
+assert.deepStrictEqual(
+  helpers.localSettingsChangePlan(
+    reorderedActive,
+    reorderedDraft,
+    ["audio.sample_rate", "audio.channels"],
+  ).changedSections,
+  [],
+);
+
 const incomingDraft = JSON.parse(JSON.stringify(active));
 incomingDraft.sources.low_path = "low-server.wav";
 incomingDraft.layers.voice.volume_db = -24;

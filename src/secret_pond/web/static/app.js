@@ -858,6 +858,19 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const isPlainObject = (value) =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
 
+const stableSettingsValue = (value) => {
+  if (Array.isArray(value)) return value.map(stableSettingsValue);
+  if (!isPlainObject(value)) return value;
+  return Object.keys(value)
+    .sort()
+    .reduce((normalized, key) => {
+      normalized[key] = stableSettingsValue(value[key]);
+      return normalized;
+    }, {});
+};
+
+const stableSettingsSignature = (value) => JSON.stringify(stableSettingsValue(value));
+
 const presetValueMatches = (current, expected) => {
   if (isPlainObject(expected)) return presetValuesMatch(current, expected);
   const currentNumber = Number(current);
@@ -2436,7 +2449,7 @@ const normalizeSettingsChangePlan = (change) => {
 };
 
 const settingsPayloadMatchesDraft = (snapshot, draft) => (
-  JSON.stringify(snapshot.settings.draft) === JSON.stringify(draft)
+  stableSettingsSignature(snapshot.settings.draft) === stableSettingsSignature(draft)
 );
 
 const canUseServerSettingsChangePlan = (snapshot, draft) => (
@@ -2468,7 +2481,7 @@ const localSettingsChangePlan = (active, draft, runtimeConfigFields = defaultRun
   const changedSections = Object.keys(activePayload)
     .sort()
     .filter((section) => (
-      JSON.stringify(activePayload[section]) !== JSON.stringify(draftPayload[section])
+      stableSettingsSignature(activePayload[section]) !== stableSettingsSignature(draftPayload[section])
     ));
   return {
     runtimeConfigChanged: changedRuntimeFields.length > 0,
