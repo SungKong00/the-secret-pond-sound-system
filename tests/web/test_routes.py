@@ -10305,6 +10305,24 @@ def test_api_playback_apply_mode_request_contract_names_supported_modes(
     assert schema["required"] == ["mode"]
 
 
+def test_api_playback_apply_mode_rejects_invalid_mode_with_validation_error(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.put("/api/playback/apply-mode", json={"mode": "preview"})
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["type"] == "literal_error"
+    assert error["loc"] == ["body", "mode"]
+    assert "stable" in error["msg"]
+    assert "live" in error["msg"]
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.playback.apply_mode == "stable"
+    assert stored.draft.playback.apply_mode == "stable"
+
+
 def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_modes(
     tmp_path: Path,
 ) -> None:
