@@ -10405,6 +10405,45 @@ def test_api_playback_apply_mode_switch_preserves_unrelated_playback_settings(
     }
 
 
+def test_api_playback_apply_mode_live_ignores_pending_loop_length_changes(
+    tmp_path: Path,
+) -> None:
+    active = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "voice_stack": VoiceStackSettings(loop_seconds=60),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(update={"loop_seconds": 105}),
+            "voice_stack": active.voice_stack.model_copy(update={"loop_seconds": 75}),
+        },
+        deep=True,
+    )
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.put("/api/playback/apply-mode", json={"mode": "live"})
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    assert stored.active.playback.apply_mode == "live"
+    assert stored.draft.playback.apply_mode == "live"
+    assert stored.active.audio.loop_seconds == 60
+    assert stored.draft.audio.loop_seconds == 105
+    assert stored.active.voice_stack.loop_seconds == 60
+    assert stored.draft.voice_stack.loop_seconds == 75
+    assert client.app.state.runtime.controller.settings.audio.loop_seconds == 60
+    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(60.0)
+    assert response.json()["settings"]["active"]["audio"]["loop_seconds"] == 60
+    assert response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 105
+    assert response.json()["settings"]["active"]["voice_stack"]["loop_seconds"] == 60
+    assert response.json()["settings"]["draft"]["voice_stack"]["loop_seconds"] == 75
+
+
 def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(
     tmp_path: Path,
 ) -> None:
