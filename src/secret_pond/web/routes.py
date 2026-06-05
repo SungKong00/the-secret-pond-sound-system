@@ -27,6 +27,7 @@ from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.services.settings_draft import (
     SettingsDraftUpdateError,
+    SettingsDraftValidationError,
 )
 from secret_pond.services.settings_draft import (
     update_draft_settings as save_draft_settings,
@@ -288,7 +289,7 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
         current = _settings_state(runtime)
         try:
             save_draft_settings(runtime, draft, current=current)
-        except ValueError as exc:
+        except SettingsDraftValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except SettingsDraftUpdateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -13,6 +13,9 @@ class DeviceSelectionError(RuntimeError):
     """Raised when a runtime device change cannot be safely applied."""
 
 
+DEVICE_CHANGES_SYSTEM_PANEL_DETAIL = "device changes must be applied from the System panel"
+
+
 def device_settings_from_payload(
     current: DeviceSettings,
     payload: dict[str, Any],
@@ -35,7 +38,7 @@ def device_settings_from_payload(
 def validate_draft_device_settings(active: AppSettings, draft: AppSettings) -> None:
     if draft.devices == active.devices:
         return
-    raise ValueError("device changes must be applied from the System panel")
+    raise ValueError(DEVICE_CHANGES_SYSTEM_PANEL_DETAIL)
 
 
 def apply_runtime_devices(

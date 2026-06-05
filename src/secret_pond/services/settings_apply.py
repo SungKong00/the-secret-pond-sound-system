@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from secret_pond.services.device_switcher import DEVICE_CHANGES_SYSTEM_PANEL_DETAIL
 from secret_pond.services.file_snapshots import (
     FileSnapshot,
     capture_file_snapshot,
@@ -55,8 +56,8 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
     was_running = runtime.output.is_running
     if change_plan.runtime_config_changed:
         detail = (
-            "audio output format changes require an app restart; "
-            "device changes must be applied from the System panel"
+            "audio output format changes require an app restart; " +
+            DEVICE_CHANGES_SYSTEM_PANEL_DETAIL
         )
         _log_event_best_effort(
             runtime,
