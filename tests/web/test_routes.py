@@ -236,6 +236,11 @@ class DeviceAwareFakeRecorder(FakeRecorder):
         self.device_id = device_id
 
 
+class StartFailingRecorder(FakeRecorder):
+    def start(self) -> None:
+        raise OSError("stream unavailable")
+
+
 class RestartFailureStream:
     def __init__(self, *, fail_start: bool = False) -> None:
         self.fail_start = fail_start
@@ -9007,6 +9012,42 @@ def test_api_state_revision_increases_after_successful_state_mutation(
     assert arm_response.status_code == 200
     assert arm_response.json()["state"]["state_revision"] == 1
     assert follow_up["state_revision"] == 1
+
+
+def test_api_state_revision_increases_when_recording_start_failure_changes_error_state(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(
+        tmp_path,
+        recorder=StartFailingRecorder(recorder_take()),
+        raise_server_exceptions=False,
+    )
+    client.post("/api/input/arm")
+    before = client.get("/api/state").json()["state_revision"]
+
+    response = client.post("/api/recording/start")
+
+    assert response.status_code == 409
+    state = client.get("/api/state").json()
+    assert state["last_error"] == "stream unavailable"
+    assert state["state_revision"] == before + 1
+
+
+def test_api_state_revision_increases_when_playback_start_failure_changes_error_state(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_start=ValueError("rendered layers must be loaded before playback"))
+    client = create_test_client(tmp_path, output=output)
+    before = client.get("/api/state").json()["state_revision"]
+
+    response = client.post("/api/playback/start")
+
+    assert response.status_code == 409
+    state = client.get("/api/state").json()
+    assert state["playback"]["output_latest_error"] == (
+        "rendered layers must be loaded before playback"
+    )
+    assert state["state_revision"] == before + 1
 
 
 @pytest.mark.parametrize(

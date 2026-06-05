@@ -82,7 +82,7 @@ def arm_input(request: Request) -> dict[str, Any]:
 def disarm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        outcome = _run_control(runtime.controller.disarm_input)
+        outcome = _run_control(runtime, runtime.controller.disarm_input)
         runtime.mark_state_changed()
         return {
             "outcome": outcome_payload(outcome),
@@ -94,7 +94,7 @@ def disarm_input(request: Request) -> dict[str, Any]:
 def start_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        _run_control(runtime.controller.start_recording)
+        _run_control(runtime, runtime.controller.start_recording)
         runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
@@ -142,6 +142,7 @@ def get_devices(request: Request) -> dict[str, Any]:
 def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
+        visible_state_before = _visible_runtime_state_fingerprint(runtime)
         current = _settings_state(runtime)
         try:
             devices = device_settings_from_payload(current.active.devices, payload)
@@ -149,8 +150,10 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except DeviceSelectionError as exc:
+            _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, OSError) as exc:
+            _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if settings_state.active.devices != current.active.devices:
             runtime.mark_state_changed()
@@ -257,10 +260,7 @@ def delete_source(
 def start_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        try:
-            playback_control.start_playback(runtime)
-        except playback_control.PlaybackControlError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _run_playback_control(runtime, playback_control.start_playback)
         runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
@@ -269,10 +269,7 @@ def start_playback(request: Request) -> dict[str, Any]:
 def stop_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        try:
-            playback_control.stop_playback(runtime)
-        except playback_control.PlaybackControlError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _run_playback_control(runtime, playback_control.stop_playback)
         runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
@@ -281,10 +278,7 @@ def stop_playback(request: Request) -> dict[str, Any]:
 def restart_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        try:
-            playback_control.restart_playback(runtime)
-        except playback_control.PlaybackControlError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _run_playback_control(runtime, playback_control.restart_playback)
         runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
@@ -348,9 +342,11 @@ def reset_participant_count(request: Request) -> dict[str, Any]:
 def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
+        visible_state_before = _visible_runtime_state_fingerprint(runtime)
         try:
             result = apply_draft_settings(runtime)
         except SettingsApplyError as exc:
+            _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         runtime.mark_state_changed()
         return {
@@ -462,17 +458,30 @@ def _source_settings_payload(
     }
 
 
-def _run_control(fn):
+def _run_control(runtime: SecretPondRuntime, fn):
+    visible_state_before = _visible_runtime_state_fingerprint(runtime)
     try:
         return fn()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _run_recording_control(runtime: SecretPondRuntime, fn):
+    visible_state_before = _visible_runtime_state_fingerprint(runtime)
     try:
         return run_recording_workflow(runtime, fn)
     except RecordingControlError as exc:
+        _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _run_playback_control(runtime: SecretPondRuntime, fn) -> None:
+    visible_state_before = _visible_runtime_state_fingerprint(runtime)
+    try:
+        fn(runtime)
+    except playback_control.PlaybackControlError as exc:
+        _mark_if_visible_runtime_state_changed(runtime, visible_state_before)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -483,3 +492,34 @@ def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[
 def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     settings = _settings_state(runtime).active
     return diagnostics_payload(runtime.paths, settings, runtime.logger)
+
+
+def _visible_runtime_state_fingerprint(runtime: SecretPondRuntime) -> tuple[Any, ...]:
+    latest_status = runtime.output.latest_status
+    layer_states = tuple(
+        (
+            layer_id,
+            layer_state.enabled,
+            layer_state.realtime_trim_db,
+        )
+        for layer_id, layer_state in sorted(runtime.player.layer_states.items())
+    )
+    return (
+        runtime.controller.armed,
+        runtime.controller.is_recording,
+        runtime.controller.last_error,
+        runtime.player.frame_cursor,
+        runtime.player.is_playing,
+        runtime.output.is_running,
+        None if latest_status is None else str(latest_status),
+        runtime.output.latest_error,
+        layer_states,
+    )
+
+
+def _mark_if_visible_runtime_state_changed(
+    runtime: SecretPondRuntime,
+    before: tuple[Any, ...],
+) -> None:
+    if _visible_runtime_state_fingerprint(runtime) != before:
+        runtime.mark_state_changed()
