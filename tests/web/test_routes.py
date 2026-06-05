@@ -1480,7 +1480,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "빈 녹음" in script.text
     assert "녹음 준비 꺼짐" in script.text
     assert "녹음 실패" in script.text
-    assert "captureReady: armed && !isRecording && !recordingStopBusy" in script.text
+    assert "captureReady: armed && !isRecording && !captureOperationBusy" in script.text
     assert (
         'document.querySelector(".record-core").classList.toggle('
         '"armed", controlState.captureReady)'
@@ -5444,6 +5444,9 @@ globalThis.__secretPondTest.state.sourceMutationInFlight = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(recordCore.classList.contains("armed"), false);
+assert.strictEqual(elements.recordCoreStatus.textContent, "대기 중");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "설정 작업 중...");
 let sourceMutationApplyFetchPath = null;
 globalThis.fetch = (path) => {{
   sourceMutationApplyFetchPath = path;

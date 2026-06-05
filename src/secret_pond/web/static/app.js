@@ -1660,6 +1660,7 @@ const deriveDashboardControlState = ({
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const settingsOperationBusy = Boolean(applyInFlight || resetDraftInFlight || sourceMutationInFlight);
+  const captureOperationBusy = recordingStopBusy || settingsOperationBusy;
   const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || playbackControlBusy);
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
@@ -1695,11 +1696,11 @@ const deriveDashboardControlState = ({
   return {
     recordingStopBusy,
     outputControlBusy,
-    captureReady: armed && !isRecording && !recordingStopBusy,
+    captureReady: armed && !isRecording && !captureOperationBusy,
     captureGateOn: armed || isRecording,
     captureGateClass,
-    captureGateSwitchDisabled: recordingStopBusy || settingsOperationBusy || isRecording,
-    startDisabled: recordingStopBusy || settingsOperationBusy || !armed || isRecording,
+    captureGateSwitchDisabled: captureOperationBusy || isRecording,
+    startDisabled: captureOperationBusy || !armed || isRecording,
     stopDisabled: recordingStopBusy || !isRecording,
     startOutputDisabled: outputControlBusy || outputRunning,
     stopOutputDisabled: outputControlBusy || !outputRunning,
@@ -1775,12 +1776,14 @@ const renderState = () => {
     ? "처리 중"
     : snapshot.is_recording
       ? "녹음 중"
-      : snapshot.armed
+      : controlState.captureReady
         ? "준비 완료"
-        : "준비 전";
+        : snapshot.armed
+          ? "대기 중"
+          : "준비 전";
   document.querySelector(".record-core").classList.toggle("armed", controlState.captureReady);
   document.querySelector(".record-core").classList.toggle("recording", snapshot.is_recording);
-  renderRecordReadiness(snapshot, controlState.recordingStopBusy);
+  renderRecordReadiness(snapshot, controlState);
   $("pendingBadge").hidden = !pendingChangeState.pendingChanges;
   $("pendingBadge").textContent = pendingChangeState.pendingChanges ? "저장 안 된 오디오 변경" : "";
   $("pendingBadge").className = "status-pill hot";
@@ -1824,15 +1827,17 @@ const recordOutcomeKind = () => {
   return className.split(/\s+/).find((name) => replaceableRecordOutcomeKinds.has(name));
 };
 
-const renderRecordReadiness = (snapshot, recordingStopBusy) => {
-  if (recordingStopBusy) {
+const renderRecordReadiness = (snapshot, controlState) => {
+  if (controlState.recordingStopBusy) {
     setRecordStatus("processing", "녹음 처리 중...");
   } else if (snapshot.is_recording) {
     setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지합니다.");
   } else if (!replaceableRecordOutcomeKinds.has(recordOutcomeKind())) {
     return;
-  } else if (snapshot.armed) {
+  } else if (controlState.captureReady) {
     setRecordStatus("armed-ready", "스페이스바를 눌러 녹음", "스페이스바를 떼면 녹음을 중지합니다.");
+  } else if (snapshot.armed) {
+    setRecordStatus("processing", "설정 작업 중...", "설정 작업이 끝나면 녹음을 시작할 수 있습니다.");
   } else {
     setRecordStatus("ready", "녹음 준비 필요", "녹음 준비를 켠 뒤 스페이스바를 누르세요.");
   }
