@@ -1167,18 +1167,28 @@ const requestState = async (options = {}) => {
   applyState(payload, options);
 };
 
-const beginDeviceRefresh = () => {
-  state.deviceRefreshRequestId += 1;
+const beginTrackedRequest = (requestKey, trackedKeys = []) => {
+  state[requestKey] += 1;
   return {
-    refreshRequestId: state.deviceRefreshRequestId,
-    deviceChangeRequestId: state.deviceChangeRequestId,
+    requestKey,
+    requestId: state[requestKey],
+    tracked: trackedKeys.map((key) => [key, state[key]]),
+  };
+};
+
+const isCurrentTrackedRequest = (request) =>
+  request.requestId === state[request.requestKey] &&
+  request.tracked.every(([key, value]) => state[key] === value);
+
+const beginDeviceRefresh = () => {
+  return {
+    token: beginTrackedRequest("deviceRefreshRequestId", ["deviceChangeRequestId"]),
     deviceChangeInFlight: state.deviceChangeInFlight,
   };
 };
 
 const isCurrentDeviceRefresh = (request) =>
-  request.refreshRequestId === state.deviceRefreshRequestId &&
-  request.deviceChangeRequestId === state.deviceChangeRequestId &&
+  isCurrentTrackedRequest(request.token) &&
   !request.deviceChangeInFlight &&
   !state.deviceChangeInFlight;
 
@@ -1221,16 +1231,11 @@ const requestDiagnostics = async () => {
 };
 
 const beginSourceRefresh = () => {
-  state.sourceRefreshRequestId += 1;
-  return {
-    refreshRequestId: state.sourceRefreshRequestId,
-    sourceMutationRequestId: state.sourceMutationRequestId,
-  };
+  return beginTrackedRequest("sourceRefreshRequestId", ["sourceMutationRequestId"]);
 };
 
 const isCurrentSourceRefresh = (request) =>
-  request.refreshRequestId === state.sourceRefreshRequestId &&
-  request.sourceMutationRequestId === state.sourceMutationRequestId;
+  isCurrentTrackedRequest(request);
 
 const requestSources = async (options = {}) => {
   const request = beginSourceRefresh();
