@@ -2090,6 +2090,29 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
 
 const sourceCategoryRequired = (category) => category?.required !== false;
 
+const sourceCategoryHasPendingSelection = (category = {}) =>
+  Boolean((category.files || []).some((file) => file.active && !file.applied));
+
+const deriveSourceCategoryStatusState = (category = {}) => {
+  if (sourceCategoryHasPendingSelection(category)) {
+    return {
+      text: "적용 대기",
+      className: "status-pill caution",
+    };
+  }
+  if (category.active_exists) {
+    return {
+      text: "선택됨",
+      className: "status-pill safe",
+    };
+  }
+  const required = sourceCategoryRequired(category);
+  return {
+    text: required ? "없음" : "보관용",
+    className: `status-pill ${required ? "hot" : "muted"}`,
+  };
+};
+
 const deriveSourceLibraryStatusState = (categories = []) => {
   const missingCount = categories.filter(
     (category) => sourceCategoryRequired(category) && !category.active_exists,
@@ -2223,6 +2246,17 @@ const deriveSourceFileActionState = (
   };
 };
 
+const deriveSourceFileStatusLabels = (file = {}, action = null) => {
+  const state = action || deriveSourceFileActionState(file);
+  const active = Boolean(state.active);
+  const applied = Boolean(file.applied);
+  if (active && !applied) return ["적용 대기"];
+  return [
+    active ? "선택됨" : "",
+    applied ? "현재 적용됨" : "",
+  ].filter(Boolean);
+};
+
 const rememberSourceUploadFile = (category, file) => {
   sourceUploadState(category).file = file || null;
 };
@@ -2244,9 +2278,7 @@ const sourceCategoryCard = (category) => {
   const busyTitle = currentSourceLockState().sourceActionTitle;
   const sourceActionDisabled = busyTitle ? " disabled" : "";
   const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
-  const required = sourceCategoryRequired(category);
-  const statusClass = category.active_exists ? "safe" : required ? "hot" : "muted";
-  const statusText = category.active_exists ? "선택됨" : required ? "없음" : "보관용";
+  const status = deriveSourceCategoryStatusState(category);
   const uploadAction = deriveSourceUploadActionState(
     upload,
     state.sourceMutationInFlight,
@@ -2273,8 +2305,8 @@ const sourceCategoryCard = (category) => {
         <h3>${escapeHtml(label.title)}</h3>
         <p>${escapeHtml(label.helper)}</p>
       </div>
-      <span class="status-pill ${statusClass}">
-        ${statusText}
+      <span class="${status.className}">
+        ${escapeHtml(status.text)}
       </span>
     </div>
     <label class="source-select-row">
@@ -2329,10 +2361,9 @@ const sourceFileRows = (category) => {
       state.applyInFlight,
       state.resetDraftInFlight,
     );
-    const badges = [
-      action.active ? `<span class="source-file-badge">선택됨</span>` : "",
-      file.applied ? `<span class="source-file-badge">적용됨</span>` : "",
-    ].join("");
+    const badges = deriveSourceFileStatusLabels(file, action)
+      .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
+      .join("");
     const disabled = action.deleteDisabled ? " disabled" : "";
     const deleteTitle = action.deleteTitle
       ? ` title="${escapeHtml(action.deleteTitle)}"`

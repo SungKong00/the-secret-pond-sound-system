@@ -3923,7 +3923,10 @@ assert.strictEqual(
 def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ deriveSourceUploadActionState, deriveSourceFileActionState }",
+        exports=(
+            "{ deriveSourceUploadActionState, deriveSourceFileActionState, "
+            "deriveSourceFileStatusLabels }"
+        ),
         body="""
 const helpers = globalThis.__secretPondTest;
 
@@ -4033,6 +4036,21 @@ assert.deepStrictEqual(
     deleteTitle: "",
   }},
 );
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileStatusLabels({{ active: true, applied: false }}),
+  ["적용 대기"],
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileStatusLabels({{ active: true, applied: true }}),
+  ["선택됨", "현재 적용됨"],
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileStatusLabels({{ active: false, applied: true }}),
+  ["현재 적용됨"],
+);
 """,
     )
 
@@ -4040,7 +4058,7 @@ assert.deepStrictEqual(
 def test_static_ui_source_library_status_ignores_optional_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ deriveSourceLibraryStatusState }",
+        exports="{ deriveSourceLibraryStatusState, deriveSourceCategoryStatusState }",
         body="""
 const helpers = globalThis.__secretPondTest;
 
@@ -4067,6 +4085,45 @@ assert.deepStrictEqual(
     missingCount: 1,
     text: "1개 선택 필요",
     className: "status-pill hot",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceCategoryStatusState({{
+    id: "low",
+    required: true,
+    active_exists: true,
+    files: [{{ active: true, applied: false }}],
+  }}),
+  {{
+    text: "적용 대기",
+    className: "status-pill caution",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceCategoryStatusState({{
+    id: "low",
+    required: true,
+    active_exists: true,
+    files: [{{ active: true, applied: true }}],
+  }}),
+  {{
+    text: "선택됨",
+    className: "status-pill safe",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceCategoryStatusState({{
+    id: "voice_raw",
+    required: false,
+    active_exists: false,
+    files: [],
+  }}),
+  {{
+    text: "보관용",
+    className: "status-pill muted",
   }},
 );
 """,
@@ -4806,6 +4863,7 @@ globalThis.__secretPondTest.state.sources = {{
           size_bytes: 10,
           modified_at: "2026-06-05T00:00:00Z",
           active: true,
+          applied: false,
         }},
       ],
     }},
@@ -4827,6 +4885,7 @@ assert.strictEqual(
   ),
   true,
 );
+assert.strictEqual(latestSourceLibraryHtml().includes("적용 대기"), true);
 assert.strictEqual(
   sourceUploadButtonHtml().includes("disabled"),
   true,
@@ -4906,6 +4965,7 @@ const runSourceSocketRefreshCheck = async () => {{
             size_bytes: 10,
             modified_at: "2026-06-05T00:00:00Z",
             active: true,
+            applied: true,
           }},
         ],
       }},
@@ -4948,6 +5008,7 @@ const runSourceSocketRefreshCheck = async () => {{
                   size_bytes: 20,
                   modified_at: "2026-06-05T00:02:00Z",
                   active: true,
+                  applied: true,
                 }},
               ],
             }},
@@ -5013,6 +5074,7 @@ globalThis.__secretPondTest.state.sources = {{
           size_bytes: 10,
           modified_at: "2026-06-05T00:00:00Z",
           active: true,
+          applied: true,
         }},
       ],
     }},
@@ -5808,6 +5870,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
           size_bytes: 10,
           modified_at: "2026-06-05T00:00:00Z",
           active: true,
+          applied: true,
         }},
       ],
     }},
