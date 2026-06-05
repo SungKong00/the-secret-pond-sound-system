@@ -17,6 +17,7 @@ from secret_pond.config import (
     SourceSelectionSettings,
 )
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.playback_apply_mode import apply_playback_apply_mode
 from secret_pond.services.settings_draft import (
     SettingsDraftUpdateError,
     SettingsDraftValidationError,
@@ -29,6 +30,9 @@ class MemorySettingsStore:
     def __init__(self, state: SettingsState) -> None:
         self.state = state
         self.saved_states: list[SettingsState] = []
+
+    def load(self) -> SettingsState:
+        return self.state
 
     def save(self, state: SettingsState) -> SettingsState:
         self.saved_states.append(state)
@@ -431,6 +435,51 @@ def test_live_same_curve_eq_update_syncs_active_state_without_stacking() -> None
     assert runtime.renderer.live_eq_buffer_renders == []
     assert runtime.player.layer_buffer_updates == []
     assert runtime.player.live_eq_state_updates == [("mid", 6.0)]
+
+
+def test_stable_to_live_mode_marks_stable_eq_render_state_inactive() -> None:
+    stable = AppSettings().model_copy(
+        update={
+            "layers": {
+                **AppSettings().layers,
+                "mid": AppSettings().layers["mid"].model_copy(
+                    update={
+                        "volume_db": 0.0,
+                        "eq": AppSettings().layers["mid"].eq.model_copy(
+                            update={"mid_gain_db": 6.0},
+                        ),
+                    },
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=stable)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.playback_render_settings = stable
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+
+    live_state = apply_playback_apply_mode(runtime, "live")  # type: ignore[arg-type]
+    draft_layers = {
+        **live_state.draft.layers,
+        "mid": live_state.draft.layers["mid"].model_copy(update={"volume_db": -3.0}),
+    }
+    draft = live_state.draft.model_copy(update={"layers": draft_layers}, deep=True)
+
+    result = update_draft_settings(runtime, draft, current=live_state)  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "live"
+    assert len(runtime.renderer.live_eq_buffer_renders) == 1
+    rendered_layer_id, rendered_settings = runtime.renderer.live_eq_buffer_renders[0]
+    assert rendered_layer_id == "mid"
+    assert rendered_settings.layers["mid"].eq.mid_gain_db == 6.0
+    assert runtime.player.layer_buffer_updates == [("mid", rendered_mid)]
+    assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 6.0
 
 
 def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cache(
