@@ -1645,6 +1645,7 @@ const deriveDashboardControlState = ({
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
+  const settingsOperationBusy = Boolean(applyInFlight || resetDraftInFlight || sourceMutationInFlight);
   const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || playbackControlBusy);
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
@@ -1682,7 +1683,7 @@ const deriveDashboardControlState = ({
     captureGateOn: armed || isRecording,
     captureGateClass,
     captureGateSwitchDisabled: recordingStopBusy || isRecording,
-    startDisabled: recordingStopBusy || !armed || isRecording,
+    startDisabled: recordingStopBusy || settingsOperationBusy || !armed || isRecording,
     stopDisabled: recordingStopBusy || !isRecording,
     startOutputDisabled: outputControlBusy || outputRunning,
     stopOutputDisabled: outputControlBusy || !outputRunning,
@@ -3579,6 +3580,8 @@ const deriveDashboardControlStateForRequest = (currentState = state) =>
   deriveDashboardControlState({
     snapshot: currentState.snapshot,
     applyInFlight: currentState.applyInFlight,
+    resetDraftInFlight: currentState.resetDraftInFlight,
+    sourceMutationInFlight: currentState.sourceMutationInFlight,
     recordingStopInFlight: currentState.recordingStopInFlight,
     playbackControlInFlight: currentState.playbackControlInFlight,
   });

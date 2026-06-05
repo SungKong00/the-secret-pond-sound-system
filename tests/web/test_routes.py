@@ -2251,6 +2251,34 @@ assert.strictEqual(
   true,
 );
 assert.strictEqual(
+  derive({{
+    snapshot: {{ armed: true, is_recording: false }},
+    applyInFlight: true,
+  }}).startDisabled,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    applyInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    resetDraftInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    sourceMutationInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
   deriveControl("/api/playback/start", {{}}, {{
     snapshot: {{ playback: {{ output_running: false }} }},
     playbackControlInFlight: true,
