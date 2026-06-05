@@ -1610,12 +1610,13 @@ const deriveDashboardControlState = ({
 };
 
 const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
-  const settingsChanged = Boolean(settingsPlan?.changedSections?.length);
+  const runtimeConfigChanged = Boolean(settingsPlan?.runtimeConfigChanged);
+  const settingsChanged = Boolean(settingsPlan?.changedSections?.length || runtimeConfigChanged);
   return {
     settingsChanged,
     sourceFilesChanged: Boolean(sourceFilesChanged),
     pendingChanges: settingsChanged || Boolean(sourceFilesChanged),
-    runtimeConfigChanged: Boolean(settingsPlan?.runtimeConfigChanged),
+    runtimeConfigChanged,
   };
 };
 

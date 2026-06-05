@@ -2163,6 +2163,21 @@ assert.deepStrictEqual(
   derivePending({{
     runtimeConfigChanged: true,
     changedRuntimeFields: ["audio.sample_rate"],
+    changedSections: [],
+    runtimeConfigFields: ["audio.sample_rate"],
+  }}, false),
+  {{
+    settingsChanged: true,
+    sourceFilesChanged: false,
+    pendingChanges: true,
+    runtimeConfigChanged: true,
+  }},
+);
+
+assert.deepStrictEqual(
+  derivePending({{
+    runtimeConfigChanged: true,
+    changedRuntimeFields: ["audio.sample_rate"],
     changedSections: ["audio"],
     runtimeConfigFields: ["audio.sample_rate"],
   }}, true),
