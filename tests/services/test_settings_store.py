@@ -82,6 +82,34 @@ def test_settings_store_round_trips_explicit_live_playback_apply_mode(
     assert loaded.draft.playback.apply_mode == "live"
 
 
+def test_settings_store_loads_legacy_playback_payload_without_apply_mode(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    legacy_active = AppSettings().model_dump(mode="json")
+    legacy_draft = settings_with_voice_volume(-9.0).model_dump(mode="json")
+    del legacy_active["playback"]["apply_mode"]
+    del legacy_draft["playback"]["apply_mode"]
+    paths.settings_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "active": legacy_active,
+                "draft": legacy_draft,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = SettingsStore(paths).load()
+
+    assert loaded.active.playback.apply_mode == "stable"
+    assert loaded.draft.playback.apply_mode == "stable"
+    assert loaded.draft.layers["voice"].volume_db == -9.0
+
+
 @pytest.mark.parametrize(
     "payload",
     [
