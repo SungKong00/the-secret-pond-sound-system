@@ -24,9 +24,17 @@ def update_draft_settings(
         validate_draft_device_settings(current.active, draft)
     except ValueError as exc:
         raise SettingsDraftValidationError(str(exc)) from exc
+    active_snapshot = _settings_copy(current.active)
     try:
-        state = runtime.settings_store.save(SettingsState(active=current.active, draft=draft))
+        saved_state = runtime.settings_store.save(
+            SettingsState(active=active_snapshot, draft=_settings_copy(draft))
+        )
     except (OSError, RuntimeError, ValueError) as exc:
         raise SettingsDraftUpdateError(str(exc)) from exc
+    state = SettingsState(active=_settings_copy(current.active), draft=saved_state.draft)
     runtime.settings_state = state
     return state
+
+
+def _settings_copy(settings: AppSettings) -> AppSettings:
+    return settings.model_copy(deep=True)
