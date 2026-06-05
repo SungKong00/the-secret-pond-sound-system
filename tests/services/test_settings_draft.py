@@ -192,6 +192,50 @@ def test_stable_update_draft_settings_stages_volume_and_mute_without_touching_pl
     assert runtime.player.reload_and_restart_called is False
 
 
+def test_stable_update_draft_settings_stages_eq_without_touching_active_playback() -> None:
+    active = AppSettings()
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={
+                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
+            },
+        ),
+        "voice": active.layers["voice"].model_copy(
+            update={
+                "eq": active.layers["voice"].eq.model_copy(update={"high_gain_db": -4.0}),
+            },
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+    runtime.playback_render_settings = active
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "stable"
+    assert result.active.layers["mid"].eq == active.layers["mid"].eq
+    assert result.active.layers["voice"].eq == active.layers["voice"].eq
+    assert runtime.controller.settings.layers["mid"].eq == active.layers["mid"].eq
+    assert runtime.settings_state.active.layers["voice"].eq == active.layers["voice"].eq
+    assert result.draft.layers["mid"].eq.mid_gain_db == 5.0
+    assert result.draft.layers["voice"].eq.high_gain_db == -4.0
+    assert runtime.playback_render_settings is active
+    assert runtime.renderer.layer_buffer_renders == []
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.player.restart_called is False
+    assert runtime.player.reload_and_restart_called is False
+
+
 def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_gain() -> None:
     active = AppSettings().model_copy(
         update={
@@ -326,6 +370,71 @@ def test_live_update_draft_settings_applies_mid_eq_to_current_playback_state(
     assert player.live_eq_states["mid"].mid_gain_db == 6.0
     assert after > before * 1.5
     assert player.is_playing is True
+
+
+def test_live_rapid_eq_updates_keep_output_playback_running(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                "low": AppSettings().layers["low"].model_copy(update={"volume_db": -60.0}),
+                "mid": AppSettings().layers["mid"].model_copy(update={"volume_db": 0.0}),
+                "voice": AppSettings().layers["voice"].model_copy(update={"volume_db": -60.0}),
+            },
+        },
+        deep=True,
+    )
+    t = np.arange(8_000, dtype=np.float32) / 8_000
+    mid_tone = (np.sin(2 * np.pi * 1_000.0 * t) * 0.05).astype(np.float32)
+    mid_samples = np.column_stack([mid_tone, mid_tone])
+    silence = np.zeros((8_000, 2), dtype=np.float32)
+    write_wav_atomic(paths.low_source, AudioBuffer(silence, sample_rate=8_000))
+    write_wav_atomic(paths.mid_source, AudioBuffer(mid_samples, sample_rate=8_000))
+    write_wav_atomic(paths.voice_stack_raw, AudioBuffer(silence, sample_rate=8_000))
+    renderer = LayerRenderer(paths)
+    renderer.render_all(settings)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(
+        {"low": paths.low_playback, "mid": paths.mid_playback, "voice": paths.voice_playback}
+    )
+    player.start()
+    player.next_block(512)
+    state = SettingsState(active=settings, draft=settings)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.paths = paths
+    runtime.renderer = renderer
+    runtime.player = player
+
+    current = state
+    block_size = 512
+    for gain_db in (2.0, 6.0, -3.0, 9.0, 0.0):
+        draft_layers = {
+            **current.draft.layers,
+            "mid": current.draft.layers["mid"].model_copy(
+                update={
+                    "eq": current.draft.layers["mid"].eq.model_copy(
+                        update={"mid_gain_db": gain_db},
+                    ),
+                },
+            ),
+        }
+        draft = current.draft.model_copy(update={"layers": draft_layers}, deep=True)
+        cursor_before_update = player.frame_cursor
+
+        current = update_draft_settings(runtime, draft, current=current)  # type: ignore[arg-type]
+        block = player.next_block(block_size)
+
+        assert current.active.layers["mid"].eq.mid_gain_db == gain_db
+        assert player.is_playing is True
+        assert cursor_before_update != 0
+        assert block.next_frame_cursor == (cursor_before_update + block_size) % 8_000
+        assert _rms(block.samples[:, 0]) > 0.01
 
 
 def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_restart() -> None:
@@ -480,6 +589,46 @@ def test_stable_to_live_mode_marks_stable_eq_render_state_inactive() -> None:
     assert rendered_settings.layers["mid"].eq.mid_gain_db == 6.0
     assert runtime.player.layer_buffer_updates == [("mid", rendered_mid)]
     assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 6.0
+
+
+def test_stable_to_live_mode_replaces_stable_eq_artifact_with_live_raw_buffer() -> None:
+    stable = AppSettings().model_copy(
+        update={
+            "layers": {
+                **AppSettings().layers,
+                "voice": AppSettings().layers["voice"].model_copy(
+                    update={
+                        "eq": AppSettings().layers["voice"].eq.model_copy(
+                            update={"mid_gain_db": 6.0},
+                        ),
+                    },
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=stable)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    stable_rendered_artifact = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.9,
+        sample_rate=48_000,
+    )
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime.player.layer_buffer_updates = [("voice", stable_rendered_artifact)]
+    runtime.renderer = RendererSpy(live_raw_buffer)
+
+    result = apply_playback_apply_mode(runtime, "live")  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "live"
+    assert runtime.renderer.layer_buffer_renders == []
+    assert runtime.renderer.live_eq_buffer_renders == [("voice", result.active)]
+    assert runtime.player.layer_buffer_updates[-1] == ("voice", live_raw_buffer)
+    assert runtime.player.layer_buffer_updates[-1][1] is not stable_rendered_artifact
+    assert runtime.player.live_eq_state_updates == [("voice", 6.0)]
 
 
 def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cache(
