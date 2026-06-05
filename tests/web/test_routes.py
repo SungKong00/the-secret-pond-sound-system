@@ -2494,6 +2494,23 @@ assert.deepStrictEqual(
   [],
 );
 
+const eqActive = {{
+  audio: {{ sample_rate: 48000 }},
+  layers: {{}},
+}};
+const eqDraft = JSON.parse(JSON.stringify(eqActive));
+eqDraft.eq = {{
+  enabled: true,
+  bands: [{{ frequency_hz: 250, gain_db: -3 }}],
+}};
+const eqPlan = helpers.localSettingsChangePlan(eqActive, eqDraft, ["audio.sample_rate"]);
+assert.deepStrictEqual(eqPlan, {{
+  runtimeConfigChanged: false,
+  changedRuntimeFields: [],
+  changedSections: ["eq"],
+  runtimeConfigFields: ["audio.sample_rate"],
+}});
+
 const incomingDraft = JSON.parse(JSON.stringify(active));
 incomingDraft.sources.low_path = "low-server.wav";
 incomingDraft.layers.voice.volume_db = -24;

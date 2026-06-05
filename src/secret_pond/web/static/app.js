@@ -2581,7 +2581,11 @@ const localSettingsChangePlan = (active, draft, runtimeConfigFields = defaultRun
     ));
   const activePayload = clone(active);
   const draftPayload = clone(draft);
-  const changedSections = Object.keys(activePayload)
+  const sectionNames = [...new Set([
+    ...Object.keys(activePayload),
+    ...Object.keys(draftPayload),
+  ])];
+  const changedSections = sectionNames
     .sort()
     .filter((section) => (
       stableSettingsSignature(activePayload[section]) !== stableSettingsSignature(draftPayload[section])
