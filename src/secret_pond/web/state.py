@@ -33,8 +33,7 @@ def state_payload(
     participant_count = _participant_count(runtime)
     settings = _settings_payload(runtime, settings_state)
     return {
-        "state_epoch": runtime.state_epoch,
-        "state_revision": runtime.state_revision,
+        **state_version_payload(runtime),
         "armed": runtime.controller.armed,
         "is_recording": runtime.controller.is_recording,
         "recording_elapsed_seconds": runtime.controller.recording_elapsed_seconds,
@@ -56,6 +55,13 @@ def state_payload(
             },
         },
         "settings": settings,
+    }
+
+
+def state_version_payload(runtime: SecretPondRuntime) -> dict[str, int]:
+    return {
+        "state_epoch": runtime.state_epoch,
+        "state_revision": runtime.state_revision,
     }
 
 

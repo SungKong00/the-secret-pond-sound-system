@@ -66,7 +66,7 @@ class SecretPondRuntime:
     player: LayeredLoopPlayer
     output: PlaybackOutput
     operation_lock: Any = field(default_factory=threading.RLock)
-    state_epoch: int = field(default_factory=lambda: time.time_ns() // 1_000_000)
+    state_epoch: int = field(default_factory=time.time_ns)
     state_revision: int = 0
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:

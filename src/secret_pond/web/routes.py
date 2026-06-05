@@ -46,6 +46,7 @@ from secret_pond.web.state import (
     outcome_payload,
     settings_payload,
     state_payload,
+    state_version_payload,
 )
 
 router = APIRouter(prefix="/api")
@@ -247,8 +248,7 @@ def delete_source(
             raise _source_mutation_http_exception(exc) from exc
         runtime.mark_state_changed()
         return {
-            "state_epoch": runtime.state_epoch,
-            "state_revision": runtime.state_revision,
+            **state_version_payload(runtime),
             "sources": _sources_payload(runtime, settings_state),
         }
 
@@ -406,8 +406,7 @@ def _settings_response_payload(
     settings_state: SettingsState | None = None,
 ) -> dict[str, Any]:
     return {
-        "state_epoch": runtime.state_epoch,
-        "state_revision": runtime.state_revision,
+        **state_version_payload(runtime),
         "settings": _settings_payload(runtime, settings_state),
     }
 
@@ -457,8 +456,7 @@ def _source_settings_payload(
     settings_state: SettingsState,
 ) -> dict[str, Any]:
     return {
-        "state_epoch": runtime.state_epoch,
-        "state_revision": runtime.state_revision,
+        **state_version_payload(runtime),
         "settings": _settings_payload(runtime, settings_state),
         "sources": _sources_payload(runtime, settings_state),
     }
