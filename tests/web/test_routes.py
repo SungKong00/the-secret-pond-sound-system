@@ -363,6 +363,20 @@ class FailingSaveSettingsStore:
         return getattr(self.delegate, name)
 
 
+class FailingDraftSaveSettingsStore:
+    def __init__(self, delegate, error: Exception) -> None:
+        self.delegate = delegate
+        self.error = error
+
+    def save(self, state):
+        if state.active != state.draft:
+            raise self.error
+        return self.delegate.save(state)
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
 class FailingPatchDraftSettingsStore:
     def __init__(self, delegate, error: Exception) -> None:
         self.delegate = delegate
@@ -7051,6 +7065,26 @@ def test_api_settings_draft_update_does_not_change_active(tmp_path: Path) -> Non
     settings = response.json()["settings"]
     assert settings["active"]["layers"]["voice"]["volume_db"] == -18.0
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -9.0
+
+
+def test_api_settings_draft_update_returns_conflict_when_save_fails(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    runtime = client.app.state.runtime
+    runtime.settings_store = FailingDraftSaveSettingsStore(
+        runtime.settings_store,
+        OSError("settings save failed"),
+    )
+
+    response = client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+
+    assert response.status_code == 409
+    assert "settings save failed" in response.json()["detail"]
+    state = client.get("/api/settings").json()["settings"]
+    assert state["active"]["layers"]["voice"]["volume_db"] == -18.0
+    assert state["draft"]["layers"]["voice"]["volume_db"] == -18.0
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.layers["voice"].volume_db == -18.0
+    assert stored.draft.layers["voice"].volume_db == -18.0
 
 
 def test_api_settings_draft_rejects_device_updates(tmp_path: Path) -> None:

@@ -20,7 +20,6 @@ from secret_pond.services.device_switcher import (
     DeviceSelectionError,
     apply_runtime_devices,
     device_settings_from_payload,
-    validate_draft_device_settings,
 )
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
@@ -28,6 +27,12 @@ from secret_pond.services.recording_transaction import (
 from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
+from secret_pond.services.settings_draft import (
+    SettingsDraftUpdateError,
+)
+from secret_pond.services.settings_draft import (
+    update_draft_settings as save_draft_settings,
+)
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
@@ -317,11 +322,11 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
     with runtime.operation_lock:
         current = _settings_state(runtime)
         try:
-            validate_draft_device_settings(current.active, draft)
+            save_draft_settings(runtime, draft, current=current)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        state = runtime.settings_store.save(SettingsState(active=current.active, draft=draft))
-        runtime.settings_state = state
+        except SettingsDraftUpdateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"settings": _settings_payload(runtime)}
 
 
