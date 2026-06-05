@@ -1486,6 +1486,25 @@ const firstOperationLockTitle = (candidates = []) => {
   return match ? match[1] : "";
 };
 
+const operationFlagKeys = [
+  "sourceMutationInFlight",
+  "recordingStartInFlight",
+  "recordingStopInFlight",
+  "playbackControlInFlight",
+  "applyInFlight",
+  "resetDraftInFlight",
+  "resetParticipantsInFlight",
+  "deviceChangeInFlight",
+];
+
+const operationFlagsFrom = (stateLike = {}) =>
+  operationFlagKeys.reduce((flags, key) => {
+    flags[key] = Boolean(stateLike[key]);
+    return flags;
+  }, {});
+
+const currentOperationFlags = () => operationFlagsFrom(state);
+
 const deriveDraftControlLockState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
@@ -1809,14 +1828,7 @@ const currentSettingsUiState = (snapshot = state.snapshot) => {
     pendingChangeState,
     controlState: deriveDashboardControlState({
       snapshot,
-      applyInFlight: state.applyInFlight,
-      resetDraftInFlight: state.resetDraftInFlight,
-      sourceMutationInFlight: state.sourceMutationInFlight,
-      deviceChangeInFlight: state.deviceChangeInFlight,
-      recordingStartInFlight: state.recordingStartInFlight,
-      recordingStopInFlight: state.recordingStopInFlight,
-      playbackControlInFlight: state.playbackControlInFlight,
-      resetParticipantsInFlight: state.resetParticipantsInFlight,
+      ...currentOperationFlags(),
       pendingChanges: pendingChangeState.pendingChanges,
       runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
     }),
@@ -2149,36 +2161,34 @@ const renderSourceLibrary = () => {
   });
 };
 
-const sourceLibrarySignature = (categories) => JSON.stringify([
-  state.sourceMutationInFlight,
-  state.applyInFlight,
-  state.resetDraftInFlight,
-  state.deviceChangeInFlight,
-  state.recordingStopInFlight,
-  state.playbackControlInFlight,
-  categories.map((category) => [
-    category.id,
-    category.label,
-    category.settings_field,
-    category.required,
-    category.directory,
-    category.active_exists,
-    category.legacy_exists,
-    category.legacy_path,
-    category.legacy_size_bytes,
-    category.legacy_modified_at,
-    category.selected_path,
-    (category.files || []).map((file) => [
-      file.name,
-      file.path,
-      file.size_bytes,
-      file.modified_at,
-      file.active,
-      file.applied,
+const sourceLibrarySignature = (categories) => {
+  const sourceLockState = currentSourceLockState();
+  return JSON.stringify([
+    sourceLockState.sourceActionTitle,
+    categories.map((category) => [
+      category.id,
+      category.label,
+      category.settings_field,
+      category.required,
+      category.directory,
+      category.active_exists,
+      category.legacy_exists,
+      category.legacy_path,
+      category.legacy_size_bytes,
+      category.legacy_modified_at,
+      category.selected_path,
+      (category.files || []).map((file) => [
+        file.name,
+        file.path,
+        file.size_bytes,
+        file.modified_at,
+        file.active,
+        file.applied,
+      ]),
+      sourceUploadSignature(category.id),
     ]),
-    sourceUploadSignature(category.id),
-  ]),
-]);
+  ]);
+};
 
 const sourceCategoryRequired = (category) => category?.required !== false;
 
@@ -2250,15 +2260,7 @@ const sourceActionBusyTitle = ({
   resetParticipantsInFlight,
 }).sourceActionTitle;
 
-const currentSourceLockState = () => deriveOperationLocks({
-  sourceMutationInFlight: state.sourceMutationInFlight,
-  applyInFlight: state.applyInFlight,
-  resetDraftInFlight: state.resetDraftInFlight,
-  deviceChangeInFlight: state.deviceChangeInFlight,
-  recordingStopInFlight: state.recordingStopInFlight,
-  playbackControlInFlight: state.playbackControlInFlight,
-  resetParticipantsInFlight: state.resetParticipantsInFlight,
-});
+const currentSourceLockState = () => deriveOperationLocks(currentOperationFlags());
 
 const sourceCommandBlocked = () =>
   currentSourceLockState().sourceCommandBlocked;
@@ -2310,27 +2312,10 @@ const syncSourceLibraryBusyControls = (container) => {
   });
 };
 
-const deriveSourceUploadActionState = (
-  upload = {},
-  sourceMutationInFlight = false,
-  applyInFlight = false,
-  resetDraftInFlight = false,
-  deviceChangeInFlight = false,
-  recordingStopInFlight = false,
-  playbackControlInFlight = false,
-  resetParticipantsInFlight = false,
-) => {
+const deriveSourceUploadActionState = (upload = {}, operationFlags = {}) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
-  const busyTitle = sourceActionBusyTitle({
-    sourceMutationInFlight,
-    applyInFlight,
-    resetDraftInFlight,
-    deviceChangeInFlight,
-    recordingStopInFlight,
-    playbackControlInFlight,
-    resetParticipantsInFlight,
-  });
+  const busyTitle = sourceActionBusyTitle(operationFlagsFrom(operationFlags));
   const busy = Boolean(busyTitle);
   return {
     selectAfterUpload: upload.selectAfterUpload !== false,
@@ -2345,27 +2330,10 @@ const deriveSourceUploadActionState = (
   };
 };
 
-const deriveSourceFileActionState = (
-  file = {},
-  sourceMutationInFlight = false,
-  applyInFlight = false,
-  resetDraftInFlight = false,
-  deviceChangeInFlight = false,
-  recordingStopInFlight = false,
-  playbackControlInFlight = false,
-  resetParticipantsInFlight = false,
-) => {
+const deriveSourceFileActionState = (file = {}, operationFlags = {}) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
-  const busyTitle = sourceActionBusyTitle({
-    sourceMutationInFlight,
-    applyInFlight,
-    resetDraftInFlight,
-    deviceChangeInFlight,
-    recordingStopInFlight,
-    playbackControlInFlight,
-    resetParticipantsInFlight,
-  });
+  const busyTitle = sourceActionBusyTitle(operationFlagsFrom(operationFlags));
   const busy = Boolean(busyTitle);
   return {
     active,
@@ -2423,16 +2391,7 @@ const sourceCategoryCard = (category) => {
   const sourceActionDisabled = busyTitle ? " disabled" : "";
   const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
   const status = deriveSourceCategoryStatusState(category);
-  const uploadAction = deriveSourceUploadActionState(
-    upload,
-    state.sourceMutationInFlight,
-    state.applyInFlight,
-    state.resetDraftInFlight,
-    state.deviceChangeInFlight,
-    state.recordingStopInFlight,
-    state.playbackControlInFlight,
-    state.resetParticipantsInFlight,
-  );
+  const uploadAction = deriveSourceUploadActionState(upload, currentOperationFlags());
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
   const uploadTitle = uploadAction.uploadTitle
@@ -2503,16 +2462,7 @@ const sourceFileRows = (category) => {
     return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
   }
   return category.files.map((file) => {
-    const action = deriveSourceFileActionState(
-      file,
-      state.sourceMutationInFlight,
-      state.applyInFlight,
-      state.resetDraftInFlight,
-      state.deviceChangeInFlight,
-      state.recordingStopInFlight,
-      state.playbackControlInFlight,
-      state.resetParticipantsInFlight,
-    );
+    const action = deriveSourceFileActionState(file, currentOperationFlags());
     const badges = deriveSourceFileStatusLabels(file, action)
       .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
       .join("");
@@ -2756,13 +2706,7 @@ const deviceChangeForceDisabled = (key) => (
 const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({
   forceDisabled: deviceChangeForceDisabled(key),
   devicesLoaded: Boolean(state.devices),
-  deviceChangeInFlight: state.deviceChangeInFlight,
-  applyInFlight: state.applyInFlight,
-  resetDraftInFlight: state.resetDraftInFlight,
-  sourceMutationInFlight: state.sourceMutationInFlight,
-  recordingStopInFlight: state.recordingStopInFlight,
-  playbackControlInFlight: state.playbackControlInFlight,
-  resetParticipantsInFlight: state.resetParticipantsInFlight,
+  ...currentOperationFlags(),
 });
 
 const deriveStorageModeControlState = ({
@@ -2824,13 +2768,7 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
   const selectState = deriveSystemDeviceSelectState({
     forceDisabled,
     devicesLoaded: Boolean(state.devices),
-    deviceChangeInFlight: state.deviceChangeInFlight,
-    applyInFlight: state.applyInFlight,
-    resetDraftInFlight: state.resetDraftInFlight,
-    sourceMutationInFlight: state.sourceMutationInFlight,
-    recordingStopInFlight: state.recordingStopInFlight,
-    playbackControlInFlight: state.playbackControlInFlight,
-    resetParticipantsInFlight: state.resetParticipantsInFlight,
+    ...currentOperationFlags(),
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.title = selectState.title;
@@ -3190,13 +3128,7 @@ const renderStorageModeControls = () => {
       snapshot: state.snapshot,
       draft: state.draft,
       mode,
-      applyInFlight: state.applyInFlight,
-      resetDraftInFlight: state.resetDraftInFlight,
-      sourceMutationInFlight: state.sourceMutationInFlight,
-      deviceChangeInFlight: state.deviceChangeInFlight,
-      recordingStopInFlight: state.recordingStopInFlight,
-      playbackControlInFlight: state.playbackControlInFlight,
-      resetParticipantsInFlight: state.resetParticipantsInFlight,
+      ...currentOperationFlags(),
     });
     button.disabled = controlState.disabled;
     button.setAttribute("aria-pressed", controlState.ariaPressed);
@@ -3211,13 +3143,7 @@ const setStorageMode = (mode) => {
     snapshot: state.snapshot,
     draft: state.draft,
     mode,
-    applyInFlight: state.applyInFlight,
-    resetDraftInFlight: state.resetDraftInFlight,
-    sourceMutationInFlight: state.sourceMutationInFlight,
-    deviceChangeInFlight: state.deviceChangeInFlight,
-    recordingStopInFlight: state.recordingStopInFlight,
-    playbackControlInFlight: state.playbackControlInFlight,
-    resetParticipantsInFlight: state.resetParticipantsInFlight,
+    ...currentOperationFlags(),
   });
   if (!controlState.canCommit) return;
   commitDraftChange(() => {
@@ -3834,14 +3760,7 @@ const saveDraft = async () => {
 const deriveDashboardControlStateForRequest = (currentState = state) =>
   deriveDashboardControlState({
     snapshot: currentState.snapshot,
-    applyInFlight: currentState.applyInFlight,
-    resetDraftInFlight: currentState.resetDraftInFlight,
-    sourceMutationInFlight: currentState.sourceMutationInFlight,
-    deviceChangeInFlight: currentState.deviceChangeInFlight,
-    recordingStartInFlight: currentState.recordingStartInFlight,
-    recordingStopInFlight: currentState.recordingStopInFlight,
-    playbackControlInFlight: currentState.playbackControlInFlight,
-    resetParticipantsInFlight: currentState.resetParticipantsInFlight,
+    ...operationFlagsFrom(currentState),
   });
 
 const controlDisabledByDashboardState = (path, currentState = state) => {

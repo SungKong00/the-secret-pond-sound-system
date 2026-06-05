@@ -1609,7 +1609,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst renderLastEventBadge",
     )
     assert "const currentDashboardControlState = (snapshot = state.snapshot) => {" in script.text
-    assert "resetParticipantsInFlight: state.resetParticipantsInFlight" in script.text
+    assert "const currentOperationFlags = () => operationFlagsFrom(state)" in script.text
+    assert "...currentOperationFlags()," in script.text
     assert (
         "const { pendingChangeState, controlState } = currentDashboardControlState(snapshot)"
         in render_state_body
@@ -2157,7 +2158,8 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
     run_static_app_harness(
         tmp_path,
         exports=(
-            "{ state, deriveDashboardControlState, deriveSettingsActionState, "
+            "{ state, operationFlagKeys, operationFlagsFrom, currentOperationFlags, "
+            "deriveDashboardControlState, deriveSettingsActionState, "
             "derivePendingChangeState, "
             "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
             "deriveSystemDeviceSelectState, deriveStorageModeControlState, "
@@ -2185,6 +2187,58 @@ const settings = {{
   active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
 }};
 const draft = {{ voice_stack: {{ mode: "live_ephemeral" }} }};
+const expectedOperationFlagKeys = [
+  "sourceMutationInFlight",
+  "recordingStartInFlight",
+  "recordingStopInFlight",
+  "playbackControlInFlight",
+  "applyInFlight",
+  "resetDraftInFlight",
+  "resetParticipantsInFlight",
+  "deviceChangeInFlight",
+];
+
+assert.deepStrictEqual(helpers.operationFlagKeys, expectedOperationFlagKeys);
+assert.deepStrictEqual(
+  helpers.operationFlagsFrom({{
+    sourceMutationInFlight: true,
+    recordingStartInFlight: true,
+    recordingStopInFlight: false,
+    playbackControlInFlight: true,
+    applyInFlight: false,
+    resetDraftInFlight: true,
+    resetParticipantsInFlight: false,
+    deviceChangeInFlight: true,
+    snapshot: "ignored",
+  }}),
+  {{
+    sourceMutationInFlight: true,
+    recordingStartInFlight: true,
+    recordingStopInFlight: false,
+    playbackControlInFlight: true,
+    applyInFlight: false,
+    resetDraftInFlight: true,
+    resetParticipantsInFlight: false,
+    deviceChangeInFlight: true,
+  }},
+);
+expectedOperationFlagKeys.forEach((key) => {{
+  helpers.state[key] = false;
+}});
+helpers.state.applyInFlight = true;
+helpers.state.resetParticipantsInFlight = true;
+assert.deepStrictEqual(helpers.currentOperationFlags(), {{
+  sourceMutationInFlight: false,
+  recordingStartInFlight: false,
+  recordingStopInFlight: false,
+  playbackControlInFlight: false,
+  applyInFlight: true,
+  resetDraftInFlight: false,
+  resetParticipantsInFlight: true,
+  deviceChangeInFlight: false,
+}});
+helpers.state.applyInFlight = false;
+helpers.state.resetParticipantsInFlight = false;
 
 assert.strictEqual(
   firstLockTitle([
@@ -5022,10 +5076,43 @@ def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None
         tmp_path,
         exports=(
             "{ deriveSourceUploadActionState, deriveSourceFileActionState, "
-            "deriveSourceFileStatusLabels, sourceSelectFromEventTarget }"
+            "deriveSourceFileStatusLabels, sourceLibrarySignature, state, "
+            "sourceSelectFromEventTarget }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
+const signatureCategories = [
+  {{
+    id: "low",
+    label: "Low",
+    settings_field: "low_path",
+    required: true,
+    selected_path: "",
+    legacy_exists: false,
+    legacy_size_bytes: 0,
+    legacy_modified_at: "",
+    active_exists: false,
+    files: [],
+  }},
+];
+
+helpers.state.sourceMutationInFlight = false;
+helpers.state.recordingStartInFlight = false;
+helpers.state.recordingStopInFlight = false;
+helpers.state.playbackControlInFlight = false;
+helpers.state.applyInFlight = false;
+helpers.state.resetDraftInFlight = false;
+helpers.state.resetParticipantsInFlight = false;
+helpers.state.deviceChangeInFlight = false;
+const idleSourceSignature = helpers.sourceLibrarySignature(signatureCategories);
+helpers.state.resetParticipantsInFlight = true;
+const resetParticipantsSourceSignature = helpers.sourceLibrarySignature(signatureCategories);
+assert.notStrictEqual(idleSourceSignature, resetParticipantsSourceSignature);
+helpers.state.resetParticipantsInFlight = false;
+helpers.state.recordingStartInFlight = true;
+const recordingStartSourceSignature = helpers.sourceLibrarySignature(signatureCategories);
+assert.strictEqual(idleSourceSignature, recordingStartSourceSignature);
+helpers.state.recordingStartInFlight = false;
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{ selectAfterUpload: true, file: null }}),
@@ -5042,7 +5129,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, true),
+  }}, {{ sourceMutationInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5056,7 +5143,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, false, true),
+  }}, {{ applyInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5070,7 +5157,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, false, false, true),
+  }}, {{ resetDraftInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5084,7 +5171,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, false, false, false, false, true),
+  }}, {{ recordingStopInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5098,7 +5185,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, false, false, false, false, false, true),
+  }}, {{ playbackControlInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5112,7 +5199,7 @@ assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
     selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
-  }}, false, false, false, false, false, false, true),
+  }}, {{ resetParticipantsInFlight: true }}),
   {{
     selectAfterUpload: false,
     hasFile: true,
@@ -5141,7 +5228,7 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileActionState({{ active: false }}, true),
+  helpers.deriveSourceFileActionState({{ active: false }}, {{ sourceMutationInFlight: true }}),
   {{
     active: false,
     deleteDisabled: true,
@@ -5150,7 +5237,7 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileActionState({{ active: false }}, false, true),
+  helpers.deriveSourceFileActionState({{ active: false }}, {{ applyInFlight: true }}),
   {{
     active: false,
     deleteDisabled: true,
@@ -5159,7 +5246,7 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileActionState({{ active: false }}, false, false, true),
+  helpers.deriveSourceFileActionState({{ active: false }}, {{ resetDraftInFlight: true }}),
   {{
     active: false,
     deleteDisabled: true,
@@ -5168,7 +5255,7 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileActionState({{ active: false }}, false, false, false, false, true),
+  helpers.deriveSourceFileActionState({{ active: false }}, {{ recordingStopInFlight: true }}),
   {{
     active: false,
     deleteDisabled: true,
@@ -5177,7 +5264,7 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileActionState({{ active: false }}, false, false, false, false, false, true),
+  helpers.deriveSourceFileActionState({{ active: false }}, {{ playbackControlInFlight: true }}),
   {{
     active: false,
     deleteDisabled: true,
@@ -5188,13 +5275,7 @@ assert.deepStrictEqual(
 assert.deepStrictEqual(
   helpers.deriveSourceFileActionState(
     {{ active: false }},
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    true,
+    {{ resetParticipantsInFlight: true }},
   ),
   {{
     active: false,
