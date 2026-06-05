@@ -1905,6 +1905,7 @@ const renderSourceHealthList = (sources) => {
 const renderSourceLibrary = () => {
   const container = $("sourceLibraryList");
   if (!container) return;
+  syncSourceLibraryBusyControls(container);
   if (deferInteractiveRender("source-library", container, renderSourceLibrary)) return;
   const status = $("sourceLibraryStatus");
   if (!state.sources) {
@@ -2004,6 +2005,23 @@ const sourceActionBusyTitle = (sourceMutationInFlight = false, applyInFlight = f
 
 const sourceCommandBlocked = () =>
   Boolean(sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight));
+
+const sourceLibraryBusyControlSelector = [
+  "[data-source-select]",
+  "[data-source-file]",
+  "[data-source-upload-select]",
+  "[data-source-upload]",
+  "[data-source-delete]",
+].join(", ");
+
+const syncSourceLibraryBusyControls = (container) => {
+  const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
+  if (!busyTitle || typeof container.querySelectorAll !== "function") return;
+  container.querySelectorAll(sourceLibraryBusyControlSelector).forEach((control) => {
+    control.disabled = true;
+    control.title = busyTitle;
+  });
+};
 
 const deriveSourceUploadActionState = (
   upload = {},

@@ -2773,6 +2773,42 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
     )
 
 
+def test_static_ui_source_library_busy_state_updates_when_render_is_deferred(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderSourceLibrary }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const sourceSelect = makeElement();
+const fileInput = makeElement();
+const uploadMode = makeElement();
+const uploadButton = makeElement();
+const deleteButton = makeElement();
+
+elements.sourceLibraryList = makeElement();
+elements.sourceLibraryList.contains = (element) => element === sourceSelect;
+elements.sourceLibraryList.querySelectorAll = (selector) => {
+  if (selector.includes("[data-source-select]")) {
+    return [sourceSelect, fileInput, uploadMode, uploadButton, deleteButton];
+  }
+  return [];
+};
+
+helpers.state.activeInteractiveControl = sourceSelect;
+helpers.state.sourceMutationInFlight = true;
+helpers.renderSourceLibrary();
+
+for (const control of [sourceSelect, fileInput, uploadMode, uploadButton, deleteButton]) {
+  assert.strictEqual(control.disabled, true);
+  assert.strictEqual(control.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+}
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
