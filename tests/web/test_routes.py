@@ -3446,7 +3446,7 @@ assert.strictEqual(uploadButton.title, "추가할 WAV 파일을 먼저 선택하
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ sourceSignatureForSettings }",
+        exports="{ activeSourcePathsChanged, sourceSignatureForSettings }",
         body="""
 const settings = {{
   sources: {{
@@ -3454,11 +3454,13 @@ const settings = {{
     mid_path: null,
     voice_raw_path: null,
     voice_stack_path: null,
+    ambience_path: "sources/ambience/selected.wav",
   }},
 }};
 const categories = [
   {{
     id: "low",
+    settings_field: "low_path",
     legacy_path: "sources/low/legacy.wav",
     legacy_size_bytes: 1,
     legacy_modified_at: "legacy-low",
@@ -3472,20 +3474,45 @@ const categories = [
   }},
   {{
     id: "mid",
+    settings_field: "mid_path",
     legacy_path: "sources/mid/current.wav",
     legacy_size_bytes: 20,
     legacy_modified_at: "legacy-mid",
     files: [],
   }},
+  {{
+    id: "ambience",
+    settings_field: "ambience_path",
+    legacy_path: "sources/ambience/legacy.wav",
+    legacy_size_bytes: 3,
+    legacy_modified_at: "legacy-ambience",
+    files: [
+      {{
+        path: "sources/ambience/selected.wav",
+        size_bytes: 30,
+        modified_at: "selected-ambience",
+      }},
+    ],
+  }},
 ];
 
 assert.strictEqual(
   globalThis.__secretPondTest.sourceSignatureForSettings(settings, categories),
-  "low:sources/low/selected.wav:10:selected-low|mid:sources/mid/current.wav:20:legacy-mid",
+  "low:sources/low/selected.wav:10:selected-low|" +
+    "mid:sources/mid/current.wav:20:legacy-mid|" +
+    "ambience:sources/ambience/selected.wav:30:selected-ambience",
 );
 assert.strictEqual(
   globalThis.__secretPondTest.sourceSignatureForSettings(settings, null),
   null,
+);
+assert.strictEqual(
+  globalThis.__secretPondTest.activeSourcePathsChanged(
+    {{ settings: {{ active: {{ sources: {{ ambience_path: "sources/ambience/old.wav" }} }} }} }},
+    {{ settings: {{ active: {{ sources: {{ ambience_path: "sources/ambience/new.wav" }} }} }} }},
+    categories,
+  ),
+  true,
 );
 """,
     )
@@ -6016,6 +6043,10 @@ def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None
     assert response.status_code == 200
     categories = {category["id"]: category for category in response.json()["categories"]}
     assert set(categories) == {"low", "mid", "voice_raw", "voice_stack"}
+    assert categories["low"]["settings_field"] == "low_path"
+    assert categories["mid"]["settings_field"] == "mid_path"
+    assert categories["voice_raw"]["settings_field"] == "voice_raw_path"
+    assert categories["voice_stack"]["settings_field"] == "voice_stack_path"
     assert categories["low"]["selected_path"] == "data/sources/low/library-low.wav"
     assert categories["low"]["active_exists"] is True
     assert categories["low"]["legacy_size_bytes"] == 0

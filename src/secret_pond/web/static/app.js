@@ -2046,6 +2046,7 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
   categories.map((category) => [
     category.id,
     category.label,
+    category.settings_field,
     category.required,
     category.directory,
     category.active_exists,
@@ -2734,26 +2735,56 @@ const toServerSettingsChangePayload = (change) => {
   };
 };
 
-const sourceSettingsFields = {
+const legacySourceSettingsFields = {
   low: "low_path",
   mid: "mid_path",
   voice_raw: "voice_raw_path",
   voice_stack: "voice_stack_path",
 };
 
-const selectedSourcePathFor = (settings, categoryId) => {
-  const field = sourceSettingsFields[categoryId];
+const sourceSettingsFieldForCategory = (category) => {
+  if (typeof category === "string") {
+    return legacySourceSettingsFields[category] || null;
+  }
+  if (typeof category?.settings_field === "string" && category.settings_field) {
+    return category.settings_field;
+  }
+  return legacySourceSettingsFields[category?.id] || null;
+};
+
+const sourceSettingsFieldsForCategories = (categories) => {
+  if (!Array.isArray(categories)) return Object.values(legacySourceSettingsFields);
+  return [
+    ...new Set(
+      categories
+        .map((category) => sourceSettingsFieldForCategory(category))
+        .filter(Boolean),
+    ),
+  ];
+};
+
+const selectedSourcePathFor = (settings, category) => {
+  const field = sourceSettingsFieldForCategory(category);
   if (!field) return null;
   return settings?.sources?.[field] || null;
 };
 
-const sourcePathSignatureForSettings = (settings) => JSON.stringify(
-  Object.values(sourceSettingsFields).map((field) => settings?.sources?.[field] || null),
+const sourcePathSignatureForSettings = (
+  settings,
+  categories = sourceCategories(),
+) => JSON.stringify(
+  sourceSettingsFieldsForCategories(categories).map(
+    (field) => settings?.sources?.[field] || null,
+  ),
 );
 
-const activeSourcePathsChanged = (previousSnapshot, nextSnapshot) => (
-  sourcePathSignatureForSettings(previousSnapshot?.settings?.active) !==
-    sourcePathSignatureForSettings(nextSnapshot?.settings?.active)
+const activeSourcePathsChanged = (
+  previousSnapshot,
+  nextSnapshot,
+  categories = sourceCategories(),
+) => (
+  sourcePathSignatureForSettings(previousSnapshot?.settings?.active, categories) !==
+    sourcePathSignatureForSettings(nextSnapshot?.settings?.active, categories)
 );
 
 const sourceCategories = () => state.sources?.categories || null;
@@ -2762,7 +2793,9 @@ const sourceSignatureForSettings = (settings, categories) => {
   if (!Array.isArray(categories) || !settings) return null;
   return categories
     .map((category) => {
-      const selectedPath = selectedSourcePathFor(settings, category.id) || category.legacy_path || null;
+      const selectedPath = selectedSourcePathFor(settings, category) ||
+        category.legacy_path ||
+        null;
       const file = (category.files || []).find((item) => item.path === selectedPath);
       const legacySelected = selectedPath && selectedPath === category.legacy_path;
       return [

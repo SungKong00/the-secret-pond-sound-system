@@ -139,6 +139,7 @@ def category_payload(
     return {
         "id": config.id,
         "label": config.label,
+        "settings_field": config.settings_field,
         "required": config.required,
         "directory": _relative_path(paths.root, directory),
         "selected_path": selected,
