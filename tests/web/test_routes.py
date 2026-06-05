@@ -1396,6 +1396,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "clearLayerPresetSelection" in script.text
     assert 'action: "reset-filter"' in script.text
     assert "filterStatus" in script.text
+    assert "filterResetActionState" in script.text
     assert "filter-reset-button" in script.text
     assert "resetLayerFilter" in script.text
     assert 'title: "Filter Range"' in script.text
@@ -1572,6 +1573,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst renderRecordingControls",
     )
     assert "commitDraftChange(" in reset_layer_filter_body
+    assert (
+        "filterResetActionState(filterGroup, layer, activeLayer).resetDisabled"
+        in reset_layer_filter_body
+    )
     assert "afterSync: renderLayerControls" in reset_layer_filter_body
     apply_recording_preset_body = slice_between(
         script.text,
@@ -1847,6 +1852,43 @@ assert.match(lastActionsMarkup, /filter-status bypassed/);
 assert.match(lastActionsMarkup, /필터 없음/);
 """
     subprocess.run([node, "-e", harness], check=True, text=True)
+
+
+def test_static_ui_filter_reset_action_state_blocks_unavailable_actions(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ filterResetActionState, layerControlGroups }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const filterGroup = helpers.layerControlGroups.find((group) => group.action === "reset-filter");
+const bypassedLayer = {{ eq: {{ highpass_hz: 20, lowpass_hz: 20000 }} }};
+const activeLayer = {{ eq: {{ highpass_hz: 80, lowpass_hz: 12000 }} }};
+const filteredLayer = {{ eq: {{ highpass_hz: 80, lowpass_hz: 12000 }} }};
+
+const bypassed = helpers.filterResetActionState(filterGroup, bypassedLayer, activeLayer);
+assert.strictEqual(bypassed.status.bypassed, true);
+assert.strictEqual(bypassed.status.pending, true);
+assert.strictEqual(bypassed.resetDisabled, true);
+assert.strictEqual(bypassed.resetTitle, "");
+
+const available = helpers.filterResetActionState(filterGroup, filteredLayer, activeLayer);
+assert.strictEqual(available.status.bypassed, false);
+assert.strictEqual(available.status.pending, false);
+assert.strictEqual(available.resetDisabled, false);
+assert.strictEqual(available.resetTitle, "");
+
+const locked = helpers.filterResetActionState(
+  filterGroup,
+  filteredLayer,
+  activeLayer,
+  {{ resetDraftInFlight: true }},
+);
+assert.strictEqual(locked.resetDisabled, true);
+assert.strictEqual(locked.resetTitle, "설정 변경 취소가 끝날 때까지 기다리세요.");
+""",
+    )
 
 
 def test_static_ui_presets_are_stateful_and_reversible(tmp_path: Path) -> None:

@@ -3126,6 +3126,8 @@ const resetLayerFilter = (layerId) => {
   const layer = state.draft?.layers?.[layerId];
   const filterGroup = layerControlGroups.find((group) => group.action === "reset-filter");
   if (!layer || !filterGroup) return;
+  const activeLayer = state.snapshot?.settings?.active?.layers?.[layerId] || null;
+  if (filterResetActionState(filterGroup, layer, activeLayer).resetDisabled) return;
   commitDraftChange(
     () => {
       filterGroup.controls.forEach((control) => {
@@ -3265,12 +3267,21 @@ const filterStatus = (group, draftSource, activeSource = null) => {
   };
 };
 
+const filterResetActionState = (group, draftSource, activeSource = null, stateLike = state) => {
+  const status = filterStatus(group, draftSource, activeSource);
+  const draftLock = deriveDraftControlLockState(stateLike);
+  return {
+    status,
+    resetDisabled: !status || draftLock.disabled || Boolean(status.bypassed),
+    resetTitle: draftLock.title,
+  };
+};
+
 const groupActionsMarkup = (group, draftSource, activeSource = null) => {
   if (group.action !== "reset-filter") return "";
-  const status = filterStatus(group, draftSource, activeSource);
+  const actionState = filterResetActionState(group, draftSource, activeSource);
+  const { status } = actionState;
   if (!status) return "";
-  const draftLock = deriveDraftControlLockState(state);
-  const actionDisabled = draftLock.disabled || status.bypassed;
   return `
     <div class="control-group-actions">
       <span class="filter-status ${
@@ -3283,8 +3294,8 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
       <button
         class="mini-button filter-reset-button"
         type="button"
-        ${actionDisabled ? "disabled" : ""}
-        ${draftLock.title ? `title="${escapeHtml(draftLock.title)}"` : ""}
+        ${actionState.resetDisabled ? "disabled" : ""}
+        ${actionState.resetTitle ? `title="${escapeHtml(actionState.resetTitle)}"` : ""}
       >
         필터 초기화
       </button>
