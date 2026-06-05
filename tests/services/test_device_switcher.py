@@ -146,6 +146,35 @@ class FailingApplyRuntimeHarness(RuntimeHarness):
         raise RuntimeError("controller update failed")
 
 
+def test_apply_runtime_devices_rejects_unavailable_output_before_mutating_runtime() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id="mic-1",
+                output_device_id="speaker-1",
+            )
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    with pytest.raises(DeviceSelectionError, match="output device is unavailable: missing-speaker"):
+        apply_runtime_devices(  # type: ignore[arg-type]
+            runtime,
+            DeviceSettings(input_device_id="mic-1", output_device_id="missing-speaker"),
+        )
+
+    assert runtime.recorder.device_id == "mic-1"
+    assert runtime.output.device_id == "speaker-1"
+    assert runtime.output.is_running is True
+    assert runtime.output.stop_calls == 0
+    assert runtime.output.start_calls == 0
+    assert store.saved_states == []
+    assert runtime.settings_state == state
+
+
 def test_apply_runtime_devices_rolls_back_runtime_devices_when_save_fails() -> None:
     active = AppSettings().model_copy(
         update={

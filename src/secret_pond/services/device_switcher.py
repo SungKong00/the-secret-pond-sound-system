@@ -29,6 +29,13 @@ def apply_runtime_devices(
     if not input_changed and not output_changed:
         return current
 
+    _validate_changed_devices(
+        runtime,
+        devices,
+        input_changed=input_changed,
+        output_changed=output_changed,
+    )
+
     was_output_running = runtime.output.is_running
     if output_changed and was_output_running:
         runtime.output.stop()
@@ -64,6 +71,25 @@ def apply_runtime_devices(
                 runtime.settings_state = previous_state
                 runtime.controller.update_settings(previous_state.active)
         raise DeviceSelectionError(str(exc)) from exc
+
+
+def _validate_changed_devices(
+    runtime: SecretPondRuntime,
+    devices: DeviceSettings,
+    *,
+    input_changed: bool,
+    output_changed: bool,
+) -> None:
+    if input_changed and devices.input_device_id is not None:
+        selected_input = runtime.device_registry.validate_input(devices.input_device_id)
+        if selected_input is None:
+            raise DeviceSelectionError(f"input device is unavailable: {devices.input_device_id}")
+    if output_changed and devices.output_device_id is not None:
+        selected_output = runtime.device_registry.validate_output(devices.output_device_id)
+        if selected_output is None:
+            raise DeviceSelectionError(
+                f"output device is unavailable: {devices.output_device_id}"
+            )
 
 
 def _set_device_id(component: Any, device_id: str | None) -> None:

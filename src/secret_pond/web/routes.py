@@ -117,7 +117,6 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         current = _settings_state(runtime)
         try:
             devices = _device_settings_from_payload(current.active.devices, payload)
-            _validate_device_selection(runtime, current.active.devices, devices)
             apply_runtime_devices(runtime, devices)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -510,27 +509,6 @@ def _select_source_draft(
         if selected is None or not selected.exists():
             raise FileNotFoundError(f"source file does not exist: {relative_path}")
     return next_draft
-
-
-def _validate_device_selection(
-    runtime: SecretPondRuntime,
-    current: DeviceSettings,
-    devices: DeviceSettings,
-) -> None:
-    if (
-        devices.input_device_id != current.input_device_id
-        and devices.input_device_id is not None
-    ):
-        selected_input = runtime.device_registry.validate_input(devices.input_device_id)
-        if selected_input is None:
-            raise ValueError(f"input device is unavailable: {devices.input_device_id}")
-    if (
-        devices.output_device_id != current.output_device_id
-        and devices.output_device_id is not None
-    ):
-        selected_output = runtime.device_registry.validate_output(devices.output_device_id)
-        if selected_output is None:
-            raise ValueError(f"output device is unavailable: {devices.output_device_id}")
 
 
 def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
