@@ -150,6 +150,37 @@ def test_stable_update_draft_settings_does_not_mutate_active_runtime_state() -> 
     assert runtime.player.realtime_trim_updates == []
 
 
+def test_stable_update_draft_settings_stages_volume_and_mute_without_touching_playback() -> None:
+    active = AppSettings()
+    draft_layers = {
+        **active.layers,
+        "low": active.layers["low"].model_copy(update={"enabled": False, "volume_db": -24.0}),
+        "mid": active.layers["mid"].model_copy(update={"enabled": False, "volume_db": -30.0}),
+        "voice": active.layers["voice"].model_copy(update={"enabled": False, "volume_db": -36.0}),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "stable"
+    assert result.active.layers == active.layers
+    assert runtime.settings_state.active.layers == active.layers
+    assert runtime.controller.settings.layers == active.layers
+    assert result.draft.layers["low"].enabled is False
+    assert result.draft.layers["low"].volume_db == -24.0
+    assert result.draft.layers["mid"].enabled is False
+    assert result.draft.layers["mid"].volume_db == -30.0
+    assert result.draft.layers["voice"].enabled is False
+    assert result.draft.layers["voice"].volume_db == -36.0
+    assert runtime.player.enabled_updates == []
+    assert runtime.player.realtime_trim_updates == []
+    assert runtime.player.restart_called is False
+    assert runtime.player.reload_and_restart_called is False
+
+
 def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_gain() -> None:
     active = AppSettings().model_copy(
         update={
