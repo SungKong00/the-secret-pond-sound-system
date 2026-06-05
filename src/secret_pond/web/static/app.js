@@ -2202,13 +2202,27 @@ const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   return stableSettingsSignature(activeLayers) === stableSettingsSignature(draftLayers);
 };
 
+const liveVoiceStackTransitionChangeOnly = (snapshot, settingsPlan) => {
+  if (!snapshot?.settings?.active || !state.draft) return false;
+  if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
+  if (settingsPlan.changedSections.some((section) => section !== "voice_stack")) return false;
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled || !live.voice_stack_transition_applies_immediately) return false;
+  const activeVoiceStack = clone(snapshot.settings.active.voice_stack || {});
+  const draftVoiceStack = clone(state.draft.voice_stack || {});
+  draftVoiceStack.transition_seconds = activeVoiceStack.transition_seconds;
+  return stableSettingsSignature(activeVoiceStack) === stableSettingsSignature(draftVoiceStack);
+};
+
 const derivePendingChangeState = (
   settingsPlan,
   sourceFilesChanged = false,
   snapshot = state.snapshot,
 ) => {
   const runtimeConfigChanged = Boolean(settingsPlan?.runtimeConfigChanged);
-  const liveAppliedSettingsChanged = liveLayerControlChangeOnly(snapshot, settingsPlan);
+  const liveAppliedSettingsChanged =
+    liveLayerControlChangeOnly(snapshot, settingsPlan) ||
+    liveVoiceStackTransitionChangeOnly(snapshot, settingsPlan);
   const settingsChanged =
     Boolean(settingsPlan?.changedSections?.length || runtimeConfigChanged) &&
     !liveAppliedSettingsChanged;
