@@ -1404,11 +1404,15 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
   const renderControlsOnSync = options.renderControlsOnSync ?? true;
-  const shouldSyncDraft = syncDraft || !state.draft;
+  const shouldSyncDraft = shouldSyncIncomingSettingsDraft(
+    options.currentSnapshot ?? state.snapshot,
+    state.draft,
+    { syncDraft },
+  );
   const nextSettings = clone(settingsPayload);
   state.snapshot.settings = nextSettings;
   state.draft = mergeSettingsPayloadDraft(state.draft, nextSettings, {
-    syncDraft,
+    syncDraft: shouldSyncDraft,
     mergeDraftSections,
   });
   if (shouldSyncDraft) {
@@ -1430,9 +1434,10 @@ const applyState = (payload, options = {}) => {
   if (!serverStateChanged && !syncDraft && state.snapshot) {
     return false;
   }
+  const currentSnapshot = state.snapshot;
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
-  applySettingsPayload(payload.settings, { syncDraft, mergeDraftSections });
+  applySettingsPayload(payload.settings, { currentSnapshot, syncDraft, mergeDraftSections });
   renderState();
   renderSystemStatus();
   return true;
@@ -2636,6 +2641,13 @@ const normalizeSettingsChangePlan = (change) => {
 const settingsPayloadMatchesDraft = (snapshot, draft) => (
   stableSettingsSignature(snapshot.settings.draft) === stableSettingsSignature(draft)
 );
+
+const shouldSyncIncomingSettingsDraft = (currentSnapshot, currentDraft, options = {}) => {
+  const syncDraft = options.syncDraft ?? true;
+  if (syncDraft || !currentDraft) return true;
+  if (!currentSnapshot?.settings?.draft) return false;
+  return settingsPayloadMatchesDraft(currentSnapshot, currentDraft);
+};
 
 const canUseServerSettingsChangePlan = (snapshot, draft) => (
   snapshot?.settings?.change?.runtime_config_changed !== undefined &&

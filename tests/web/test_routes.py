@@ -2674,8 +2674,8 @@ def test_static_ui_settings_change_plan_uses_server_runtime_field_policy(
         tmp_path,
         exports=(
             "{ state, settingsChangePlan, canUseServerSettingsChangePlan, "
-            "mergeSettingsPayloadDraft, localSettingsChangePlan, normalizeSettingsChangePlan, "
-            "toServerSettingsChangePayload }"
+            "mergeSettingsPayloadDraft, shouldSyncIncomingSettingsDraft, "
+            "localSettingsChangePlan, normalizeSettingsChangePlan, toServerSettingsChangePayload }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -2739,6 +2739,18 @@ assert.deepStrictEqual(helpers.settingsChangePlan(staleSnapshot), {{
 }});
 assert.strictEqual(
   helpers.canUseServerSettingsChangePlan(staleSnapshot, serverDraft),
+  true,
+);
+assert.strictEqual(
+  helpers.shouldSyncIncomingSettingsDraft(staleSnapshot, serverDraft, {{ syncDraft: false }}),
+  true,
+);
+assert.strictEqual(
+  helpers.shouldSyncIncomingSettingsDraft(staleSnapshot, localDraft, {{ syncDraft: false }}),
+  false,
+);
+assert.strictEqual(
+  helpers.shouldSyncIncomingSettingsDraft(staleSnapshot, localDraft, {{ syncDraft: true }}),
   true,
 );
 
@@ -3028,6 +3040,7 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
       voice: layerSettings(-18),
     },
   };
+  const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
   const snapshot = (participantCount) => ({
     armed: true,
     is_recording: false,
@@ -3097,6 +3110,42 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
 
   assert.strictEqual(helpers.state.snapshot.participant_count, 3);
   assert.strictEqual(elements.participantCount.textContent, 3);
+
+  const snapshotWithDraftLoop = (participantCount, loopSeconds) => {
+    const nextActive = cloneSettings(settings);
+    const nextDraft = cloneSettings(settings);
+    nextDraft.voice_stack.loop_seconds = loopSeconds;
+    return {
+      ...snapshot(participantCount),
+      settings: {
+        active: nextActive,
+        draft: nextDraft,
+        change: {
+          runtime_config_changed: false,
+          changed_runtime_fields: [],
+          changed_sections: loopSeconds === settings.voice_stack.loop_seconds
+            ? []
+            : ["voice_stack"],
+          runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+        },
+      },
+    };
+  };
+
+  const cleanDraftBase = snapshotWithDraftLoop(10, 60);
+  helpers.applyState(cleanDraftBase);
+  assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 60);
+
+  helpers.applyState(snapshotWithDraftLoop(11, 75), { syncDraft: false });
+  assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 75);
+
+  const localDirtyDraft = cloneSettings(helpers.state.draft);
+  localDirtyDraft.voice_stack.loop_seconds = 88;
+  helpers.state.draft = localDirtyDraft;
+  helpers.applyState(snapshotWithDraftLoop(12, 99), { syncDraft: false });
+  assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 88);
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 88);
 })().catch((error) => {
   console.error(error);
   process.exit(1);
