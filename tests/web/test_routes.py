@@ -164,6 +164,15 @@ def assert_timestamped_voice_filename(path: str, suffix: str) -> None:
     assert timestamp[9:-1].isdigit()
 
 
+def corrupt_settings_json(paths: ProjectPaths) -> None:
+    paths.settings_file.write_text("{", encoding="utf-8")
+
+
+def corrupt_participant_count_json(paths: ProjectPaths) -> None:
+    paths.participant_count_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.participant_count_file.write_text("{", encoding="utf-8")
+
+
 class FakeOutput:
     def __init__(
         self,
@@ -2614,6 +2623,12 @@ assert.strictEqual(
   "입력/출력 장치는 System 패널에서 선택하세요.",
 );
 assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
+    "state is unavailable: settings file contains invalid JSON",
+  ),
+  "상태를 불러오지 못했습니다.",
+);
+assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage("Request failed: 503"),
   "요청을 처리하지 못했습니다. HTTP 503 상태입니다.",
 );
@@ -2826,11 +2841,27 @@ assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, true);
 assert.strictEqual(elements.syncBadge.textContent, "실시간 동기화");
 assert.strictEqual(elements.syncBadge.className, "status-pill safe");
 
+connectedSocket.emit("message", {{
+  data: JSON.stringify({{
+    error: {{
+      code: "state_unavailable",
+      message: "state is unavailable: settings file contains invalid JSON",
+    }},
+  }}),
+}});
+assert.strictEqual(globalThis.__secretPondTest.state.snapshot, null);
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "상태를 불러오지 못했습니다.",
+);
+assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
+
 connectedSocket.emit("close");
 assert.strictEqual(globalThis.__secretPondTest.state.stateSocket, null);
 assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, false);
 assert.strictEqual(elements.syncBadge.textContent, "동기화 확인");
 assert.strictEqual(scheduledReconnect.delay, 1500);
+globalThis.__secretPondTest.showError("");
 
 globalThis.__secretPondTest.renderEventLogSummary([], "stream start failed");
 assert.strictEqual(elements.eventLogSummary.children.length, 1);
@@ -4709,6 +4740,28 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("corrupt_durable_state", "reason"),
+    [
+        (corrupt_settings_json, "settings file contains invalid JSON"),
+        (corrupt_participant_count_json, "participant count file is not valid JSON"),
+    ],
+)
+def test_api_state_maps_unreadable_durable_state_to_503(
+    tmp_path: Path,
+    corrupt_durable_state,
+    reason: str,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    corrupt_durable_state(paths)
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == f"state is unavailable: {reason}"
+
+
 def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -4758,6 +4811,33 @@ def test_ws_state_sends_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["participant_count"] == 0
     assert payload["playback"]["output_running"] is False
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
+
+
+@pytest.mark.parametrize(
+    ("corrupt_durable_state", "reason"),
+    [
+        (corrupt_settings_json, "settings file contains invalid JSON"),
+        (corrupt_participant_count_json, "participant count file is not valid JSON"),
+    ],
+)
+def test_ws_state_sends_state_unavailable_error_without_closing(
+    tmp_path: Path,
+    corrupt_durable_state,
+    reason: str,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    corrupt_durable_state(paths)
+
+    with client.websocket_connect("/ws/state") as websocket:
+        payload = websocket.receive_json()
+
+    assert payload == {
+        "error": {
+            "code": "state_unavailable",
+            "message": f"state is unavailable: {reason}",
+        },
+    }
 
 
 def test_ws_state_disconnect_stops_active_recording(tmp_path: Path) -> None:

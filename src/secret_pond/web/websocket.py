@@ -8,7 +8,11 @@ from starlette.websockets import WebSocketDisconnect
 from secret_pond.services.recording_transaction import RecordingControlError
 from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
-from secret_pond.web.state import state_payload
+from secret_pond.web.state import (
+    StatePayloadUnavailable,
+    state_payload,
+    state_unavailable_payload,
+)
 
 STATE_PUSH_INTERVAL_SECONDS = 0.5
 
@@ -26,7 +30,10 @@ async def state_socket(websocket: WebSocket) -> None:
     try:
         while True:
             await _poll_auto_stop_best_effort(runtime)
-            payload = await asyncio.to_thread(_locked_state_payload, runtime)
+            try:
+                payload = await asyncio.to_thread(_locked_state_payload, runtime)
+            except StatePayloadUnavailable as exc:
+                payload = state_unavailable_payload(exc)
             await websocket.send_json(payload)
             try:
                 await asyncio.wait_for(
@@ -53,7 +60,7 @@ def _locked_poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
     try:
         with runtime.operation_lock:
             run_recording_workflow(runtime, runtime.controller.poll_auto_stop)
-    except (RecordingControlError, RuntimeError):
+    except (OSError, RecordingControlError, RuntimeError, ValueError):
         return
 
 

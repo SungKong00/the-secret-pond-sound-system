@@ -1,3 +1,12 @@
+const responseErrorMessage = (payload, status) => {
+  const detail = payload?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    return detail.message || detail.reason || detail.code || `Request failed: ${status}`;
+  }
+  return `Request failed: ${status}`;
+};
+
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -5,7 +14,8 @@ const api = async (path, options = {}) => {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.detail || `Request failed: ${response.status}`);
+    const message = responseErrorMessage(payload, response.status);
+    const error = new Error(message);
     error.status = response.status;
     error.detail = payload.detail || null;
     throw error;
@@ -150,6 +160,14 @@ const describeUiNotice = (message, defaultSeverity = "error") => {
       text,
       "서버에 연결하지 못했습니다.",
       "로컬 서버가 실행 중인지, 브라우저가 같은 주소에 연결되어 있는지 확인하세요.",
+      "error",
+    );
+  }
+  if (normalized.includes("state is unavailable")) {
+    return uiNotice(
+      text,
+      "상태를 불러오지 못했습니다.",
+      "설정 또는 참여자 상태 파일을 읽지 못했습니다. data 디렉터리의 파일 상태를 확인한 뒤 다시 시도하세요.",
       "error",
     );
   }
@@ -3467,6 +3485,13 @@ const stateSocketUrl = () => {
   return `${protocol}//${window.location.host}/ws/state`;
 };
 
+const stateSocketErrorMessage = (payload) => {
+  const error = payload?.error;
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  return error.message || error.detail || error.code || "state websocket error";
+};
+
 const connectStateSocket = () => {
   if (!("WebSocket" in window)) {
     renderSyncBadge();
@@ -3485,6 +3510,11 @@ const connectStateSocket = () => {
   socket.addEventListener("message", async (event) => {
     try {
       const payload = JSON.parse(event.data);
+      const errorMessage = stateSocketErrorMessage(payload);
+      if (errorMessage) {
+        showError(errorMessage);
+        return;
+      }
       const shouldRefreshSources = activeSourcePathsChanged(state.snapshot, payload);
       applyState(payload, { syncDraft: false });
       if (shouldRefreshSources) {

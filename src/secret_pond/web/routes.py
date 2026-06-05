@@ -29,7 +29,12 @@ from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.services.settings_store import SettingsState
-from secret_pond.web.state import outcome_payload, settings_payload, state_payload
+from secret_pond.web.state import (
+    StatePayloadUnavailable,
+    outcome_payload,
+    settings_payload,
+    state_payload,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -38,7 +43,7 @@ router = APIRouter(prefix="/api")
 def get_state(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        return state_payload(runtime)
+        return _state_payload(runtime)
 
 
 @router.post("/input/arm")
@@ -46,7 +51,7 @@ def arm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         runtime.controller.arm_input()
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.post("/input/disarm")
@@ -56,7 +61,7 @@ def disarm_input(request: Request) -> dict[str, Any]:
         outcome = _run_control(runtime.controller.disarm_input)
         return {
             "outcome": outcome_payload(outcome),
-            "state": state_payload(runtime),
+            "state": _state_payload(runtime),
         }
 
 
@@ -65,7 +70,7 @@ def start_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         _run_control(runtime.controller.start_recording)
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.post("/recording/stop")
@@ -75,7 +80,7 @@ def stop_recording(request: Request) -> dict[str, Any]:
         outcome = _run_recording_control(runtime, runtime.controller.stop_recording)
         return {
             "outcome": outcome_payload(outcome),
-            "state": state_payload(runtime),
+            "state": _state_payload(runtime),
         }
 
 
@@ -86,7 +91,7 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
         outcome = _run_recording_control(runtime, runtime.controller.poll_auto_stop)
         return {
             "outcome": outcome_payload(outcome),
-            "state": state_payload(runtime),
+            "state": _state_payload(runtime),
         }
 
 
@@ -119,7 +124,7 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {
             "settings": settings_payload(runtime),
-            "state": state_payload(runtime),
+            "state": _state_payload(runtime),
             "devices": _devices_payload(runtime, runtime.settings_store.load().active),
         }
 
@@ -250,7 +255,7 @@ def start_playback(request: Request) -> dict[str, Any]:
             _log_playback_event(runtime, "playback.start_failed", error=str(exc))
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         _log_playback_event(runtime, "playback.started")
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.post("/playback/stop")
@@ -263,7 +268,7 @@ def stop_playback(request: Request) -> dict[str, Any]:
             _log_playback_event(runtime, "playback.stop_failed", error=str(exc))
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         _log_playback_event(runtime, "playback.stopped")
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.post("/playback/restart")
@@ -292,7 +297,7 @@ def restart_playback(request: Request) -> dict[str, Any]:
             _log_playback_event(runtime, "playback.restart_failed", error=detail)
             raise HTTPException(status_code=409, detail=detail) from exc
         _log_playback_event(runtime, "playback.restarted")
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.get("/settings")
@@ -348,7 +353,7 @@ def reset_participant_count(request: Request) -> dict[str, Any]:
             "participants.reset",
             {"previous_count": previous_count, "count": participant_count},
         )
-        return {"state": state_payload(runtime)}
+        return {"state": _state_payload(runtime)}
 
 
 @router.post("/settings/apply")
@@ -362,7 +367,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         return {
             "settings": settings_payload(runtime),
-            "state": state_payload(runtime),
+            "state": _state_payload(runtime),
         }
 
 
@@ -371,6 +376,13 @@ def _runtime(request: Request) -> SecretPondRuntime:
     if runtime is None:
         raise HTTPException(status_code=503, detail="runtime is not ready")
     return runtime
+
+
+def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    try:
+        return state_payload(runtime)
+    except StatePayloadUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _run_control(fn):

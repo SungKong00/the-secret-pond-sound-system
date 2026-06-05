@@ -11,14 +11,24 @@ from secret_pond.services.settings_changes import (
 )
 
 
+class StatePayloadUnavailable(RuntimeError):
+    code = "state_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"state is unavailable: {reason}")
+
+
 def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    participant_count = _participant_count(runtime)
+    settings = _settings_payload(runtime)
     return {
         "armed": runtime.controller.armed,
         "is_recording": runtime.controller.is_recording,
         "recording_elapsed_seconds": runtime.controller.recording_elapsed_seconds,
         "recording_remaining_seconds": runtime.controller.recording_remaining_seconds,
         "last_error": runtime.controller.last_error,
-        "participant_count": runtime.participants.get_count(),
+        "participant_count": participant_count,
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
@@ -33,7 +43,7 @@ def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
                 for layer_id, layer_state in runtime.player.layer_states.items()
             },
         },
-        "settings": settings_payload(runtime),
+        "settings": settings,
     }
 
 
@@ -47,6 +57,29 @@ def settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
             classify_settings_change(settings_state.active, settings_state.draft),
         ),
     }
+
+
+def state_unavailable_payload(error: StatePayloadUnavailable) -> dict[str, Any]:
+    return {
+        "error": {
+            "code": error.code,
+            "message": str(error),
+        },
+    }
+
+
+def _participant_count(runtime: SecretPondRuntime) -> int:
+    try:
+        return runtime.participants.get_count()
+    except (OSError, ValueError) as exc:
+        raise StatePayloadUnavailable(str(exc)) from exc
+
+
+def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    try:
+        return settings_payload(runtime)
+    except (OSError, ValueError) as exc:
+        raise StatePayloadUnavailable(str(exc)) from exc
 
 
 def settings_change_payload(change: SettingsChangePlan) -> dict[str, Any]:
