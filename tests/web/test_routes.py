@@ -2431,7 +2431,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
             "renderEventLogSummary, draftEditLocked, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
-            "releaseInteractiveControl, refreshAll, requestSources, "
+            "releaseInteractiveControl, refreshAll, requestDevices, requestSources, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
             "uploadSourceFile, applyAndRestart, resetDraft }"
@@ -3479,6 +3479,75 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
     91,
   );
+
+  const oldDeviceList = {{
+    input_devices: [],
+    output_devices: [{{ id: "speaker-1", name: "Speaker 1" }}],
+    selected_input_device: null,
+    selected_output_device: {{ id: "speaker-1", name: "Speaker 1" }},
+    warnings: [],
+  }};
+  const newDeviceList = {{
+    input_devices: [],
+    output_devices: [{{ id: "speaker-2", name: "Speaker 2" }}],
+    selected_input_device: null,
+    selected_output_device: {{ id: "speaker-2", name: "Speaker 2" }},
+    warnings: [],
+  }};
+  const slowDeviceRefreshResponses = [];
+  globalThis.__secretPondTest.state.devices = oldDeviceList;
+  globalThis.fetch = (path, options = {{}}) => {{
+    if (path === "/api/devices" && options.method === "PUT") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: {{
+            ...snapshot,
+            is_recording: false,
+            settings: {{
+              active: cloneSettings(serverDeviceActive),
+              draft: cloneSettings(serverDeviceDraft),
+              change: {{
+                runtime_config_changed: false,
+                changed_runtime_fields: [],
+                changed_sections: ["devices"],
+              }},
+            }},
+          }},
+          devices: newDeviceList,
+        }}),
+      }});
+    }}
+    if (path === "/api/devices") {{
+      return new Promise((resolve) => {{
+        slowDeviceRefreshResponses.push(resolve);
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const staleDeviceRefresh = globalThis.__secretPondTest.requestDevices();
+  assert.strictEqual(slowDeviceRefreshResponses.length, 1);
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.devices.selected_output_device.id,
+    "speaker-2",
+  );
+  slowDeviceRefreshResponses[0]({{
+    ok: true,
+    json: async () => oldDeviceList,
+  }});
+  await staleDeviceRefresh;
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.devices.selected_output_device.id,
+    "speaker-2",
+  );
+
   globalThis.__secretPondTest.applyState({{
     ...snapshot,
     is_recording: false,

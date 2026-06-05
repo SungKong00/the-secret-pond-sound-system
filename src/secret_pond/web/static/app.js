@@ -40,6 +40,8 @@ const state = {
   draftEditRevision: 0,
   sourceMutationRequestId: 0,
   sourceRefreshRequestId: 0,
+  deviceChangeRequestId: 0,
+  deviceRefreshRequestId: 0,
   spaceRecording: false,
   stateSocket: null,
   websocketConnected: false,
@@ -1165,17 +1167,44 @@ const requestState = async (options = {}) => {
   applyState(payload, options);
 };
 
+const beginDeviceRefresh = () => {
+  state.deviceRefreshRequestId += 1;
+  return {
+    refreshRequestId: state.deviceRefreshRequestId,
+    deviceChangeRequestId: state.deviceChangeRequestId,
+    deviceChangeInFlight: state.deviceChangeInFlight,
+  };
+};
+
+const isCurrentDeviceRefresh = (request) =>
+  request.refreshRequestId === state.deviceRefreshRequestId &&
+  request.deviceChangeRequestId === state.deviceChangeRequestId &&
+  !request.deviceChangeInFlight &&
+  !state.deviceChangeInFlight;
+
 const requestDevices = async () => {
+  const request = beginDeviceRefresh();
+  let shouldRender = false;
   try {
-    state.devices = await api("/api/devices");
+    const devices = await api("/api/devices");
+    if (!isCurrentDeviceRefresh(request)) return devices;
+    state.devices = devices;
     state.deviceError = null;
+    shouldRender = true;
+    return devices;
   } catch (error) {
+    if (!isCurrentDeviceRefresh(request)) return null;
     state.devices = null;
     state.deviceError = error.message;
+    shouldRender = true;
+    return null;
+  } finally {
+    if (shouldRender) {
+      renderDevices();
+      renderSystemStatus();
+      renderErrors();
+    }
   }
-  renderDevices();
-  renderSystemStatus();
-  renderErrors();
 };
 
 const requestDiagnostics = async () => {
@@ -3290,6 +3319,7 @@ const toggleCaptureGate = () => {
 
 const changeDevice = async (key, value) => {
   if (state.deviceChangeInFlight || state.applyInFlight) return;
+  state.deviceChangeRequestId += 1;
   state.deviceChangeInFlight = true;
   renderDevices();
   try {
