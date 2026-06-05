@@ -2271,6 +2271,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ recordingStopInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: false,
+    sourceCommandBlocked: false,
+    sourceActionTitle: "",
+    deviceLocked: false,
+    deviceTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -2319,6 +2331,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ recordingStopInFlight: true }}),
+  {{
+    disabled: true,
+    title: "녹음 처리가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -5730,6 +5750,21 @@ globalThis.__secretPondTest.state.snapshot.playback.output_running = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.stopOutputButton.disabled, true);
 assert.strictEqual(elements.restartOutputButton.disabled, true);
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+const voiceStackControlCountBeforeRecordingStopLockRender =
+  elements.voiceStackControls.children.length;
+globalThis.__secretPondTest.renderVoiceStackControls();
+const recordingStopLockedVoiceLoopRow =
+  elements.voiceStackControls.children[voiceStackControlCountBeforeRecordingStopLockRender];
+const recordingStopLockedVoiceLoopInput = recordingStopLockedVoiceLoopRow.querySelector("input");
+const recordingStopLockedVoiceLoopValueInput =
+  recordingStopLockedVoiceLoopRow.querySelector(".value-input");
+assert.strictEqual(recordingStopLockedVoiceLoopInput.disabled, true);
+assert.strictEqual(recordingStopLockedVoiceLoopValueInput.disabled, true);
+recordingStopLockedVoiceLoopInput.value = "85";
+recordingStopLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+assert.strictEqual(recordingStopLockedVoiceLoopInput.value, "60");
 
 globalThis.__secretPondTest.state.recordingStopInFlight = false;
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;

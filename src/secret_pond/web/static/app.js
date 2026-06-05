@@ -1473,6 +1473,7 @@ const operationLockMessages = {
   sourceReset: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   sourceDeviceChange: "장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
+  recordingStop: "녹음 처리가 끝날 때까지 기다리세요.",
   resetParticipants: "참여자 초기화가 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
   deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
@@ -1490,12 +1491,14 @@ const deriveDraftControlLockState = ({
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
+  recordingStopInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
+    [recordingStopInFlight, operationLockMessages.recordingStop],
   ]);
   return {
     disabled: Boolean(title),
@@ -1508,6 +1511,7 @@ const deriveOperationLocks = ({
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
+  recordingStopInFlight = false,
   devicesLoaded = true,
   forceDeviceDisabled = false,
 } = {}) => {
@@ -1529,6 +1533,7 @@ const deriveOperationLocks = ({
     resetDraftInFlight,
     sourceMutationInFlight,
     deviceChangeInFlight,
+    recordingStopInFlight,
   });
   return {
     draftLocked: draftLock.disabled,
