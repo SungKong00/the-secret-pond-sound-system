@@ -2248,13 +2248,15 @@ def test_static_ui_settings_change_plan_uses_server_runtime_field_policy(
         tmp_path,
         exports=(
             "{ state, settingsChangePlan, canUseServerSettingsChangePlan, "
-            "localSettingsChangePlan, normalizeSettingsChangePlan, toServerSettingsChangePayload }"
+            "mergeSettingsPayloadDraft, localSettingsChangePlan, normalizeSettingsChangePlan, "
+            "toServerSettingsChangePayload }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
 const active = {{
   audio: {{ sample_rate: 48000, channels: 2 }},
   devices: {{ input_device_id: null, output_device_id: null }},
+  sources: {{ low_path: "low-active.wav", mid_path: null }},
   layers: {{ voice: {{ volume_db: -18 }} }},
 }};
 const draft = JSON.parse(JSON.stringify(active));
@@ -2313,6 +2315,31 @@ assert.strictEqual(
   helpers.canUseServerSettingsChangePlan(staleSnapshot, serverDraft),
   true,
 );
+
+const incomingDraft = JSON.parse(JSON.stringify(active));
+incomingDraft.sources.low_path = "low-server.wav";
+incomingDraft.layers.voice.volume_db = -24;
+const unsavedDraft = JSON.parse(JSON.stringify(active));
+unsavedDraft.sources.low_path = "low-local.wav";
+unsavedDraft.layers.voice.volume_db = -12;
+
+const mergedDraft = helpers.mergeSettingsPayloadDraft(unsavedDraft, {{
+  draft: incomingDraft,
+}}, {{
+  syncDraft: false,
+  mergeDraftSections: ["sources"],
+}});
+assert.notStrictEqual(mergedDraft, unsavedDraft);
+assert.notStrictEqual(mergedDraft.sources, unsavedDraft.sources);
+assert.strictEqual(mergedDraft.sources.low_path, "low-server.wav");
+assert.strictEqual(mergedDraft.layers.voice.volume_db, -12);
+assert.strictEqual(unsavedDraft.sources.low_path, "low-local.wav");
+
+const syncedDraft = helpers.mergeSettingsPayloadDraft(unsavedDraft, {{
+  draft: incomingDraft,
+}});
+assert.strictEqual(syncedDraft.sources.low_path, "low-server.wav");
+assert.strictEqual(syncedDraft.layers.voice.volume_db, -24);
 """,
     )
 

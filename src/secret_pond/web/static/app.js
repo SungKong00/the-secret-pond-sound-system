@@ -1280,24 +1280,42 @@ const refreshAll = async () => {
   renderErrors();
 };
 
+const hasOwnProperty = (target, key) => Object.prototype.hasOwnProperty.call(target || {}, key);
+
+const mergeSettingsPayloadDraft = (currentDraft, settingsPayload, options = {}) => {
+  const syncDraft = options.syncDraft ?? true;
+  const mergeDraftSections = options.mergeDraftSections || [];
+  const payloadDraft = settingsPayload?.draft;
+  if (!payloadDraft) {
+    return currentDraft ? clone(currentDraft) : null;
+  }
+  if (syncDraft || !currentDraft) {
+    return clone(payloadDraft);
+  }
+  const nextDraft = clone(currentDraft);
+  mergeDraftSections.forEach((sectionName) => {
+    if (hasOwnProperty(payloadDraft, sectionName) && hasOwnProperty(nextDraft, sectionName)) {
+      nextDraft[sectionName] = clone(payloadDraft[sectionName]);
+    }
+  });
+  return nextDraft;
+};
+
 const applySettingsPayload = (settingsPayload, options = {}) => {
   if (!state.snapshot || !settingsPayload) return false;
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
+  const renderControlsOnSync = options.renderControlsOnSync ?? true;
+  const shouldSyncDraft = syncDraft || !state.draft;
   const nextSettings = clone(settingsPayload);
   state.snapshot.settings = nextSettings;
-  if (syncDraft || !state.draft) {
-    state.draft = clone(nextSettings.draft);
-    renderControls();
+  state.draft = mergeSettingsPayloadDraft(state.draft, nextSettings, {
+    syncDraft,
+    mergeDraftSections,
+  });
+  if (shouldSyncDraft) {
+    if (renderControlsOnSync) renderControls();
   } else {
-    mergeDraftSections.forEach((sectionName) => {
-      if (
-        Object.prototype.hasOwnProperty.call(nextSettings.draft || {}, sectionName) &&
-        Object.prototype.hasOwnProperty.call(state.draft, sectionName)
-      ) {
-        state.draft[sectionName] = clone(nextSettings.draft[sectionName]);
-      }
-    });
     syncDraftSnapshot();
   }
   return true;
@@ -3168,8 +3186,7 @@ const saveDraft = async () => {
       body: JSON.stringify(draftPayload),
     });
     if (!isCurrentDraftSave(request)) return payload;
-    state.snapshot.settings = payload.settings;
-    state.draft = clone(payload.settings.draft);
+    applySettingsPayload(payload.settings, { renderControlsOnSync: false });
     renderState();
     renderDevices();
     return payload;
@@ -3321,8 +3338,7 @@ const resetDraft = async () => {
   renderControls();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
-    state.snapshot.settings = payload.settings;
-    state.draft = clone(payload.settings.draft);
+    applySettingsPayload(payload.settings, { renderControlsOnSync: false });
     await requestDiagnostics();
     await requestSources();
   } catch (error) {
