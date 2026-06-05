@@ -6812,6 +6812,32 @@ def test_api_devices_update_restarts_running_output_on_output_device_change(
     assert response.json()["state"]["playback"]["output_running"] is True
 
 
+def test_api_devices_update_restores_running_output_when_stop_fails(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput(fail_stop=OSError("stream stop failed"))
+    client = create_test_client(
+        tmp_path,
+        output=output,
+        device_registry=fake_device_registry(),
+    )
+    start_response = client.post("/api/playback/start")
+
+    response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
+
+    assert start_response.status_code == 200
+    assert response.status_code == 409
+    assert "stream stop failed" in response.json()["detail"]
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    assert output.is_running is True
+    assert output.device_id is None
+    state = client.get("/api/state").json()
+    assert state["playback"]["output_running"] is True
+    assert state["settings"]["active"]["devices"]["output_device_id"] is None
+    assert state["settings"]["draft"]["devices"]["output_device_id"] is None
+
+
 def test_api_devices_update_rolls_back_runtime_devices_when_save_fails(
     tmp_path: Path,
 ) -> None:

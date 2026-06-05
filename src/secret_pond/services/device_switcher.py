@@ -62,11 +62,10 @@ def apply_runtime_devices(
     )
 
     was_output_running = runtime.output.is_running
-    if output_changed and was_output_running:
-        runtime.output.stop()
-
     save_succeeded = False
     try:
+        if output_changed and was_output_running:
+            runtime.output.stop()
         next_active = current.active.model_copy(update={"devices": devices}, deep=True)
         if input_changed:
             _apply_recorder_input(runtime, next_active)
