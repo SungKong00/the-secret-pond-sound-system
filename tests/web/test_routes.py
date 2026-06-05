@@ -7065,6 +7065,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   unsavedDraft.voice_stack.loop_seconds = 77;
   const serverDraft = cloneSettings(activeSettings);
   serverDraft.voice_stack.loop_seconds = 60;
+  let now = 1000;
+  Date.now = () => now;
   globalThis.__secretPondTest.showError("action failed");
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
   globalThis.__secretPondTest.state.draft = cloneSettings(unsavedDraft);
@@ -7120,6 +7122,10 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.loop_seconds,
     77,
   );
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
+  assert.strictEqual(elements.errorBanner.hidden, false);
+  now += 6000;
+  await globalThis.__secretPondTest.refreshAll();
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
   assert.strictEqual(elements.errorBanner.hidden, true);
 

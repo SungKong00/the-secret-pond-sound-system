@@ -38,6 +38,7 @@ const state = {
   diagnostics: null,
   sources: null,
   transientError: null,
+  transientErrorShownAt: 0,
   deviceError: null,
   diagnosticsError: null,
   sourcesError: null,
@@ -113,6 +114,8 @@ const noticeSeverityDisplay = {
     live: "polite",
   },
 };
+
+const transientNoticeMinimumVisibleMs = 6000;
 
 const openNoticeDetailKeys = new Set();
 
@@ -1209,12 +1212,28 @@ const setErrorBanner = (message, kind = "error") => {
 const showError = (message) => {
   const notice = noticeFromMessage(message, "error");
   state.transientError = notice?.technical || null;
+  state.transientErrorShownAt = notice ? Date.now() : 0;
   renderNoticeBanner(notice ? [notice] : []);
 };
 
-const clearTransientError = () => {
+const transientErrorVisibleLongEnough = () => (
+  !state.transientError ||
+  Date.now() - state.transientErrorShownAt >= transientNoticeMinimumVisibleMs
+);
+
+const clearTransientError = (options = {}) => {
+  if (
+    options.respectMinimumVisibleDuration &&
+    state.transientError &&
+    !transientErrorVisibleLongEnough()
+  ) {
+    renderErrors();
+    return false;
+  }
   state.transientError = null;
+  state.transientErrorShownAt = 0;
   renderErrors();
+  return true;
 };
 
 const requestState = async (options = {}) => {
@@ -1386,7 +1405,7 @@ const refreshAll = async () => {
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });
-  if (!stateRefreshFailed) clearTransientError();
+  if (!stateRefreshFailed) clearTransientError({ respectMinimumVisibleDuration: true });
   renderErrors();
 };
 
