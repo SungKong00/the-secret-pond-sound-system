@@ -197,6 +197,40 @@ def test_apply_draft_settings_reloads_rendered_cache_without_live_voice_hot_swap
     assert runtime.paths.voice_playback.exists()
 
 
+def test_stable_apply_commits_staged_volume_and_mute_to_active_state(tmp_path) -> None:
+    settings = service_settings()
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(ProjectPaths(tmp_path), settings)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+    runtime.output.start()
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False, "volume_db": -24.0}),
+        "mid": settings.layers["mid"].model_copy(update={"enabled": False, "volume_db": -30.0}),
+        "voice": settings.layers["voice"].model_copy(update={"enabled": False, "volume_db": -36.0}),
+    }
+    draft = settings.model_copy(update={"layers": layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    result = apply_draft_settings(runtime)
+
+    stored = runtime.settings_store.load()
+    assert result.settings_state.active.playback.apply_mode == "stable"
+    assert stored.active.layers["low"].enabled is False
+    assert stored.active.layers["low"].volume_db == -24.0
+    assert stored.active.layers["mid"].enabled is False
+    assert stored.active.layers["mid"].volume_db == -30.0
+    assert stored.active.layers["voice"].enabled is False
+    assert stored.active.layers["voice"].volume_db == -36.0
+    assert stored.draft.layers == stored.active.layers
+    assert runtime.controller.settings.layers == stored.active.layers
+    assert len(player.reload_paths) == 1
+    assert player.enabled_updates == [("low", False), ("mid", False), ("voice", False)]
+    assert player.realtime_trim_updates == [("low", 0.0), ("mid", 0.0), ("voice", 0.0)]
+    assert runtime.output.is_running is True
+
+
 def test_apply_draft_settings_service_rejects_runtime_config_change(tmp_path) -> None:
     settings = service_settings()
     runtime = build_service_runtime(tmp_path, settings)
