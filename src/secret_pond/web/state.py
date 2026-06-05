@@ -63,7 +63,6 @@ def settings_payload(
 ) -> dict[str, Any]:
     if settings_state is None:
         settings_state = load_settings_state(runtime)
-    runtime.settings_state = settings_state
     return {
         "active": settings_state.active.model_dump(mode="json"),
         "draft": settings_state.draft.model_dump(mode="json"),

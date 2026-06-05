@@ -6911,6 +6911,29 @@ def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
     }
 
 
+def test_api_state_payload_reads_settings_without_refreshing_runtime_cache(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    runtime = client.app.state.runtime
+    original_runtime_state = runtime.settings_state
+    file_state = SettingsState(
+        active=original_runtime_state.active,
+        draft=AppSettings.model_validate(draft_with_voice_volume(-9.0)),
+    )
+    SettingsStore(paths).save(file_state)
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
+    assert runtime.settings_state is original_runtime_state
+    assert runtime.settings_state.draft.layers["voice"].volume_db == (
+        original_runtime_state.draft.layers["voice"].volume_db
+    )
+
+
 def test_api_settings_payload_reports_runtime_config_change_plan(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
