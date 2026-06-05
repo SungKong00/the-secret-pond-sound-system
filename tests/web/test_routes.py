@@ -4469,6 +4469,99 @@ assert.strictEqual(helpers.state.sourceUploads.low.selectAfterUpload, true);
     )
 
 
+def test_static_ui_source_library_tracks_upload_controls_for_deferred_render(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, bindEvents, renderSourceLibrary }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const handlers = {};
+const sourceLibraryList = document.getElementById("sourceLibraryList");
+sourceLibraryList.addEventListener = (type, handler) => {
+  handlers[type] = handler;
+};
+
+const fileInput = makeElement();
+fileInput.tagName = "INPUT";
+fileInput.dataset = { sourceFile: "low" };
+fileInput.addEventListener = () => {};
+fileInput.closest = (selector) => selector.includes("[data-source-file]") ? fileInput : null;
+const uploadMode = makeElement();
+uploadMode.tagName = "INPUT";
+uploadMode.dataset = { sourceUploadSelect: "low" };
+uploadMode.addEventListener = () => {};
+uploadMode.closest = (selector) =>
+  selector.includes("[data-source-upload-select]") ? uploadMode : null;
+const uploadButton = makeElement();
+uploadButton.tagName = "BUTTON";
+uploadButton.dataset = { sourceUpload: "low" };
+uploadButton.closest = (selector) => selector.includes("[data-source-upload]")
+  ? uploadButton
+  : null;
+
+sourceLibraryList.contains = (element) =>
+  element === fileInput || element === uploadMode || element === uploadButton;
+helpers.bindEvents();
+assert.strictEqual(typeof handlers.focusin, "function");
+assert.strictEqual(typeof handlers.focusout, "function");
+
+helpers.state.sources = {
+  categories: [
+    {
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      selected_path: "sources/low/current.wav",
+      active_exists: true,
+      files: [
+        {
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+          applied: true,
+        },
+      ],
+    },
+  ],
+};
+helpers.state.sourceUploads.low = {
+  selectAfterUpload: true,
+  file: { name: "picked-low.wav", size: 4096, lastModified: 1 },
+};
+sourceLibraryList.innerHTML = "open file picker";
+sourceLibraryList.children.push({ marker: "existing" });
+
+handlers.focusin({ target: fileInput });
+assert.strictEqual(helpers.state.activeInteractiveControl, fileInput);
+helpers.renderSourceLibrary();
+assert.strictEqual(sourceLibraryList.innerHTML, "open file picker");
+assert.strictEqual(sourceLibraryList.children.length, 1);
+
+handlers.focusout({ target: fileInput, relatedTarget: uploadMode });
+
+assert.strictEqual(helpers.state.activeInteractiveControl, uploadMode);
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["source-library"],
+  "function",
+);
+helpers.state.sources.categories[0].label = "Renamed Low";
+helpers.renderSourceLibrary();
+assert.strictEqual(sourceLibraryList.innerHTML, "open file picker");
+
+handlers.focusout({ target: uploadMode, relatedTarget: uploadButton });
+
+assert.strictEqual(helpers.state.activeInteractiveControl, null);
+assert.strictEqual(helpers.state.deferredInteractiveRenders["source-library"], undefined);
+assert.notStrictEqual(sourceLibraryList.innerHTML, "open file picker");
+""",
+    )
+
+
 def test_static_ui_source_library_busy_state_updates_when_render_is_deferred(
     tmp_path: Path,
 ) -> None:
@@ -4651,6 +4744,125 @@ assert.strictEqual(elements.layerControls.innerHTML, "open settings control 0");
 assert.strictEqual(elements.layerControls.children.length, 1);
 
 helpers.releaseSettingsInteractiveControl({ target: activeInput });
+
+assert.strictEqual(helpers.state.deferredInteractiveRenders["settings-controls"], undefined);
+assert.notStrictEqual(elements.layerControls.innerHTML, "open settings control 0");
+""",
+    )
+
+
+def test_static_ui_settings_controls_keep_deferred_render_across_internal_focus_move(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ state, renderControls, trackSettingsInteractiveControl, "
+            "releaseSettingsInteractiveControl }"
+        ),
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const layerSettings = (volumeDb) => ({
+  enabled: true,
+  volume_db: volumeDb,
+  eq: {
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+  },
+});
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: null, output_device_id: null },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: layerSettings(-12),
+    mid: layerSettings(-12),
+    voice: layerSettings(-18),
+  },
+};
+helpers.state.snapshot = {
+  armed: true,
+  is_recording: false,
+  playback: { output_running: false, layers: {} },
+  settings: {
+    active: activeSettings,
+    draft: activeSettings,
+    change: {
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+    },
+  },
+};
+helpers.state.draft = JSON.parse(JSON.stringify(activeSettings));
+
+const activeInput = makeElement();
+activeInput.tagName = "INPUT";
+const nextButton = makeElement();
+nextButton.tagName = "BUTTON";
+[
+  "layerControls",
+  "voiceLayerControls",
+  "voiceStackControls",
+  "recordingControls",
+].forEach((id) => document.getElementById(id));
+const settingsContainers = [
+  elements.layerControls,
+  elements.voiceLayerControls,
+  elements.voiceStackControls,
+  elements.recordingControls,
+];
+settingsContainers.forEach((container, index) => {
+  container.innerHTML = `open settings control ${index}`;
+  container.children.push({ marker: index });
+  container.contains = (element) => element === activeInput || element === nextButton;
+});
+
+helpers.trackSettingsInteractiveControl({ target: activeInput });
+helpers.renderControls();
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["settings-controls"],
+  "function",
+);
+
+helpers.releaseSettingsInteractiveControl({
+  target: activeInput,
+  relatedTarget: nextButton,
+});
+
+assert.strictEqual(helpers.state.activeInteractiveControl, nextButton);
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["settings-controls"],
+  "function",
+);
+assert.strictEqual(elements.layerControls.innerHTML, "open settings control 0");
+assert.strictEqual(elements.layerControls.children.length, 1);
+
+helpers.releaseSettingsInteractiveControl({ target: nextButton, relatedTarget: null });
 
 assert.strictEqual(helpers.state.deferredInteractiveRenders["settings-controls"], undefined);
 assert.notStrictEqual(elements.layerControls.innerHTML, "open settings control 0");

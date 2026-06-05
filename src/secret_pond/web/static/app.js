@@ -970,6 +970,7 @@ const recordingPresetIsSelected = (name) => selectedRecordingPresetName() === na
 const deferredInteractiveRenderTargets = new WeakSet();
 const deferredInteractiveRenderControls = {};
 const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
+const deferredInteractiveControlTags = new Set([...interactiveControlTags, "BUTTON"]);
 const settingsControlContainerIds = [
   "layerControls",
   "voiceLayerControls",
@@ -983,21 +984,63 @@ const activeInteractiveControlFor = (container) => {
   return tracked === container || container.contains?.(tracked) ? tracked : null;
 };
 
-const deferInteractiveRender = (key, container, renderFn) => {
+const deferredInteractiveControlFromTarget = (target) => {
+  const control = target?.closest?.("select,input,textarea,button") || target;
+  if (!control || !deferredInteractiveControlTags.has(control.tagName)) return null;
+  return control;
+};
+
+const deferredInteractiveControlInContainer = (container, target) => {
+  const control = deferredInteractiveControlFromTarget(target);
+  if (!control || !container) return null;
+  return container === control || container.contains?.(control) ? control : null;
+};
+
+const transferDeferredInteractiveRenders = (fromControl, toControl) => {
+  Object.entries(deferredInteractiveRenderControls).forEach(([key, control]) => {
+    if (control === fromControl) deferredInteractiveRenderControls[key] = toControl;
+  });
+};
+
+const transferOrReleaseInteractiveControl = (control, nextControl = null) => {
+  if (!control) return;
+  if (nextControl && nextControl !== control) {
+    trackInteractiveControl(nextControl);
+    transferDeferredInteractiveRenders(control, nextControl);
+    return;
+  }
+  releaseInteractiveControl(control);
+};
+
+const trackDeferredInteractiveBlur = (active, container, nextControlForTarget) => {
+  if (deferredInteractiveRenderTargets.has(active)) return;
+  deferredInteractiveRenderTargets.add(active);
+  active.addEventListener("blur", (event) => {
+    deferredInteractiveRenderTargets.delete(active);
+    const nextActive = nextControlForTarget(container, event.relatedTarget);
+    if (nextActive && nextActive !== active) {
+      state.activeInteractiveControl = nextActive;
+      transferDeferredInteractiveRenders(active, nextActive);
+      trackDeferredInteractiveBlur(nextActive, container, nextControlForTarget);
+      return;
+    }
+    if (state.activeInteractiveControl === active) {
+      state.activeInteractiveControl = null;
+    }
+    flushDeferredInteractiveRenders(active);
+  }, { once: true });
+};
+
+const deferInteractiveRender = (key, container, renderFn, options = {}) => {
   const active = activeInteractiveControlFor(container);
   if (!active) return false;
   state.deferredInteractiveRenders[key] = renderFn;
   deferredInteractiveRenderControls[key] = active;
-  if (!deferredInteractiveRenderTargets.has(active)) {
-    deferredInteractiveRenderTargets.add(active);
-    active.addEventListener("blur", () => {
-      deferredInteractiveRenderTargets.delete(active);
-      if (state.activeInteractiveControl === active) {
-        state.activeInteractiveControl = null;
-      }
-      flushDeferredInteractiveRenders(active);
-    }, { once: true });
-  }
+  trackDeferredInteractiveBlur(
+    active,
+    container,
+    options.nextControlForTarget || deferredInteractiveControlInContainer,
+  );
   return true;
 };
 
@@ -1019,8 +1062,7 @@ const activeSettingsControlContainer = () =>
   settingsControlContainers().find((container) => activeInteractiveControlFor(container)) || null;
 
 const settingsInteractiveControlFromEventTarget = (target) => {
-  const control = target?.closest?.("select,input,textarea") || target;
-  if (!control || !interactiveControlTags.has(control.tagName)) return null;
+  const control = deferredInteractiveControlFromTarget(target);
   return settingsControlContainers().some((container) => (
     container === control || container.contains?.(control)
   ))
@@ -1035,7 +1077,8 @@ const trackSettingsInteractiveControl = (event) => {
 
 const releaseSettingsInteractiveControl = (event) => {
   const control = settingsInteractiveControlFromEventTarget(event.target);
-  if (control) releaseInteractiveControl(control);
+  const nextControl = settingsInteractiveControlFromEventTarget(event.relatedTarget);
+  transferOrReleaseInteractiveControl(control, nextControl);
 };
 
 const flushDeferredInteractiveRenders = (element) => {
@@ -2247,7 +2290,13 @@ const renderSourceLibrary = () => {
   const container = $("sourceLibraryList");
   if (!container) return;
   syncSourceLibraryBusyControls(container);
-  if (deferInteractiveRender("source-library", container, renderSourceLibrary)) return;
+  if (
+    deferInteractiveRender("source-library", container, renderSourceLibrary, {
+      nextControlForTarget: (_container, target) => sourceInteractiveControlFromEventTarget(target),
+    })
+  ) {
+    return;
+  }
   const status = $("sourceLibraryStatus");
   if (!state.sources) {
     status.textContent = state.sourcesError ? "목록 실패" : "확인 중";
@@ -2374,8 +2423,21 @@ const currentSourceLockState = () => deriveOperationLocks(currentOperationFlags(
 const sourceCommandBlocked = () =>
   currentSourceLockState().sourceCommandBlocked;
 
+const sourceLibraryInteractiveControlSelector = [
+  "[data-source-select]",
+  "[data-source-file]",
+  "[data-source-upload-select]",
+].join(", ");
+
 const sourceSelectFromEventTarget = (target) =>
   target?.closest?.("[data-source-select]") || null;
+
+const sourceInteractiveControlFromEventTarget = (target) => {
+  const container = $("sourceLibraryList");
+  const control = target?.closest?.(sourceLibraryInteractiveControlSelector) || null;
+  if (!control || !interactiveControlTags.has(control.tagName)) return null;
+  return container === control || container?.contains?.(control) ? control : null;
+};
 
 const sourceDropZoneFromEventTarget = (target) =>
   target?.closest?.("[data-source-drop]") || null;
@@ -3182,7 +3244,9 @@ const renderControls = () => {
   const activeContainer = activeSettingsControlContainer();
   if (
     activeContainer &&
-    deferInteractiveRender("settings-controls", activeContainer, renderControls)
+    deferInteractiveRender("settings-controls", activeContainer, renderControls, {
+      nextControlForTarget: (_container, target) => settingsInteractiveControlFromEventTarget(target),
+    })
   ) {
     return;
   }
@@ -4317,16 +4381,17 @@ const bindEvents = () => {
     changeDeviceFromEvent("output_device_id", event);
   });
   $("sourceLibraryList").addEventListener("pointerdown", (event) => {
-    const select = sourceSelectFromEventTarget(event.target);
-    if (select) trackInteractiveControl(select);
+    const control = sourceInteractiveControlFromEventTarget(event.target);
+    if (control) trackInteractiveControl(control);
   });
   $("sourceLibraryList").addEventListener("focusin", (event) => {
-    const select = sourceSelectFromEventTarget(event.target);
-    if (select) trackInteractiveControl(select);
+    const control = sourceInteractiveControlFromEventTarget(event.target);
+    if (control) trackInteractiveControl(control);
   });
   $("sourceLibraryList").addEventListener("focusout", (event) => {
-    const select = sourceSelectFromEventTarget(event.target);
-    if (select) releaseInteractiveControl(select);
+    const control = sourceInteractiveControlFromEventTarget(event.target);
+    const nextControl = sourceInteractiveControlFromEventTarget(event.relatedTarget);
+    transferOrReleaseInteractiveControl(control, nextControl);
   });
   $("sourceLibraryList").addEventListener("change", (event) => {
     const select = sourceSelectFromEventTarget(event.target);
