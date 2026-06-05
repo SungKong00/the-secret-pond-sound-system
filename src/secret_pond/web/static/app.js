@@ -1525,12 +1525,14 @@ const deriveSettingsActionState = ({
   snapshot,
   applyInFlight = false,
   resetDraftInFlight = false,
+  sourceMutationInFlight = false,
   recordingStopInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const resetBusy = Boolean(resetDraftInFlight);
+  const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const applyTitle = recordingStopBusy
@@ -1541,6 +1543,8 @@ const deriveSettingsActionState = ({
       ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
       : applyInFlight
         ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
+        : sourceMutationBusy
+          ? operationLockMessages.sourceMutation
         : runtimeConfigChanged
           ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
           : !pendingChanges
@@ -1554,17 +1558,24 @@ const deriveSettingsActionState = ({
       ? "녹음 처리가 끝날 때까지 기다리세요."
       : applyInFlight
         ? "설정 적용이 끝날 때까지 기다리세요."
+        : sourceMutationBusy
+          ? operationLockMessages.sourceMutation
         : isRecording
           ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
           : !pendingChanges
             ? "취소할 설정 변경사항이 없습니다."
             : "";
   const resetDisabled = Boolean(
-    applyInFlight || resetBusy || recordingStopBusy || isRecording || !pendingChanges,
+    applyInFlight ||
+      resetBusy ||
+      sourceMutationBusy ||
+      recordingStopBusy ||
+      isRecording ||
+      !pendingChanges,
   );
   return {
-    applyDisabled: applyInFlight || resetBusy || recordingStopBusy || isRecording ||
-      runtimeConfigChanged || !pendingChanges,
+    applyDisabled: applyInFlight || resetBusy || sourceMutationBusy ||
+      recordingStopBusy || isRecording || runtimeConfigChanged || !pendingChanges,
     applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
     applyAttention: pendingChanges && !runtimeConfigChanged,
     applyTitle,
@@ -1577,6 +1588,7 @@ const deriveDashboardControlState = ({
   snapshot,
   applyInFlight = false,
   resetDraftInFlight = false,
+  sourceMutationInFlight = false,
   recordingStopInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
@@ -1597,6 +1609,7 @@ const deriveDashboardControlState = ({
     snapshot,
     applyInFlight,
     resetDraftInFlight,
+    sourceMutationInFlight,
     recordingStopInFlight,
     pendingChanges,
     runtimeConfigChanged,
@@ -1649,6 +1662,7 @@ const renderState = () => {
     snapshot,
     applyInFlight: state.applyInFlight,
     resetDraftInFlight: state.resetDraftInFlight,
+    sourceMutationInFlight: state.sourceMutationInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
@@ -2698,6 +2712,7 @@ const currentSettingsActionState = (snapshot = state.snapshot) => {
     snapshot,
     applyInFlight: state.applyInFlight,
     resetDraftInFlight: state.resetDraftInFlight,
+    sourceMutationInFlight: state.sourceMutationInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,

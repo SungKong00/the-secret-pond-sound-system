@@ -2263,6 +2263,26 @@ assert.deepStrictEqual(
     snapshot,
     applyInFlight: false,
     resetDraftInFlight: false,
+    sourceMutationInFlight: true,
+    recordingStopInFlight: false,
+    pendingChanges: true,
+    runtimeConfigChanged: false,
+  }}),
+  {{
+    applyDisabled: true,
+    applyLabel: "변경사항 적용 후 재생",
+    applyAttention: true,
+    applyTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+    resetDisabled: true,
+    resetTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveSettingsActions({{
+    snapshot,
+    applyInFlight: false,
+    resetDraftInFlight: false,
     recordingStopInFlight: false,
     pendingChanges: true,
     runtimeConfigChanged: false,
@@ -4132,6 +4152,23 @@ assert.strictEqual(elements.applyButton.disabled, false);
 assert.strictEqual(elements.applyButton.title, "");
 assert.strictEqual(elements.resetButton.disabled, false);
 assert.strictEqual(elements.resetButton.title, "");
+
+globalThis.__secretPondTest.state.sourceMutationInFlight = true;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.applyButton.disabled, true);
+assert.strictEqual(elements.applyButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+let sourceMutationApplyFetchPath = null;
+globalThis.fetch = (path) => {{
+  sourceMutationApplyFetchPath = path;
+  return new Promise(() => {{}});
+}};
+globalThis.__secretPondTest.applyAndRestart();
+assert.strictEqual(sourceMutationApplyFetchPath, null);
+globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+globalThis.__secretPondTest.renderState();
+assert.strictEqual(elements.applyButton.disabled, false);
+assert.strictEqual(elements.resetButton.disabled, false);
+
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
