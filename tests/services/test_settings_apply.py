@@ -8,6 +8,7 @@ from secret_pond.audio.file_io import write_wav_atomic
 from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
+    DeviceSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
 )
@@ -212,3 +213,52 @@ def test_apply_draft_settings_service_rejects_runtime_config_change(tmp_path) ->
     assert exc_info.value.change_plan.runtime_config_changed is True
     assert exc_info.value.change_plan.changed_runtime_fields == ["audio.sample_rate"]
     assert runtime.settings_store.load().active.audio.sample_rate == 8_000
+
+
+def test_stable_mode_apply_keeps_runtime_config_pending_until_restart(tmp_path) -> None:
+    settings = service_settings()
+    runtime = build_service_runtime(tmp_path, settings)
+    draft = settings.model_copy(
+        update={
+            "audio": settings.audio.model_copy(update={"sample_rate": 44_100, "channels": 1}),
+            "devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2"),
+        },
+        deep=True,
+    )
+    runtime.settings_store.set_draft(draft)
+    runtime.output.start()
+
+    with pytest.raises(SettingsApplyError) as exc_info:
+        apply_draft_settings(runtime)
+
+    stored_before_restart = runtime.settings_store.load()
+    assert exc_info.value.change_plan.changed_runtime_fields == [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+    ]
+    assert runtime.output.is_running is True
+    assert runtime.controller.settings.audio.sample_rate == 8_000
+    assert runtime.controller.settings.audio.channels == 2
+    assert runtime.controller.settings.devices == DeviceSettings()
+    assert runtime.settings_state.active.audio.sample_rate == 8_000
+    assert stored_before_restart.active.audio.sample_rate == 8_000
+    assert stored_before_restart.active.audio.channels == 2
+    assert stored_before_restart.active.devices == DeviceSettings()
+    assert stored_before_restart.draft.audio.sample_rate == 44_100
+    assert stored_before_restart.draft.audio.channels == 1
+    assert stored_before_restart.draft.devices == DeviceSettings(
+        input_device_id="mic-2",
+        output_device_id="speaker-2",
+    )
+
+    restarted_runtime = build_runtime(tmp_path, output=MemoryOutput())
+
+    assert restarted_runtime.settings_state.active.audio.sample_rate == 44_100
+    assert restarted_runtime.settings_state.active.audio.channels == 1
+    assert restarted_runtime.settings_state.active.devices == DeviceSettings(
+        input_device_id="mic-2",
+        output_device_id="speaker-2",
+    )
+    assert restarted_runtime.controller.settings.audio.sample_rate == 44_100
