@@ -126,7 +126,7 @@ def _apply_live_eq_buffers(
             continue
         runtime.player.set_layer_buffer(
             layer_id,
-            runtime.renderer.render_layer_buffer(layer_id, next_render_settings),
+            runtime.renderer.render_live_eq_layer_buffer(layer_id, next_render_settings),
         )
         if hasattr(runtime.player, "set_live_eq_state"):
             runtime.player.set_live_eq_state(layer_id, render_layer.eq)
