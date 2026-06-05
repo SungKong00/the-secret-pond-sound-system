@@ -2848,6 +2848,24 @@ const deleteSourceFile = async (category, path) => {
   }
 };
 
+const nextDeviceChangeRequestId = () => {
+  state.deviceChangeRequestId += 1;
+  return state.deviceChangeRequestId;
+};
+
+const isCurrentDeviceChange = (requestId) => requestId === state.deviceChangeRequestId;
+
+const beginDeviceChange = () => {
+  const requestId = nextDeviceChangeRequestId();
+  setOperationLockFlag("deviceChangeInFlight", true);
+  return requestId;
+};
+
+const finishDeviceChange = (requestId) => {
+  if (!isCurrentDeviceChange(requestId)) return;
+  setOperationLockFlag("deviceChangeInFlight", false);
+};
+
 const deriveSystemDeviceSelectState = ({
   forceDisabled = false,
   devicesLoaded = false,
@@ -4148,23 +4166,26 @@ const toggleCaptureGate = () => {
 
 const changeDevice = async (key, value) => {
   if (currentDeviceChangeState(key).disabled) return;
-  state.deviceChangeRequestId += 1;
-  setOperationLockFlag("deviceChangeInFlight", true);
+  const requestId = beginDeviceChange();
   try {
     const payload = await api("/api/devices", {
       method: "PUT",
       body: JSON.stringify({ [key]: value || null }),
     });
+    if (!isCurrentDeviceChange(requestId)) return payload;
     await applyResponseState(payload, { syncDraft: false, mergeDraftSections: ["devices"] });
     state.devices = payload.devices;
     renderDevices();
     await requestDiagnostics();
+    return payload;
   } catch (error) {
+    if (!isCurrentDeviceChange(requestId)) return null;
     await requestState({ syncDraft: false }).catch(() => {});
     await requestDevices({ allowDuringDeviceChange: true }).catch(() => {});
     showError(error.message);
+    return null;
   } finally {
-    setOperationLockFlag("deviceChangeInFlight", false);
+    finishDeviceChange(requestId);
   }
 };
 

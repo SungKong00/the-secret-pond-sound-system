@@ -5265,6 +5265,156 @@ def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
     )
 
 
+def test_static_ui_ignores_stale_device_change_response(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, changeDevice }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const activeSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+  const snapshot = {
+    armed: false,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 0,
+    participant_count: 0,
+    last_error: null,
+    playback: {
+      output_running: false,
+      output_latest_error: null,
+      output_latest_status: null,
+      layers: {},
+    },
+    settings: {
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      },
+    },
+  };
+  const oldDevices = {
+    input_devices: [{ id: "mic-1", name: "Mic 1" }],
+    output_devices: [{ id: "speaker-1", name: "Speaker 1" }],
+    selected_input_device: { id: "mic-1", name: "Mic 1" },
+    selected_output_device: { id: "speaker-1", name: "Speaker 1" },
+    warnings: [],
+  };
+  const staleActive = cloneSettings(activeSettings);
+  staleActive.devices.output_device_id = "speaker-2";
+  const staleDevices = {
+    input_devices: [{ id: "mic-1", name: "Mic 1" }],
+    output_devices: [{ id: "speaker-2", name: "Speaker 2" }],
+    selected_input_device: { id: "mic-1", name: "Mic 1" },
+    selected_output_device: { id: "speaker-2", name: "Speaker 2" },
+    warnings: [],
+  };
+  helpers.state.snapshot = snapshot;
+  helpers.state.draft = cloneSettings(activeSettings);
+  helpers.state.devices = oldDevices;
+  helpers.state.diagnostics = { sources: [], events: { recent: [] } };
+
+  let resolveDeviceChange = null;
+  let diagnosticsRequests = 0;
+  globalThis.fetch = (path, options = {}) => {
+    if (path === "/api/devices" && options.method === "PUT") {
+      return new Promise((resolve) => {
+        resolveDeviceChange = resolve;
+      });
+    }
+    if (path === "/api/diagnostics") {
+      diagnosticsRequests += 1;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ sources: [], events: { recent: [] } }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  const pendingChange = helpers.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(helpers.state.deviceChangeInFlight, true);
+  helpers.state.deviceChangeRequestId += 1;
+  resolveDeviceChange({
+    ok: true,
+    json: async () => ({
+      state: {
+        ...snapshot,
+        settings: {
+          active: staleActive,
+          draft: staleActive,
+          change: {
+            runtime_config_changed: false,
+            changed_runtime_fields: [],
+            changed_sections: ["devices"],
+          },
+        },
+      },
+      devices: staleDevices,
+    }),
+  });
+  await pendingChange;
+
+  assert.strictEqual(
+    helpers.state.snapshot.settings.active.devices.output_device_id,
+    "speaker-1",
+  );
+  assert.strictEqual(helpers.state.devices.selected_output_device.id, "speaker-1");
+  assert.strictEqual(helpers.state.deviceChangeInFlight, true);
+  assert.strictEqual(diagnosticsRequests, 0);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
