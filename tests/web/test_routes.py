@@ -3063,11 +3063,77 @@ def test_static_ui_ignores_source_refresh_started_during_source_mutation(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, requestSources, selectSourceFile }",
+        exports="{ state, renderState, requestSources, selectSourceFile }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {
   const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const settingsFor = (lowPath) => ({
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: lowPath,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  });
+  const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+  const snapshotFor = (active, draft) => ({
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 3,
+    last_error: null,
+    playback: {
+      output_running: false,
+      output_latest_error: null,
+      output_latest_status: null,
+      layers: {},
+    },
+    settings: {
+      active,
+      draft,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: active.sources.low_path === draft.sources.low_path ? [] : ["sources"],
+        runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+      },
+    },
+  });
   const sourcePayloadFor = (lowPath) => ({
     sources: {
       categories: [
@@ -3121,8 +3187,21 @@ def test_static_ui_ignores_source_refresh_started_during_source_mutation(
   };
 
   helpers.state.sources = sourcePayloadFor("sources/low/current.wav").sources;
+  const activeSettings = settingsFor("sources/low/current.wav");
+  const draftSettings = settingsFor("sources/low/draft.wav");
+  helpers.state.snapshot = snapshotFor(activeSettings, draftSettings);
+  helpers.state.draft = cloneSettings(draftSettings);
+  helpers.renderState();
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.resetButton.disabled, false);
+  assert.strictEqual(elements.startButton.disabled, false);
+
   const selectPromise = helpers.selectSourceFile("low", "sources/low/newer.wav");
   assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+  assert.strictEqual(elements.applyButton.disabled, true);
+  assert.strictEqual(elements.applyButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.resetButton.disabled, true);
+  assert.strictEqual(elements.startButton.disabled, true);
   const refreshDuringMutation = helpers.requestSources();
   assert.strictEqual(sourceRefreshResponses.length, 1);
 
@@ -3132,6 +3211,9 @@ def test_static_ui_ignores_source_refresh_started_during_source_mutation(
   });
   await selectPromise;
   assert.strictEqual(helpers.state.sourceMutationInFlight, false);
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.resetButton.disabled, false);
+  assert.strictEqual(elements.startButton.disabled, false);
   assert.strictEqual(
     helpers.state.sources.categories[0].selected_path,
     "sources/low/newer.wav",

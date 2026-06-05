@@ -2379,6 +2379,7 @@ const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutatio
 const beginSourceMutation = () => {
   const requestId = nextSourceMutationRequestId();
   state.sourceMutationInFlight = true;
+  renderState();
   renderSourceLibrary();
   return requestId;
 };
@@ -2386,6 +2387,7 @@ const beginSourceMutation = () => {
 const finishSourceMutation = (requestId) => {
   if (!isCurrentSourceMutation(requestId)) return;
   state.sourceMutationInFlight = false;
+  renderState();
   renderSourceLibrary();
 };
 
