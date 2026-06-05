@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
-from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
@@ -97,6 +97,18 @@ def write_source_file(path, settings: AppSettings) -> None:
     frames = settings.audio.sample_rate * settings.audio.loop_seconds
     samples = np.ones((frames, settings.audio.channels), dtype=np.float32) * 0.05
     write_wav_atomic(path, AudioBuffer(samples=samples, sample_rate=settings.audio.sample_rate))
+
+
+def write_tone_source(path, settings: AppSettings, *, frequency_hz: float) -> None:
+    frames = settings.audio.sample_rate * settings.audio.loop_seconds
+    t = np.arange(frames, dtype=np.float32) / settings.audio.sample_rate
+    tone = np.sin(2 * np.pi * frequency_hz * t).astype(np.float32) * 0.05
+    samples = np.column_stack([tone] * settings.audio.channels)
+    write_wav_atomic(path, AudioBuffer(samples=samples, sample_rate=settings.audio.sample_rate))
+
+
+def rms(samples: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
 
 
 def build_service_runtime(tmp_path, settings: AppSettings):
@@ -264,6 +276,36 @@ def test_stable_apply_commits_staged_eq_through_rendered_cache_restart(tmp_path)
     assert player.reload_paths[0]["mid"] == runtime.paths.mid_playback
     assert player.reload_paths[0]["voice"] == runtime.paths.voice_playback
     assert runtime.output.is_running is True
+
+
+def test_stable_apply_renders_cache_content_with_draft_eq_settings(tmp_path) -> None:
+    settings = service_settings()
+    paths = ProjectPaths(tmp_path)
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(paths, settings)
+    write_tone_source(paths.mid_source, settings, frequency_hz=1_000.0)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+
+    baseline = runtime.renderer.render_layer_buffer("mid", settings)
+    draft_layers = {
+        **settings.layers,
+        "mid": settings.layers["mid"].model_copy(
+            update={
+                "eq": settings.layers["mid"].eq.model_copy(update={"mid_gain_db": 12.0}),
+            },
+        ),
+    }
+    draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    apply_draft_settings(runtime)
+
+    rendered = read_wav(paths.mid_playback)
+    assert runtime.settings_store.load().active.layers["mid"].eq.mid_gain_db == 12.0
+    assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 12.0
+    assert len(player.reload_paths) == 1
+    assert rms(rendered.samples[:, 0]) > rms(baseline.samples[:, 0]) * 1.5
 
 
 def test_apply_draft_settings_service_rejects_runtime_config_change(tmp_path) -> None:
