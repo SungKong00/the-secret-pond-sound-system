@@ -92,13 +92,14 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
         staged.commit()
         if voice_raw_preview_path is None:
             runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-            apply_player_layer_settings(runtime, draft)
+            apply_player_layer_settings(runtime, draft, reset_realtime_trims=True)
         else:
             prepare_voice_raw_preview(runtime, voice_raw_preview_path, draft)
         if was_running:
             runtime.output.start()
 
         state = runtime.settings_store.save(SettingsState(active=draft, draft=draft))
+        runtime.playback_render_settings = draft
         runtime.apply_settings_state(state)
     except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
         detail = _rollback_apply_failure(

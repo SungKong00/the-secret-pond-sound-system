@@ -128,6 +128,42 @@ def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_
     assert runtime.player.realtime_trim_updates == [("low", -12.0)]
 
 
+def test_live_update_draft_settings_keeps_voice_gain_relative_to_rendered_volume() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    first_layers = {
+        **active.layers,
+        "voice": active.layers["voice"].model_copy(update={"volume_db": -12.0}),
+    }
+    second_layers = {
+        **active.layers,
+        "voice": active.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    first = update_draft_settings(
+        runtime,
+        active.model_copy(update={"layers": first_layers}, deep=True),
+        current=state,
+    )  # type: ignore[arg-type]
+    result = update_draft_settings(
+        runtime,
+        active.model_copy(update={"layers": second_layers}, deep=True),
+        current=first,
+    )  # type: ignore[arg-type]
+
+    assert result.active.layers["voice"].volume_db == -9.0
+    assert result.draft.layers["voice"].volume_db == -9.0
+    assert runtime.controller.settings.layers["voice"].volume_db == -9.0
+    assert runtime.player.realtime_trim_updates == [("voice", 6.0), ("voice", 9.0)]
+
+
 def test_live_update_draft_settings_keeps_audio_loop_seconds_on_apply_flow() -> None:
     active = AppSettings().model_copy(
         update={

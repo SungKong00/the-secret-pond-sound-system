@@ -5,14 +5,30 @@ from typing import Any
 from secret_pond.config import AppSettings
 
 
-def apply_player_settings(player: Any, settings: AppSettings) -> None:
+def apply_player_settings(
+    player: Any,
+    settings: AppSettings,
+    *,
+    reset_realtime_trims: bool = False,
+) -> None:
     for layer_id, layer_settings in settings.layers.items():
         player.set_enabled(layer_id, layer_settings.enabled)
+        if reset_realtime_trims:
+            player.set_realtime_trim(layer_id, 0.0)
     player.set_peak_ceiling(settings.audio.peak_ceiling)
 
 
-def apply_player_layer_settings(runtime: Any, settings: AppSettings) -> None:
-    apply_player_settings(runtime.player, settings)
+def apply_player_layer_settings(
+    runtime: Any,
+    settings: AppSettings,
+    *,
+    reset_realtime_trims: bool = False,
+) -> None:
+    apply_player_settings(
+        runtime.player,
+        settings,
+        reset_realtime_trims=reset_realtime_trims,
+    )
 
 
 def apply_live_player_layer_controls(

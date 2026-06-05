@@ -34,9 +34,10 @@ def update_draft_settings(
         raise SettingsDraftUpdateError(str(exc)) from exc
     state = SettingsState(active=_settings_copy(active_snapshot), draft=saved_state.draft)
     if current.active.playback.apply_mode == "live":
+        render_settings = _playback_render_settings(runtime, current)
         apply_live_player_layer_controls(
             runtime.player,
-            previous=current.active,
+            previous=render_settings,
             current=state.active,
         )
         runtime.apply_settings_state(state)
@@ -47,6 +48,17 @@ def update_draft_settings(
 
 def _settings_copy(settings: AppSettings) -> AppSettings:
     return settings.model_copy(deep=True)
+
+
+def _playback_render_settings(
+    runtime: SecretPondRuntime,
+    current: SettingsState,
+) -> AppSettings:
+    render_settings = getattr(runtime, "playback_render_settings", None)
+    if render_settings is None:
+        render_settings = _settings_copy(current.active)
+        runtime.playback_render_settings = render_settings
+    return render_settings
 
 
 def _active_settings_for_draft_update(active: AppSettings, draft: AppSettings) -> AppSettings:

@@ -20,6 +20,7 @@ from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.audio.recorder import Recorder, SoundDeviceRecorder
 from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.audio.voice_stack import VoiceStackStore
+from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.controller import RecordingController
 from secret_pond.services.device_inventory import device_payload
@@ -74,6 +75,7 @@ class SecretPondRuntime:
     state_revision: int = 0
     transition_warning: str | None = None
     voice_raw_preview_path: str | None = None
+    playback_render_settings: AppSettings | None = None
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.update_settings(settings_state.active)
@@ -167,7 +169,7 @@ def build_runtime(
         persist_settings=persist_recording_settings,
     )
 
-    return SecretPondRuntime(
+    runtime = SecretPondRuntime(
         paths=paths,
         settings_store=settings_store,
         settings_state=settings_state,
@@ -183,6 +185,8 @@ def build_runtime(
         player=resolved_player,
         output=resolved_output,
     )
+    runtime.playback_render_settings = active_settings
+    return runtime
 
 
 def rendered_layer_paths(paths: ProjectPaths) -> dict[LayerId, Path]:
