@@ -26,12 +26,15 @@ class FakeMaintenanceLock:
 
 
 class FakeSettingsStore:
-    def __init__(self) -> None:
+    def __init__(self, *, reset_error: Exception | None = None) -> None:
+        self.reset_error = reset_error
         self.state = SimpleNamespace(name="reset-state")
         self.reset_calls = 0
 
     def reset_draft(self):
         self.reset_calls += 1
+        if self.reset_error is not None:
+            raise self.reset_error
         return self.state
 
 
@@ -109,6 +112,18 @@ def test_reset_draft_settings_updates_runtime_settings_state() -> None:
     assert state is runtime.settings_store.state
     assert runtime.settings_store.reset_calls == 1
     assert runtime.settings_state is state
+    assert runtime.operation_lock.release_calls == 1
+
+
+def test_reset_draft_settings_wraps_store_failure_without_mutating_runtime_state() -> None:
+    runtime = maintenance_runtime()
+    runtime.settings_store = FakeSettingsStore(reset_error=OSError("settings save failed"))
+
+    with pytest.raises(MaintenanceOperationError, match="settings save failed"):
+        reset_draft_settings(runtime)
+
+    assert runtime.settings_store.reset_calls == 1
+    assert runtime.settings_state.name == "initial-state"
     assert runtime.operation_lock.release_calls == 1
 
 

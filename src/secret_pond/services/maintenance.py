@@ -22,7 +22,10 @@ def reset_draft_settings(
     with _maintenance_operation(runtime):
         if runtime.controller.is_recording:
             raise MaintenanceOperationError("cannot reset draft settings while recording")
-        state = runtime.settings_store.reset_draft()
+        try:
+            state = runtime.settings_store.reset_draft()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise MaintenanceOperationError(str(exc)) from exc
         runtime.settings_state = state
         if build_result is not None:
             return build_result(state)
