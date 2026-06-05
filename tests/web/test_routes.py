@@ -3541,6 +3541,50 @@ assert.strictEqual(uploadButton.title, "추가할 WAV 파일을 먼저 선택하
     )
 
 
+def test_static_ui_system_status_render_does_not_rebuild_device_selects(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderSystemStatus }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+
+helpers.state.snapshot = {{
+  settings: {{
+    active: {{
+      devices: {{
+        input_device_id: "mic-1",
+        output_device_id: "speaker-1",
+      }},
+    }},
+  }},
+}};
+helpers.state.devices = {{
+  input_devices: [{{ id: "mic-1", name: "Mic 1" }}],
+  output_devices: [{{ id: "speaker-1", name: "Speaker 1" }}],
+  warnings: [],
+}};
+helpers.state.diagnostics = {{
+  sources: [],
+  events: {{ recent: [] }},
+}};
+
+document.getElementById("inputDeviceSelect");
+document.getElementById("outputDeviceSelect");
+elements.inputDeviceSelect.innerHTML = "native input dropdown open";
+elements.outputDeviceSelect.innerHTML = "native output dropdown open";
+
+helpers.renderSystemStatus();
+
+assert.strictEqual(elements.inputDeviceSelect.innerHTML, "native input dropdown open");
+assert.strictEqual(elements.outputDeviceSelect.innerHTML, "native output dropdown open");
+assert.strictEqual(elements.systemStatus.textContent, "소스 준비됨");
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,

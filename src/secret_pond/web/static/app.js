@@ -1439,7 +1439,7 @@ const applyState = (payload, options = {}) => {
   state.snapshot = payload;
   applySettingsPayload(payload.settings, { currentSnapshot, syncDraft, mergeDraftSections });
   renderState();
-  renderSystemStatus();
+  renderSystemPanel();
   return true;
 };
 
@@ -1899,6 +1899,10 @@ const renderErrors = () => {
 
 const renderDevices = () => {
   renderDeviceHealthBadge();
+  renderSystemPanel();
+};
+
+const renderSystemPanel = () => {
   renderSystemDevices();
   renderSystemStatus();
 };
@@ -1922,8 +1926,6 @@ const renderDeviceHealthBadge = () => {
 };
 
 const renderSystemStatus = () => {
-  renderSystemDevices();
-
   if (!state.diagnostics) {
     $("systemStatus").textContent = state.diagnosticsError ? "진단 오프라인" : "확인 중";
     $("systemStatus").className = `status-pill ${state.diagnosticsError ? "hot" : "muted"}`;
