@@ -2659,6 +2659,69 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
     )
 
 
+def test_static_ui_source_mutation_commands_short_circuit_while_locked(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, selectSourceFile, uploadSourceFile, deleteSourceFile }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const fetchCalls = [];
+  let confirmCalls = 0;
+  globalThis.fetch = (path, options = {}) => {
+    fetchCalls.push({ path, options });
+    return Promise.resolve({
+      ok: true,
+      json: async () => {
+        if (path === "/api/diagnostics") {
+          return { sources: [], events: { recent: [] } };
+        }
+        return { sources: { categories: [] } };
+      },
+    });
+  };
+  window.confirm = () => {
+    confirmCalls += 1;
+    return true;
+  };
+
+  helpers.state.applyInFlight = false;
+  helpers.state.sourceMutationInFlight = true;
+  assert.strictEqual(
+    await helpers.selectSourceFile("low", "sources/low/newer.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+
+  helpers.state.sourceMutationInFlight = true;
+  assert.strictEqual(
+    await helpers.uploadSourceFile(
+      "low",
+      { name: "busy.wav", size: 12, lastModified: 1 },
+    ),
+    null,
+  );
+  assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+
+  helpers.state.sourceMutationInFlight = true;
+  assert.strictEqual(
+    await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+  assert.strictEqual(confirmCalls, 0);
+  assert.deepStrictEqual(fetchCalls, []);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
@@ -4408,18 +4471,14 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     "low",
     "sources/low/newer.wav",
   );
-  assert.strictEqual(sourceSelectResponses.length, 2);
+  assert.strictEqual(sourceSelectResponses.length, 1);
   assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, true);
-  sourceSelectResponses[1].resolve({{
-    ok: true,
-    json: async () => sourcePayloadFor("sources/low/newer.wav"),
-  }});
-  await newerSelect;
+  assert.strictEqual(await newerSelect, null);
   assert.strictEqual(
     globalThis.__secretPondTest.state.draft.sources.low_path,
     "sources/low/newer.wav",
   );
-  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, true);
   sourceSelectResponses[0].resolve({{
     ok: true,
     json: async () => sourcePayloadFor("sources/low/older.wav"),
@@ -4427,7 +4486,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await olderSelect;
   assert.strictEqual(
     globalThis.__secretPondTest.state.draft.sources.low_path,
-    "sources/low/newer.wav",
+    "sources/low/older.wav",
   );
   assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
 

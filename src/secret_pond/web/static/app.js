@@ -1990,6 +1990,9 @@ const sourceActionBusyTitle = (sourceMutationInFlight = false, applyInFlight = f
   return deriveOperationLocks({ sourceMutationInFlight, applyInFlight }).sourceActionTitle;
 };
 
+const sourceCommandBlocked = () =>
+  Boolean(sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight));
+
 const deriveSourceUploadActionState = (
   upload = {},
   sourceMutationInFlight = false,
@@ -2237,7 +2240,7 @@ const recoverSourceMutationError = async (error) => {
 };
 
 const selectSourceFile = async (category, path) => {
-  if (state.applyInFlight) return null;
+  if (sourceCommandBlocked()) return null;
   const requestId = beginSourceMutation();
   try {
     const payload = await api(`/api/sources/${encodeURIComponent(category)}/select`, {
@@ -2267,7 +2270,7 @@ const selectedSourceUploadMode = (category) => {
 };
 
 const uploadSourceFile = async (category, droppedFile = null) => {
-  if (state.applyInFlight) return null;
+  if (sourceCommandBlocked()) return null;
   const input = document.querySelector(`[data-source-file="${category}"]`);
   const selectedFile = input?.files?.[0] || sourceUploadState(category).file;
   const file = droppedFile || selectedFile;
@@ -2322,7 +2325,7 @@ const handleSourceFileDrop = (event, category) => {
 };
 
 const deleteSourceFile = async (category, path) => {
-  if (state.applyInFlight) return null;
+  if (sourceCommandBlocked()) return null;
   if (!window.confirm("선택한 WAV 파일을 삭제할까요?")) return;
   const requestId = beginSourceMutation();
   try {
