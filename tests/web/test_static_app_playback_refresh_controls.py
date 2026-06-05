@@ -313,6 +313,185 @@ assert.deepStrictEqual(
     )
 
 
+def test_live_state_payload_optional_fields_are_parsed_without_changing_playback_fields() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state } = globalThis.__secretPond;
+
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 2,
+    maximum_recording_seconds: 90,
+  },
+  recording: {
+    gain_db: 1,
+    normalize_peak: 0.4,
+    highpass_hz: 120,
+    lowpass_hz: 9000,
+    presence_gain_db: -1,
+    reverb_mix: 0.2,
+    delay_mix: 0.05,
+    fade_ms: 60,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: "data/sources/low/live-low.wav",
+    mid_path: null,
+    voice_raw_path: "data/sources/voice/raw/VR0610_213112.wav",
+    voice_stack_path: "data/sources/voice/stack/VS0610_213112.wav",
+  },
+  layers: {
+    low: { enabled: true, volume_db: -12, eq: {} },
+    mid: { enabled: false, volume_db: -18, eq: {} },
+    voice: { enabled: true, volume_db: -6, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+const applied = applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], runtime_config_changed: false },
+  },
+  playback: {
+    apply_mode: "live",
+    frame_cursor: 1440000,
+    is_playing: true,
+    rendered_cache_ready: true,
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+    active_voice_transition_target_id: "data/sources/voice/stack/VS0610_213112.wav",
+    playback_session_id: 7,
+    voice_raw_preview_path: "data/sources/voice/raw/VR0610_213112.wav",
+    transition_warning: "voice transition ready",
+    output_running: true,
+    output_latest_status: "running",
+    output_latest_error: null,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      seek_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+      eq_applies_immediately: true,
+      excluded_apply_flow: [
+        "audio.loop_seconds",
+        "audio.sample_rate",
+        "devices.output_device_id",
+        "sources",
+      ],
+      eq_source_contract: "eq_free",
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 90,
+  participant_count: 3,
+});
+
+assert.strictEqual(applied, true);
+assert.strictEqual(state.snapshot.playback.apply_mode, "live");
+assert.strictEqual(state.snapshot.playback.position_seconds, 30);
+assert.strictEqual(state.snapshot.playback.duration_seconds, 60);
+assert.strictEqual(state.snapshot.playback.progress, 0.5);
+assert.strictEqual(
+  state.snapshot.playback.active_voice_transition_target_id,
+  "data/sources/voice/stack/VS0610_213112.wav",
+);
+assert.strictEqual(state.snapshot.playback.playback_session_id, 7);
+assert.strictEqual(
+  state.snapshot.playback.voice_raw_preview_path,
+  "data/sources/voice/raw/VR0610_213112.wav",
+);
+assert.strictEqual(state.snapshot.playback.transition_warning, "voice transition ready");
+assert.strictEqual(state.snapshot.playback.output_running, true);
+assert.strictEqual(state.snapshot.playback.output_latest_status, "running");
+assert.deepStrictEqual(state.snapshot.playback.live, {
+  enabled: true,
+  volume_applies_immediately: true,
+  mute_applies_immediately: true,
+  seek_applies_immediately: true,
+  voice_stack_transition_applies_immediately: true,
+  voice_raw_preview_treatment_applies_immediately: true,
+  eq_applies_immediately: true,
+  excluded_apply_flow: [
+    "audio.loop_seconds",
+    "audio.sample_rate",
+    "devices.output_device_id",
+    "sources",
+  ],
+  eq_source_contract: "eq_free",
+});
+assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "live");
+assert.strictEqual(state.draft.playback.apply_mode, "live");
+
+const partialLivePayload = cloneSettings(liveSettings);
+partialLivePayload.playback = { auto_start: true, apply_mode: "live", master_volume_db: -11 };
+const partialApplied = applyState({
+  state_revision: 1,
+  settings: {
+    active: cloneSettings(partialLivePayload),
+    draft: cloneSettings(partialLivePayload),
+    change: { changed_sections: [], runtime_config_changed: false },
+  },
+  playback: {
+    apply_mode: "live",
+    frame_cursor: 0,
+    is_playing: false,
+    rendered_cache_ready: true,
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+    output_running: false,
+    live: {
+      enabled: true,
+      seek_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 90,
+  participant_count: 3,
+});
+
+assert.strictEqual(partialApplied, true);
+assert.strictEqual(state.snapshot.playback.apply_mode, "live");
+assert.strictEqual(state.snapshot.playback.output_running, false);
+assert.deepStrictEqual(state.snapshot.playback.live, {
+  enabled: true,
+  volume_applies_immediately: false,
+  mute_applies_immediately: false,
+  seek_applies_immediately: true,
+  voice_stack_transition_applies_immediately: false,
+  voice_raw_preview_treatment_applies_immediately: false,
+  eq_applies_immediately: false,
+  excluded_apply_flow: [],
+  eq_source_contract: null,
+});
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_active_capture_gate_toggle_survives_playback_websocket_state_refresh() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

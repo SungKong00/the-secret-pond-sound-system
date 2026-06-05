@@ -1537,6 +1537,28 @@ const stateEpochFromPayload = (payload) => {
   return epoch;
 };
 
+const defaultPlaybackLivePayload = () => ({
+  enabled: false,
+  volume_applies_immediately: false,
+  mute_applies_immediately: false,
+  seek_applies_immediately: false,
+  voice_stack_transition_applies_immediately: false,
+  voice_raw_preview_treatment_applies_immediately: false,
+  eq_applies_immediately: false,
+  excluded_apply_flow: [],
+  eq_source_contract: null,
+});
+
+const normalizePlaybackLivePayload = (live) => {
+  if (!live || typeof live !== "object" || Array.isArray(live)) {
+    return defaultPlaybackLivePayload();
+  }
+  return {
+    ...defaultPlaybackLivePayload(),
+    ...live,
+  };
+};
+
 const normalizePlaybackPayload = (playback) => {
   if (!playback || typeof playback !== "object" || Array.isArray(playback)) return playback;
   return {
@@ -1552,6 +1574,7 @@ const normalizePlaybackPayload = (playback) => {
     output_latest_status: null,
     output_latest_error: null,
     ...playback,
+    live: normalizePlaybackLivePayload(playback.live),
   };
 };
 
