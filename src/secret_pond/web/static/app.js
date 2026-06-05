@@ -2179,9 +2179,39 @@ const deriveDashboardControlState = ({
   };
 };
 
-const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
+const layerIds = ["low", "mid", "voice"];
+
+const livePlaybackFeatures = (snapshot) => snapshot?.playback?.live || {};
+
+const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
+  if (!snapshot?.settings?.active || !state.draft) return false;
+  if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
+  if (settingsPlan.changedSections.some((section) => section !== "layers")) return false;
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled) return false;
+  const volumeLive = Boolean(live.volume_applies_immediately);
+  const muteLive = Boolean(live.mute_applies_immediately);
+  if (!volumeLive && !muteLive) return false;
+  const activeLayers = clone(snapshot.settings.active.layers || {});
+  const draftLayers = clone(state.draft.layers || {});
+  layerIds.forEach((layerId) => {
+    if (!activeLayers[layerId] || !draftLayers[layerId]) return;
+    if (volumeLive) draftLayers[layerId].volume_db = activeLayers[layerId].volume_db;
+    if (muteLive) draftLayers[layerId].enabled = activeLayers[layerId].enabled;
+  });
+  return stableSettingsSignature(activeLayers) === stableSettingsSignature(draftLayers);
+};
+
+const derivePendingChangeState = (
+  settingsPlan,
+  sourceFilesChanged = false,
+  snapshot = state.snapshot,
+) => {
   const runtimeConfigChanged = Boolean(settingsPlan?.runtimeConfigChanged);
-  const settingsChanged = Boolean(settingsPlan?.changedSections?.length || runtimeConfigChanged);
+  const liveAppliedSettingsChanged = liveLayerControlChangeOnly(snapshot, settingsPlan);
+  const settingsChanged =
+    Boolean(settingsPlan?.changedSections?.length || runtimeConfigChanged) &&
+    !liveAppliedSettingsChanged;
   return {
     settingsChanged,
     sourceFilesChanged: Boolean(sourceFilesChanged),
@@ -2196,7 +2226,7 @@ const deriveSettingsUiState = ({
   sourceFilesChanged = false,
   operationFlags = {},
 } = {}) => {
-  const pendingChangeState = derivePendingChangeState(settingsPlan, sourceFilesChanged);
+  const pendingChangeState = derivePendingChangeState(settingsPlan, sourceFilesChanged, snapshot);
   return {
     pendingChangeState,
     controlState: deriveDashboardControlState({
@@ -3866,6 +3896,10 @@ const currentSettingsActionState = (snapshot = state.snapshot) =>
 
 const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
+  if (livePlaybackFeatures(state.snapshot).enabled &&
+    livePlaybackFeatures(state.snapshot).mute_applies_immediately) {
+    return false;
+  }
   return (
     Boolean(state.snapshot.settings.active.layers[layerId].enabled) !==
     Boolean(state.draft.layers[layerId].enabled)

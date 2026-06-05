@@ -1699,9 +1699,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "No pending changes" not in script.text
     assert "const deriveSettingsActionState = ({" in script.text
     assert "const deriveSettingsUiState = ({" in script.text
-    assert "const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false)" in (
-        script.text
-    )
+    assert "const derivePendingChangeState = (" in script.text
+    assert "sourceFilesChanged = false," in script.text
+    assert "snapshot = state.snapshot," in script.text
     render_state_body = slice_between(
         script.text,
         "const renderState = () => {",
