@@ -4982,8 +4982,11 @@ globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "open device dropdown");
 globalThis.__secretPondTest.state.devices.input_devices[0].name = "Renamed Mic";
 globalThis.__secretPondTest.releaseInteractiveControl(elements.inputDeviceSelect);
-globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(elements.inputDeviceSelect.innerHTML, "");
+assert.strictEqual(
+  globalThis.__secretPondTest.state.deferredInteractiveRenders["device-inputDeviceSelect"],
+  undefined,
+);
 
 const focusedSourceSelect = makeTrackedElement();
 focusedSourceSelect.tagName = "SELECT";
@@ -4995,8 +4998,11 @@ globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
 globalThis.__secretPondTest.state.sources.categories[0].label = "Renamed Low";
 globalThis.__secretPondTest.releaseInteractiveControl(focusedSourceSelect);
-globalThis.__secretPondTest.renderSourceLibrary();
 assert.notStrictEqual(elements.sourceLibraryList.innerHTML, "open source dropdown");
+assert.strictEqual(
+  globalThis.__secretPondTest.state.deferredInteractiveRenders["source-library"],
+  undefined,
+);
 globalThis.document.activeElement = null;
 
 globalThis.__secretPondTest.setStorageMode("test_library");

@@ -965,6 +965,7 @@ const selectedRecordingPresetName = () => {
 const recordingPresetIsSelected = (name) => selectedRecordingPresetName() === name;
 
 const deferredInteractiveRenderTargets = new WeakSet();
+const deferredInteractiveRenderControls = {};
 const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
 
 const activeInteractiveControlFor = (container) => {
@@ -977,6 +978,7 @@ const deferInteractiveRender = (key, container, renderFn) => {
   const active = activeInteractiveControlFor(container);
   if (!active) return false;
   state.deferredInteractiveRenders[key] = renderFn;
+  deferredInteractiveRenderControls[key] = active;
   if (!deferredInteractiveRenderTargets.has(active)) {
     deferredInteractiveRenderTargets.add(active);
     active.addEventListener("blur", () => {
@@ -984,9 +986,7 @@ const deferInteractiveRender = (key, container, renderFn) => {
       if (state.activeInteractiveControl === active) {
         state.activeInteractiveControl = null;
       }
-      const deferred = state.deferredInteractiveRenders[key];
-      delete state.deferredInteractiveRenders[key];
-      deferred?.();
+      flushDeferredInteractiveRenders(active);
     }, { once: true });
   }
   return true;
@@ -1000,6 +1000,16 @@ const releaseInteractiveControl = (element) => {
   if (state.activeInteractiveControl === element) {
     state.activeInteractiveControl = null;
   }
+  flushDeferredInteractiveRenders(element);
+};
+
+const flushDeferredInteractiveRenders = (element) => {
+  Object.entries(state.deferredInteractiveRenders).forEach(([key, renderFn]) => {
+    if (deferredInteractiveRenderControls[key] !== element) return;
+    delete state.deferredInteractiveRenders[key];
+    delete deferredInteractiveRenderControls[key];
+    renderFn?.();
+  });
 };
 
 const isStaleRecordingStopError = (error) => {
