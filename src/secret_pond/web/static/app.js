@@ -1488,10 +1488,12 @@ const firstOperationLockTitle = (candidates = []) => {
 const deriveDraftControlLockState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
+  deviceChangeInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
+    [deviceChangeInFlight, operationLockMessages.deviceChange],
   ]);
   return {
     disabled: Boolean(title),
@@ -1520,7 +1522,11 @@ const deriveOperationLocks = ({
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [forceDeviceDisabled, operationLockMessages.deviceRecording],
   ]);
-  const draftLock = deriveDraftControlLockState({ applyInFlight, resetDraftInFlight });
+  const draftLock = deriveDraftControlLockState({
+    applyInFlight,
+    resetDraftInFlight,
+    deviceChangeInFlight,
+  });
   return {
     draftLocked: draftLock.disabled,
     sourceUiLocked: Boolean(sourceActionTitle),

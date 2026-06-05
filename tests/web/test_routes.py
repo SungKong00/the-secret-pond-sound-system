@@ -2249,7 +2249,7 @@ assert.deepStrictEqual(
 assert.deepStrictEqual(
   deriveLocks({{ deviceChangeInFlight: true }}),
   {{
-    draftLocked: false,
+    draftLocked: true,
     sourceUiLocked: true,
     sourceCommandBlocked: true,
     sourceActionTitle: "장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
@@ -2291,6 +2291,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "설정 변경 취소가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ deviceChangeInFlight: true }}),
+  {{
+    disabled: true,
+    title: "장치 변경을 적용하는 중입니다.",
   }},
 );
 
@@ -5767,6 +5775,22 @@ assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seco
 assert.strictEqual(lockedVoiceLoopInput.value, "60");
 
 globalThis.__secretPondTest.state.applyInFlight = false;
+globalThis.__secretPondTest.state.deviceChangeInFlight = true;
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+const voiceStackControlCountBeforeDeviceLockRender = elements.voiceStackControls.children.length;
+globalThis.__secretPondTest.renderVoiceStackControls();
+const deviceLockedVoiceLoopRow =
+  elements.voiceStackControls.children[voiceStackControlCountBeforeDeviceLockRender];
+const deviceLockedVoiceLoopInput = deviceLockedVoiceLoopRow.querySelector("input");
+const deviceLockedVoiceLoopValueInput =
+  deviceLockedVoiceLoopRow.querySelector(".value-input");
+assert.strictEqual(deviceLockedVoiceLoopInput.disabled, true);
+assert.strictEqual(deviceLockedVoiceLoopValueInput.disabled, true);
+deviceLockedVoiceLoopInput.value = "95";
+deviceLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+assert.strictEqual(deviceLockedVoiceLoopInput.value, "60");
+globalThis.__secretPondTest.state.deviceChangeInFlight = false;
 assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), false);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;
