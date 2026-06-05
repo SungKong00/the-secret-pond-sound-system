@@ -7,7 +7,7 @@ import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
-from secret_pond.audio.player import LayeredLoopPlayer
+from secret_pond.audio.player import LayeredLoopPlayer, _equal_power_crossfade_gains
 from secret_pond.config import EqSettings
 
 
@@ -33,6 +33,15 @@ def write_layers(root: Path, low: float, mid: float, voice: float, frames: int =
 
 def rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
+
+
+def test_equal_power_voice_crossfade_gains_preserve_midpoint_and_endpoints() -> None:
+    progress = np.array([0.0, 0.5, 1.0], dtype=np.float32)
+
+    from_gain, to_gain = _equal_power_crossfade_gains(progress)
+
+    np.testing.assert_allclose(from_gain, [1.0, np.sqrt(0.5), 0.0], atol=1e-6)
+    np.testing.assert_allclose(to_gain, [0.0, np.sqrt(0.5), 1.0], atol=1e-6)
 
 
 def test_player_loads_layers_into_memory_and_releases_files(tmp_path: Path) -> None:

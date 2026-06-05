@@ -498,8 +498,9 @@ def mix_layer_blocks_with_voice_crossfade(
             0.0,
             1.0,
         )
-        from_gain = np.cos(progress * np.pi / 2.0)[:, np.newaxis]
-        to_gain = np.sin(progress * np.pi / 2.0)[:, np.newaxis]
+        from_gain, to_gain = _equal_power_crossfade_gains(progress)
+        from_gain = from_gain[:, np.newaxis]
+        to_gain = to_gain[:, np.newaxis]
         voice_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
         mixed += _apply_realtime_gain(voice_block, voice_state)
 
@@ -653,6 +654,14 @@ def _apply_mute_ramp(samples: np.ndarray, ramp: RealtimeMuteRampState) -> np.nda
     progress = np.clip(frame_offsets / ramp.duration_frames, 0.0, 1.0)
     gains = ramp.from_gain + ((ramp.to_gain - ramp.from_gain) * progress)
     return (samples * gains[:, np.newaxis]).astype(np.float32)
+
+
+def _equal_power_crossfade_gains(progress: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    clipped = np.clip(progress, 0.0, 1.0)
+    return (
+        np.cos(clipped * np.pi / 2.0).astype(np.float32),
+        np.sin(clipped * np.pi / 2.0).astype(np.float32),
+    )
 
 
 def _current_mute_gain(state: LayerPlaybackState) -> float:
