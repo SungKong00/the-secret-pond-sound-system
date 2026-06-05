@@ -12186,6 +12186,36 @@ def test_api_state_reports_playback_timeline_from_audio_loop_seconds(tmp_path: P
     assert playback["progress"] == pytest.approx(0.5)
 
 
+def test_api_live_settings_draft_keeps_audio_loop_seconds_on_apply_flow(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    client.post("/api/settings/apply-and-restart")
+
+    draft_response = client.put(
+        "/api/settings/draft",
+        json=draft_with_audio_loop_seconds(2, base=settings),
+    )
+    state_after_draft = client.get("/api/state").json()
+
+    assert draft_response.status_code == 200
+    assert draft_response.json()["settings"]["active"]["audio"]["loop_seconds"] == 1
+    assert draft_response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 2
+    assert state_after_draft["playback"]["duration_seconds"] == pytest.approx(1.0)
+
+    apply_response = client.post("/api/settings/apply-and-restart")
+    state_after_apply = client.get("/api/state").json()
+
+    assert apply_response.status_code == 200
+    assert apply_response.json()["settings"]["active"]["audio"]["loop_seconds"] == 2
+    assert apply_response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 2
+    assert state_after_apply["playback"]["duration_seconds"] == pytest.approx(2.0)
+
+
 def test_api_playback_seek_maps_percent_to_audio_loop_seconds(tmp_path: Path) -> None:
     settings = api_settings().model_copy(
         update={
