@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.output import SoundDeviceOutput
+from secret_pond.audio.player import LayeredLoopPlayer
+from secret_pond.config import EqSettings
 
 
 class ScriptedPlayer:
@@ -135,6 +138,38 @@ def test_sounddevice_output_callback_writes_player_block() -> None:
     np.testing.assert_allclose(rendered, np.ones((4, 2), dtype=np.float32) * 0.25)
 
 
+def test_sounddevice_output_callback_survives_rapid_live_eq_parameter_changes() -> None:
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": _stereo_layer(0.05, frames=256),
+            "mid": _stereo_layer(0.10, frames=256),
+            "voice": _stereo_layer(0.15, frames=256),
+        }
+    )
+    factory = CapturingOutputStreamFactory()
+    output = SoundDeviceOutput(
+        sample_rate=8_000,
+        channels=2,
+        player=player,
+        block_size=17,
+        stream_factory=factory,
+    )
+
+    output.start()
+    stream = factory.streams[0]
+    for index in range(64):
+        gain_db = -12.0 + (index % 25)
+        player.set_live_eq_state("mid", EqSettings(mid_gain_db=gain_db))
+        player.set_layer_buffer("mid", _stereo_layer(0.02 + (index * 0.001), frames=256))
+        rendered = stream.pull(frames=17)
+
+        assert output.latest_error is None
+        assert rendered.shape == (17, 2)
+        assert rendered.dtype == np.float32
+        assert np.all(np.isfinite(rendered))
+
+
 def test_sounddevice_output_callback_writes_silence_and_stores_error_on_player_failure() -> None:
     factory = CapturingOutputStreamFactory()
     player = ScriptedPlayer(fail_next_block=True)
@@ -260,3 +295,10 @@ def test_sounddevice_output_stop_closes_stream_even_when_stream_stop_fails() -> 
     assert factory.streams[0].closed is True
     assert output.is_running is False
     assert player.stop_calls == 1
+
+
+def _stereo_layer(value: float, *, frames: int) -> AudioBuffer:
+    return AudioBuffer(
+        samples=np.ones((frames, 2), dtype=np.float32) * value,
+        sample_rate=8_000,
+    )
