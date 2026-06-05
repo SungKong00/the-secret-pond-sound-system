@@ -1670,6 +1670,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "showError(applyError.message)" in apply_body
     assert '"/api/settings/apply"' in apply_body
     assert '"/api/settings/apply-and-restart"' not in apply_body
+    assert (
+        "else clearTransientError({ respectMinimumVisibleDuration: true });"
+        in apply_body
+    )
     assert "const resetDraft = async () => {" in script.text
     reset_draft_body = slice_between(
         script.text,
@@ -1680,6 +1684,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '"/api/settings/reset"' not in reset_draft_body
     assert "if (currentSettingsActionState().resetDisabled) return" in reset_draft_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_draft_body
+    assert (
+        "else clearTransientError({ respectMinimumVisibleDuration: true });"
+        in reset_draft_body
+    )
     assert "const resetParticipants = async () => {" in script.text
     assert 'const payload = await api("/api/participants/reset"' in script.text
     reset_participants_body = slice_between(
@@ -1694,6 +1702,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'setOperationLockFlag("resetParticipantsInFlight", true)' in reset_participants_body
     assert 'setOperationLockFlag("resetParticipantsInFlight", false)' in reset_participants_body
     assert "applyResponseState(payload, { syncDraft: false })" in reset_participants_body
+    assert (
+        "else clearTransientError({ respectMinimumVisibleDuration: true });"
+        in reset_participants_body
+    )
     assert "const applyResponseState = async (payload, options = {}) => {" in script.text
     assert "applyState(payload.state, options)" in script.text
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
@@ -5536,6 +5548,8 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.applyButton.disabled, false);
   assert.strictEqual(elements.resetButton.disabled, false);
   assert.strictEqual(elements.resetParticipantsButton.disabled, false);
+  let now = 1000;
+  Date.now = () => now;
   globalThis.__secretPondTest.showError("action failed");
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
 
@@ -5597,9 +5611,9 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   resolveParticipantReset();
   await reset;
   assert.strictEqual(globalThis.__secretPondTest.state.resetParticipantsInFlight, false);
-  assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
-  assert.strictEqual(elements.errorBanner.hidden, true);
-  assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
+  assert.strictEqual(elements.errorBanner.hidden, false);
+  assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
   assert.strictEqual(elements.resetParticipantsButton.disabled, false);
   assert.deepStrictEqual(resetFetches, [
     "/api/participants/reset",
@@ -7368,6 +7382,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
+  let resetNow = 1000;
+  Date.now = () => resetNow;
   globalThis.__secretPondTest.showError("action failed");
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
   const pendingReset = globalThis.__secretPondTest.resetDraft();
@@ -7401,10 +7417,11 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   await pendingReset;
   assert.strictEqual(globalThis.__secretPondTest.state.resetDraftInFlight, false);
-  assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
-  assert.strictEqual(elements.errorBanner.hidden, true);
-  assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
+  assert.strictEqual(elements.errorBanner.hidden, false);
+  assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "live_ephemeral");
+  globalThis.__secretPondTest.showError("");
 
   const sourceSettingsFor = (lowPath) => {{
     const active = cloneSettings(activeSettings);

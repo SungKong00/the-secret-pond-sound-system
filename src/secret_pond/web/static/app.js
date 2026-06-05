@@ -3972,7 +3972,7 @@ const applyAndRestart = async () => {
   } finally {
     setOperationLockFlag("applyInFlight", false);
     if (applyError) showError(applyError.message);
-    else clearTransientError();
+    else clearTransientError({ respectMinimumVisibleDuration: true });
   }
 };
 
@@ -3993,7 +3993,7 @@ const resetDraft = async () => {
   } finally {
     setOperationLockFlag("resetDraftInFlight", false);
     if (resetError) showError(resetError.message);
-    else clearTransientError();
+    else clearTransientError({ respectMinimumVisibleDuration: true });
   }
 };
 
@@ -4018,7 +4018,7 @@ const resetParticipants = async () => {
   } finally {
     setOperationLockFlag("resetParticipantsInFlight", false);
     if (resetError) showError(resetError.message);
-    else clearTransientError();
+    else clearTransientError({ respectMinimumVisibleDuration: true });
   }
 };
 
