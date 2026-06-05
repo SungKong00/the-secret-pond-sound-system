@@ -8,6 +8,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     EqSettings,
     InputControlSettings,
+    PlaybackSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
 )
@@ -25,6 +26,7 @@ def test_default_settings_define_three_layers_and_disarmed_input() -> None:
     assert settings.input_control.maximum_recording_seconds == 120.0
     assert settings.audio.sample_rate == 48_000
     assert settings.audio.channels == 2
+    assert settings.playback.apply_mode == "stable"
     assert settings.voice_stack.loop_seconds == 60
     assert settings.voice_stack.mode == "live_ephemeral"
 
@@ -53,6 +55,13 @@ def test_voice_stack_mode_accepts_test_library() -> None:
 def test_voice_stack_mode_rejects_unknown_value() -> None:
     with pytest.raises(ValidationError):
         VoiceStackSettings(mode="archive")
+
+
+def test_playback_apply_mode_accepts_live_and_rejects_unknown_value() -> None:
+    assert PlaybackSettings(apply_mode="live").apply_mode == "live"
+
+    with pytest.raises(ValidationError):
+        PlaybackSettings(apply_mode="preview")
 
 
 def test_voice_stack_loop_seconds_are_validated() -> None:

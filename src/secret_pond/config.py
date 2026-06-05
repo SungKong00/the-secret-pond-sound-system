@@ -72,6 +72,7 @@ class DeviceSettings(BaseModel):
 
 class PlaybackSettings(BaseModel):
     auto_start: bool = False
+    apply_mode: Literal["stable", "live"] = "stable"
     master_volume_db: float = Field(default=-6.0, ge=-60.0, le=6.0)
 
 
