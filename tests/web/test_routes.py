@@ -6904,6 +6904,30 @@ def test_api_sources_select_patches_draft_inside_runtime_lock(tmp_path: Path) ->
     )
 
 
+def test_api_sources_select_maps_draft_save_failure_to_conflict(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.mid_sources_dir / "library-mid.wav",
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    runtime = client.app.state.runtime
+    runtime.settings_store = FailingPatchDraftSettingsStore(
+        runtime.settings_store,
+        OSError("settings save failed"),
+    )
+
+    response = client.put(
+        "/api/sources/mid/select",
+        json={"path": "data/sources/mid/library-mid.wav"},
+    )
+
+    assert response.status_code == 409
+    assert "settings save failed" in response.json()["detail"]
+    assert SettingsStore(paths).load().draft.sources.mid_path is None
+
+
 def test_api_sources_upload_writes_wav_to_category_directory(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     client = create_test_client(tmp_path)

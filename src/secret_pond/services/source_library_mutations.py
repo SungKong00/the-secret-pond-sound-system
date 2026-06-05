@@ -28,14 +28,19 @@ def select_source_file_and_update_draft(
     category: str,
     relative_path: str | None,
 ) -> SettingsState:
-    settings_state = runtime.settings_store.patch_draft(
-        lambda draft: select_existing_source(
-            runtime.paths,
-            draft,
-            category,
-            relative_path,
-        ),
-    )
+    try:
+        settings_state = runtime.settings_store.patch_draft(
+            lambda draft: select_existing_source(
+                runtime.paths,
+                draft,
+                category,
+                relative_path,
+            ),
+        )
+    except (FileNotFoundError, ValueError):
+        raise
+    except Exception as exc:
+        raise SourceLibraryMutationError(str(exc)) from exc
     runtime.settings_state = settings_state
     return settings_state
 
