@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from secret_pond.config import AppSettings, DeviceSettings
+from secret_pond.config import AppSettings, DeviceSettings, PlaybackSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_changes import classify_settings_change
 from secret_pond.services.settings_store import SettingsState, SettingsStore
@@ -60,6 +60,26 @@ def test_settings_store_loads_persisted_active_and_draft(tmp_path: Path) -> None
 
     assert loaded.active.layers["voice"].volume_db == -24.0
     assert loaded.draft.layers["voice"].volume_db == -12.0
+
+
+def test_settings_store_round_trips_explicit_live_playback_apply_mode(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    store = SettingsStore(paths)
+    live_settings = AppSettings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+
+    store.save(SettingsState(active=live_settings, draft=live_settings))
+    payload = json.loads(paths.settings_file.read_text(encoding="utf-8"))
+    loaded = store.load()
+
+    assert payload["active"]["playback"]["apply_mode"] == "live"
+    assert payload["draft"]["playback"]["apply_mode"] == "live"
+    assert loaded.active.playback.apply_mode == "live"
+    assert loaded.draft.playback.apply_mode == "live"
 
 
 @pytest.mark.parametrize(
