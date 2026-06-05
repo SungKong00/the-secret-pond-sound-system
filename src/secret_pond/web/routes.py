@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
 
-from secret_pond.audio.source_library import (
-    category_config,
-    selected_source_path,
-    source_library_payload,
-)
+from secret_pond.audio.source_library import category_config, source_library_payload
 from secret_pond.config import AppSettings
 from secret_pond.services import maintenance, playback_control
 from secret_pond.services.device_inventory import device_inventory_payload
@@ -20,6 +14,7 @@ from secret_pond.services.device_switcher import (
     apply_runtime_devices,
     device_settings_from_payload,
 )
+from secret_pond.services.diagnostics import diagnostics_payload
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
@@ -423,65 +418,5 @@ def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[
 
 
 def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
-    paths = runtime.paths
     settings = _settings_state(runtime).active
-    low_source = selected_source_path(paths, settings, "low") or paths.low_source
-    mid_source = selected_source_path(paths, settings, "mid") or paths.mid_source
-    voice_source = selected_source_path(paths, settings, "voice_stack") or paths.voice_stack_raw
-    return {
-        "sources": [
-            _file_status_payload(paths.root, "low", "Low Source", low_source),
-            _file_status_payload(paths.root, "mid", "Mid Source", mid_source),
-            _file_status_payload(paths.root, "voice", "Voice Stack", voice_source),
-        ],
-        "events": _event_log_payload(runtime),
-    }
-
-
-def _file_status_payload(root: Path, file_id: str, label: str, path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {
-            "id": file_id,
-            "label": label,
-            "path": _relative_path(root, path),
-            "exists": False,
-            "size_bytes": 0,
-            "modified_at": None,
-        }
-
-    stat = path.stat()
-    return {
-        "id": file_id,
-        "label": label,
-        "path": _relative_path(root, path),
-        "exists": True,
-        "size_bytes": stat.st_size,
-        "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
-    }
-
-
-def _event_log_payload(runtime: SecretPondRuntime, limit: int = 5) -> dict[str, Any]:
-    path = runtime.paths.event_log_file
-    try:
-        events = runtime.logger.read_events()
-    except (OSError, ValueError) as exc:
-        return {
-            "path": _relative_path(runtime.paths.root, path),
-            "exists": path.exists(),
-            "recent": [],
-            "error": str(exc),
-        }
-
-    return {
-        "path": _relative_path(runtime.paths.root, path),
-        "exists": path.exists(),
-        "recent": list(reversed(events[-limit:])),
-        "error": None,
-    }
-
-
-def _relative_path(root: Path, path: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return path.as_posix()
+    return diagnostics_payload(runtime.paths, settings, runtime.logger)
