@@ -1640,6 +1640,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const renderOperationLockSurfaces = () => {",
         "};\n\nconst renderLayerControls",
     )
+    assert "const setOperationLockFlag = (key, inFlight) => {" in script.text
+    assert "if (!operationFlagKeys.includes(key))" in script.text
+    assert "state[key] = Boolean(inFlight)" in script.text
     assert "renderState();" in operation_lock_body
     assert "renderControls();" in operation_lock_body
     assert "renderDevices();" in operation_lock_body
@@ -1650,9 +1653,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst resetDraft",
     )
     assert "if (currentSettingsActionState().applyDisabled) return" in apply_body
-    assert "state.applyInFlight = true" in apply_body
-    assert "state.applyInFlight = false" in apply_body
-    assert "renderOperationLockSurfaces();" in apply_body
+    assert 'setOperationLockFlag("applyInFlight", true)' in apply_body
+    assert 'setOperationLockFlag("applyInFlight", false)' in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
     assert "showError(applyError.message)" in apply_body
@@ -1679,9 +1681,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "currentDashboardControlState().controlState.resetParticipantsDisabled"
         in reset_participants_body
     )
-    assert "state.resetParticipantsInFlight = true" in reset_participants_body
-    assert "state.resetParticipantsInFlight = false" in reset_participants_body
-    assert "renderOperationLockSurfaces();" in reset_participants_body
+    assert 'setOperationLockFlag("resetParticipantsInFlight", true)' in reset_participants_body
+    assert 'setOperationLockFlag("resetParticipantsInFlight", false)' in reset_participants_body
     assert "applyResponseState(payload, { syncDraft: false })" in reset_participants_body
     assert "const applyResponseState = async (payload, options = {}) => {" in script.text
     assert "applyState(payload.state, options)" in script.text
@@ -1728,22 +1729,19 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "controlError = error" in control_body
     assert "const controlRequest = deriveControlRequestState(path, options)" in control_body
     assert "if (controlRequest.skip) return" in control_body
-    assert (
-        "state.recordingStopInFlight = true;\n    renderOperationLockSurfaces();"
-        in control_body
-    )
-    assert (
-        "state.recordingStopInFlight = false;\n      renderOperationLockSurfaces();"
-        in control_body
-    )
+    assert 'setOperationLockFlag("recordingStopInFlight", true)' in control_body
+    assert 'setOperationLockFlag("recordingStopInFlight", false)' in control_body
     assert "if (controlError) showError(controlError.message);" in control_body
-    assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
-        "setRecordStatus(\"processing\", \"녹음 처리 중...\")",
+    assert control_body.index(
+        'setOperationLockFlag("recordingStopInFlight", true)',
+    ) < control_body.index(
+        'setRecordStatus("processing", "녹음 처리 중...")',
     )
-    final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
-    final_render = control_body.index("renderOperationLockSurfaces();", final_recording_stop_reset)
+    final_recording_stop_reset = control_body.rindex(
+        'setOperationLockFlag("recordingStopInFlight", false)',
+    )
     final_error = control_body.index("if (controlError) showError(controlError.message);")
-    assert final_recording_stop_reset < final_render < final_error
+    assert final_recording_stop_reset < final_error
     recording_error_branch = slice_between(
         control_body,
         'if (path.startsWith("/api/recording/") || path === "/api/input/disarm") {',

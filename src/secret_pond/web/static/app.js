@@ -1524,6 +1524,14 @@ const operationFlagsFrom = (stateLike = {}) =>
 
 const currentOperationFlags = () => operationFlagsFrom(state);
 
+const setOperationLockFlag = (key, inFlight) => {
+  if (!operationFlagKeys.includes(key)) {
+    throw new Error(`unknown operation flag: ${key}`);
+  }
+  state[key] = Boolean(inFlight);
+  renderOperationLockSurfaces();
+};
+
 const deriveDraftControlLockState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
@@ -2536,15 +2544,13 @@ const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutatio
 
 const beginSourceMutation = () => {
   const requestId = nextSourceMutationRequestId();
-  state.sourceMutationInFlight = true;
-  renderOperationLockSurfaces();
+  setOperationLockFlag("sourceMutationInFlight", true);
   return requestId;
 };
 
 const finishSourceMutation = (requestId) => {
   if (!isCurrentSourceMutation(requestId)) return;
-  state.sourceMutationInFlight = false;
-  renderOperationLockSurfaces();
+  setOperationLockFlag("sourceMutationInFlight", false);
 };
 
 const applySourceMutationPayload = (payload, options = {}) => {
@@ -3836,12 +3842,10 @@ const control = async (path, options = {}) => {
     renderState();
   }
   if (startsStopRequest) {
-    state.recordingStopInFlight = true;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("recordingStopInFlight", true);
   }
   if (playbackControlRequest) {
-    state.playbackControlInFlight = true;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("playbackControlInFlight", true);
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
     setRecordStatus("processing", "녹음 처리 중...");
@@ -3885,12 +3889,10 @@ const control = async (path, options = {}) => {
     }
   } finally {
     if (startsStopRequest) {
-      state.recordingStopInFlight = false;
-      renderOperationLockSurfaces();
+      setOperationLockFlag("recordingStopInFlight", false);
     }
     if (playbackControlRequest) {
-      state.playbackControlInFlight = false;
-      renderOperationLockSurfaces();
+      setOperationLockFlag("playbackControlInFlight", false);
     }
     if (startsStartRequest) {
       state.recordingStartInFlight = false;
@@ -3904,8 +3906,7 @@ const control = async (path, options = {}) => {
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
-  state.applyInFlight = true;
-  renderOperationLockSurfaces();
+  setOperationLockFlag("applyInFlight", true);
   try {
     clearDraftSaveTimer();
     await saveDraft();
@@ -3919,8 +3920,7 @@ const applyAndRestart = async () => {
     await requestDiagnostics().catch(() => {});
     await requestSources().catch(() => {});
   } finally {
-    state.applyInFlight = false;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("applyInFlight", false);
     if (applyError) showError(applyError.message);
     else clearTransientError();
   }
@@ -3930,9 +3930,8 @@ const resetDraft = async () => {
   if (currentSettingsActionState().resetDisabled) return;
   if (!window.confirm("저장하지 않은 설정 변경을 취소할까요?")) return;
   let resetError = null;
-  state.resetDraftInFlight = true;
+  setOperationLockFlag("resetDraftInFlight", true);
   invalidatePendingDraftSaves();
-  renderOperationLockSurfaces();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
@@ -3942,8 +3941,7 @@ const resetDraft = async () => {
     resetError = error;
     await requestState({ syncDraft: false }).catch(() => {});
   } finally {
-    state.resetDraftInFlight = false;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("resetDraftInFlight", false);
     if (resetError) showError(resetError.message);
     else clearTransientError();
   }
@@ -3958,8 +3956,7 @@ const resetParticipants = async () => {
   }
   if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
   let resetError = null;
-  state.resetParticipantsInFlight = true;
-  renderOperationLockSurfaces();
+  setOperationLockFlag("resetParticipantsInFlight", true);
   try {
     const payload = await api("/api/participants/reset", { method: "POST" });
     await applyResponseState(payload, { syncDraft: false });
@@ -3969,8 +3966,7 @@ const resetParticipants = async () => {
     resetError = error;
     await requestState({ syncDraft: false }).catch(() => {});
   } finally {
-    state.resetParticipantsInFlight = false;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("resetParticipantsInFlight", false);
     if (resetError) showError(resetError.message);
     else clearTransientError();
   }
@@ -3985,8 +3981,7 @@ const toggleCaptureGate = () => {
 const changeDevice = async (key, value) => {
   if (currentDeviceChangeState(key).disabled) return;
   state.deviceChangeRequestId += 1;
-  state.deviceChangeInFlight = true;
-  renderOperationLockSurfaces();
+  setOperationLockFlag("deviceChangeInFlight", true);
   try {
     const payload = await api("/api/devices", {
       method: "PUT",
@@ -4001,8 +3996,7 @@ const changeDevice = async (key, value) => {
     await requestDevices({ allowDuringDeviceChange: true }).catch(() => {});
     showError(error.message);
   } finally {
-    state.deviceChangeInFlight = false;
-    renderOperationLockSurfaces();
+    setOperationLockFlag("deviceChangeInFlight", false);
   }
 };
 
