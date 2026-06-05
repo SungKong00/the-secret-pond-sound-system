@@ -3493,6 +3493,41 @@ assert.strictEqual(globalThis.__secretPondTest.state.websocketConnected, true);
 assert.strictEqual(elements.syncBadge.textContent, "실시간 동기화");
 assert.strictEqual(elements.syncBadge.className, "status-pill safe");
 
+const websocketSnapshot = {{
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 0,
+  participant_count: 0,
+  playback: {{ output_running: false, layers: {{}} }},
+  settings: {{
+    active: {{
+      sources: {{}},
+      input_control: {{ minimum_recording_seconds: 1, maximum_recording_seconds: 60 }},
+    }},
+    draft: {{
+      sources: {{}},
+      input_control: {{ minimum_recording_seconds: 1, maximum_recording_seconds: 60 }},
+    }},
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+      runtime_config_fields: [],
+    }},
+  }},
+}};
+globalThis.__secretPondTest.state.snapshot = websocketSnapshot;
+globalThis.__secretPondTest.state.draft = JSON.parse(
+  JSON.stringify(websocketSnapshot.settings.draft),
+);
+globalThis.__secretPondTest.showError("");
+connectedSocket.emit("message", {{
+  data: JSON.stringify({{ type: "eq.preview", bands: [] }}),
+}});
+assert.strictEqual(globalThis.__secretPondTest.state.snapshot, websocketSnapshot);
+assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+
 connectedSocket.emit("message", {{
   data: JSON.stringify({{
     error: {{
@@ -3501,7 +3536,7 @@ connectedSocket.emit("message", {{
     }},
   }}),
 }});
-assert.strictEqual(globalThis.__secretPondTest.state.snapshot, null);
+assert.strictEqual(globalThis.__secretPondTest.state.snapshot, websocketSnapshot);
 assert.strictEqual(
   elements.errorBanner.children[0].children[1].textContent,
   "상태를 불러오지 못했습니다.",

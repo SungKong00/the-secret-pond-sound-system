@@ -3632,6 +3632,19 @@ const stateSocketErrorMessage = (payload) => {
   return error.message || error.detail || error.code || "state websocket error";
 };
 
+const isStateSocketStatePayload = (payload) => (
+  Boolean(
+    payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      payload.settings?.active &&
+      payload.settings?.draft &&
+      payload.playback &&
+      typeof payload.playback === "object" &&
+      !Array.isArray(payload.playback),
+  )
+);
+
 const connectStateSocket = () => {
   if (!("WebSocket" in window)) {
     renderSyncBadge();
@@ -3653,6 +3666,9 @@ const connectStateSocket = () => {
       const errorMessage = stateSocketErrorMessage(payload);
       if (errorMessage) {
         showError(errorMessage);
+        return;
+      }
+      if (!isStateSocketStatePayload(payload)) {
         return;
       }
       const shouldRefreshSources = activeSourcePathsChanged(state.snapshot, payload);
