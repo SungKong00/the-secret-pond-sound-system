@@ -48,6 +48,7 @@ const state = {
   saveTimer: null,
   draftSaveRequestId: 0,
   draftEditRevision: 0,
+  confirmedDraftSignature: null,
   sourceMutationRequestId: 0,
   stateRefreshRequestId: 0,
   sourceRefreshRequestId: 0,
@@ -1416,6 +1417,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
     mergeDraftSections,
   });
   if (shouldSyncDraft) {
+    rememberConfirmedSettingsDraft(nextSettings);
     if (renderControlsOnSync) renderControls();
   } else {
     syncDraftSnapshot();
@@ -2685,11 +2687,23 @@ const settingsPayloadMatchesDraft = (snapshot, draft) => (
   stableSettingsSignature(snapshot.settings.draft) === stableSettingsSignature(draft)
 );
 
+const rememberConfirmedSettingsDraft = (settingsPayload) => {
+  if (!settingsPayload?.draft) return;
+  state.confirmedDraftSignature = stableSettingsSignature(settingsPayload.draft);
+};
+
+const confirmedSettingsDraftMatches = (draft) => (
+  Boolean(draft && state.confirmedDraftSignature === stableSettingsSignature(draft))
+);
+
 const shouldSyncIncomingSettingsDraft = (currentSnapshot, currentDraft, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   if (syncDraft || !currentDraft) return true;
   if (!currentSnapshot?.settings?.draft) return false;
-  return settingsPayloadMatchesDraft(currentSnapshot, currentDraft);
+  if (state.confirmedDraftSignature === null) {
+    return state.draftEditRevision === 0 && settingsPayloadMatchesDraft(currentSnapshot, currentDraft);
+  }
+  return confirmedSettingsDraftMatches(currentDraft);
 };
 
 const canUseServerSettingsChangePlan = (snapshot, draft) => (

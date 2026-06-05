@@ -3132,7 +3132,7 @@ def test_static_ui_ignores_source_refresh_started_during_source_mutation(
 def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, applyState, requestState }",
+        exports="{ state, applyState, requestState, setStorageMode }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {
@@ -3278,10 +3278,19 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
   assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 75);
 
+  helpers.setStorageMode("test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "test_library");
+  helpers.applyState(snapshotWithDraftLoop(12, 75), { syncDraft: false });
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 75);
+
   const localDirtyDraft = cloneSettings(helpers.state.draft);
   localDirtyDraft.voice_stack.loop_seconds = 88;
   helpers.state.draft = localDirtyDraft;
-  helpers.applyState(snapshotWithDraftLoop(12, 99), { syncDraft: false });
+  helpers.applyState(snapshotWithDraftLoop(13, 99), { syncDraft: false });
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 88);
   assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 88);
 })().catch((error) => {
