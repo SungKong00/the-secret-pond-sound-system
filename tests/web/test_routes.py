@@ -1489,6 +1489,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Pending changes" not in script.text
     assert "No pending changes" not in script.text
     assert "const deriveSettingsActionState = ({" in script.text
+    assert "const deriveSettingsUiState = ({" in script.text
     assert "const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false)" in (
         script.text
     )
@@ -1557,6 +1558,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요." in script.text
     assert "취소할 설정 변경사항이 없습니다." in script.text
     assert "const currentSettingsUiState = (snapshot = state.snapshot) => {" in script.text
+    current_settings_ui_body = slice_between(
+        script.text,
+        "const currentSettingsUiState = (snapshot = state.snapshot) => {",
+        "};\n\nconst currentDashboardControlState",
+    )
+    assert "return deriveSettingsUiState({" in current_settings_ui_body
+    assert "operationFlags: currentOperationFlags()" in current_settings_ui_body
+    assert "settingsPlan: settingsChangePlan(snapshot)" in current_settings_ui_body
+    assert "sourceFilesChanged: hasSourceFileChanges(snapshot)" in current_settings_ui_body
     assert (
         "const currentSettingsActionState = (snapshot = state.snapshot) =>\n"
         "  currentSettingsUiState(snapshot).controlState"
@@ -2052,7 +2062,7 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         exports=(
             "{ state, operationFlagKeys, operationFlagsFrom, currentOperationFlags, "
             "deriveDashboardControlState, deriveSettingsActionState, "
-            "derivePendingChangeState, "
+            "derivePendingChangeState, deriveSettingsUiState, "
             "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
             "deriveSystemDeviceSelectState, deriveStorageModeControlState, "
             "firstOperationLockTitle, currentSettingsUiState, currentSettingsActionState }"
@@ -2067,6 +2077,7 @@ const snapshot = {{
 const derive = helpers.deriveDashboardControlState;
 const deriveSettingsActions = helpers.deriveSettingsActionState;
 const derivePending = helpers.derivePendingChangeState;
+const deriveSettingsUi = helpers.deriveSettingsUiState;
 const deriveControl = helpers.deriveControlRequestState;
 const deriveDraftLock = helpers.deriveDraftControlLockState;
 const deriveLocks = helpers.deriveOperationLocks;
@@ -2164,6 +2175,24 @@ assert.deepStrictEqual(settingsUiState.pendingChangeState, {{
 }});
 assert.strictEqual(settingsUiState.controlState.applyDisabled, true);
 assert.strictEqual(settingsUiState.controlState.applyTitle, "적용할 변경사항이 없습니다.");
+
+const sourceChangedUiState = deriveSettingsUi({{
+  snapshot: settingsSnapshot,
+  settingsPlan: {{ runtimeConfigChanged: false, changedSections: [] }},
+  sourceFilesChanged: true,
+  operationFlags: {{ playbackControlInFlight: true }},
+}});
+assert.deepStrictEqual(sourceChangedUiState.pendingChangeState, {{
+  settingsChanged: false,
+  sourceFilesChanged: true,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(sourceChangedUiState.controlState.applyDisabled, true);
+assert.strictEqual(
+  sourceChangedUiState.controlState.applyTitle,
+  "출력 제어가 끝날 때까지 기다리세요.",
+);
 
 helpers.state.snapshot = {{
   ...settingsSnapshot,

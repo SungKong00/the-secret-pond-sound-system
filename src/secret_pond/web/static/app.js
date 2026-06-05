@@ -1846,20 +1846,31 @@ const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
   };
 };
 
-const currentSettingsUiState = (snapshot = state.snapshot) => {
-  const pendingChangeState = derivePendingChangeState(
-    settingsChangePlan(snapshot),
-    hasSourceFileChanges(snapshot),
-  );
+const deriveSettingsUiState = ({
+  snapshot = null,
+  settingsPlan = null,
+  sourceFilesChanged = false,
+  operationFlags = {},
+} = {}) => {
+  const pendingChangeState = derivePendingChangeState(settingsPlan, sourceFilesChanged);
   return {
     pendingChangeState,
     controlState: deriveDashboardControlState({
       snapshot,
-      ...currentOperationFlags(),
+      ...operationFlagsFrom(operationFlags),
       pendingChanges: pendingChangeState.pendingChanges,
       runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
     }),
   };
+};
+
+const currentSettingsUiState = (snapshot = state.snapshot) => {
+  return deriveSettingsUiState({
+    snapshot,
+    settingsPlan: settingsChangePlan(snapshot),
+    sourceFilesChanged: hasSourceFileChanges(snapshot),
+    operationFlags: currentOperationFlags(),
+  });
 };
 
 const currentDashboardControlState = (snapshot = state.snapshot) => {
