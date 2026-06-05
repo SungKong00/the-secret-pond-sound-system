@@ -780,6 +780,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'href="/static/styles.css"' in response.text
     assert 'src="/static/app.js"' in response.text
     assert 'id="outputBadge"' in response.text
+    assert 'id="transitionModeBadge"' in response.text
+    assert "No Rendered Cache" in response.text
+    assert "재생 준비 전" in response.text
     assert 'id="modeBadge"' not in response.text
     assert "녹음 보관 확인 중" not in response.text
     assert 'id="lastEventBadge"' in response.text
@@ -1178,8 +1181,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '"syncBadge").className = "status-pill muted"' in script.text
     assert '!("WebSocket" in window)' in script.text
     assert "renderSyncBadge();\n  const snapshot = state.snapshot;" in script.text
+    assert "renderTransitionModeBadge" in script.text
+    assert "Live Transition" in script.text
+    assert "Stable Fallback" in script.text
+    assert "Live transition" in script.text
+    assert "Stable fallback" in script.text
     assert "outputControlSummary" in script.text
-    assert "출력 스트림이 실행 중입니다." in script.text
     assert "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다." in script.text
     assert "syncAppliedSourceSignature" in script.text
     assert "hasSourceFileChanges" in script.text
@@ -1237,18 +1244,28 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".source-upload-row" in styles.text
     assert ".source-drop-zone" in styles.text
     assert ".source-upload-select" in styles.text
+    assert ".source-file-actions" in styles.text
     assert "is-dragging" in styles.text
     assert "state.sources = null" in script.text
     assert 'api("/api/sources")' in script.text
     assert "requestSources" in script.text
     assert "renderSourceLibrary" in script.text
     assert "applySourceMutationPayload" in script.text
+    assert "previewVoiceRaw" in script.text
+    assert "addVoiceRawToStack" in script.text
+    assert "Preview VR" in script.text
+    assert "Add to Stack" in script.text
+    assert 'api("/api/voice-raw/preview"' in script.text
+    assert 'api("/api/voice-stack/add-source"' in script.text
     assert "recoverSourceMutationError" in script.text
     assert "selectSourceFile" in script.text
     assert "uploadSourceFile" in script.text
     assert "selectedSourceUploadMode" in script.text
     assert "deriveSourceUploadActionState" in script.text
     assert "deriveSourceFileActionState" in script.text
+    assert 'path: "transition_seconds"' in script.text
+    assert "전환 시간" in script.text
+    assert "1s · 3s default · 10s" in script.text
     assert "handleSourceFileDrop" in script.text
     assert "deleteSourceFile" in script.text
     assert "source-file-select" in script.text
@@ -4347,7 +4364,7 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
         tmp_path,
         exports=(
             "{ state, selectSourceFile, uploadSourceFile, deleteSourceFile, "
-            "handleSourceFileDrop }"
+            "previewVoiceRaw, addVoiceRawToStack, handleSourceFileDrop }"
         ),
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
@@ -4393,6 +4410,14 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   helpers.state.sourceMutationInFlight = true;
   assert.strictEqual(
     await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.previewVoiceRaw("data/sources/voice/raw/VR0610_213112.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.addVoiceRawToStack("data/sources/voice/raw/VR0610_213112.wav"),
     null,
   );
   assert.strictEqual(helpers.state.sourceMutationInFlight, true);
@@ -5688,6 +5713,7 @@ def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None
         tmp_path,
         exports=(
             "{ deriveSourceUploadActionState, deriveSourceFileActionState, "
+            "deriveVoiceRawActionState, "
             "deriveSourceFileStatusLabels, sourceLibrarySignature, state, "
             "sourceSelectFromEventTarget }"
         ),
@@ -5906,6 +5932,29 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveVoiceRawActionState({{ active: false }}),
+  {{
+    previewDisabled: false,
+    addDisabled: false,
+    previewTitle: "현재 목소리 처리로 VR을 미리 듣습니다.",
+    addTitle: "선택된 Voice Stack에 VR을 추가합니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveVoiceRawActionState(
+    {{ active: false }},
+    {{ sourceMutationInFlight: true }},
+  ),
+  {{
+    previewDisabled: true,
+    addDisabled: true,
+    previewTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+    addTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileStatusLabels({{ active: true, applied: false }}),
   ["적용 대기"],
 );
@@ -5940,6 +5989,218 @@ assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelect), sourceSele
 assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelectChild), sourceSelect);
 assert.strictEqual(helpers.sourceSelectFromEventTarget(unrelatedTarget), null);
 assert.strictEqual(helpers.sourceSelectFromEventTarget(null), null);
+""",
+    )
+
+
+def test_static_ui_transition_mode_badge_tracks_live_and_stable_paths(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ renderTransitionModeBadge }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const badge = document.getElementById("transitionModeBadge");
+
+helpers.renderTransitionModeBadge({{
+  playback: {{
+    active_voice_transition_target_id: "data/sources/voice/stack/VS0610_213112.wav",
+    rendered_cache_ready: true,
+  }},
+}});
+assert.strictEqual(
+  badge.innerHTML,
+  'Live Transition <small lang="ko">목소리 전환 중</small>',
+);
+assert.strictEqual(badge.className, "status-pill hot");
+assert.strictEqual(badge.title, "data/sources/voice/stack/VS0610_213112.wav");
+
+helpers.renderTransitionModeBadge({{
+  playback: {{
+    active_voice_transition_target_id: null,
+    rendered_cache_ready: true,
+  }},
+}});
+assert.strictEqual(
+  badge.innerHTML,
+  'Stable Fallback <small lang="ko">기존 재생 경로</small>',
+);
+assert.strictEqual(badge.className, "status-pill safe");
+assert.strictEqual(badge.title, "Apply and Restart로 렌더링된 캐시를 사용합니다.");
+
+helpers.renderTransitionModeBadge({{
+  playback: {{
+    active_voice_transition_target_id: null,
+    rendered_cache_ready: false,
+  }},
+}});
+assert.strictEqual(
+  badge.innerHTML,
+  'No Rendered Cache <small lang="ko">재생 준비 전</small>',
+);
+assert.strictEqual(badge.className, "status-pill muted");
+assert.strictEqual(badge.title, "먼저 오디오 설정을 적용하세요.");
+""",
+    )
+
+
+def test_static_ui_output_summary_names_live_transition_and_stable_fallback(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ outputControlSummaryText }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const liveSnapshot = {
+  playback: { output_running: true },
+  settings: { active: { voice_stack: { mode: "live_ephemeral", transition_seconds: 3 } } },
+};
+const stableSnapshot = {
+  playback: { output_running: true },
+  settings: { active: { voice_stack: { mode: "test_library", transition_seconds: 3 } } },
+};
+
+assert.strictEqual(
+  helpers.outputControlSummaryText(liveSnapshot, { pendingChanges: false }),
+  "Live transition · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
+);
+assert.strictEqual(
+  helpers.outputControlSummaryText(stableSnapshot, { pendingChanges: false }),
+  "Stable fallback · 변경사항 적용 후 렌더링된 캐시로 재생합니다.",
+);
+assert.strictEqual(
+  helpers.outputControlSummaryText(liveSnapshot, { pendingChanges: true }),
+  "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.",
+);
+assert.strictEqual(
+  helpers.outputControlSummaryText(
+    liveSnapshot,
+    { pendingChanges: false },
+    { applyInFlight: true },
+  ),
+  "준비된 오디오 설정을 렌더링하는 중입니다.",
+);
+""",
+    )
+
+
+def test_static_ui_source_library_voice_raw_rows_render_preview_and_add_actions(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ sourceFileRows, state }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+helpers.state.sourceMutationInFlight = false;
+helpers.state.recordingStartInFlight = false;
+helpers.state.recordingStopInFlight = false;
+helpers.state.playbackControlInFlight = false;
+helpers.state.applyInFlight = false;
+helpers.state.resetDraftInFlight = false;
+helpers.state.resetParticipantsInFlight = false;
+helpers.state.deviceChangeInFlight = false;
+
+const vrHtml = helpers.sourceFileRows({{
+  id: "voice_raw",
+  files: [
+    {{
+      name: "VR0610_213112.wav",
+      path: "data/sources/voice/raw/VR0610_213112.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: true,
+      applied: false,
+    }},
+  ],
+}});
+assert.strictEqual(vrHtml.includes("Preview VR"), true);
+assert.strictEqual(vrHtml.includes("Add to Stack"), true);
+assert.strictEqual(
+  vrHtml.includes('data-voice-raw-preview="data/sources/voice/raw/VR0610_213112.wav"'),
+  true,
+);
+assert.strictEqual(
+  vrHtml.includes('data-voice-raw-add="data/sources/voice/raw/VR0610_213112.wav"'),
+  true,
+);
+assert.strictEqual(vrHtml.includes("현재 목소리 처리로 VR을 미리 듣습니다."), true);
+assert.strictEqual(vrHtml.includes("선택된 Voice Stack에 VR을 추가합니다."), true);
+
+helpers.state.sourceMutationInFlight = true;
+const busyVrHtml = helpers.sourceFileRows({{
+  id: "voice_raw",
+  files: [
+    {{
+      name: "VR0610_213112.wav",
+      path: "data/sources/voice/raw/VR0610_213112.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: false,
+      applied: false,
+    }},
+  ],
+}});
+assert.strictEqual(busyVrHtml.includes("Preview VR</button>"), true);
+assert.strictEqual(busyVrHtml.includes("Add to Stack</button>"), true);
+assert.strictEqual(busyVrHtml.includes("disabled"), true);
+assert.strictEqual(busyVrHtml.includes("소스 파일 작업이 끝날 때까지 기다리세요."), true);
+
+const lowHtml = helpers.sourceFileRows({{
+  id: "low",
+  files: [
+    {{
+      name: "low.wav",
+      path: "data/sources/low/low.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: false,
+      applied: false,
+    }},
+  ],
+}});
+assert.strictEqual(lowHtml.includes("Preview VR"), false);
+assert.strictEqual(lowHtml.includes("Add to Stack"), false);
+assert.strictEqual(lowHtml.includes("data-voice-raw-preview"), false);
+""",
+    )
+
+
+def test_static_ui_voice_raw_actions_call_preview_and_add_endpoints(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, previewVoiceRaw, addVoiceRawToStack }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const calls = [];
+globalThis.fetch = (path, options = {}) => {
+  calls.push({ path, options });
+  return new Promise(() => {});
+};
+
+helpers.state.sourceMutationInFlight = false;
+helpers.previewVoiceRaw("data/sources/voice/raw/VR0610_213112.wav");
+assert.strictEqual(calls[0].path, "/api/voice-raw/preview");
+assert.deepStrictEqual(
+  JSON.parse(calls[0].options.body),
+  { voice_raw_path: "data/sources/voice/raw/VR0610_213112.wav" },
+);
+assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+
+helpers.state.sourceMutationInFlight = false;
+helpers.addVoiceRawToStack("data/sources/voice/raw/VR0610_213112.wav");
+assert.strictEqual(calls[1].path, "/api/voice-stack/add-source");
+assert.deepStrictEqual(
+  JSON.parse(calls[1].options.body),
+  { voice_raw_path: "data/sources/voice/raw/VR0610_213112.wav" },
+);
+assert.strictEqual(helpers.state.sourceMutationInFlight, true);
 """,
     )
 
@@ -6484,6 +6745,21 @@ globalThis.__secretPondTest.state.devices = {{ warnings: [] }};
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
+
+globalThis.__secretPondTest.state.snapshot = {{
+  playback: {{ transition_warning: "목소리 전환을 적용하지 못했습니다." }},
+}};
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner caution");
+assert.strictEqual(elements.errorBanner.children[0].children[0].textContent, "주의");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "목소리 전환을 적용하지 못했습니다.",
+);
+assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
+globalThis.__secretPondTest.state.snapshot = null;
+globalThis.__secretPondTest.renderErrors();
 
 delete window.WebSocket;
 delete globalThis.WebSocket;
@@ -9084,6 +9360,9 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["playback"]["is_playing"] is False
     assert payload["playback"]["output_running"] is False
     assert payload["playback"]["rendered_cache_ready"] is False
+    assert payload["playback"]["active_voice_transition_target_id"] is None
+    assert payload["playback"]["playback_session_id"] is None
+    assert payload["playback"]["transition_warning"] is None
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
@@ -9105,6 +9384,24 @@ def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(
 
     assert apply_response.status_code == 200
     assert payload["playback"]["rendered_cache_ready"] is True
+
+
+def test_api_state_reports_playback_session_after_output_start(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+
+    apply_response = client.post("/api/settings/apply-and-restart")
+    start_response = client.post("/api/playback/start")
+
+    assert apply_response.status_code == 200
+    assert start_response.status_code == 200
+    assert output.start_calls == 1
+    playback = start_response.json()["state"]["playback"]
+    assert isinstance(playback["playback_session_id"], str)
+    assert playback["playback_session_id"]
+    assert playback["transition_warning"] is None
 
 
 def test_api_state_revision_increases_after_successful_state_mutation(
@@ -9349,6 +9646,14 @@ def test_ws_state_disconnect_refreshes_running_voice_playback_layer(
     with client.websocket_connect("/ws/state") as websocket:
         assert websocket.receive_json()["is_recording"] is True
 
+    wait_for_state(
+        client,
+        lambda payload: (
+            payload["is_recording"] is False
+            and payload["playback"]["active_voice_transition_target_id"] is not None
+        ),
+        timeout_seconds=8.0,
+    )
     after = runtime.player.next_block(8_000)
 
     assert output.is_running is True
@@ -10158,6 +10463,9 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
         stack.samples[: 20 * 8_000],
         stack.samples[40 * 8_000 :],
         atol=1e-4,
+    )
+    assert response.json()["state"]["playback"]["active_voice_transition_target_id"] == (
+        selected_stack
     )
     assert runtime.player.active_voice_transition_target_id == selected_stack
     runtime.player.next_block(16_000)

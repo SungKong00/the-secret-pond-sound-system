@@ -72,6 +72,7 @@ class SecretPondRuntime:
     operation_lock: Any = field(default_factory=threading.RLock)
     state_epoch: int = field(default_factory=time.time_ns)
     state_revision: int = 0
+    transition_warning: str | None = None
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.update_settings(settings_state.active)

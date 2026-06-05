@@ -73,7 +73,6 @@ class DeviceSettings(BaseModel):
 class PlaybackSettings(BaseModel):
     auto_start: bool = False
     master_volume_db: float = Field(default=-6.0, ge=-60.0, le=6.0)
-    voice_crossfade_seconds: float = Field(default=3.0, ge=1.0, le=10.0)
 
 
 class SourceSelectionSettings(BaseModel):
@@ -101,6 +100,7 @@ class SourceSelectionSettings(BaseModel):
 class VoiceStackSettings(BaseModel):
     mode: Literal["test_library", "live_ephemeral"] = "live_ephemeral"
     loop_seconds: int = Field(default=60, ge=1, le=600)
+    transition_seconds: int = Field(default=3, ge=1, le=10)
     placement: Literal["random"] = "random"
     insert_gain_db: float = Field(default=-12.0, ge=-60.0, le=6.0)
 

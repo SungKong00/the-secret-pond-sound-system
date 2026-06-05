@@ -1478,7 +1478,7 @@ select:disabled {
 
 .source-file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 6px;
   align-items: center;
   min-height: 38px;
@@ -1486,6 +1486,13 @@ select:disabled {
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.11);
+}
+
+.source-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .source-file-row strong,

@@ -699,6 +699,23 @@ const voiceStackControlDefs = [
       { value: 105, label: "105s" },
     ],
   },
+  {
+    path: "transition_seconds",
+    label: { ko: "전환 시간", en: "Transition" },
+    min: 1,
+    max: 10,
+    step: 1,
+    suffix: " s",
+    kind: "space",
+    rangeLabel: "1s · 3s default · 10s",
+    defaultValue: 3,
+    description: "새 목소리 스택으로 넘어갈 때 겹쳐 전환되는 시간입니다.",
+    marks: [
+      { value: 1, label: "1s" },
+      { value: 3, label: "3s" },
+      { value: 10, label: "10s" },
+    ],
+  },
 ];
 
 const layerPresetLabels = {
@@ -2071,6 +2088,47 @@ const renderRecordingTimes = (snapshot = state.snapshot) => {
     `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
 };
 
+const renderTransitionModeBadge = (snapshot) => {
+  const badge = $("transitionModeBadge");
+  const transitionTarget = snapshot.playback.active_voice_transition_target_id;
+  if (transitionTarget) {
+    badge.innerHTML = `Live Transition <small lang="ko">목소리 전환 중</small>`;
+    badge.className = "status-pill hot";
+    badge.title = transitionTarget;
+    return;
+  }
+  if (snapshot.playback.rendered_cache_ready) {
+    badge.innerHTML = `Stable Fallback <small lang="ko">기존 재생 경로</small>`;
+    badge.className = "status-pill safe";
+    badge.title = "Apply and Restart로 렌더링된 캐시를 사용합니다.";
+    return;
+  }
+  badge.innerHTML = `No Rendered Cache <small lang="ko">재생 준비 전</small>`;
+  badge.className = "status-pill muted";
+  badge.title = "먼저 오디오 설정을 적용하세요.";
+};
+
+const outputControlSummaryText = (
+  snapshot,
+  pendingChangeState = { pendingChanges: false },
+  operationFlags = currentOperationFlags(),
+) => {
+  const flags = operationFlagsFrom(operationFlags);
+  if (flags.applyInFlight) {
+    return "준비된 오디오 설정을 렌더링하는 중입니다.";
+  }
+  if (pendingChangeState.pendingChanges) {
+    return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
+  }
+  if (snapshot?.playback?.output_running) {
+    if (snapshot.settings?.active?.voice_stack?.mode === "live_ephemeral") {
+      return "Live transition · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.";
+    }
+    return "Stable fallback · 변경사항 적용 후 렌더링된 캐시로 재생합니다.";
+  }
+  return "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
+};
+
 const renderState = () => {
   renderSyncBadge();
   const snapshot = state.snapshot;
@@ -2083,6 +2141,7 @@ const renderState = () => {
   $("recordingBadge").className = `status-pill ${snapshot.is_recording ? "hot" : ""}`;
   $("outputBadge").textContent = snapshot.playback.output_running ? "출력 중" : "출력 꺼짐";
   $("outputBadge").className = `status-pill ${snapshot.playback.output_running ? "safe" : "muted"}`;
+  renderTransitionModeBadge(snapshot);
   renderStorageModeControls();
   $("participantCount").textContent = snapshot.participant_count;
   renderRecordingTimes(snapshot);
@@ -2107,13 +2166,10 @@ const renderState = () => {
   $("pendingBadge").hidden = !pendingChangeState.pendingChanges;
   $("pendingBadge").textContent = pendingChangeState.pendingChanges ? "저장 안 된 오디오 변경" : "";
   $("pendingBadge").className = "status-pill hot";
-  $("outputControlSummary").textContent = state.applyInFlight
-    ? "준비된 오디오 설정을 렌더링하는 중입니다."
-    : snapshot.playback.output_running
-      ? "출력 스트림이 실행 중입니다."
-      : pendingChangeState.pendingChanges
-        ? "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다."
-        : "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
+  $("outputControlSummary").textContent = outputControlSummaryText(
+    snapshot,
+    pendingChangeState,
+  );
   $("captureGate").className = `capture-gate ${controlState.captureGateClass}`;
   $("captureGateSwitch").disabled = controlState.captureGateSwitchDisabled;
   $("captureGateSwitch").setAttribute(
@@ -2223,7 +2279,10 @@ const currentWarningMessages = () => {
 };
 
 const currentWarningNotices = () => {
-  return (state.devices?.warnings || [])
+  return [
+    ...(state.devices?.warnings || []),
+    state.snapshot?.playback?.transition_warning || null,
+  ]
     .map((message) => noticeFromMessage(message, "caution"))
     .filter(Boolean);
 };
@@ -2489,6 +2548,8 @@ const sourceLibraryInteractiveControlSelector = [
   "[data-source-select]",
   "[data-source-file]",
   "[data-source-upload-select]",
+  "[data-voice-raw-preview]",
+  "[data-voice-raw-add]",
 ].join(", ");
 
 const sourceSelectFromEventTarget = (target) =>
@@ -2516,6 +2577,8 @@ const sourceLibraryBusyControlSelector = [
   "[data-source-upload-select]",
   "[data-source-upload]",
   "[data-source-delete]",
+  "[data-voice-raw-preview]",
+  "[data-voice-raw-add]",
 ].join(", ");
 const sourceLibraryBusyControlState = new WeakMap();
 
@@ -2581,6 +2644,17 @@ const deriveSourceFileActionState = (file = {}, operationFlags = {}) => {
       : applied
         ? "현재 적용된 파일은 삭제할 수 없습니다"
       : busy ? busyTitle : "",
+  };
+};
+
+const deriveVoiceRawActionState = (file = {}, operationFlags = {}) => {
+  const busyTitle = sourceActionBusyTitle(operationFlags);
+  const busy = Boolean(busyTitle);
+  return {
+    previewDisabled: busy,
+    addDisabled: busy,
+    previewTitle: busy ? busyTitle : "현재 목소리 처리로 VR을 미리 듣습니다.",
+    addTitle: busy ? busyTitle : "선택된 Voice Stack에 VR을 추가합니다.",
   };
 };
 
@@ -2701,6 +2775,7 @@ const sourceFileRows = (category) => {
   }
   return category.files.map((file) => {
     const action = deriveSourceFileActionState(file, currentOperationFlags());
+    const voiceRawAction = deriveVoiceRawActionState(file, currentOperationFlags());
     const badges = deriveSourceFileStatusLabels(file, action)
       .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
       .join("");
@@ -2708,6 +2783,24 @@ const sourceFileRows = (category) => {
     const deleteTitle = action.deleteTitle
       ? ` title="${escapeHtml(action.deleteTitle)}"`
       : "";
+    const voiceRawActions = category.id === "voice_raw" ? `
+        <div class="source-file-actions">
+          <button
+            class="mini-button"
+            type="button"
+            data-voice-raw-preview="${escapeHtml(file.path)}"
+            title="${escapeHtml(voiceRawAction.previewTitle)}"
+            ${voiceRawAction.previewDisabled ? " disabled" : ""}
+          >Preview VR</button>
+          <button
+            class="mini-button"
+            type="button"
+            data-voice-raw-add="${escapeHtml(file.path)}"
+            title="${escapeHtml(voiceRawAction.addTitle)}"
+            ${voiceRawAction.addDisabled ? " disabled" : ""}
+          >Add to Stack</button>
+        </div>
+      ` : "";
     return `
       <div class="source-file-row">
         <div>
@@ -2715,6 +2808,7 @@ const sourceFileRows = (category) => {
           <small>${formatBytes(file.size_bytes)} · ${formatTimestamp(file.modified_at)}</small>
         </div>
         ${badges}
+        ${voiceRawActions}
         <button
           class="mini-button danger"
           type="button"
@@ -2899,6 +2993,50 @@ const deleteSourceFile = async (category, path) => {
       `/api/sources/${encodeURIComponent(category)}/files?path=${encodeURIComponent(path)}`,
       { method: "DELETE" },
     );
+    if (!isCurrentSourceMutation(requestId)) return payload;
+    applySourceMutationPayload(payload);
+    await requestDiagnostics();
+    return payload;
+  } catch (error) {
+    if (isCurrentSourceMutation(requestId)) {
+      await recoverSourceMutationError(error);
+    }
+    return null;
+  } finally {
+    finishSourceMutation(requestId);
+  }
+};
+
+const previewVoiceRaw = async (path) => {
+  if (sourceCommandBlocked()) return null;
+  const requestId = beginSourceMutation();
+  try {
+    const payload = await api("/api/voice-raw/preview", {
+      method: "POST",
+      body: JSON.stringify({ voice_raw_path: path }),
+    });
+    if (!isCurrentSourceMutation(requestId)) return payload;
+    await applyResponseState(payload, { syncDraft: false });
+    await requestDiagnostics();
+    return payload;
+  } catch (error) {
+    if (isCurrentSourceMutation(requestId)) {
+      await recoverSourceMutationError(error);
+    }
+    return null;
+  } finally {
+    finishSourceMutation(requestId);
+  }
+};
+
+const addVoiceRawToStack = async (path) => {
+  if (sourceCommandBlocked()) return null;
+  const requestId = beginSourceMutation();
+  try {
+    const payload = await api("/api/voice-stack/add-source", {
+      method: "POST",
+      body: JSON.stringify({ voice_raw_path: path }),
+    });
     if (!isCurrentSourceMutation(requestId)) return payload;
     applySourceMutationPayload(payload);
     await requestDiagnostics();
@@ -3357,16 +3495,18 @@ const renderVoiceStackControls = () => {
   renderStorageModeControls();
   const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
   voiceStackControlDefs.forEach((control) => {
+    const draftValue = getPath(state.draft.voice_stack, control.path) ?? control.defaultValue;
+    const activeValue = getPath(activeVoiceStack, control.path) ?? control.defaultValue;
     container.appendChild(
       rangeControl(
         control,
-        getPath(state.draft.voice_stack, control.path),
+        draftValue,
         (value) => {
           commitDraftChange(() => {
             setPath(state.draft.voice_stack, control.path, value);
           });
         },
-        getPath(activeVoiceStack, control.path),
+        activeValue,
       ),
     );
   });
@@ -4529,6 +4669,18 @@ const bindEvents = () => {
     handleSourceFileDrop(event, dropZone.dataset.sourceDrop);
   });
   $("sourceLibraryList").addEventListener("click", (event) => {
+    const previewButton = event.target.closest("[data-voice-raw-preview]");
+    if (previewButton) {
+      if (previewButton.disabled) return;
+      previewVoiceRaw(previewButton.dataset.voiceRawPreview);
+      return;
+    }
+    const addButton = event.target.closest("[data-voice-raw-add]");
+    if (addButton) {
+      if (addButton.disabled) return;
+      addVoiceRawToStack(addButton.dataset.voiceRawAdd);
+      return;
+    }
     const uploadButton = event.target.closest("[data-source-upload]");
     if (uploadButton) {
       if (uploadButton.disabled) return;

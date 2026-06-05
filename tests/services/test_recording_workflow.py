@@ -70,7 +70,11 @@ class WorkflowVoiceStack:
 def workflow_settings() -> AppSettings:
     return AppSettings(
         audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
-        voice_stack=VoiceStackSettings(mode="live_ephemeral", loop_seconds=1),
+        voice_stack=VoiceStackSettings(
+            mode="live_ephemeral",
+            loop_seconds=1,
+            transition_seconds=4,
+        ),
     )
 
 
@@ -122,7 +126,7 @@ def test_refresh_playback_uses_voice_crossfade_when_output_running_and_guard_mat
     assert runtime.player.load_paths == []
     assert len(runtime.player.crossfade_calls) == 1
     call = runtime.player.crossfade_calls[0]
-    assert call["duration_frames"] == 24_000
+    assert call["duration_frames"] == 32_000
     assert call["transition_target_id"] == "data/sources/voice/stack/VS0610_213112.wav"
     assert call["next_voice"].frames == 8_000
 

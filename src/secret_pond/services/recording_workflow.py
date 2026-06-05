@@ -41,6 +41,9 @@ def refresh_playback_after_recording(
     try:
         if runtime.output.is_running:
             if not _playback_guard_matches(runtime, settings, guard):
+                runtime.transition_warning = (
+                    "목소리 전환을 건너뛰었습니다. 재생 중 선택된 스택이 바뀌었습니다."
+                )
                 _log_event_best_effort(
                     runtime,
                     "recording.playback_refresh_skipped",
@@ -54,14 +57,17 @@ def refresh_playback_after_recording(
             runtime.player.start_voice_crossfade(
                 voice,
                 duration_frames=int(
-                    settings.playback.voice_crossfade_seconds * settings.audio.sample_rate
+                    settings.voice_stack.transition_seconds * settings.audio.sample_rate
                 ),
                 transition_target_id=_voice_stack_path(outcome) or "voice-stack",
             )
+            runtime.transition_warning = None
         else:
             runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
+            runtime.transition_warning = None
         apply_player_layer_settings(runtime, settings)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        runtime.transition_warning = "목소리 전환을 적용하지 못했습니다."
         _log_event_best_effort(
             runtime,
             "recording.playback_refresh_failed",

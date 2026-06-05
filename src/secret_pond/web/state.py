@@ -32,6 +32,7 @@ def state_payload(
 ) -> dict[str, Any]:
     participant_count = _participant_count(runtime)
     settings = _settings_payload(runtime, settings_state)
+    transition_guard = runtime.voice_stack.transition_guard_state(runtime.controller.settings)
     return {
         **state_version_payload(runtime),
         "armed": runtime.controller.armed,
@@ -44,6 +45,9 @@ def state_payload(
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
             "rendered_cache_ready": runtime.player.rendered_cache_ready,
+            "active_voice_transition_target_id": runtime.player.active_voice_transition_target_id,
+            "playback_session_id": transition_guard.playback_session_id,
+            "transition_warning": runtime.transition_warning,
             "output_running": runtime.output.is_running,
             "output_latest_status": runtime.output.latest_status,
             "output_latest_error": runtime.output.latest_error,
