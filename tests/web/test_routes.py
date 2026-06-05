@@ -32,6 +32,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     DeviceSettings,
     InputControlSettings,
+    PlaybackSettings,
     RecordingProcessingSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
@@ -10261,6 +10262,7 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["is_recording"] is False
     assert payload["participant_count"] == 0
     assert payload["playback"]["is_playing"] is False
+    assert payload["playback"]["apply_mode"] == "stable"
     assert payload["playback"]["output_running"] is False
     assert payload["playback"]["rendered_cache_ready"] is False
     assert payload["playback"]["active_voice_transition_target_id"] is None
@@ -10276,6 +10278,19 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
         "changed_sections": [],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
+
+
+def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -> None:
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    assert response.json()["playback"]["apply_mode"] == "live"
 
 
 def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(

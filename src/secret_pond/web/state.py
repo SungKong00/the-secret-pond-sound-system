@@ -49,6 +49,7 @@ def state_payload(
         "participant_count": participant_count,
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
+            "apply_mode": active_settings.playback.apply_mode,
             **playback_timeline,
             "is_playing": runtime.player.is_playing,
             "rendered_cache_ready": runtime.player.rendered_cache_ready,
