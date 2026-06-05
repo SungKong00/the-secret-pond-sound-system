@@ -1471,6 +1471,7 @@ const operationLockMessages = {
   sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
   sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   sourceReset: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  sourceDeviceChange: "장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
   resetParticipants: "참여자 초기화가 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
@@ -1510,6 +1511,7 @@ const deriveOperationLocks = ({
     [applyInFlight, operationLockMessages.sourceApply],
     [resetDraftInFlight, operationLockMessages.sourceReset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
+    [deviceChangeInFlight, operationLockMessages.sourceDeviceChange],
   ]);
   const deviceTitle = firstOperationLockTitle([
     [!devicesLoaded, operationLockMessages.deviceLoading],
@@ -1572,6 +1574,7 @@ const deriveSettingsActionState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
+  deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   pendingChanges = false,
@@ -1580,6 +1583,7 @@ const deriveSettingsActionState = ({
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const resetBusy = Boolean(resetDraftInFlight);
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
+  const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
@@ -1587,40 +1591,45 @@ const deriveSettingsActionState = ({
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetBusy
       ? "설정 변경 취소가 끝날 때까지 기다리세요."
-      : isRecording
-        ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
-        : applyInFlight
-          ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
-          : sourceMutationBusy
-            ? operationLockMessages.sourceMutation
-            : playbackControlBusy
-              ? operationLockMessages.playbackControl
-              : runtimeConfigChanged
-                ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
-                : !pendingChanges
-                  ? "적용할 변경사항이 없습니다."
-                  : outputRunning
-                    ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
-                    : "";
+      : deviceChangeBusy
+        ? operationLockMessages.deviceChange
+        : isRecording
+          ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
+          : applyInFlight
+            ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
+            : sourceMutationBusy
+              ? operationLockMessages.sourceMutation
+              : playbackControlBusy
+                ? operationLockMessages.playbackControl
+                : runtimeConfigChanged
+                  ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                  : !pendingChanges
+                    ? "적용할 변경사항이 없습니다."
+                    : outputRunning
+                      ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
+                      : "";
   const resetTitle = resetBusy
     ? "설정 변경 취소가 끝날 때까지 기다리세요."
     : recordingStopBusy
       ? "녹음 처리가 끝날 때까지 기다리세요."
       : applyInFlight
         ? "설정 적용이 끝날 때까지 기다리세요."
-        : sourceMutationBusy
-          ? operationLockMessages.sourceMutation
-          : playbackControlBusy
-            ? operationLockMessages.playbackControl
-            : isRecording
-              ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
-              : !pendingChanges
-                ? "취소할 설정 변경사항이 없습니다."
-                : "";
+        : deviceChangeBusy
+          ? operationLockMessages.deviceChange
+          : sourceMutationBusy
+            ? operationLockMessages.sourceMutation
+            : playbackControlBusy
+              ? operationLockMessages.playbackControl
+              : isRecording
+                ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
+                : !pendingChanges
+                  ? "취소할 설정 변경사항이 없습니다."
+                  : "";
   const resetDisabled = Boolean(
     applyInFlight ||
       resetBusy ||
       sourceMutationBusy ||
+      deviceChangeBusy ||
       playbackControlBusy ||
       recordingStopBusy ||
       isRecording ||
@@ -1631,6 +1640,7 @@ const deriveSettingsActionState = ({
       applyInFlight ||
         resetBusy ||
         sourceMutationBusy ||
+        deviceChangeBusy ||
         playbackControlBusy ||
         recordingStopBusy ||
         isRecording ||
@@ -1650,6 +1660,7 @@ const deriveDashboardControlState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
+  deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
@@ -1658,10 +1669,15 @@ const deriveDashboardControlState = ({
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
+  const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
-  const settingsOperationBusy = Boolean(applyInFlight || resetDraftInFlight || sourceMutationInFlight);
+  const settingsOperationBusy = Boolean(
+    applyInFlight || resetDraftInFlight || sourceMutationInFlight || deviceChangeBusy,
+  );
   const captureOperationBusy = recordingStopBusy || settingsOperationBusy;
-  const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || playbackControlBusy);
+  const outputControlBusy = Boolean(
+    applyInFlight || recordingStopBusy || playbackControlBusy || deviceChangeBusy,
+  );
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
@@ -1677,6 +1693,7 @@ const deriveDashboardControlState = ({
     applyInFlight,
     resetDraftInFlight,
     sourceMutationInFlight,
+    deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
     pendingChanges,
@@ -1692,7 +1709,9 @@ const deriveDashboardControlState = ({
         ? "설정 적용이 끝날 때까지 기다리세요."
         : resetDraftInFlight
           ? operationLockMessages.draftReset
-          : "";
+          : deviceChangeBusy
+            ? operationLockMessages.deviceChange
+            : "";
   return {
     recordingStopBusy,
     outputControlBusy,
@@ -1707,7 +1726,7 @@ const deriveDashboardControlState = ({
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
     resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || resetDraftInFlight ||
-      recordingStopBusy || isRecording,
+      deviceChangeBusy || recordingStopBusy || isRecording,
     resetParticipantsTitle,
   };
 };
@@ -1735,6 +1754,7 @@ const currentSettingsUiState = (snapshot = state.snapshot) => {
       applyInFlight: state.applyInFlight,
       resetDraftInFlight: state.resetDraftInFlight,
       sourceMutationInFlight: state.sourceMutationInFlight,
+      deviceChangeInFlight: state.deviceChangeInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
       playbackControlInFlight: state.playbackControlInFlight,
       resetParticipantsInFlight: state.resetParticipantsInFlight,
@@ -2072,6 +2092,7 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
   state.sourceMutationInFlight,
   state.applyInFlight,
   state.resetDraftInFlight,
+  state.deviceChangeInFlight,
   categories.map((category) => [
     category.id,
     category.label,
@@ -2152,16 +2173,19 @@ const sourceActionBusyTitle = ({
   sourceMutationInFlight = false,
   applyInFlight = false,
   resetDraftInFlight = false,
+  deviceChangeInFlight = false,
 } = {}) => deriveOperationLocks({
   sourceMutationInFlight,
   applyInFlight,
   resetDraftInFlight,
+  deviceChangeInFlight,
 }).sourceActionTitle;
 
 const currentSourceLockState = () => deriveOperationLocks({
   sourceMutationInFlight: state.sourceMutationInFlight,
   applyInFlight: state.applyInFlight,
   resetDraftInFlight: state.resetDraftInFlight,
+  deviceChangeInFlight: state.deviceChangeInFlight,
 });
 
 const sourceCommandBlocked = () =>
@@ -2219,6 +2243,7 @@ const deriveSourceUploadActionState = (
   sourceMutationInFlight = false,
   applyInFlight = false,
   resetDraftInFlight = false,
+  deviceChangeInFlight = false,
 ) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
@@ -2226,6 +2251,7 @@ const deriveSourceUploadActionState = (
     sourceMutationInFlight,
     applyInFlight,
     resetDraftInFlight,
+    deviceChangeInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2246,6 +2272,7 @@ const deriveSourceFileActionState = (
   sourceMutationInFlight = false,
   applyInFlight = false,
   resetDraftInFlight = false,
+  deviceChangeInFlight = false,
 ) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
@@ -2253,6 +2280,7 @@ const deriveSourceFileActionState = (
     sourceMutationInFlight,
     applyInFlight,
     resetDraftInFlight,
+    deviceChangeInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2316,6 +2344,7 @@ const sourceCategoryCard = (category) => {
     state.sourceMutationInFlight,
     state.applyInFlight,
     state.resetDraftInFlight,
+    state.deviceChangeInFlight,
   );
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
@@ -2392,6 +2421,7 @@ const sourceFileRows = (category) => {
       state.sourceMutationInFlight,
       state.applyInFlight,
       state.resetDraftInFlight,
+      state.deviceChangeInFlight,
     );
     const badges = deriveSourceFileStatusLabels(file, action)
       .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
@@ -3668,6 +3698,7 @@ const deriveDashboardControlStateForRequest = (currentState = state) =>
     applyInFlight: currentState.applyInFlight,
     resetDraftInFlight: currentState.resetDraftInFlight,
     sourceMutationInFlight: currentState.sourceMutationInFlight,
+    deviceChangeInFlight: currentState.deviceChangeInFlight,
     recordingStopInFlight: currentState.recordingStopInFlight,
     playbackControlInFlight: currentState.playbackControlInFlight,
   });

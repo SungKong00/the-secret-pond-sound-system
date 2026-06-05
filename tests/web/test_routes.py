@@ -1296,11 +1296,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "장치 오프라인" in script.text
     assert "renderDeviceApplyNotice" not in script.text
     assert "const deriveDashboardControlState = ({" in script.text
-    assert (
-        "const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || "
-        "playbackControlBusy)"
-        in script.text
-    )
+    assert "const outputControlBusy = Boolean(" in script.text
+    assert "playbackControlBusy || deviceChangeBusy" in script.text
     assert (
         "restartOutputDisabled: outputControlBusy || !outputRunning"
         in script.text
@@ -2135,27 +2132,30 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
     run_static_app_harness(
         tmp_path,
         exports=(
-            "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
+            "{ state, deriveDashboardControlState, deriveSettingsActionState, "
+            "derivePendingChangeState, "
             "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
             "deriveSystemDeviceSelectState, deriveStorageModeControlState, "
-            "firstOperationLockTitle, currentSettingsUiState }"
+            "firstOperationLockTitle, currentSettingsUiState, currentSettingsActionState }"
         ),
         body="""
+const helpers = globalThis.__secretPondTest;
 const snapshot = {{
   armed: true,
   is_recording: false,
   playback: {{ output_running: false }},
 }};
-const derive = globalThis.__secretPondTest.deriveDashboardControlState;
-const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionState;
-const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
-const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
-const deriveDraftLock = globalThis.__secretPondTest.deriveDraftControlLockState;
-const deriveLocks = globalThis.__secretPondTest.deriveOperationLocks;
-const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
-const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
-const firstLockTitle = globalThis.__secretPondTest.firstOperationLockTitle;
-const settingsUiSelector = globalThis.__secretPondTest.currentSettingsUiState;
+const derive = helpers.deriveDashboardControlState;
+const deriveSettingsActions = helpers.deriveSettingsActionState;
+const derivePending = helpers.derivePendingChangeState;
+const deriveControl = helpers.deriveControlRequestState;
+const deriveDraftLock = helpers.deriveDraftControlLockState;
+const deriveLocks = helpers.deriveOperationLocks;
+const deriveDeviceSelect = helpers.deriveSystemDeviceSelectState;
+const deriveStorageMode = helpers.deriveStorageModeControlState;
+const firstLockTitle = helpers.firstOperationLockTitle;
+const settingsUiSelector = helpers.currentSettingsUiState;
+const currentSettingsActions = helpers.currentSettingsActionState;
 const settings = {{
   active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
 }};
@@ -2194,6 +2194,27 @@ assert.deepStrictEqual(settingsUiState.pendingChangeState, {{
 assert.strictEqual(settingsUiState.controlState.applyDisabled, true);
 assert.strictEqual(settingsUiState.controlState.applyTitle, "적용할 변경사항이 없습니다.");
 
+helpers.state.snapshot = {{
+  ...settingsSnapshot,
+  settings: {{
+    ...settingsSnapshot.settings,
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: ["voice_stack"],
+      runtime_config_fields: ["audio.sample_rate"],
+    }},
+  }},
+}};
+helpers.state.draft = draft;
+helpers.state.deviceChangeInFlight = true;
+const deviceBusyActions = currentSettingsActions();
+assert.strictEqual(deviceBusyActions.applyDisabled, true);
+assert.strictEqual(deviceBusyActions.applyTitle, "장치 변경을 적용하는 중입니다.");
+assert.strictEqual(deviceBusyActions.resetDisabled, true);
+assert.strictEqual(deviceBusyActions.resetTitle, "장치 변경을 적용하는 중입니다.");
+helpers.state.deviceChangeInFlight = false;
+
 assert.deepStrictEqual(
   deriveLocks({{
     applyInFlight: true,
@@ -2222,6 +2243,18 @@ assert.deepStrictEqual(
     sourceActionTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
     deviceLocked: true,
     deviceTitle: "설정 변경 취소가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveLocks({{ deviceChangeInFlight: true }}),
+  {{
+    draftLocked: false,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+    deviceLocked: true,
+    deviceTitle: "장치 변경을 적용하는 중입니다.",
   }},
 );
 
@@ -3788,6 +3821,25 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   );
   assert.strictEqual(helpers.state.resetDraftInFlight, true);
 
+  helpers.state.resetDraftInFlight = false;
+  helpers.state.deviceChangeInFlight = true;
+  assert.strictEqual(
+    await helpers.selectSourceFile("low", "sources/low/device-busy.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.uploadSourceFile(
+      "low",
+      { name: "device-busy.wav", size: 12, lastModified: 1 },
+    ),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.deviceChangeInFlight, true);
+
   const dropZone = {
     removedClasses: [],
     classList: {
@@ -3817,6 +3869,7 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   assert.strictEqual(dropEvent.dataTransfer.dropEffect, "none");
   assert.deepStrictEqual(dropZone.removedClasses, ["is-dragging"]);
   assert.strictEqual(helpers.state.sourceUploads.low.file, null);
+  helpers.state.deviceChangeInFlight = false;
   assert.deepStrictEqual(fetchCalls, []);
 })().catch((error) => {
   console.error(error);
