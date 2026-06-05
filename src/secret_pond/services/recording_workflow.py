@@ -57,9 +57,11 @@ def refresh_playback_after_recording(
             )
             transition_target_id = _voice_stack_path(outcome) or "voice-stack"
             ready_evidence = _transition_ready_evidence(runtime, voice, guard)
-            superseded = runtime.player.start_voice_crossfade(
+            superseded = start_ready_voice_stack_crossfade(
+                runtime.player,
                 voice,
-                duration_frames=duration_frames,
+                transition_seconds=settings.voice_stack.transition_seconds,
+                sample_rate=settings.audio.sample_rate,
                 transition_target_id=transition_target_id,
             )
             _log_event_best_effort(
@@ -96,6 +98,22 @@ def refresh_playback_after_recording(
                 "output_running": runtime.output.is_running,
             },
         )
+
+
+def start_ready_voice_stack_crossfade(
+    player: Any,
+    next_voice: Any,
+    *,
+    transition_seconds: float,
+    sample_rate: int,
+    transition_target_id: str,
+) -> str | None:
+    duration_frames = int(transition_seconds * sample_rate)
+    return player.start_voice_crossfade(
+        next_voice,
+        duration_frames=duration_frames,
+        transition_target_id=transition_target_id,
+    )
 
 
 def _capture_recording_playback_guard(runtime: SecretPondRuntime) -> RecordingPlaybackGuard | None:

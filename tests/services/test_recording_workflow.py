@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -13,6 +14,7 @@ from secret_pond.paths import ProjectPaths
 from secret_pond.services.recording_workflow import (
     RecordingPlaybackGuard,
     refresh_playback_after_recording,
+    start_ready_voice_stack_crossfade,
 )
 
 
@@ -110,6 +112,27 @@ def accepted_outcome():
         stack_result=SimpleNamespace(
             voice_stack_path="data/sources/voice/stack/VS0610_213112.wav",
         ),
+    )
+
+
+def test_start_ready_voice_stack_crossfade_delegates_to_player_voice_api() -> None:
+    next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32), sample_rate=8_000)
+    player = Mock()
+    player.start_voice_crossfade.return_value = "old-target"
+
+    superseded = start_ready_voice_stack_crossfade(
+        player,
+        next_voice,
+        transition_seconds=4,
+        sample_rate=8_000,
+        transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
+    )
+
+    assert superseded == "old-target"
+    player.start_voice_crossfade.assert_called_once_with(
+        next_voice,
+        duration_frames=32_000,
+        transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
     )
 
 
