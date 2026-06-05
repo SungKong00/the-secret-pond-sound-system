@@ -10280,6 +10280,131 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     }
 
 
+def test_api_state_settings_payload_preserves_stable_apply_flow_shape_and_values(
+    tmp_path: Path,
+) -> None:
+    active = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "devices": DeviceSettings(input_device_id="mic-1", output_device_id="speaker-1"),
+            "playback": PlaybackSettings(
+                auto_start=True,
+                apply_mode="stable",
+                master_volume_db=-8.0,
+            ),
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/applied-low.wav",
+                mid_path="data/sources/mid/applied-mid.wav",
+                voice_raw_path="data/sources/voice/raw/VR0610_213112.wav",
+                voice_stack_path="data/sources/voice/stack/VS0610_213112.wav",
+            ),
+            "voice_stack": VoiceStackSettings(
+                mode="test_library",
+                loop_seconds=45,
+                transition_seconds=4,
+                insert_gain_db=-10.0,
+            ),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(
+                update={"sample_rate": 16_000, "loop_seconds": 90},
+            ),
+            "devices": DeviceSettings(input_device_id="mic-2", output_device_id="speaker-2"),
+            "playback": active.playback.model_copy(update={"master_volume_db": -3.5}),
+            "sources": active.sources.model_copy(
+                update={"low_path": "data/sources/low/draft-low.wav"},
+            ),
+            "voice_stack": active.voice_stack.model_copy(update={"loop_seconds": 75}),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=active)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    settings = response.json()["settings"]
+    assert set(settings) == {"active", "draft", "change"}
+    assert set(settings["active"]) == set(AppSettings.model_fields)
+    assert set(settings["draft"]) == set(AppSettings.model_fields)
+    assert settings["active"]["audio"] == {
+        "sample_rate": 8000,
+        "channels": 2,
+        "loop_seconds": 60,
+        "peak_ceiling": 0.98,
+    }
+    assert settings["draft"]["audio"] == {
+        "sample_rate": 16000,
+        "channels": 2,
+        "loop_seconds": 90,
+        "peak_ceiling": 0.98,
+    }
+    assert settings["active"]["devices"] == {
+        "input_device_id": "mic-1",
+        "output_device_id": "speaker-1",
+    }
+    assert settings["draft"]["devices"] == {
+        "input_device_id": "mic-2",
+        "output_device_id": "speaker-2",
+    }
+    assert settings["active"]["playback"] == {
+        "auto_start": True,
+        "apply_mode": "stable",
+        "master_volume_db": -8.0,
+    }
+    assert settings["draft"]["playback"] == {
+        "auto_start": True,
+        "apply_mode": "stable",
+        "master_volume_db": -3.5,
+    }
+    assert settings["active"]["sources"] == {
+        "low_path": "data/sources/low/applied-low.wav",
+        "mid_path": "data/sources/mid/applied-mid.wav",
+        "voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav",
+        "voice_stack_path": "data/sources/voice/stack/VS0610_213112.wav",
+    }
+    assert settings["draft"]["sources"] == {
+        "low_path": "data/sources/low/draft-low.wav",
+        "mid_path": "data/sources/mid/applied-mid.wav",
+        "voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav",
+        "voice_stack_path": "data/sources/voice/stack/VS0610_213112.wav",
+    }
+    assert settings["active"]["voice_stack"] == {
+        "mode": "test_library",
+        "loop_seconds": 45,
+        "transition_seconds": 4,
+        "placement": "random",
+        "insert_gain_db": -10.0,
+    }
+    assert settings["draft"]["voice_stack"] == {
+        "mode": "test_library",
+        "loop_seconds": 75,
+        "transition_seconds": 4,
+        "placement": "random",
+        "insert_gain_db": -10.0,
+    }
+    assert settings["change"] == {
+        "runtime_config_changed": True,
+        "changed_runtime_fields": [
+            "audio.sample_rate",
+            "devices.input_device_id",
+            "devices.output_device_id",
+        ],
+        "changed_sections": [
+            "audio",
+            "devices",
+            "playback",
+            "sources",
+            "voice_stack",
+        ],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+    }
+
+
 def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -> None:
     settings = api_settings().model_copy(
         update={"playback": PlaybackSettings(apply_mode="live")},
