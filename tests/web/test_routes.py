@@ -468,6 +468,48 @@ class DriftingPostApplyLoadSettingsStore:
         return getattr(self.delegate, name)
 
 
+class DriftingPostDeviceSaveLoadSettingsStore:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self._saved_device_state: SettingsState | None = None
+        self.load_after_device_save_count = 0
+
+    def save(self, state: SettingsState) -> SettingsState:
+        saved = self.delegate.save(state)
+        self._saved_device_state = saved
+        self.load_after_device_save_count = 0
+        return saved
+
+    def load(self) -> SettingsState:
+        if self._saved_device_state is None:
+            return self.delegate.load()
+        self.load_after_device_save_count += 1
+        output_device_id = f"drift-speaker-{self.load_after_device_save_count}"
+        active = self._settings_with_output_device(
+            self._saved_device_state.active,
+            output_device_id,
+        )
+        draft = self._settings_with_output_device(self._saved_device_state.draft, output_device_id)
+        return SettingsState(active=active, draft=draft)
+
+    @staticmethod
+    def _settings_with_output_device(
+        settings: AppSettings,
+        output_device_id: str,
+    ) -> AppSettings:
+        return settings.model_copy(
+            update={
+                "devices": settings.devices.model_copy(
+                    update={"output_device_id": output_device_id},
+                )
+            },
+            deep=True,
+        )
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
 class FailingDeviceRegistry:
     def list_input_devices(self):
         raise OSError("device stack unavailable")
@@ -7040,6 +7082,27 @@ def test_api_devices_update_applies_devices_immediately(tmp_path: Path) -> None:
     stored = SettingsStore(ProjectPaths(tmp_path)).load()
     assert stored.active.devices.input_device_id == "mic-2"
     assert stored.draft.devices.output_device_id == "speaker-2"
+
+
+def test_api_devices_update_uses_single_settings_snapshot_for_response(tmp_path: Path) -> None:
+    client = create_test_client(
+        tmp_path,
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+    runtime = client.app.state.runtime
+    settings_store = DriftingPostDeviceSaveLoadSettingsStore(runtime.settings_store)
+    runtime.settings_store = settings_store
+
+    response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["settings"] == payload["state"]["settings"]
+    assert payload["settings"]["active"]["devices"]["output_device_id"] == "speaker-2"
+    assert payload["settings"]["draft"]["devices"]["output_device_id"] == "speaker-2"
+    assert payload["devices"]["selected_output_device"]["id"] == "speaker-2"
+    assert settings_store.load_after_device_save_count == 0
 
 
 def test_api_devices_update_validates_only_changed_device_fields(tmp_path: Path) -> None:

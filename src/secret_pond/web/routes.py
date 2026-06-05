@@ -123,7 +123,7 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         current = _settings_state(runtime)
         try:
             devices = device_settings_from_payload(current.active.devices, payload)
-            apply_runtime_devices(runtime, devices)
+            settings_state = apply_runtime_devices(runtime, devices)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except DeviceSelectionError as exc:
@@ -131,9 +131,9 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         except (RuntimeError, OSError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {
-            "settings": _settings_payload(runtime),
-            "state": _state_payload(runtime),
-            "devices": _devices_payload(runtime, _settings_state(runtime).active),
+            "settings": _settings_payload(runtime, settings_state),
+            "state": _state_payload(runtime, settings_state),
+            "devices": _devices_payload(runtime, settings_state.active),
         }
 
 
