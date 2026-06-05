@@ -2259,6 +2259,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ sourceMutationInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
+    deviceLocked: false,
+    deviceTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -2299,6 +2311,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "장치 변경을 적용하는 중입니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ sourceMutationInFlight: true }}),
+  {{
+    disabled: true,
+    title: "소스 파일 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -5791,6 +5811,23 @@ deviceLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
 assert.strictEqual(deviceLockedVoiceLoopInput.value, "60");
 globalThis.__secretPondTest.state.deviceChangeInFlight = false;
+
+globalThis.__secretPondTest.state.sourceMutationInFlight = true;
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+const voiceStackControlCountBeforeSourceLockRender = elements.voiceStackControls.children.length;
+globalThis.__secretPondTest.renderVoiceStackControls();
+const sourceLockedVoiceLoopRow =
+  elements.voiceStackControls.children[voiceStackControlCountBeforeSourceLockRender];
+const sourceLockedVoiceLoopInput = sourceLockedVoiceLoopRow.querySelector("input");
+const sourceLockedVoiceLoopValueInput =
+  sourceLockedVoiceLoopRow.querySelector(".value-input");
+assert.strictEqual(sourceLockedVoiceLoopInput.disabled, true);
+assert.strictEqual(sourceLockedVoiceLoopValueInput.disabled, true);
+sourceLockedVoiceLoopInput.value = "100";
+sourceLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+assert.strictEqual(sourceLockedVoiceLoopInput.value, "60");
+globalThis.__secretPondTest.state.sourceMutationInFlight = false;
 assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), false);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;

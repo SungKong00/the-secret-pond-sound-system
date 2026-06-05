@@ -1488,11 +1488,13 @@ const firstOperationLockTitle = (candidates = []) => {
 const deriveDraftControlLockState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
+  sourceMutationInFlight = false,
   deviceChangeInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
+    [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
   ]);
   return {
@@ -1525,6 +1527,7 @@ const deriveOperationLocks = ({
   const draftLock = deriveDraftControlLockState({
     applyInFlight,
     resetDraftInFlight,
+    sourceMutationInFlight,
     deviceChangeInFlight,
   });
   return {
