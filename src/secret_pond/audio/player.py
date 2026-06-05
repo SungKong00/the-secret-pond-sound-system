@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -26,12 +26,22 @@ class MixerBlock:
 
 
 @dataclass(frozen=True)
+class VoiceCrossfadeState:
+    from_buffer: AudioBuffer
+    to_buffer: AudioBuffer
+    duration_frames: int
+    elapsed_frames: int
+    transition_target_id: str
+
+
+@dataclass(frozen=True)
 class LayeredLoopPlayerSnapshot:
     layers: dict[LayerId, AudioBuffer] | None
     states: dict[LayerId, LayerPlaybackState]
     frame_cursor: int
     playing: bool
     peak_ceiling: float
+    voice_transition: VoiceCrossfadeState | None
 
 
 class LayeredLoopPlayer:
@@ -44,6 +54,7 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = False
         self._peak_ceiling = peak_ceiling
+        self._voice_transition: VoiceCrossfadeState | None = None
 
     @property
     def is_playing(self) -> bool:
@@ -61,6 +72,12 @@ class LayeredLoopPlayer:
     def rendered_cache_ready(self) -> bool:
         return self._layers is not None
 
+    @property
+    def active_voice_transition_target_id(self) -> str | None:
+        if self._voice_transition is None:
+            return None
+        return self._voice_transition.transition_target_id
+
     def snapshot(self) -> LayeredLoopPlayerSnapshot:
         return LayeredLoopPlayerSnapshot(
             layers=None if self._layers is None else dict(self._layers),
@@ -68,6 +85,7 @@ class LayeredLoopPlayer:
             frame_cursor=self._frame_cursor,
             playing=self._playing,
             peak_ceiling=self._peak_ceiling,
+            voice_transition=self._voice_transition,
         )
 
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
@@ -76,6 +94,7 @@ class LayeredLoopPlayer:
         self._frame_cursor = snapshot.frame_cursor
         self._playing = snapshot.playing
         self._peak_ceiling = snapshot.peak_ceiling
+        self._voice_transition = snapshot.voice_transition
 
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -83,13 +102,15 @@ class LayeredLoopPlayer:
         self._layers = layers
         self._frame_cursor = 0
         self._playing = False
+        self._voice_transition = None
 
     def load_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
+        _validate_loaded_layers(buffers)
         layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
-        _validate_loaded_layers(layers)
         self._layers = layers
         self._frame_cursor = 0
         self._playing = False
+        self._voice_transition = None
 
     def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -97,6 +118,33 @@ class LayeredLoopPlayer:
         self._layers = layers
         self._frame_cursor = 0
         self._playing = True
+        self._voice_transition = None
+
+    def start_voice_crossfade(
+        self,
+        next_voice: AudioBuffer,
+        *,
+        duration_frames: int,
+        transition_target_id: str,
+    ) -> str | None:
+        layers = self._require_loaded()
+        if duration_frames <= 0:
+            msg = "duration_frames must be greater than 0"
+            raise ValueError(msg)
+        if not transition_target_id:
+            msg = "transition_target_id must be a non-empty string"
+            raise ValueError(msg)
+
+        candidate = _canonical_voice_candidate(next_voice, layers)
+        superseded = self.active_voice_transition_target_id
+        self._voice_transition = VoiceCrossfadeState(
+            from_buffer=layers["voice"],
+            to_buffer=candidate,
+            duration_frames=duration_frames,
+            elapsed_frames=0,
+            transition_target_id=transition_target_id,
+        )
+        return superseded
 
     def restart(self) -> None:
         self._require_loaded()
@@ -123,13 +171,32 @@ class LayeredLoopPlayer:
                 peak_after_guard=0.0,
             )
 
-        block = mix_layer_blocks(
-            layers,
-            self._states,
-            frame_cursor=self._frame_cursor,
-            block_size=block_size,
-            peak_ceiling=self._peak_ceiling,
-        )
+        if self._voice_transition is None:
+            block = mix_layer_blocks(
+                layers,
+                self._states,
+                frame_cursor=self._frame_cursor,
+                block_size=block_size,
+                peak_ceiling=self._peak_ceiling,
+            )
+        else:
+            block = mix_layer_blocks_with_voice_crossfade(
+                layers,
+                self._states,
+                self._voice_transition,
+                frame_cursor=self._frame_cursor,
+                block_size=block_size,
+                peak_ceiling=self._peak_ceiling,
+            )
+            elapsed_frames = self._voice_transition.elapsed_frames + block_size
+            if elapsed_frames >= self._voice_transition.duration_frames:
+                layers["voice"] = self._voice_transition.to_buffer
+                self._voice_transition = None
+            else:
+                self._voice_transition = replace(
+                    self._voice_transition,
+                    elapsed_frames=elapsed_frames,
+                )
         self._frame_cursor = block.next_frame_cursor
         return block
 
@@ -189,6 +256,75 @@ def mix_layer_blocks(
         peak_before_guard=peak_before,
         peak_after_guard=peak_after,
     )
+
+
+def mix_layer_blocks_with_voice_crossfade(
+    layers: Mapping[LayerId, AudioBuffer],
+    states: Mapping[LayerId, LayerPlaybackState],
+    voice_transition: VoiceCrossfadeState,
+    frame_cursor: int,
+    block_size: int,
+    peak_ceiling: float = 0.98,
+) -> MixerBlock:
+    _validate_mix_inputs(layers, frame_cursor, block_size, peak_ceiling)
+    first_layer = layers[LAYER_IDS[0]]
+    mixed = np.zeros((block_size, first_layer.channels), dtype=np.float32)
+
+    for layer_id in ("low", "mid"):
+        state = states.get(layer_id, LayerPlaybackState())
+        if not state.enabled:
+            continue
+        layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
+        mixed += _apply_gain(layer_block, state.realtime_trim_db)
+
+    voice_state = states.get("voice", LayerPlaybackState())
+    if voice_state.enabled:
+        from_block = _read_wrapped(
+            voice_transition.from_buffer.samples,
+            frame_cursor,
+            block_size,
+        )
+        to_block = _read_wrapped(
+            voice_transition.to_buffer.samples,
+            frame_cursor,
+            block_size,
+        )
+        progress = np.clip(
+            (voice_transition.elapsed_frames + np.arange(block_size, dtype=np.float32))
+            / voice_transition.duration_frames,
+            0.0,
+            1.0,
+        )
+        from_gain = np.cos(progress * np.pi / 2.0)[:, np.newaxis]
+        to_gain = np.sin(progress * np.pi / 2.0)[:, np.newaxis]
+        voice_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
+        mixed += _apply_gain(voice_block, voice_state.realtime_trim_db)
+
+    peak_before = _peak(mixed)
+    guarded = _guard_peak(mixed, peak_before, peak_ceiling)
+    peak_after = _peak(guarded)
+    next_cursor = (frame_cursor + block_size) % first_layer.frames
+    return MixerBlock(
+        samples=guarded,
+        next_frame_cursor=next_cursor,
+        peak_before_guard=peak_before,
+        peak_after_guard=peak_after,
+    )
+
+
+def _canonical_voice_candidate(
+    next_voice: AudioBuffer,
+    layers: Mapping[LayerId, AudioBuffer],
+) -> AudioBuffer:
+    current_voice = layers["voice"]
+    candidate = next_voice.to_canonical(
+        sample_rate=current_voice.sample_rate,
+        channels=current_voice.channels,
+    ).to_frame_count(current_voice.frames)
+    candidate_layers = dict(layers)
+    candidate_layers["voice"] = candidate
+    _validate_loaded_layers(candidate_layers)
+    return candidate
 
 
 def _load_rendered_layers(paths: Mapping[LayerId, Path]) -> dict[LayerId, AudioBuffer]:

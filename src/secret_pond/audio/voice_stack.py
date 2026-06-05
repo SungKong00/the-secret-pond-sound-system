@@ -69,6 +69,7 @@ class VoiceStackStore:
     def __init__(self, paths: ProjectPaths) -> None:
         self._paths = paths
         self._playback_session_id: str | None = None
+        self._playback_stack_id: str | None = None
 
     def selected_voice_state(self, settings: AppSettings) -> VoiceStackSelectionState:
         return VoiceStackSelectionState(
@@ -76,14 +77,19 @@ class VoiceStackStore:
             selected_vs=settings.sources.voice_stack_path,
         )
 
-    def begin_playback_session(self) -> str:
+    def begin_playback_session(self, settings: AppSettings | None = None) -> str:
         self._playback_session_id = uuid4().hex
+        self._playback_stack_id = None if settings is None else self.current_stack_id(settings)
         return self._playback_session_id
+
+    def end_playback_session(self) -> None:
+        self._playback_session_id = None
+        self._playback_stack_id = None
 
     def transition_guard_state(self, settings: AppSettings) -> VoiceStackTransitionGuardState:
         return VoiceStackTransitionGuardState(
             playback_session_id=self._playback_session_id,
-            current_stack_id=self.current_stack_id(settings),
+            current_stack_id=self._playback_stack_id or self.current_stack_id(settings),
         )
 
     def current_stack_id(self, settings: AppSettings) -> str:

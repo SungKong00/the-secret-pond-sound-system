@@ -10147,10 +10147,8 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
 
     stack = read_wav(tmp_path / selected_stack)
     rendered = read_wav(paths.voice_playback)
-    loaded_voice = runtime.player.snapshot().layers["voice"]
     assert stack.frames == 60 * 8_000
     assert rendered.frames == 60 * 8_000
-    assert loaded_voice.frames == 60 * 8_000
     np.testing.assert_allclose(
         stack.samples[: 20 * 8_000],
         stack.samples[20 * 8_000 : 40 * 8_000],
@@ -10161,6 +10159,10 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
         stack.samples[40 * 8_000 :],
         atol=1e-4,
     )
+    assert runtime.player.active_voice_transition_target_id == selected_stack
+    runtime.player.next_block(16_000)
+    loaded_voice = runtime.player.snapshot().layers["voice"]
+    assert loaded_voice.frames == 60 * 8_000
     np.testing.assert_allclose(loaded_voice.samples, rendered.samples, atol=1e-4)
     assert float(np.max(np.abs(after.samples))) > 0.00001
 

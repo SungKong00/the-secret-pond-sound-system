@@ -15,6 +15,7 @@ def start_playback(runtime: SecretPondRuntime) -> None:
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.start_failed", error=str(exc))
         raise PlaybackControlError(str(exc)) from exc
+    runtime.voice_stack.begin_playback_session(runtime.controller.settings)
     _log_playback_event(runtime, "playback.started")
 
 
@@ -24,6 +25,7 @@ def stop_playback(runtime: SecretPondRuntime) -> None:
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.stop_failed", error=str(exc))
         raise PlaybackControlError(str(exc)) from exc
+    runtime.voice_stack.end_playback_session()
     _log_playback_event(runtime, "playback.stopped")
 
 
@@ -49,6 +51,7 @@ def restart_playback(runtime: SecretPondRuntime) -> None:
             detail = f"{detail}; rollback resume failed: {resume_exc}"
         _log_playback_event(runtime, "playback.restart_failed", error=detail)
         raise PlaybackControlError(detail) from exc
+    runtime.voice_stack.begin_playback_session(runtime.controller.settings)
     _log_playback_event(runtime, "playback.restarted")
 
 
