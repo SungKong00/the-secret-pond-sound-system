@@ -262,3 +262,37 @@ def test_stable_mode_apply_keeps_runtime_config_pending_until_restart(tmp_path) 
         output_device_id="speaker-2",
     )
     assert restarted_runtime.controller.settings.audio.sample_rate == 44_100
+
+
+def test_live_mode_apply_keeps_sample_rate_pending_until_restart(tmp_path) -> None:
+    settings = service_settings().model_copy(
+        update={
+            "playback": service_settings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    runtime = build_service_runtime(tmp_path, settings)
+    draft = settings.model_copy(
+        update={"audio": settings.audio.model_copy(update={"sample_rate": 44_100})},
+        deep=True,
+    )
+    runtime.settings_store.set_draft(draft)
+    runtime.output.start()
+
+    with pytest.raises(SettingsApplyError) as exc_info:
+        apply_draft_settings(runtime)
+
+    stored_before_restart = runtime.settings_store.load()
+    assert exc_info.value.change_plan.changed_runtime_fields == ["audio.sample_rate"]
+    assert runtime.output.is_running is True
+    assert runtime.controller.settings.playback.apply_mode == "live"
+    assert runtime.controller.settings.audio.sample_rate == 8_000
+    assert runtime.settings_state.active.audio.sample_rate == 8_000
+    assert stored_before_restart.active.audio.sample_rate == 8_000
+    assert stored_before_restart.draft.audio.sample_rate == 44_100
+
+    restarted_runtime = build_runtime(tmp_path, output=MemoryOutput())
+
+    assert restarted_runtime.settings_state.active.playback.apply_mode == "live"
+    assert restarted_runtime.settings_state.active.audio.sample_rate == 44_100
+    assert restarted_runtime.controller.settings.audio.sample_rate == 44_100
