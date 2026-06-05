@@ -2283,6 +2283,13 @@ assert.strictEqual(recordingStopBusy.captureGateSwitchDisabled, true);
 assert.strictEqual(recordingStopBusy.startDisabled, true);
 assert.strictEqual(recordingStopBusy.applyDisabled, true);
 assert.strictEqual(recordingStopBusy.applyTitle, "녹음 처리가 끝날 때까지 기다리세요.");
+assert.strictEqual(recordingStopBusy.resetDisabled, true);
+assert.strictEqual(recordingStopBusy.resetTitle, "녹음 처리가 끝날 때까지 기다리세요.");
+assert.strictEqual(recordingStopBusy.resetParticipantsDisabled, true);
+assert.strictEqual(
+  recordingStopBusy.resetParticipantsTitle,
+  "녹음 처리가 끝날 때까지 기다리세요.",
+);
 assert.strictEqual(recordingStopBusy.startOutputDisabled, true);
 
 const activeRecording = derive({{
@@ -2316,6 +2323,12 @@ assert.strictEqual(
   "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다.",
 );
 assert.strictEqual(applyInFlight.resetDisabled, true);
+assert.strictEqual(applyInFlight.resetTitle, "설정 적용이 끝날 때까지 기다리세요.");
+assert.strictEqual(applyInFlight.resetParticipantsDisabled, true);
+assert.strictEqual(
+  applyInFlight.resetParticipantsTitle,
+  "설정 적용이 끝날 때까지 기다리세요.",
+);
 
 const outputRunning = derive({{
   snapshot: {{ ...snapshot, playback: {{ output_running: true }} }},

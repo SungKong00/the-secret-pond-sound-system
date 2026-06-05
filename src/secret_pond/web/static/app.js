@@ -1533,18 +1533,25 @@ const deriveSettingsActionState = ({
               : "";
   const resetTitle = resetBusy
     ? "설정 변경 취소가 끝날 때까지 기다리세요."
-    : isRecording
-    ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
-    : !pendingChanges
-      ? "취소할 설정 변경사항이 없습니다."
-      : "";
+    : recordingStopBusy
+      ? "녹음 처리가 끝날 때까지 기다리세요."
+      : applyInFlight
+        ? "설정 적용이 끝날 때까지 기다리세요."
+        : isRecording
+          ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
+          : !pendingChanges
+            ? "취소할 설정 변경사항이 없습니다."
+            : "";
+  const resetDisabled = Boolean(
+    applyInFlight || resetBusy || recordingStopBusy || isRecording || !pendingChanges,
+  );
   return {
     applyDisabled: applyInFlight || resetBusy || recordingStopBusy || isRecording ||
       runtimeConfigChanged || !pendingChanges,
     applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
     applyAttention: pendingChanges && !runtimeConfigChanged,
     applyTitle,
-    resetDisabled: applyInFlight || resetBusy || isRecording || !pendingChanges,
+    resetDisabled,
     resetTitle,
   };
 };
@@ -1579,7 +1586,11 @@ const deriveDashboardControlState = ({
   });
   const resetParticipantsTitle = isRecording
     ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
-    : "";
+    : recordingStopBusy
+      ? "녹음 처리가 끝날 때까지 기다리세요."
+      : applyInFlight
+        ? "설정 적용이 끝날 때까지 기다리세요."
+        : "";
   return {
     recordingStopBusy,
     outputControlBusy,
@@ -1593,7 +1604,7 @@ const deriveDashboardControlState = ({
     stopOutputDisabled: outputControlBusy || !outputRunning,
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
-    resetParticipantsDisabled: applyInFlight || isRecording,
+    resetParticipantsDisabled: applyInFlight || recordingStopBusy || isRecording,
     resetParticipantsTitle,
   };
 };
