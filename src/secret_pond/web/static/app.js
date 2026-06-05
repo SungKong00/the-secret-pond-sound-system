@@ -1214,6 +1214,7 @@ const showError = (message) => {
 
 const clearTransientError = () => {
   state.transientError = null;
+  renderErrors();
 };
 
 const requestState = async (options = {}) => {
@@ -3764,6 +3765,7 @@ const applyAndRestart = async () => {
     renderDevices();
     renderSourceLibrary();
     if (applyError) showError(applyError.message);
+    else clearTransientError();
   }
 };
 
@@ -3791,6 +3793,7 @@ const resetDraft = async () => {
     renderDevices();
     renderSourceLibrary();
     if (resetError) showError(resetError.message);
+    else clearTransientError();
   }
 };
 

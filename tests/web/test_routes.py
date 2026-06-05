@@ -5785,6 +5785,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
+  globalThis.__secretPondTest.showError("action failed");
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
   const pendingReset = globalThis.__secretPondTest.resetDraft();
   assert.strictEqual(resetInFlightRequests.length, 1);
   assert.strictEqual(globalThis.__secretPondTest.state.resetDraftInFlight, true);
@@ -5816,6 +5818,9 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   await pendingReset;
   assert.strictEqual(globalThis.__secretPondTest.state.resetDraftInFlight, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.transientError, null);
+  assert.strictEqual(elements.errorBanner.hidden, true);
+  assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "live_ephemeral");
 
   const sourceSettingsFor = (lowPath) => {{
