@@ -2671,6 +2671,7 @@ const deriveStorageModeControlState = ({
   mode = null,
   applyInFlight = false,
   resetDraftInFlight = false,
+  deviceChangeInFlight = false,
   recordingStopInFlight = false,
 } = {}) => {
   const modeDetails = storageModeDetails[mode];
@@ -2679,10 +2680,12 @@ const deriveStorageModeControlState = ({
   const draftMode = draft?.voice_stack?.mode;
   const active = draftMode === mode;
   const pending = Boolean(activeMode && draftMode && activeMode !== draftMode);
+  const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const disabled =
     !ready ||
     applyInFlight ||
     resetDraftInFlight ||
+    deviceChangeBusy ||
     recordingStopInFlight ||
     Boolean(snapshot?.is_recording);
   return {
@@ -2693,7 +2696,9 @@ const deriveStorageModeControlState = ({
     title: disabled
       ? resetDraftInFlight
         ? "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다."
-        : storageModeBusyTitle
+        : deviceChangeBusy
+          ? operationLockMessages.deviceChange
+          : storageModeBusyTitle
       : modeDetails.idleTitle,
     canCommit: ready && !disabled,
   };
@@ -3061,6 +3066,7 @@ const renderStorageModeControls = () => {
       mode,
       applyInFlight: state.applyInFlight,
       resetDraftInFlight: state.resetDraftInFlight,
+      deviceChangeInFlight: state.deviceChangeInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
     });
     button.disabled = controlState.disabled;
@@ -3078,6 +3084,7 @@ const setStorageMode = (mode) => {
     mode,
     applyInFlight: state.applyInFlight,
     resetDraftInFlight: state.resetDraftInFlight,
+    deviceChangeInFlight: state.deviceChangeInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
   });
   if (!controlState.canCommit) return;

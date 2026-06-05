@@ -2409,6 +2409,23 @@ assert.deepStrictEqual(
   }},
 );
 
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    deviceChangeInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "장치 변경을 적용하는 중입니다.",
+    canCommit: false,
+  }},
+);
+
 assert.strictEqual(
   deriveStorageMode({{
     snapshot: {{ settings, is_recording: true }},
@@ -3599,6 +3616,12 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
   const cleanDraftBase = snapshotWithDraftLoop(10, 60);
   helpers.applyState(cleanDraftBase);
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 60);
+
+  helpers.state.deviceChangeInFlight = true;
+  helpers.setStorageMode("test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
+  helpers.state.deviceChangeInFlight = false;
 
   helpers.applyState(snapshotWithDraftLoop(11, 75), { syncDraft: false });
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
