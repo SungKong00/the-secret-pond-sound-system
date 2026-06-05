@@ -363,6 +363,18 @@ class FailingSaveSettingsStore:
         return getattr(self.delegate, name)
 
 
+class FailingPatchDraftSettingsStore:
+    def __init__(self, delegate, error: Exception) -> None:
+        self.delegate = delegate
+        self.error = error
+
+    def patch_draft(self, patch):
+        raise self.error
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
 class FailingDeviceRegistry:
     def list_input_devices(self):
         raise OSError("device stack unavailable")
@@ -5138,6 +5150,32 @@ def test_api_sources_upload_can_persist_uploaded_file_as_draft_selection(tmp_pat
     assert SettingsStore(paths).load().draft.sources.low_path == (
         "data/sources/low/uploaded-low.wav"
     )
+
+
+def test_api_sources_upload_and_select_removes_file_when_draft_save_fails(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    runtime = client.app.state.runtime
+    runtime.settings_store = FailingPatchDraftSettingsStore(
+        runtime.settings_store,
+        OSError("settings save failed"),
+    )
+    source = AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000)
+    source_path = tmp_path / "upload-source.wav"
+    write_wav_atomic(source_path, source)
+
+    response = client.post(
+        "/api/sources/low/files",
+        params={"filename": "uploaded-low.wav", "select": "true"},
+        content=source_path.read_bytes(),
+    )
+
+    assert response.status_code == 409
+    assert "settings save failed" in response.json()["detail"]
+    assert not (paths.low_sources_dir / "uploaded-low.wav").exists()
+    assert SettingsStore(paths).load().draft.sources.low_path is None
 
 
 def test_api_sources_delete_rejects_active_file(tmp_path: Path) -> None:

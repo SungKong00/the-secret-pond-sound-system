@@ -17,7 +17,6 @@ from secret_pond.audio.source_library import (
     select_existing_source,
     selected_source_path,
     source_library_payload,
-    upload_source_file,
 )
 from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
@@ -28,6 +27,10 @@ from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.services.settings_store import SettingsState
+from secret_pond.services.source_library_mutations import (
+    SourceLibraryMutationError,
+    upload_source_file_and_maybe_select,
+)
 from secret_pond.web.state import (
     SettingsPayloadUnavailable,
     StatePayloadUnavailable,
@@ -205,35 +208,26 @@ def upload_source(
 
     with runtime.operation_lock:
         try:
-            file_payload = upload_source_file(
-                runtime.paths,
+            result = upload_source_file_and_maybe_select(
+                runtime,
                 config.id,
                 filename=filename,
                 content=body,
+                select_after_upload=select,
             )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except SourceLibraryMutationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if select:
-            settings_state = runtime.settings_store.patch_draft(
-                lambda draft: select_existing_source(
-                    runtime.paths,
-                    draft,
-                    config.id,
-                    file_payload["path"],
-                ),
-            )
-            runtime.settings_state = settings_state
-        else:
-            settings_state = _settings_state(runtime)
         return {
-            "file": file_payload,
+            "file": result.file,
             "settings": _settings_payload(runtime),
             "sources": source_library_payload(
                 runtime.paths,
-                settings_state.draft,
-                active_settings=settings_state.active,
+                result.settings_state.draft,
+                active_settings=result.settings_state.active,
             ),
         }
 
