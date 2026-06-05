@@ -71,6 +71,7 @@ class RuntimeHarness:
 
 class PlayerSpy:
     def __init__(self) -> None:
+        self.is_playing = True
         self.enabled_updates: list[tuple[str, bool]] = []
         self.realtime_trim_updates: list[tuple[str, float]] = []
         self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
@@ -365,6 +366,46 @@ def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatm
             result.draft,
         )
     ]
+
+
+def test_live_update_draft_settings_skips_voice_raw_preview_reprocess_when_not_playing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "recording": active.recording.model_copy(
+                update={
+                    "gain_db": active.recording.gain_db + 3.0,
+                    "reverb_mix": 0.7,
+                }
+            ),
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.voice_raw_preview_path = "data/sources/voice/raw/VR0610_213112.wav"
+    runtime.player.is_playing = False
+    calls = []
+
+    def fake_prepare_voice_raw_preview(runtime_arg, relative_path, settings) -> None:
+        calls.append((runtime_arg, relative_path, settings))
+
+    monkeypatch.setattr(
+        "secret_pond.services.settings_draft.prepare_voice_raw_preview",
+        fake_prepare_voice_raw_preview,
+    )
+
+    update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert calls == []
 
 
 def test_live_update_draft_settings_keeps_voice_gain_relative_to_rendered_volume() -> None:

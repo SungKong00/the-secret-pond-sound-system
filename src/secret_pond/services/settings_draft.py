@@ -76,6 +76,8 @@ def _live_preview_reprocess_needed(
         return False
     if getattr(runtime, "voice_raw_preview_path", None) is None:
         return False
+    if not getattr(runtime.player, "is_playing", False):
+        return False
     change = classify_settings_change(current.draft, draft)
     return bool(change.live_preview_reprocessable_fields)
 
