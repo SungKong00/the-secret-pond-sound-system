@@ -85,16 +85,24 @@ secret-pond serve
   `data/sources/voice/raw/` and `data/sources/voice/stack/`.
 - 준비 음원 파일이 없으면 시작 시 자동 렌더와 `Apply and Restart`가 실패합니다. 기존 활성 설정과 맞는 렌더 캐시가 있으면 그 캐시는 계속 로드할 수 있습니다.
 
+## UI 상태관리 원칙
+
+- 대시보드 작업중 상태는 `sourceMutationInFlight`, `applyInFlight`, `deviceChangeInFlight` 같은 개별 플래그를 직접 흩뿌리지 않고 `currentOperationFlags()`와 순수 상태 도출 함수에 모아서 전달합니다.
+- 버튼, 드롭다운, 업로드, 삭제 같은 명령 핸들러는 화면의 disabled 상태만 믿지 않고 실행 직전에 다시 잠금 상태를 확인합니다.
+- 열려 있는 드롭다운은 옵션 목록을 다시 만들거나 활성 컨트롤을 불필요하게 disabled로 바꾸지 않습니다. 대신 렌더를 지연하고, 명령 실행 경계에서 잠금을 확인합니다.
+- 새 작업중 상태를 추가할 때는 `operationFlagKeys`, `deriveOperationLocks`, 관련 render signature, 정적 UI 테스트를 함께 갱신합니다.
+- 실시간 EQ는 아직 구현하지 않습니다. 현재 구조에서는 슬라이더 변경을 draft에 모으고 `Apply and Restart`에서 렌더를 교체하며, 나중에 실시간 적용이 필요하면 pure state derivation과 오디오 엔진 경계를 유지한 채 별도 적용 경로를 추가합니다.
+
 ## 커밋 규칙
 
 커밋 메시지는 Conventional Commits 형식을 쓰되, 설명은 한글로 작성합니다.
-현재 프로젝트에서는 타입과 설명 사이를 콜론이 아니라 세미콜론으로 구분합니다.
+작업 단위는 작게 유지하고, 관련 테스트/문서만 함께 묶습니다.
 
 ```text
-feat;프로젝트 기본 세팅
-feat;설정과 상태 모델 추가
-fix;오디오 버퍼 채널 계산 수정
-docs;운영자 안내 문서 추가
+feat: 프로젝트 기본 세팅
+fix: 소스 드롭다운 활성 상태 유지
+refactor: 작업 상태 플래그 전달 정리
+docs: 운영자 안내 문서 추가
 ```
 
 ## 준비 음원 위치

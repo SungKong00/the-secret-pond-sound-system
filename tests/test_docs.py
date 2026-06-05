@@ -152,6 +152,10 @@ def test_readme_links_operator_docs() -> None:
     assert "loop length" in readme
     assert "System" in readme
     assert "렌더 캐시" in readme
+    assert "UI 상태관리 원칙" in readme
+    assert "currentOperationFlags" in readme
+    assert "열려 있는 드롭다운" in readme
+    assert "fix: 소스 드롭다운 활성 상태 유지" in readme
 
 
 def test_request_file_records_current_mvp_docs_decisions() -> None:
