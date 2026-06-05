@@ -1537,6 +1537,56 @@ const stateEpochFromPayload = (payload) => {
   return epoch;
 };
 
+const normalizePlaybackPayload = (playback) => {
+  if (!playback || typeof playback !== "object" || Array.isArray(playback)) return playback;
+  return {
+    apply_mode: "stable",
+    position_seconds: 0,
+    duration_seconds: 0,
+    progress: 0,
+    active_voice_transition_target_id: null,
+    playback_session_id: null,
+    voice_raw_preview_path: null,
+    transition_warning: null,
+    output_running: false,
+    output_latest_status: null,
+    output_latest_error: null,
+    ...playback,
+  };
+};
+
+const normalizeSettingsPlaybackPayload = (settings) => {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return settings;
+  const playback = settings.playback;
+  if (!playback || typeof playback !== "object" || Array.isArray(playback)) return settings;
+  return {
+    ...settings,
+    playback: {
+      apply_mode: "stable",
+      ...playback,
+    },
+  };
+};
+
+const normalizeStateSettingsPayload = (settings) => {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return settings;
+  return {
+    ...settings,
+    active: normalizeSettingsPlaybackPayload(settings.active),
+    draft: normalizeSettingsPlaybackPayload(settings.draft),
+    change: toServerSettingsChangePayload(normalizeSettingsChangePlan(settings.change)),
+  };
+};
+
+const normalizeStatePayload = (payload) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  return {
+    ...payload,
+    playback: normalizePlaybackPayload(payload.playback),
+    settings: normalizeStateSettingsPayload(payload.settings),
+  };
+};
+
 const serverPayloadRevisionIsOlder = (payload) => {
   const epoch = stateEpochFromPayload(payload);
   const revision = stateRevisionFromPayload(payload);
@@ -1695,25 +1745,26 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
 };
 
 const applyState = (payload, options = {}) => {
+  const normalizedPayload = normalizeStatePayload(payload);
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
   const renderControlsOnSync = options.renderControlsOnSync ?? true;
-  if (serverPayloadRevisionIsOlder(payload)) {
+  if (serverPayloadRevisionIsOlder(normalizedPayload)) {
     return false;
   }
-  rememberServerPayloadRevision(payload);
+  rememberServerPayloadRevision(normalizedPayload);
   if (!options.fromStateRefresh) {
     invalidatePendingStateRefreshes();
   }
-  const nextServerStateSignature = serverStateSignature(payload, { syncDraft });
+  const nextServerStateSignature = serverStateSignature(normalizedPayload, { syncDraft });
   const serverStateChanged = state.serverStateSignature !== nextServerStateSignature;
   if (!serverStateChanged && !syncDraft && state.snapshot) {
-    return applyVolatileServerStateIfChanged(payload);
+    return applyVolatileServerStateIfChanged(normalizedPayload);
   }
   const currentSnapshot = state.snapshot;
   state.serverStateSignature = nextServerStateSignature;
-  state.snapshot = payload;
-  applySettingsPayload(payload.settings, {
+  state.snapshot = normalizedPayload;
+  applySettingsPayload(normalizedPayload.settings, {
     currentSnapshot,
     syncDraft,
     mergeDraftSections,
