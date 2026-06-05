@@ -28,6 +28,7 @@ from secret_pond.services.recording_transaction import (
 from secret_pond.services.recording_workflow import run_recording_workflow
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
+from secret_pond.services.settings_store import SettingsState
 from secret_pond.web.state import outcome_payload, settings_payload, state_payload
 
 router = APIRouter(prefix="/api")
@@ -309,7 +310,9 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
     with runtime.operation_lock:
-        state = runtime.settings_store.set_draft(draft)
+        current = runtime.settings_store.load()
+        _validate_draft_devices(current.active, draft)
+        state = runtime.settings_store.save(SettingsState(active=current.active, draft=draft))
         runtime.settings_state = state
         return {"settings": settings_payload(runtime)}
 
@@ -455,6 +458,15 @@ def _device_settings_from_payload(
             raise ValueError(f"{key} must be a string or null")
         updates[key] = value or None
     return current.model_copy(update=updates)
+
+
+def _validate_draft_devices(active: AppSettings, draft: AppSettings) -> None:
+    if draft.devices == active.devices:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail="device changes must be applied from the System panel",
+    )
 
 
 def _select_source_draft(

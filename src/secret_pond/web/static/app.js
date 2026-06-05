@@ -185,6 +185,14 @@ const describeUiNotice = (message, defaultSeverity = "error") => {
       "error",
     );
   }
+  if (normalized.includes("device changes must be applied from the system panel")) {
+    return uiNotice(
+      text,
+      "입력/출력 장치는 System 패널에서 선택하세요.",
+      "일반 설정 저장에는 장치 변경을 포함할 수 없습니다. System 패널의 입력/출력 장치 목록에서 장치를 선택하면 즉시 적용됩니다.",
+      "error",
+    );
+  }
   const sampleRateMismatch = normalized.match(
     /selected (input|output) default sample rate is (\d+), but settings request (\d+)/,
   );

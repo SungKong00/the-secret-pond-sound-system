@@ -2608,6 +2608,12 @@ assert.strictEqual(
   "오디오 장치를 사용할 수 없습니다.",
 );
 assert.strictEqual(
+  globalThis.__secretPondTest.translateUiErrorMessage(
+    "device changes must be applied from the System panel",
+  ),
+  "입력/출력 장치는 System 패널에서 선택하세요.",
+);
+assert.strictEqual(
   globalThis.__secretPondTest.translateUiErrorMessage("Request failed: 503"),
   "요청을 처리하지 못했습니다. HTTP 503 상태입니다.",
 );
@@ -4729,17 +4735,14 @@ def test_api_settings_payload_reports_runtime_config_change_plan(tmp_path: Path)
 
     response = client.put(
         "/api/settings/draft",
-        json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
+        json=draft_with_sample_rate(16_000),
     )
 
     assert response.status_code == 200
     assert response.json()["settings"]["change"] == {
         "runtime_config_changed": True,
-        "changed_runtime_fields": [
-            "devices.input_device_id",
-            "devices.output_device_id",
-        ],
-        "changed_sections": ["devices"],
+        "changed_runtime_fields": ["audio.sample_rate"],
+        "changed_sections": ["audio"],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
 
@@ -5160,7 +5163,7 @@ def test_api_settings_draft_update_does_not_change_active(tmp_path: Path) -> Non
     assert settings["draft"]["layers"]["voice"]["volume_db"] == -9.0
 
 
-def test_api_settings_draft_device_update_does_not_change_active(tmp_path: Path) -> None:
+def test_api_settings_draft_rejects_device_updates(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
     response = client.put(
@@ -5168,12 +5171,13 @@ def test_api_settings_draft_device_update_does_not_change_active(tmp_path: Path)
         json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
     )
 
-    assert response.status_code == 200
-    settings = response.json()["settings"]
+    assert response.status_code == 422
+    assert "System panel" in response.json()["detail"]
+    settings = client.get("/api/settings").json()["settings"]
     assert settings["active"]["devices"]["input_device_id"] is None
     assert settings["active"]["devices"]["output_device_id"] is None
-    assert settings["draft"]["devices"]["input_device_id"] == "mic-2"
-    assert settings["draft"]["devices"]["output_device_id"] == "speaker-2"
+    assert settings["draft"]["devices"]["input_device_id"] is None
+    assert settings["draft"]["devices"]["output_device_id"] is None
 
 
 def test_api_settings_reset_discards_draft_changes(tmp_path: Path) -> None:
@@ -6063,38 +6067,3 @@ def test_api_settings_apply_rejects_output_format_changes_without_changing_activ
     assert "output" in response.json()["detail"]
     state = client.get("/api/state").json()
     assert state["settings"]["active"]["audio"]["sample_rate"] == 8_000
-
-
-def test_api_settings_apply_rejects_device_changes_without_changing_active(
-    tmp_path: Path,
-) -> None:
-    client = create_test_client(tmp_path, with_sources=True)
-    client.put(
-        "/api/settings/draft",
-        json=draft_with_devices(input_device_id="mic-2", output_device_id="speaker-2"),
-    )
-
-    response = client.post("/api/settings/apply-and-restart")
-
-    assert response.status_code == 409
-    assert "device" in response.json()["detail"]
-    state = client.get("/api/state").json()
-    assert state["settings"]["active"]["devices"]["input_device_id"] is None
-    assert state["settings"]["active"]["devices"]["output_device_id"] is None
-
-
-def test_api_settings_apply_rejects_input_device_changes_without_changing_active(
-    tmp_path: Path,
-) -> None:
-    client = create_test_client(tmp_path, with_sources=True)
-    client.put(
-        "/api/settings/draft",
-        json=draft_with_devices(input_device_id="mic-2", output_device_id=None),
-    )
-
-    response = client.post("/api/settings/apply-and-restart")
-
-    assert response.status_code == 409
-    assert "device" in response.json()["detail"]
-    state = client.get("/api/state").json()
-    assert state["settings"]["active"]["devices"]["input_device_id"] is None
