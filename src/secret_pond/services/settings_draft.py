@@ -115,6 +115,7 @@ def _apply_live_eq_buffers(
         next_render_layers[layer_id] = render_layer.model_copy(update={"eq": active_layer.eq})
 
     if not eq_changed:
+        _sync_live_eq_states(runtime, active)
         return render_settings
 
     next_render_settings = render_settings.model_copy(
@@ -128,7 +129,18 @@ def _apply_live_eq_buffers(
             layer_id,
             runtime.renderer.render_live_eq_layer_buffer(layer_id, next_render_settings),
         )
-        if hasattr(runtime.player, "set_live_eq_state"):
-            runtime.player.set_live_eq_state(layer_id, render_layer.eq)
+    _sync_live_eq_states(runtime, next_render_settings)
     runtime.playback_render_settings = next_render_settings
     return next_render_settings
+
+
+def _sync_live_eq_states(runtime: SecretPondRuntime, settings: AppSettings) -> None:
+    set_live_eq_state = getattr(runtime.player, "set_live_eq_state", None)
+    player_eq_states = getattr(runtime.player, "live_eq_states", None)
+    if not callable(set_live_eq_state) or not isinstance(player_eq_states, dict):
+        return
+
+    for layer_id, layer in settings.layers.items():
+        if player_eq_states.get(layer_id) == layer.eq:
+            continue
+        set_live_eq_state(layer_id, layer.eq)

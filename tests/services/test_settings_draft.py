@@ -13,6 +13,7 @@ from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
     DeviceSettings,
+    EqSettings,
     SourceSelectionSettings,
 )
 from secret_pond.paths import ProjectPaths
@@ -76,6 +77,7 @@ class PlayerSpy:
         self.realtime_trim_updates: list[tuple[str, float]] = []
         self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
         self.live_eq_state_updates: list[tuple[str, float]] = []
+        self._live_eq_states = {layer_id: EqSettings() for layer_id in ("low", "mid", "voice")}
         self.restart_called = False
         self.reload_and_restart_called = False
 
@@ -90,6 +92,11 @@ class PlayerSpy:
 
     def set_live_eq_state(self, layer_id: str, eq) -> None:
         self.live_eq_state_updates.append((layer_id, eq.mid_gain_db))
+        self._live_eq_states[layer_id] = eq.model_copy(deep=True)
+
+    @property
+    def live_eq_states(self):
+        return {layer_id: eq.model_copy(deep=True) for layer_id, eq in self._live_eq_states.items()}
 
     def restart(self) -> None:
         self.restart_called = True
@@ -392,6 +399,38 @@ def test_live_update_draft_settings_routes_voice_eq_to_active_playback_without_r
     assert runtime.playback_render_settings.layers["voice"].eq.mid_gain_db == 6.0
     assert runtime.player.restart_called is False
     assert runtime.player.reload_and_restart_called is False
+
+
+def test_live_same_curve_eq_update_syncs_active_state_without_stacking() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                **AppSettings().layers,
+                "mid": AppSettings().layers["mid"].model_copy(
+                    update={
+                        "eq": AppSettings().layers["mid"].eq.model_copy(
+                            update={"mid_gain_db": 6.0},
+                        ),
+                    },
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.renderer = RendererSpy(
+        AudioBuffer(samples=np.ones((32, 2), dtype=np.float32), sample_rate=48_000)
+    )
+
+    result = update_draft_settings(runtime, active, current=state)  # type: ignore[arg-type]
+
+    assert result.active.layers["mid"].eq.mid_gain_db == 6.0
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == [("mid", 6.0)]
 
 
 def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cache(
