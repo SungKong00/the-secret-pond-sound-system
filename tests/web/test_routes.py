@@ -1297,7 +1297,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderDeviceApplyNotice" not in script.text
     assert "const deriveDashboardControlState = ({" in script.text
     assert "const outputControlBusy = Boolean(" in script.text
-    assert "playbackControlBusy || deviceChangeBusy" in script.text
+    assert (
+        "playbackControlBusy ||\n"
+        "      deviceChangeBusy ||\n"
+        "      resetParticipantsBusy"
+        in script.text
+    )
     assert (
         "restartOutputDisabled: outputControlBusy || !outputRunning"
         in script.text
@@ -1781,6 +1786,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert "state.resetParticipantsInFlight = true" in reset_participants_body
     assert "state.resetParticipantsInFlight = false" in reset_participants_body
+    assert "renderOperationLockSurfaces();" in reset_participants_body
     assert "applyResponseState(payload, { syncDraft: false })" in reset_participants_body
     assert "const applyResponseState = async (payload, options = {}) => {" in script.text
     assert "applyState(payload.state, options)" in script.text
@@ -2314,6 +2320,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ resetParticipantsInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "참여자 초기화가 끝날 때까지 기다리세요.",
+    deviceLocked: true,
+    deviceTitle: "참여자 초기화가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -2382,6 +2400,14 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveDraftLock({{ resetParticipantsInFlight: true }}),
+  {{
+    disabled: true,
+    title: "참여자 초기화가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveDraftLock({{ applyInFlight: true, resetDraftInFlight: true }}),
   {{
     disabled: true,
@@ -2442,6 +2468,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "출력 제어가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, resetParticipantsInFlight: true }}),
+  {{
+    disabled: true,
+    title: "참여자 초기화가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2567,6 +2601,23 @@ assert.deepStrictEqual(
     pendingActive: false,
     disabled: true,
     title: "출력 제어가 끝날 때까지 기다리세요.",
+    canCommit: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    resetParticipantsInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "참여자 초기화가 끝날 때까지 기다리세요.",
     canCommit: false,
   }},
 );
@@ -3000,6 +3051,21 @@ const resetParticipantsBusy = derive({{
   runtimeConfigChanged: false,
 }});
 assert.strictEqual(resetParticipantsBusy.resetParticipantsDisabled, true);
+assert.strictEqual(resetParticipantsBusy.captureReady, false);
+assert.strictEqual(resetParticipantsBusy.captureGateSwitchDisabled, true);
+assert.strictEqual(resetParticipantsBusy.startDisabled, true);
+assert.strictEqual(resetParticipantsBusy.outputControlBusy, true);
+assert.strictEqual(resetParticipantsBusy.startOutputDisabled, true);
+assert.strictEqual(resetParticipantsBusy.applyDisabled, true);
+assert.strictEqual(
+  resetParticipantsBusy.applyTitle,
+  "참여자 초기화가 끝날 때까지 기다리세요.",
+);
+assert.strictEqual(resetParticipantsBusy.resetDisabled, true);
+assert.strictEqual(
+  resetParticipantsBusy.resetTitle,
+  "참여자 초기화가 끝날 때까지 기다리세요.",
+);
 assert.strictEqual(
   resetParticipantsBusy.resetParticipantsTitle,
   "참여자 초기화가 끝날 때까지 기다리세요.",
@@ -5043,6 +5109,20 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}, false, false, false, false, false, false, true),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: true,
+    uploadTitle: "참여자 초기화가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileActionState({{ active: true }}),
   {{
     active: true,
@@ -5102,6 +5182,24 @@ assert.deepStrictEqual(
     active: false,
     deleteDisabled: true,
     deleteTitle: "출력 제어가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState(
+    {{ active: false }},
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+  ),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "참여자 초기화가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -5311,7 +5409,7 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
       change: {{
         runtime_config_changed: false,
         changed_runtime_fields: [],
-        changed_sections: [],
+        changed_sections: ["voice_stack"],
         runtime_config_fields: [],
       }},
     }},
@@ -5319,6 +5417,11 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   globalThis.__secretPondTest.state.snapshot = snapshot;
   globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
   globalThis.__secretPondTest.renderState();
+  assert.strictEqual(elements.startButton.disabled, false);
+  assert.strictEqual(elements.captureGateSwitch.disabled, false);
+  assert.strictEqual(elements.startOutputButton.disabled, false);
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.resetButton.disabled, false);
   assert.strictEqual(elements.resetParticipantsButton.disabled, false);
   globalThis.__secretPondTest.showError("action failed");
   assert.strictEqual(globalThis.__secretPondTest.state.transientError, "action failed");
@@ -5361,6 +5464,13 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
   assert.strictEqual(confirmCount, 1);
   assert.strictEqual(globalThis.__secretPondTest.state.resetParticipantsInFlight, true);
   assert.strictEqual(elements.resetParticipantsButton.disabled, true);
+  assert.strictEqual(elements.startButton.disabled, true);
+  assert.strictEqual(elements.captureGateSwitch.disabled, true);
+  assert.strictEqual(elements.startOutputButton.disabled, true);
+  assert.strictEqual(elements.applyButton.disabled, true);
+  assert.strictEqual(elements.applyButton.title, "참여자 초기화가 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.resetButton.disabled, true);
+  assert.strictEqual(elements.resetButton.title, "참여자 초기화가 끝날 때까지 기다리세요.");
   assert.strictEqual(
     elements.resetParticipantsButton.title,
     "참여자 초기화가 끝날 때까지 기다리세요.",

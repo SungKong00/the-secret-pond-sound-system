@@ -1493,6 +1493,7 @@ const deriveDraftControlLockState = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
@@ -1501,6 +1502,7 @@ const deriveDraftControlLockState = ({
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
     [playbackControlInFlight, operationLockMessages.playbackControl],
+    [resetParticipantsInFlight, operationLockMessages.resetParticipants],
   ]);
   return {
     disabled: Boolean(title),
@@ -1515,6 +1517,7 @@ const deriveOperationLocks = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
   devicesLoaded = true,
   forceDeviceDisabled = false,
 } = {}) => {
@@ -1525,6 +1528,7 @@ const deriveOperationLocks = ({
     [deviceChangeInFlight, operationLockMessages.sourceDeviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
     [playbackControlInFlight, operationLockMessages.playbackControl],
+    [resetParticipantsInFlight, operationLockMessages.resetParticipants],
   ]);
   const deviceTitle = firstOperationLockTitle([
     [!devicesLoaded, operationLockMessages.deviceLoading],
@@ -1534,6 +1538,7 @@ const deriveOperationLocks = ({
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
     [playbackControlInFlight, operationLockMessages.playbackControl],
+    [resetParticipantsInFlight, operationLockMessages.resetParticipants],
     [forceDeviceDisabled, operationLockMessages.deviceRecording],
   ]);
   const draftLock = deriveDraftControlLockState({
@@ -1543,6 +1548,7 @@ const deriveOperationLocks = ({
     deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
+    resetParticipantsInFlight,
   });
   return {
     draftLocked: draftLock.disabled,
@@ -1554,6 +1560,7 @@ const deriveOperationLocks = ({
         sourceMutationInFlight ||
         recordingStopInFlight ||
         playbackControlInFlight ||
+        resetParticipantsInFlight ||
         !devicesLoaded,
     ),
     deviceTitle,
@@ -1603,6 +1610,7 @@ const deriveSettingsActionState = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
@@ -1611,10 +1619,13 @@ const deriveSettingsActionState = ({
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
+  const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
+    : resetParticipantsBusy
+      ? operationLockMessages.resetParticipants
     : resetBusy
       ? "설정 변경 취소가 끝날 때까지 기다리세요."
       : deviceChangeBusy
@@ -1638,6 +1649,8 @@ const deriveSettingsActionState = ({
     ? "설정 변경 취소가 끝날 때까지 기다리세요."
     : recordingStopBusy
       ? "녹음 처리가 끝날 때까지 기다리세요."
+      : resetParticipantsBusy
+        ? operationLockMessages.resetParticipants
       : applyInFlight
         ? "설정 적용이 끝날 때까지 기다리세요."
         : deviceChangeBusy
@@ -1658,6 +1671,7 @@ const deriveSettingsActionState = ({
       deviceChangeBusy ||
       playbackControlBusy ||
       recordingStopBusy ||
+      resetParticipantsBusy ||
       isRecording ||
       !pendingChanges,
   );
@@ -1669,6 +1683,7 @@ const deriveSettingsActionState = ({
         deviceChangeBusy ||
         playbackControlBusy ||
         recordingStopBusy ||
+        resetParticipantsBusy ||
         isRecording ||
         runtimeConfigChanged ||
         !pendingChanges,
@@ -1700,11 +1715,19 @@ const deriveDashboardControlState = ({
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const settingsOperationBusy = Boolean(
-    applyInFlight || resetDraftInFlight || sourceMutationInFlight || deviceChangeBusy,
+    applyInFlight ||
+      resetDraftInFlight ||
+      sourceMutationInFlight ||
+      deviceChangeBusy ||
+      resetParticipantsBusy,
   );
   const captureOperationBusy = recordingStartBusy || recordingStopBusy || settingsOperationBusy;
   const outputControlBusy = Boolean(
-    applyInFlight || recordingStopBusy || playbackControlBusy || deviceChangeBusy,
+    applyInFlight ||
+      recordingStopBusy ||
+      playbackControlBusy ||
+      deviceChangeBusy ||
+      resetParticipantsBusy,
   );
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
@@ -1724,6 +1747,7 @@ const deriveDashboardControlState = ({
     deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
+    resetParticipantsInFlight,
     pendingChanges,
     runtimeConfigChanged,
   });
@@ -1731,15 +1755,19 @@ const deriveDashboardControlState = ({
     ? operationLockMessages.resetParticipants
     : isRecording
       ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
-    : recordingStopBusy
-      ? "녹음 처리가 끝날 때까지 기다리세요."
-      : applyInFlight
-        ? "설정 적용이 끝날 때까지 기다리세요."
-        : resetDraftInFlight
-          ? operationLockMessages.draftReset
-          : deviceChangeBusy
-            ? operationLockMessages.deviceChange
-            : "";
+      : recordingStopBusy
+        ? "녹음 처리가 끝날 때까지 기다리세요."
+        : applyInFlight
+          ? "설정 적용이 끝날 때까지 기다리세요."
+          : resetDraftInFlight
+            ? operationLockMessages.draftReset
+            : deviceChangeBusy
+              ? operationLockMessages.deviceChange
+              : sourceMutationInFlight
+                ? operationLockMessages.sourceMutation
+                : playbackControlBusy
+                  ? operationLockMessages.playbackControl
+                  : "";
   return {
     recordingStartBusy,
     recordingStopBusy,
@@ -1755,7 +1783,8 @@ const deriveDashboardControlState = ({
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
     resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || resetDraftInFlight ||
-      deviceChangeBusy || recordingStopBusy || isRecording,
+      sourceMutationInFlight || deviceChangeBusy || recordingStopBusy || playbackControlBusy ||
+      isRecording,
     resetParticipantsTitle,
   };
 };
@@ -2210,6 +2239,7 @@ const sourceActionBusyTitle = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 } = {}) => deriveOperationLocks({
   sourceMutationInFlight,
   applyInFlight,
@@ -2217,6 +2247,7 @@ const sourceActionBusyTitle = ({
   deviceChangeInFlight,
   recordingStopInFlight,
   playbackControlInFlight,
+  resetParticipantsInFlight,
 }).sourceActionTitle;
 
 const currentSourceLockState = () => deriveOperationLocks({
@@ -2226,6 +2257,7 @@ const currentSourceLockState = () => deriveOperationLocks({
   deviceChangeInFlight: state.deviceChangeInFlight,
   recordingStopInFlight: state.recordingStopInFlight,
   playbackControlInFlight: state.playbackControlInFlight,
+  resetParticipantsInFlight: state.resetParticipantsInFlight,
 });
 
 const sourceCommandBlocked = () =>
@@ -2286,6 +2318,7 @@ const deriveSourceUploadActionState = (
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 ) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
@@ -2296,6 +2329,7 @@ const deriveSourceUploadActionState = (
     deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
+    resetParticipantsInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2319,6 +2353,7 @@ const deriveSourceFileActionState = (
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 ) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
@@ -2329,6 +2364,7 @@ const deriveSourceFileActionState = (
     deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
+    resetParticipantsInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2395,6 +2431,7 @@ const sourceCategoryCard = (category) => {
     state.deviceChangeInFlight,
     state.recordingStopInFlight,
     state.playbackControlInFlight,
+    state.resetParticipantsInFlight,
   );
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
@@ -2474,6 +2511,7 @@ const sourceFileRows = (category) => {
       state.deviceChangeInFlight,
       state.recordingStopInFlight,
       state.playbackControlInFlight,
+      state.resetParticipantsInFlight,
     );
     const badges = deriveSourceFileStatusLabels(file, action)
       .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
@@ -2695,6 +2733,7 @@ const deriveSystemDeviceSelectState = ({
   sourceMutationInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 } = {}) => {
   const locks = deriveOperationLocks({
     applyInFlight,
@@ -2703,6 +2742,7 @@ const deriveSystemDeviceSelectState = ({
     deviceChangeInFlight,
     recordingStopInFlight,
     playbackControlInFlight,
+    resetParticipantsInFlight,
     devicesLoaded,
     forceDeviceDisabled: forceDisabled,
   });
@@ -2722,6 +2762,7 @@ const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({
   sourceMutationInFlight: state.sourceMutationInFlight,
   recordingStopInFlight: state.recordingStopInFlight,
   playbackControlInFlight: state.playbackControlInFlight,
+  resetParticipantsInFlight: state.resetParticipantsInFlight,
 });
 
 const deriveStorageModeControlState = ({
@@ -2734,6 +2775,7 @@ const deriveStorageModeControlState = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
 } = {}) => {
   const modeDetails = storageModeDetails[mode];
   const ready = Boolean(snapshot && draft && modeDetails);
@@ -2744,6 +2786,7 @@ const deriveStorageModeControlState = ({
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
+  const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const disabled =
     !ready ||
     applyInFlight ||
@@ -2752,6 +2795,7 @@ const deriveStorageModeControlState = ({
     deviceChangeBusy ||
     recordingStopInFlight ||
     playbackControlBusy ||
+    resetParticipantsBusy ||
     Boolean(snapshot?.is_recording);
   return {
     active,
@@ -2767,7 +2811,9 @@ const deriveStorageModeControlState = ({
             ? operationLockMessages.deviceChange
             : playbackControlBusy
               ? operationLockMessages.playbackControl
-              : storageModeBusyTitle
+              : resetParticipantsBusy
+                ? operationLockMessages.resetParticipants
+                : storageModeBusyTitle
       : modeDetails.idleTitle,
     canCommit: ready && !disabled,
   };
@@ -2784,6 +2830,7 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     sourceMutationInFlight: state.sourceMutationInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     playbackControlInFlight: state.playbackControlInFlight,
+    resetParticipantsInFlight: state.resetParticipantsInFlight,
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.title = selectState.title;
@@ -3149,6 +3196,7 @@ const renderStorageModeControls = () => {
       deviceChangeInFlight: state.deviceChangeInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
       playbackControlInFlight: state.playbackControlInFlight,
+      resetParticipantsInFlight: state.resetParticipantsInFlight,
     });
     button.disabled = controlState.disabled;
     button.setAttribute("aria-pressed", controlState.ariaPressed);
@@ -3169,6 +3217,7 @@ const setStorageMode = (mode) => {
     deviceChangeInFlight: state.deviceChangeInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
     playbackControlInFlight: state.playbackControlInFlight,
+    resetParticipantsInFlight: state.resetParticipantsInFlight,
   });
   if (!controlState.canCommit) return;
   commitDraftChange(() => {
@@ -3792,6 +3841,7 @@ const deriveDashboardControlStateForRequest = (currentState = state) =>
     recordingStartInFlight: currentState.recordingStartInFlight,
     recordingStopInFlight: currentState.recordingStopInFlight,
     playbackControlInFlight: currentState.playbackControlInFlight,
+    resetParticipantsInFlight: currentState.resetParticipantsInFlight,
   });
 
 const controlDisabledByDashboardState = (path, currentState = state) => {
@@ -3981,7 +4031,7 @@ const resetParticipants = async () => {
   if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
   let resetError = null;
   state.resetParticipantsInFlight = true;
-  renderState();
+  renderOperationLockSurfaces();
   try {
     const payload = await api("/api/participants/reset", { method: "POST" });
     await applyResponseState(payload, { syncDraft: false });
@@ -3992,7 +4042,7 @@ const resetParticipants = async () => {
     await requestState({ syncDraft: false }).catch(() => {});
   } finally {
     state.resetParticipantsInFlight = false;
-    renderState();
+    renderOperationLockSurfaces();
     if (resetError) showError(resetError.message);
     else clearTransientError();
   }
