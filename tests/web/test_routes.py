@@ -2190,9 +2190,60 @@ assert.strictEqual(
   true,
 );
 assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: false, is_recording: false }},
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: true }},
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/recording/start", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    recordingStopInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
   deriveControl("/api/playback/start", {{}}, {{
     snapshot: {{ playback: {{ output_running: false }} }},
     playbackControlInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/playback/start", {{}}, {{
+    snapshot: {{ playback: {{ output_running: true }} }},
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/playback/stop", {{}}, {{
+    snapshot: {{ playback: {{ output_running: false }} }},
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/playback/restart", {{}}, {{
+    snapshot: {{ playback: {{ output_running: false }} }},
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/playback/start", {{}}, {{
+    snapshot: {{ playback: {{ output_running: false }} }},
+    applyInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/playback/stop", {{}}, {{
+    snapshot: {{ playback: {{ output_running: true }} }},
+    recordingStopInFlight: true,
   }}).skip,
   true,
 );

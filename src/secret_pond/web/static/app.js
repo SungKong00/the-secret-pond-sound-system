@@ -3562,6 +3562,23 @@ const saveDraft = async () => {
   }
 };
 
+const deriveDashboardControlStateForRequest = (currentState = state) =>
+  deriveDashboardControlState({
+    snapshot: currentState.snapshot,
+    applyInFlight: currentState.applyInFlight,
+    recordingStopInFlight: currentState.recordingStopInFlight,
+    playbackControlInFlight: currentState.playbackControlInFlight,
+  });
+
+const controlDisabledByDashboardState = (path, currentState = state) => {
+  const controlState = deriveDashboardControlStateForRequest(currentState);
+  if (path === "/api/recording/start") return controlState.startDisabled;
+  if (path === "/api/playback/start") return controlState.startOutputDisabled;
+  if (path === "/api/playback/stop") return controlState.stopOutputDisabled;
+  if (path === "/api/playback/restart") return controlState.restartOutputDisabled;
+  return false;
+};
+
 const deriveControlRequestState = (path, options = {}, currentState = state) => {
   const snapshot = currentState.snapshot;
   const startsStartRequest = path === "/api/recording/start";
@@ -3580,6 +3597,7 @@ const deriveControlRequestState = (path, options = {}, currentState = state) => 
         (path === "/api/recording/stop" && allowStaleRecordingStop))) ||
     pollAutoStopRequest;
   const skip =
+    controlDisabledByDashboardState(path, currentState) ||
     (startsStartRequest && currentState.recordingStartInFlight) ||
     (path === "/api/recording/stop" && !snapshot?.is_recording && !allowStaleRecordingStop) ||
     (path === "/api/input/disarm" && !snapshot?.is_recording && !snapshot?.armed) ||
