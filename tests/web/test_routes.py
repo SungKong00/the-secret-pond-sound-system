@@ -12460,6 +12460,36 @@ def test_api_live_settings_draft_update_applies_low_volume_without_restart(
     assert float(np.max(np.abs(after.samples))) < float(np.max(np.abs(before.samples)))
 
 
+def test_api_live_settings_draft_update_applies_low_mute_without_restart(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_with_low_only_live_playback()
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    output.player = client.app.state.runtime.player
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    before = client.app.state.runtime.player.next_block(512)
+    draft_layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False}),
+    }
+    draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
+
+    response = client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
+    after = client.app.state.runtime.player.next_block(512)
+
+    assert response.status_code == 200
+    assert output.is_running is True
+    assert output.stop_calls == 0
+    assert output.start_calls == 1
+    assert response.json()["settings"]["active"]["layers"]["low"]["enabled"] is False
+    assert response.json()["settings"]["draft"]["layers"]["low"]["enabled"] is False
+    assert client.app.state.runtime.player.layer_states["low"].enabled is False
+    assert float(np.max(np.abs(before.samples))) > 0.0
+    np.testing.assert_allclose(after.samples, np.zeros_like(after.samples), atol=1e-6)
+
+
 def test_api_live_settings_draft_update_applies_mid_volume_without_restart(
     tmp_path: Path,
 ) -> None:
