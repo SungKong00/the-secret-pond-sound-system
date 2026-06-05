@@ -2283,6 +2283,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ playbackControlInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: false,
+    sourceCommandBlocked: false,
+    sourceActionTitle: "",
+    deviceLocked: false,
+    deviceTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -2339,6 +2351,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "녹음 처리가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ playbackControlInFlight: true }}),
+  {{
+    disabled: true,
+    title: "출력 제어가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -5863,6 +5883,23 @@ sourceLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
 assert.strictEqual(sourceLockedVoiceLoopInput.value, "60");
 globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+
+globalThis.__secretPondTest.state.playbackControlInFlight = true;
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+const voiceStackControlCountBeforePlaybackLockRender =
+  elements.voiceStackControls.children.length;
+globalThis.__secretPondTest.renderVoiceStackControls();
+const playbackLockedVoiceLoopRow =
+  elements.voiceStackControls.children[voiceStackControlCountBeforePlaybackLockRender];
+const playbackLockedVoiceLoopInput = playbackLockedVoiceLoopRow.querySelector("input");
+const playbackLockedVoiceLoopValueInput = playbackLockedVoiceLoopRow.querySelector(".value-input");
+assert.strictEqual(playbackLockedVoiceLoopInput.disabled, true);
+assert.strictEqual(playbackLockedVoiceLoopValueInput.disabled, true);
+playbackLockedVoiceLoopInput.value = "105";
+playbackLockedVoiceLoopInput.dispatchEvent({{ type: "input" }});
+assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
+assert.strictEqual(playbackLockedVoiceLoopInput.value, "60");
+globalThis.__secretPondTest.state.playbackControlInFlight = false;
 assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), false);
 globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.armed = false;

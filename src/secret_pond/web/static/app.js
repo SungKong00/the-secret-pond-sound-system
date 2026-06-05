@@ -1492,6 +1492,7 @@ const deriveDraftControlLockState = ({
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
+  playbackControlInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
@@ -1499,6 +1500,7 @@ const deriveDraftControlLockState = ({
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
+    [playbackControlInFlight, operationLockMessages.playbackControl],
   ]);
   return {
     disabled: Boolean(title),
@@ -1512,6 +1514,7 @@ const deriveOperationLocks = ({
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
+  playbackControlInFlight = false,
   devicesLoaded = true,
   forceDeviceDisabled = false,
 } = {}) => {
@@ -1534,6 +1537,7 @@ const deriveOperationLocks = ({
     sourceMutationInFlight,
     deviceChangeInFlight,
     recordingStopInFlight,
+    playbackControlInFlight,
   });
   return {
     draftLocked: draftLock.disabled,
