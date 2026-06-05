@@ -10195,6 +10195,62 @@ def test_api_test_library_recording_persists_timestamped_vr_without_stack(
     assert manifest["entries"] == []
 
 
+def test_api_add_voice_raw_to_selected_stack_creates_new_vs_and_mirror(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    response = client.post(
+        "/api/voice-stack/add-source",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+
+    assert response.status_code == 200
+    settings_payload = response.json()["settings"]["active"]["sources"]
+    selected_raw = settings_payload["voice_raw_path"]
+    selected_stack = settings_payload["voice_stack_path"]
+    assert selected_raw == "data/sources/voice/raw/VR0610_213112.wav"
+    assert selected_stack.startswith("data/sources/voice/stack/VS")
+    assert (tmp_path / selected_stack).exists()
+    assert paths.voice_stack_raw.exists()
+    np.testing.assert_allclose(
+        read_wav(paths.voice_stack_raw).samples,
+        read_wav(tmp_path / selected_stack).samples,
+        atol=1e-4,
+    )
+
+
+def test_api_voice_raw_preview_stops_main_playback_and_starts_preview(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    client = create_test_client(tmp_path, with_sources=True, output=output)
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    response = client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["preview"]["playing"] is True
+    assert response.json()["preview"]["voice_raw_path"] == (
+        "data/sources/voice/raw/VR0610_213112.wav"
+    )
+    assert output.stop_calls == 1
+    assert output.start_calls == 2
+    assert response.json()["state"]["playback"]["output_running"] is True
+    assert response.json()["state"]["playback"]["is_playing"] is True
+
+
 def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(
     tmp_path: Path,
 ) -> None:

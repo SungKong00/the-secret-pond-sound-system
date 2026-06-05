@@ -256,6 +256,70 @@ def delete_source(
         }
 
 
+@router.post("/voice-stack/add-source")
+def add_voice_raw_to_stack(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    relative_path = _voice_raw_path_from_payload(payload)
+
+    with runtime.operation_lock:
+        current = _settings_state(runtime)
+        active = current.active.model_copy(deep=True)
+        try:
+            result = runtime.voice_stack_service.add_vr_to_stack(relative_path, active)
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
+        draft = current.draft.model_copy(
+            update={
+                "sources": current.draft.sources.model_copy(
+                    update={
+                        "voice_raw_path": active.sources.voice_raw_path,
+                        "voice_stack_path": active.sources.voice_stack_path,
+                    },
+                )
+            },
+            deep=True,
+        )
+        settings_state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
+        runtime.apply_settings_state(settings_state)
+        runtime.mark_state_changed()
+        return {
+            "add_to_stack": {"voice_stack_path": result.selected_voice_stack_path},
+            "settings": _settings_payload(runtime, settings_state),
+            "state": _state_payload(runtime, settings_state),
+            "sources": _sources_payload(runtime, settings_state),
+        }
+
+
+@router.post("/voice-raw/preview")
+def preview_voice_raw(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    relative_path = _voice_raw_path_from_payload(payload)
+
+    with runtime.operation_lock:
+        settings_state = _settings_state(runtime)
+        try:
+            preview_layers = runtime.voice_source.preview_layers(
+                relative_path,
+                settings_state.active,
+            )
+            if runtime.output.is_running:
+                playback_control.stop_playback(runtime)
+            else:
+                runtime.player.stop()
+            runtime.player.load_rendered_buffers(preview_layers)
+            runtime.player.restart()
+            runtime.output.start()
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
+        return {
+            "preview": {"voice_raw_path": relative_path, "playing": True},
+            "state": _state_payload(runtime, settings_state),
+        }
+
+
 @router.post("/playback/start")
 def start_playback(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -434,6 +498,13 @@ def _source_select_path(payload: dict[str, Any]) -> str | None:
     relative_path = payload.get("path")
     if relative_path is not None and not isinstance(relative_path, str):
         raise HTTPException(status_code=422, detail="path must be a string or null")
+    return relative_path
+
+
+def _voice_raw_path_from_payload(payload: dict[str, Any]) -> str:
+    relative_path = payload.get("voice_raw_path")
+    if not isinstance(relative_path, str) or not relative_path:
+        raise HTTPException(status_code=422, detail="voice_raw_path must be a non-empty string")
     return relative_path
 
 

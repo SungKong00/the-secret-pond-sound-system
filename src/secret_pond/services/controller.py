@@ -9,6 +9,7 @@ from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.effects import apply_recording_processing
 from secret_pond.audio.recorder import Recorder
 from secret_pond.config import AppSettings
+from secret_pond.services.recording_processing_policy import recording_processing_sample_rate
 
 
 class VoiceStack(Protocol):
@@ -263,7 +264,10 @@ class RecordingController:
 
         try:
             canonical_recording = recorded.to_canonical(
-                sample_rate=max(recorded.sample_rate, self._settings.audio.sample_rate),
+                sample_rate=recording_processing_sample_rate(
+                    self._settings,
+                    recorded.sample_rate,
+                ),
                 channels=self._settings.audio.channels,
             )
             processed = apply_recording_processing(canonical_recording, self._settings.recording)

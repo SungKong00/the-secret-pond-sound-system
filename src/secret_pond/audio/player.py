@@ -84,6 +84,13 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = False
 
+    def load_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
+        layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
+        _validate_loaded_layers(layers)
+        self._layers = layers
+        self._frame_cursor = 0
+        self._playing = False
+
     def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)
