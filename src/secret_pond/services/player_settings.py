@@ -13,3 +13,18 @@ def apply_player_settings(player: Any, settings: AppSettings) -> None:
 
 def apply_player_layer_settings(runtime: Any, settings: AppSettings) -> None:
     apply_player_settings(runtime.player, settings)
+
+
+def apply_live_player_layer_controls(
+    player: Any,
+    *,
+    previous: AppSettings,
+    current: AppSettings,
+) -> None:
+    for layer_id, layer_settings in current.layers.items():
+        previous_layer = previous.layers[layer_id]
+        if layer_settings.enabled != previous_layer.enabled:
+            player.set_enabled(layer_id, layer_settings.enabled)
+        volume_delta_db = layer_settings.volume_db - previous_layer.volume_db
+        if volume_delta_db != 0.0:
+            player.set_realtime_trim(layer_id, volume_delta_db)

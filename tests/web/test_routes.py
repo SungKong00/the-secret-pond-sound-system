@@ -657,6 +657,15 @@ def draft_with_low_layer_disabled() -> dict:
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
 
 
+def draft_with_low_volume(volume_db: float, *, base: AppSettings | None = None) -> dict:
+    settings = base or api_settings()
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"volume_db": volume_db}),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
 def api_settings_with_voice_only_layers() -> AppSettings:
     settings = api_settings()
     layers = {
@@ -668,9 +677,35 @@ def api_settings_with_voice_only_layers() -> AppSettings:
     return settings.model_copy(update={"layers": layers}, deep=True)
 
 
+def api_settings_with_low_only_live_playback() -> AppSettings:
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": True, "volume_db": 0.0}),
+        "mid": settings.layers["mid"].model_copy(update={"enabled": False}),
+        "voice": settings.layers["voice"].model_copy(update={"enabled": False}),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True)
+
+
 def draft_with_sample_rate(sample_rate: int) -> dict:
     return api_settings().model_copy(
         update={"audio": api_settings().audio.model_copy(update={"sample_rate": sample_rate})},
+        deep=True,
+    ).model_dump(mode="json")
+
+
+def draft_with_audio_loop_seconds(
+    loop_seconds: int,
+    *,
+    base: AppSettings | None = None,
+) -> dict:
+    settings = base or api_settings()
+    return settings.model_copy(
+        update={"audio": settings.audio.model_copy(update={"loop_seconds": loop_seconds})},
         deep=True,
     ).model_dump(mode="json")
 
@@ -12309,6 +12344,33 @@ def test_api_settings_apply_and_restart_restarts_running_output(
     assert output.start_calls == 2
     assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
     assert payload["state"]["playback"]["output_running"] is True
+
+
+def test_api_live_settings_draft_update_applies_low_volume_without_restart(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_with_low_only_live_playback()
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    output.player = client.app.state.runtime.player
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    before = client.app.state.runtime.player.next_block(512)
+
+    response = client.put(
+        "/api/settings/draft",
+        json=draft_with_low_volume(-12.0, base=settings),
+    )
+    after = client.app.state.runtime.player.next_block(512)
+
+    assert response.status_code == 200
+    assert output.is_running is True
+    assert output.stop_calls == 0
+    assert output.start_calls == 1
+    assert response.json()["settings"]["active"]["layers"]["low"]["volume_db"] == -12.0
+    assert response.json()["settings"]["draft"]["layers"]["low"]["volume_db"] == -12.0
+    assert client.app.state.runtime.player.layer_states["low"].realtime_trim_db == -12.0
+    assert float(np.max(np.abs(after.samples))) < float(np.max(np.abs(before.samples)))
 
 
 def test_api_settings_apply_and_restart_applies_peak_ceiling_to_player(
