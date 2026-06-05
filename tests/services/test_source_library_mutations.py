@@ -12,6 +12,7 @@ from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
+    delete_source_file_from_library,
     select_source_file_and_update_draft,
     upload_source_file_and_maybe_select,
 )
@@ -58,6 +59,42 @@ def test_select_source_file_persists_draft_selection_and_updates_runtime_state(
     assert state.draft.sources.mid_path == selected_path
     assert store.load().draft.sources.mid_path == selected_path
     assert runtime.settings_state is state
+
+
+def test_delete_source_file_from_library_removes_inactive_file_without_settings_mutation(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    source = AudioBuffer(
+        samples=np.ones((8_000, 2), dtype=np.float32) * 0.05,
+        sample_rate=8_000,
+    )
+    active_path = paths.low_sources_dir / "active-low.wav"
+    inactive_path = paths.low_sources_dir / "inactive-low.wav"
+    write_wav_atomic(active_path, source)
+    write_wav_atomic(inactive_path, source)
+    settings = AppSettings()
+    store = SettingsStore(paths)
+    settings_state = store.save(SettingsState(active=settings, draft=settings))
+    runtime = SimpleNamespace(
+        paths=paths,
+        settings_store=store,
+        settings_state=settings_state,
+    )
+
+    state = delete_source_file_from_library(
+        runtime,
+        "low",
+        "data/sources/low/inactive-low.wav",
+        settings_state=settings_state,
+    )
+
+    assert state is settings_state
+    assert active_path.exists()
+    assert not inactive_path.exists()
+    assert store.load() == settings_state
+    assert runtime.settings_state is settings_state
 
 
 def test_upload_and_select_rolls_back_uploaded_file_when_draft_save_fails(

@@ -40,6 +40,23 @@ def select_source_file_and_update_draft(
     return settings_state
 
 
+def delete_source_file_from_library(
+    runtime: SecretPondRuntime,
+    category: str,
+    relative_path: str,
+    *,
+    settings_state: SettingsState,
+) -> SettingsState:
+    delete_source_file(
+        runtime.paths,
+        category,
+        relative_path,
+        active_settings=settings_state.active,
+        draft_settings=settings_state.draft,
+    )
+    return settings_state
+
+
 def upload_source_file_and_maybe_select(
     runtime: SecretPondRuntime,
     category: str,

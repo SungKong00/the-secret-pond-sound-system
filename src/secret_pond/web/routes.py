@@ -11,7 +11,6 @@ from secret_pond.audio.device_readiness import build_device_warnings
 from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.audio.source_library import (
     category_config,
-    delete_source_file,
     selected_source_path,
     source_library_payload,
 )
@@ -32,6 +31,7 @@ from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
+    delete_source_file_from_library,
     select_source_file_and_update_draft,
     upload_source_file_and_maybe_select,
 )
@@ -246,12 +246,11 @@ def delete_source(
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
-            delete_source_file(
-                runtime.paths,
+            delete_source_file_from_library(
+                runtime,
                 config.id,
                 path,
-                active_settings=settings_state.active,
-                draft_settings=settings_state.draft,
+                settings_state=settings_state,
             )
         except PermissionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
