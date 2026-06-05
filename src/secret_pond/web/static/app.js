@@ -1426,7 +1426,55 @@ const requestSources = async (options = {}) => {
   }
 };
 
-const serverStateSignature = (payload) => JSON.stringify(payload);
+const volatileServerStateFields = [
+  "recording_elapsed_seconds",
+  "recording_remaining_seconds",
+];
+
+const stableServerStatePayload = (payload) => {
+  if (!payload || typeof payload !== "object") return payload;
+  const stablePayload = clone(payload);
+  volatileServerStateFields.forEach((field) => {
+    delete stablePayload[field];
+  });
+  return stablePayload;
+};
+
+const effectiveServerStatePayload = (payload, options = {}) => {
+  const effectivePayload = stableServerStatePayload(payload);
+  if (
+    options.syncDraft === false &&
+    effectivePayload?.settings?.draft &&
+    state.draft
+  ) {
+    effectivePayload.settings.draft = clone(state.draft);
+  }
+  return effectivePayload;
+};
+
+const serverStateSignature = (payload, options = {}) =>
+  JSON.stringify(effectiveServerStatePayload(payload, options));
+
+const volatileServerStateChanged = (currentSnapshot, payload) => (
+  Boolean(currentSnapshot && payload) &&
+    volatileServerStateFields.some((field) => currentSnapshot[field] !== payload[field])
+);
+
+const applyVolatileServerState = (payload) => {
+  if (!state.snapshot || !payload) return false;
+  volatileServerStateFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      state.snapshot[field] = payload[field];
+    }
+  });
+  renderRecordingTimes();
+  return true;
+};
+
+const applyVolatileServerStateIfChanged = (payload) => {
+  if (!volatileServerStateChanged(state.snapshot, payload)) return false;
+  return applyVolatileServerState(payload);
+};
 
 const refreshAll = async () => {
   let stateRefreshFailed = false;
@@ -1493,15 +1541,16 @@ const applyState = (payload, options = {}) => {
   if (!options.fromStateRefresh) {
     invalidatePendingStateRefreshes();
   }
-  const nextServerStateSignature = serverStateSignature(payload);
+  const nextServerStateSignature = serverStateSignature(payload, { syncDraft });
   const serverStateChanged = state.serverStateSignature !== nextServerStateSignature;
   if (!serverStateChanged && !syncDraft && state.snapshot) {
-    return false;
+    return applyVolatileServerStateIfChanged(payload);
   }
   const currentSnapshot = state.snapshot;
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
   applySettingsPayload(payload.settings, { currentSnapshot, syncDraft, mergeDraftSections });
+  state.serverStateSignature = serverStateSignature(state.snapshot, { syncDraft });
   renderState();
   renderSystemPanel();
   return true;
@@ -1910,6 +1959,13 @@ const currentDashboardControlState = (snapshot = state.snapshot) => {
   return { pendingChangeState, controlState };
 };
 
+const renderRecordingTimes = (snapshot = state.snapshot) => {
+  if (!snapshot) return;
+  $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
+  $("remainingTime").textContent =
+    `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
+};
+
 const renderState = () => {
   renderSyncBadge();
   const snapshot = state.snapshot;
@@ -1924,9 +1980,7 @@ const renderState = () => {
   $("outputBadge").className = `status-pill ${snapshot.playback.output_running ? "safe" : "muted"}`;
   renderStorageModeControls();
   $("participantCount").textContent = snapshot.participant_count;
-  $("elapsedTime").textContent = `${snapshot.recording_elapsed_seconds.toFixed(1)}s`;
-  $("remainingTime").textContent =
-    `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
+  renderRecordingTimes(snapshot);
   $("minimumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.minimum_recording_seconds,
   );

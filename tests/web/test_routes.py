@@ -4081,6 +4081,19 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
   helpers.applyState(snapshotWithDraftLoop(13, 99), { syncDraft: false });
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 88);
   assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.loop_seconds, 88);
+
+  elements.storageModeSummary.textContent = "open settings control";
+  const timerOnlySnapshot = {
+    ...helpers.state.snapshot,
+    recording_elapsed_seconds: 1.5,
+    recording_remaining_seconds: 118.5,
+  };
+  assert.strictEqual(helpers.applyState(timerOnlySnapshot, { syncDraft: false }), true);
+  assert.strictEqual(helpers.state.snapshot.recording_elapsed_seconds, 1.5);
+  assert.strictEqual(helpers.state.snapshot.recording_remaining_seconds, 118.5);
+  assert.strictEqual(elements.elapsedTime.textContent, "1.5s");
+  assert.strictEqual(elements.remainingTime.textContent, "118.5s 남음");
+  assert.strictEqual(elements.storageModeSummary.textContent, "open settings control");
 })().catch((error) => {
   console.error(error);
   process.exit(1);
