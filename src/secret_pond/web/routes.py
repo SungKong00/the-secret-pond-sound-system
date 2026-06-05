@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from secret_pond.audio.source_library import (
     SourceCategoryConfig,
@@ -20,6 +20,7 @@ from secret_pond.services.device_switcher import (
 )
 from secret_pond.services.diagnostics import diagnostics_payload
 from secret_pond.services.playback_apply_mode import (
+    PlaybackApplyMode,
     apply_playback_apply_mode,
     parse_playback_apply_mode,
 )
@@ -71,6 +72,10 @@ SOURCE_MUTATION_ERRORS = (
     RuntimeError,
     ValueError,
 )
+
+
+class PlaybackApplyModeRequest(BaseModel):
+    mode: PlaybackApplyMode
 
 
 @router.get("/state")
@@ -423,10 +428,13 @@ def seek_playback(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.put("/playback/apply-mode")
-def update_playback_apply_mode(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+def update_playback_apply_mode(
+    request: Request,
+    payload: PlaybackApplyModeRequest,
+) -> dict[str, Any]:
     runtime = _runtime(request)
     try:
-        mode = parse_playback_apply_mode(payload.get("mode"))
+        mode = parse_playback_apply_mode(payload.mode)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

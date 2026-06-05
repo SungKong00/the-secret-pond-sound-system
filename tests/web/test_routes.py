@@ -10293,6 +10293,18 @@ def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -
     assert response.json()["playback"]["apply_mode"] == "live"
 
 
+def test_api_playback_apply_mode_request_contract_names_supported_modes(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+
+    openapi = client.get("/openapi.json").json()
+    schema = openapi["components"]["schemas"]["PlaybackApplyModeRequest"]
+
+    assert schema["properties"]["mode"]["enum"] == ["stable", "live"]
+    assert schema["required"] == ["mode"]
+
+
 def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_modes(
     tmp_path: Path,
 ) -> None:
