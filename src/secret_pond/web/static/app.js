@@ -1479,15 +1479,19 @@ const operationLockMessages = {
   deviceRecording: "녹음 중에는 입력 장치를 바꿀 수 없습니다.",
 };
 
+const firstOperationLockTitle = (candidates = []) => {
+  const match = candidates.find(([active, title]) => active && title);
+  return match ? match[1] : "";
+};
+
 const deriveDraftControlLockState = ({
   applyInFlight = false,
   resetDraftInFlight = false,
 } = {}) => {
-  const title = applyInFlight
-    ? operationLockMessages.draftApply
-    : resetDraftInFlight
-      ? operationLockMessages.draftReset
-      : "";
+  const title = firstOperationLockTitle([
+    [applyInFlight, operationLockMessages.draftApply],
+    [resetDraftInFlight, operationLockMessages.draftReset],
+  ]);
   return {
     disabled: Boolean(title),
     title,
@@ -1502,24 +1506,18 @@ const deriveOperationLocks = ({
   devicesLoaded = true,
   forceDeviceDisabled = false,
 } = {}) => {
-  const sourceActionTitle = applyInFlight
-    ? operationLockMessages.sourceApply
-    : resetDraftInFlight
-      ? operationLockMessages.sourceReset
-    : sourceMutationInFlight
-      ? operationLockMessages.sourceMutation
-      : "";
-  const deviceTitle = !devicesLoaded
-    ? operationLockMessages.deviceLoading
-    : applyInFlight
-      ? operationLockMessages.deviceApply
-      : resetDraftInFlight
-        ? operationLockMessages.draftReset
-        : deviceChangeInFlight
-          ? operationLockMessages.deviceChange
-          : forceDeviceDisabled
-            ? operationLockMessages.deviceRecording
-            : "";
+  const sourceActionTitle = firstOperationLockTitle([
+    [applyInFlight, operationLockMessages.sourceApply],
+    [resetDraftInFlight, operationLockMessages.sourceReset],
+    [sourceMutationInFlight, operationLockMessages.sourceMutation],
+  ]);
+  const deviceTitle = firstOperationLockTitle([
+    [!devicesLoaded, operationLockMessages.deviceLoading],
+    [applyInFlight, operationLockMessages.deviceApply],
+    [resetDraftInFlight, operationLockMessages.draftReset],
+    [deviceChangeInFlight, operationLockMessages.deviceChange],
+    [forceDeviceDisabled, operationLockMessages.deviceRecording],
+  ]);
   const draftLock = deriveDraftControlLockState({ applyInFlight, resetDraftInFlight });
   return {
     draftLocked: draftLock.disabled,

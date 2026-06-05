@@ -2131,7 +2131,8 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         exports=(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
             "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
-            "deriveSystemDeviceSelectState, deriveStorageModeControlState }"
+            "deriveSystemDeviceSelectState, deriveStorageModeControlState, "
+            "firstOperationLockTitle }"
         ),
         body="""
 const snapshot = {{
@@ -2147,10 +2148,21 @@ const deriveDraftLock = globalThis.__secretPondTest.deriveDraftControlLockState;
 const deriveLocks = globalThis.__secretPondTest.deriveOperationLocks;
 const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
 const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
+const firstLockTitle = globalThis.__secretPondTest.firstOperationLockTitle;
 const settings = {{
   active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
 }};
 const draft = {{ voice_stack: {{ mode: "live_ephemeral" }} }};
+
+assert.strictEqual(
+  firstLockTitle([
+    [false, "첫 번째"],
+    [true, "두 번째"],
+    [true, "세 번째"],
+  ]),
+  "두 번째",
+);
+assert.strictEqual(firstLockTitle([[false, "첫 번째"]]), "");
 
 assert.deepStrictEqual(
   deriveLocks({{
