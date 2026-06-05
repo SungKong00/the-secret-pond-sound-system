@@ -11,6 +11,7 @@ from secret_pond.config import AppSettings
 class SettingsChangePlan:
     runtime_config_changed: bool
     changed_runtime_fields: list[str]
+    live_preview_reprocessable_fields: list[str]
     changed_sections: list[str]
 
 
@@ -23,9 +24,24 @@ _RUNTIME_CONFIG_FIELDS: tuple[tuple[str, _RuntimeFieldReader], ...] = (
     ("devices.output_device_id", lambda settings: settings.devices.output_device_id),
 )
 
+_LIVE_PREVIEW_REPROCESSABLE_FIELDS: tuple[tuple[str, _RuntimeFieldReader], ...] = (
+    ("recording.gain_db", lambda settings: settings.recording.gain_db),
+    ("recording.normalize_peak", lambda settings: settings.recording.normalize_peak),
+    ("recording.highpass_hz", lambda settings: settings.recording.highpass_hz),
+    ("recording.lowpass_hz", lambda settings: settings.recording.lowpass_hz),
+    ("recording.presence_gain_db", lambda settings: settings.recording.presence_gain_db),
+    ("recording.reverb_mix", lambda settings: settings.recording.reverb_mix),
+    ("recording.delay_mix", lambda settings: settings.recording.delay_mix),
+    ("recording.fade_ms", lambda settings: settings.recording.fade_ms),
+)
+
 
 def runtime_config_field_names() -> list[str]:
     return [field_name for field_name, _read_field in _RUNTIME_CONFIG_FIELDS]
+
+
+def live_preview_reprocessable_field_names() -> list[str]:
+    return [field_name for field_name, _read_field in _LIVE_PREVIEW_REPROCESSABLE_FIELDS]
 
 
 def classify_settings_change(active: AppSettings, draft: AppSettings) -> SettingsChangePlan:
@@ -33,6 +49,10 @@ def classify_settings_change(active: AppSettings, draft: AppSettings) -> Setting
     return SettingsChangePlan(
         runtime_config_changed=bool(changed_runtime_fields),
         changed_runtime_fields=changed_runtime_fields,
+        live_preview_reprocessable_fields=_changed_live_preview_reprocessable_fields(
+            active,
+            draft,
+        ),
         changed_sections=_changed_sections(active, draft),
     )
 
@@ -53,8 +73,23 @@ def promote_runtime_config(active: AppSettings, draft: AppSettings) -> AppSettin
 
 
 def _changed_runtime_fields(active: AppSettings, draft: AppSettings) -> list[str]:
+    return _changed_fields(active, draft, _RUNTIME_CONFIG_FIELDS)
+
+
+def _changed_live_preview_reprocessable_fields(
+    active: AppSettings,
+    draft: AppSettings,
+) -> list[str]:
+    return _changed_fields(active, draft, _LIVE_PREVIEW_REPROCESSABLE_FIELDS)
+
+
+def _changed_fields(
+    active: AppSettings,
+    draft: AppSettings,
+    fields: tuple[tuple[str, _RuntimeFieldReader], ...],
+) -> list[str]:
     changed: list[str] = []
-    for field_name, read_field in _RUNTIME_CONFIG_FIELDS:
+    for field_name, read_field in fields:
         if read_field(active) != read_field(draft):
             changed.append(field_name)
     return changed

@@ -53,6 +53,31 @@ def test_classify_settings_change_keeps_mix_changes_render_only() -> None:
     assert plan.changed_sections == ["layers"]
 
 
+def test_classify_settings_change_marks_recording_treatment_as_live_preview_reprocessable() -> None:
+    active = AppSettings()
+    draft = active.model_copy(
+        update={
+            "recording": active.recording.model_copy(
+                update={
+                    "gain_db": active.recording.gain_db + 3.0,
+                    "presence_gain_db": active.recording.presence_gain_db + 2.0,
+                },
+            ),
+        },
+        deep=True,
+    )
+
+    plan = classify_settings_change(active, draft)
+
+    assert plan.runtime_config_changed is False
+    assert plan.changed_runtime_fields == []
+    assert plan.live_preview_reprocessable_fields == [
+        "recording.gain_db",
+        "recording.presence_gain_db",
+    ]
+    assert plan.changed_sections == ["recording"]
+
+
 def test_classify_settings_change_reports_noop_plan_for_identical_settings() -> None:
     settings = AppSettings()
 
@@ -60,6 +85,7 @@ def test_classify_settings_change_reports_noop_plan_for_identical_settings() -> 
 
     assert plan.runtime_config_changed is False
     assert plan.changed_runtime_fields == []
+    assert plan.live_preview_reprocessable_fields == []
     assert plan.changed_sections == []
 
 

@@ -3618,13 +3618,22 @@ const readSettingsPath = (settings, path) => (
 
 const normalizeSettingsChangePlan = (change) => {
   const runtimeConfigFields = normalizeRuntimeConfigFields(change?.runtime_config_fields);
+  const livePreviewReprocessableFieldNames = Array.isArray(
+    change?.live_preview_reprocessable_field_names,
+  )
+    ? change.live_preview_reprocessable_field_names
+    : [];
   return {
     runtimeConfigChanged: Boolean(change?.runtime_config_changed),
     changedRuntimeFields: Array.isArray(change?.changed_runtime_fields)
       ? change.changed_runtime_fields
       : [],
+    livePreviewReprocessableFields: Array.isArray(change?.live_preview_reprocessable_fields)
+      ? change.live_preview_reprocessable_fields
+      : [],
     changedSections: Array.isArray(change?.changed_sections) ? change.changed_sections : [],
     runtimeConfigFields,
+    livePreviewReprocessableFieldNames,
   };
 };
 
@@ -3666,12 +3675,34 @@ const settingsChangePlan = (snapshot = state.snapshot) => {
   const runtimeConfigFields = normalizeSettingsChangePlan(
     snapshot.settings.change,
   ).runtimeConfigFields;
-  return localSettingsChangePlan(snapshot.settings.active, draft, runtimeConfigFields);
+  const livePreviewReprocessableFieldNames = normalizeSettingsChangePlan(
+    snapshot.settings.change,
+  ).livePreviewReprocessableFieldNames;
+  return localSettingsChangePlan(
+    snapshot.settings.active,
+    draft,
+    runtimeConfigFields,
+    livePreviewReprocessableFieldNames,
+  );
 };
 
-const localSettingsChangePlan = (active, draft, runtimeConfigFields = defaultRuntimeConfigFields) => {
+const localSettingsChangePlan = (
+  active,
+  draft,
+  runtimeConfigFields = defaultRuntimeConfigFields,
+  livePreviewReprocessableFieldNames = [],
+) => {
   const normalizedRuntimeConfigFields = normalizeRuntimeConfigFields(runtimeConfigFields);
   const changedRuntimeFields = normalizedRuntimeConfigFields
+    .filter((fieldName) => (
+      readSettingsPath(active, fieldName) !== readSettingsPath(draft, fieldName)
+    ));
+  const normalizedLivePreviewReprocessableFieldNames = Array.isArray(
+    livePreviewReprocessableFieldNames,
+  )
+    ? livePreviewReprocessableFieldNames
+    : [];
+  const livePreviewReprocessableFields = normalizedLivePreviewReprocessableFieldNames
     .filter((fieldName) => (
       readSettingsPath(active, fieldName) !== readSettingsPath(draft, fieldName)
     ));
@@ -3689,8 +3720,10 @@ const localSettingsChangePlan = (active, draft, runtimeConfigFields = defaultRun
   return {
     runtimeConfigChanged: changedRuntimeFields.length > 0,
     changedRuntimeFields,
+    livePreviewReprocessableFields,
     changedSections,
     runtimeConfigFields: normalizedRuntimeConfigFields,
+    livePreviewReprocessableFieldNames: normalizedLivePreviewReprocessableFieldNames,
   };
 };
 
@@ -3701,10 +3734,20 @@ const toServerSettingsChangePayload = (change) => {
     changed_runtime_fields: Array.isArray(normalizedChange.changedRuntimeFields)
       ? normalizedChange.changedRuntimeFields
       : [],
+    live_preview_reprocessable_fields: Array.isArray(
+      normalizedChange.livePreviewReprocessableFields,
+    )
+      ? normalizedChange.livePreviewReprocessableFields
+      : [],
     changed_sections: Array.isArray(normalizedChange.changedSections)
       ? normalizedChange.changedSections
       : [],
     runtime_config_fields: normalizeRuntimeConfigFields(normalizedChange.runtimeConfigFields),
+    live_preview_reprocessable_field_names: Array.isArray(
+      normalizedChange.livePreviewReprocessableFieldNames,
+    )
+      ? normalizedChange.livePreviewReprocessableFieldNames
+      : [],
   };
 };
 

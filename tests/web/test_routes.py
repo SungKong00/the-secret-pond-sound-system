@@ -47,6 +47,16 @@ RUNTIME_CONFIG_FIELDS = [
     "devices.input_device_id",
     "devices.output_device_id",
 ]
+LIVE_PREVIEW_REPROCESSABLE_FIELDS = [
+    "recording.gain_db",
+    "recording.normalize_peak",
+    "recording.highpass_hz",
+    "recording.lowpass_hz",
+    "recording.presence_gain_db",
+    "recording.reverb_mix",
+    "recording.delay_mix",
+    "recording.fade_ms",
+]
 
 
 def api_settings() -> AppSettings:
@@ -3738,23 +3748,30 @@ const plan = helpers.localSettingsChangePlan(active, draft, ["audio.sample_rate"
 assert.deepStrictEqual(plan, {{
   runtimeConfigChanged: false,
   changedRuntimeFields: [],
+  livePreviewReprocessableFields: [],
   changedSections: ["devices"],
   runtimeConfigFields: ["audio.sample_rate"],
+  livePreviewReprocessableFieldNames: [],
 }});
 
 const normalized = helpers.normalizeSettingsChangePlan({{
   runtime_config_changed: false,
   changed_runtime_fields: [],
+  live_preview_reprocessable_fields: [],
   changed_sections: ["devices"],
   runtime_config_fields: ["audio.sample_rate"],
+  live_preview_reprocessable_field_names: ["recording.gain_db"],
 }});
 assert.deepStrictEqual(normalized.runtimeConfigFields, ["audio.sample_rate"]);
+assert.deepStrictEqual(normalized.livePreviewReprocessableFieldNames, ["recording.gain_db"]);
 
 assert.deepStrictEqual(helpers.toServerSettingsChangePayload(normalized), {{
   runtime_config_changed: false,
   changed_runtime_fields: [],
+  live_preview_reprocessable_fields: [],
   changed_sections: ["devices"],
   runtime_config_fields: ["audio.sample_rate"],
+  live_preview_reprocessable_field_names: ["recording.gain_db"],
 }});
 
 const serverDraft = JSON.parse(JSON.stringify(active));
@@ -3767,8 +3784,10 @@ const staleSnapshot = {{
     change: {{
       runtime_config_changed: false,
       changed_runtime_fields: [],
+      live_preview_reprocessable_fields: [],
       changed_sections: [],
       runtime_config_fields: ["audio.sample_rate"],
+      live_preview_reprocessable_field_names: ["recording.gain_db", "recording.reverb_mix"],
     }},
   }},
 }};
@@ -3780,8 +3799,10 @@ assert.strictEqual(
 assert.deepStrictEqual(helpers.settingsChangePlan(staleSnapshot), {{
   runtimeConfigChanged: false,
   changedRuntimeFields: [],
+  livePreviewReprocessableFields: [],
   changedSections: ["devices"],
   runtimeConfigFields: ["audio.sample_rate"],
+  livePreviewReprocessableFieldNames: ["recording.gain_db", "recording.reverb_mix"],
 }});
 assert.strictEqual(
   helpers.canUseServerSettingsChangePlan(staleSnapshot, serverDraft),
@@ -3815,8 +3836,10 @@ const reorderedSnapshot = {{
     change: {{
       runtime_config_changed: false,
       changed_runtime_fields: [],
+      live_preview_reprocessable_fields: [],
       changed_sections: [],
       runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+      live_preview_reprocessable_field_names: [],
     }},
   }},
 }};
@@ -3829,6 +3852,7 @@ assert.deepStrictEqual(
     reorderedActive,
     reorderedDraft,
     ["audio.sample_rate", "audio.channels"],
+    [],
   ).changedSections,
   [],
 );
@@ -3846,8 +3870,35 @@ const eqPlan = helpers.localSettingsChangePlan(eqActive, eqDraft, ["audio.sample
 assert.deepStrictEqual(eqPlan, {{
   runtimeConfigChanged: false,
   changedRuntimeFields: [],
+  livePreviewReprocessableFields: [],
   changedSections: ["eq"],
   runtimeConfigFields: ["audio.sample_rate"],
+  livePreviewReprocessableFieldNames: [],
+}});
+
+const recordingActive = {{
+  recording: {{ gain_db: 0, reverb_mix: 0.1, fade_ms: 50 }},
+}};
+const recordingDraft = JSON.parse(JSON.stringify(recordingActive));
+recordingDraft.recording.gain_db = 3;
+recordingDraft.recording.fade_ms = 100;
+const recordingPlan = helpers.localSettingsChangePlan(
+  recordingActive,
+  recordingDraft,
+  ["audio.sample_rate"],
+  ["recording.gain_db", "recording.reverb_mix", "recording.fade_ms"],
+);
+assert.deepStrictEqual(recordingPlan, {{
+  runtimeConfigChanged: false,
+  changedRuntimeFields: [],
+  livePreviewReprocessableFields: ["recording.gain_db", "recording.fade_ms"],
+  changedSections: ["recording"],
+  runtimeConfigFields: ["audio.sample_rate"],
+  livePreviewReprocessableFieldNames: [
+    "recording.gain_db",
+    "recording.reverb_mix",
+    "recording.fade_ms",
+  ],
 }});
 
 const incomingDraft = JSON.parse(JSON.stringify(active));
@@ -10455,8 +10506,10 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["settings"]["change"] == {
         "runtime_config_changed": False,
         "changed_runtime_fields": [],
+        "live_preview_reprocessable_fields": [],
         "changed_sections": [],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
     }
 
 
@@ -10574,6 +10627,7 @@ def test_api_state_settings_payload_preserves_stable_apply_flow_shape_and_values
             "devices.input_device_id",
             "devices.output_device_id",
         ],
+        "live_preview_reprocessable_fields": [],
         "changed_sections": [
             "audio",
             "devices",
@@ -10582,7 +10636,39 @@ def test_api_state_settings_payload_preserves_stable_apply_flow_shape_and_values
             "voice_stack",
         ],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
     }
+
+
+def test_api_state_classifies_recording_treatment_as_live_preview_reprocessable(
+    tmp_path: Path,
+) -> None:
+    active = api_settings()
+    draft = active.model_copy(
+        update={
+            "recording": active.recording.model_copy(
+                update={
+                    "gain_db": active.recording.gain_db + 2.0,
+                    "reverb_mix": 0.4,
+                },
+            ),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=active)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    change = response.json()["settings"]["change"]
+    assert change["runtime_config_changed"] is False
+    assert change["changed_runtime_fields"] == []
+    assert change["live_preview_reprocessable_fields"] == [
+        "recording.gain_db",
+        "recording.reverb_mix",
+    ]
+    assert change["changed_sections"] == ["recording"]
 
 
 def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -> None:

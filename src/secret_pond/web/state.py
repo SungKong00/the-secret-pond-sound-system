@@ -7,6 +7,7 @@ from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_changes import (
     SettingsChangePlan,
     classify_settings_change,
+    live_preview_reprocessable_field_names,
     runtime_config_field_names,
 )
 from secret_pond.services.settings_store import SettingsState
@@ -154,8 +155,10 @@ def settings_change_payload(change: SettingsChangePlan) -> dict[str, Any]:
     return {
         "runtime_config_changed": change.runtime_config_changed,
         "changed_runtime_fields": change.changed_runtime_fields,
+        "live_preview_reprocessable_fields": change.live_preview_reprocessable_fields,
         "changed_sections": change.changed_sections,
         "runtime_config_fields": runtime_config_field_names(),
+        "live_preview_reprocessable_field_names": live_preview_reprocessable_field_names(),
     }
 
 
