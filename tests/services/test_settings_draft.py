@@ -153,6 +153,34 @@ def test_live_update_draft_settings_keeps_audio_loop_seconds_on_apply_flow() -> 
     assert runtime.player.realtime_trim_updates == []
 
 
+def test_live_update_draft_settings_keeps_sample_rate_on_apply_flow() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=48_000, channels=2),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(update={"sample_rate": 44_100}),
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.audio.sample_rate == 48_000
+    assert result.draft.audio.sample_rate == 44_100
+    assert store.saved_states[0].active.audio.sample_rate == 48_000
+    assert store.saved_states[0].draft.audio.sample_rate == 44_100
+    assert runtime.controller.settings.audio.sample_rate == 48_000
+    assert runtime.player.realtime_trim_updates == []
+
+
 def test_update_draft_settings_raises_validation_error_for_device_changes() -> None:
     active = AppSettings()
     draft = active.model_copy(
