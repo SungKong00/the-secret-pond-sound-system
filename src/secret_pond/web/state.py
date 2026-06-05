@@ -26,9 +26,12 @@ class SettingsPayloadUnavailable(RuntimeError):
         super().__init__(f"settings are unavailable: {reason}")
 
 
-def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+def state_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
     participant_count = _participant_count(runtime)
-    settings = _settings_payload(runtime)
+    settings = _settings_payload(runtime, settings_state)
     return {
         "armed": runtime.controller.armed,
         "is_recording": runtime.controller.is_recording,
@@ -54,8 +57,12 @@ def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     }
 
 
-def settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
-    settings_state = load_settings_state(runtime)
+def settings_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
+    if settings_state is None:
+        settings_state = load_settings_state(runtime)
     runtime.settings_state = settings_state
     return {
         "active": settings_state.active.model_dump(mode="json"),
@@ -89,9 +96,12 @@ def _participant_count(runtime: SecretPondRuntime) -> int:
         raise StatePayloadUnavailable(str(exc)) from exc
 
 
-def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+def _settings_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
     try:
-        return settings_payload(runtime)
+        return settings_payload(runtime, settings_state)
     except SettingsPayloadUnavailable as exc:
         raise StatePayloadUnavailable(exc.reason) from exc
     except (OSError, ValueError) as exc:

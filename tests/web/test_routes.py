@@ -427,6 +427,47 @@ class FailingPatchDraftSettingsStore:
         return getattr(self.delegate, name)
 
 
+class DriftingPostApplyLoadSettingsStore:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self._saved_apply_state: SettingsState | None = None
+        self.load_after_apply_save_count = 0
+
+    def save(self, state: SettingsState) -> SettingsState:
+        saved = self.delegate.save(state)
+        if saved.active == saved.draft:
+            self._saved_apply_state = saved
+            self.load_after_apply_save_count = 0
+        return saved
+
+    def load(self) -> SettingsState:
+        if self._saved_apply_state is None:
+            return self.delegate.load()
+        self.load_after_apply_save_count += 1
+        return self._state_with_voice_volume(-9.5 - self.load_after_apply_save_count)
+
+    def _state_with_voice_volume(self, volume_db: float) -> SettingsState:
+        assert self._saved_apply_state is not None
+        active = self._settings_with_voice_volume(self._saved_apply_state.active, volume_db)
+        draft = self._settings_with_voice_volume(self._saved_apply_state.draft, volume_db)
+        return SettingsState(active=active, draft=draft)
+
+    @staticmethod
+    def _settings_with_voice_volume(settings: AppSettings, volume_db: float) -> AppSettings:
+        return settings.model_copy(
+            update={
+                "layers": {
+                    **settings.layers,
+                    "voice": settings.layers["voice"].model_copy(update={"volume_db": volume_db}),
+                }
+            },
+            deep=True,
+        )
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+
 class FailingDeviceRegistry:
     def list_input_devices(self):
         raise OSError("device stack unavailable")
@@ -7686,6 +7727,24 @@ def test_api_settings_apply_and_restart_logs_success_event(tmp_path: Path) -> No
     assert payload["runtime_config_changed"] is False
     assert payload["was_output_running"] is False
     assert payload["output_running"] is False
+
+
+def test_api_settings_apply_and_restart_uses_single_settings_snapshot_for_response(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+    client.put("/api/settings/draft", json=draft_with_voice_volume(-9.0))
+    runtime = client.app.state.runtime
+    settings_store = DriftingPostApplyLoadSettingsStore(runtime.settings_store)
+    runtime.settings_store = settings_store
+
+    response = client.post("/api/settings/apply-and-restart")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["settings"] == payload["state"]["settings"]
+    assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
+    assert settings_store.load_after_apply_save_count == 0
 
 
 def test_api_settings_apply_alias_renders_layers_and_starts_player(

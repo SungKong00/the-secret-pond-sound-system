@@ -361,12 +361,12 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         try:
-            apply_draft_settings(runtime)
+            result = apply_draft_settings(runtime)
         except SettingsApplyError as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         return {
-            "settings": _settings_payload(runtime),
-            "state": _state_payload(runtime),
+            "settings": _settings_payload(runtime, result.settings_state),
+            "state": _state_payload(runtime, result.settings_state),
         }
 
 
@@ -377,9 +377,12 @@ def _runtime(request: Request) -> SecretPondRuntime:
     return runtime
 
 
-def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+def _state_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
     try:
-        return state_payload(runtime)
+        return state_payload(runtime, settings_state)
     except StatePayloadUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -391,9 +394,12 @@ def _settings_state(runtime: SecretPondRuntime) -> SettingsState:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+def _settings_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
     try:
-        return settings_payload(runtime)
+        return settings_payload(runtime, settings_state)
     except SettingsPayloadUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
