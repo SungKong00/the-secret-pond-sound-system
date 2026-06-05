@@ -3687,7 +3687,10 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, selectSourceFile, uploadSourceFile, deleteSourceFile }",
+        exports=(
+            "{ state, selectSourceFile, uploadSourceFile, deleteSourceFile, "
+            "handleSourceFileDrop }"
+        ),
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {
@@ -3755,6 +3758,36 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
     null,
   );
   assert.strictEqual(helpers.state.resetDraftInFlight, true);
+
+  const dropZone = {
+    removedClasses: [],
+    classList: {
+      remove(className) {
+        dropZone.removedClasses.push(className);
+      },
+    },
+  };
+  const dropEvent = {
+    defaultPrevented: false,
+    dataTransfer: {
+      dropEffect: "copy",
+      files: [{ name: "dropped.wav", size: 12, lastModified: 2 }],
+    },
+    target: {
+      closest(selector) {
+        return selector === "[data-source-drop]" ? dropZone : null;
+      },
+    },
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+  helpers.state.sourceUploads.low = { selectAfterUpload: true, file: null };
+  assert.strictEqual(helpers.handleSourceFileDrop(dropEvent, "low"), null);
+  assert.strictEqual(dropEvent.defaultPrevented, true);
+  assert.strictEqual(dropEvent.dataTransfer.dropEffect, "none");
+  assert.deepStrictEqual(dropZone.removedClasses, ["is-dragging"]);
+  assert.strictEqual(helpers.state.sourceUploads.low.file, null);
   assert.deepStrictEqual(fetchCalls, []);
 })().catch((error) => {
   console.error(error);

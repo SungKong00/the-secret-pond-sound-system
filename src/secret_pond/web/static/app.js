@@ -2165,6 +2165,15 @@ const sourceCommandBlocked = () =>
 const sourceSelectFromEventTarget = (target) =>
   target?.closest?.("[data-source-select]") || null;
 
+const sourceDropZoneFromEventTarget = (target) =>
+  target?.closest?.("[data-source-drop]") || null;
+
+const blockSourceFileDrop = (event, dropZone) => {
+  event.preventDefault();
+  dropZone?.classList.remove("is-dragging");
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+};
+
 const sourceLibraryBusyControlSelector = [
   "[data-source-select]",
   "[data-source-file]",
@@ -2541,16 +2550,20 @@ const uploadSourceFile = async (category, droppedFile = null) => {
 };
 
 const handleSourceFileDrop = (event, category) => {
+  const dropZone = sourceDropZoneFromEventTarget(event.target);
+  if (sourceCommandBlocked()) {
+    blockSourceFileDrop(event, dropZone);
+    return null;
+  }
   event.preventDefault();
-  const dropZone = event.target.closest("[data-source-drop]");
   dropZone?.classList.remove("is-dragging");
   const file = event.dataTransfer?.files?.[0];
   if (!file) {
     showError("추가할 WAV 파일을 선택하세요.");
-    return;
+    return null;
   }
   rememberSourceUploadFile(category, file);
-  uploadSourceFile(category, file);
+  return uploadSourceFile(category, file);
 };
 
 const deleteSourceFile = async (category, path) => {
@@ -4119,19 +4132,23 @@ const bindEvents = () => {
     }
   });
   $("sourceLibraryList").addEventListener("dragover", (event) => {
-    const dropZone = event.target.closest("[data-source-drop]");
+    const dropZone = sourceDropZoneFromEventTarget(event.target);
     if (!dropZone) return;
+    if (sourceCommandBlocked()) {
+      blockSourceFileDrop(event, dropZone);
+      return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     dropZone.classList.add("is-dragging");
   });
   $("sourceLibraryList").addEventListener("dragleave", (event) => {
-    const dropZone = event.target.closest("[data-source-drop]");
+    const dropZone = sourceDropZoneFromEventTarget(event.target);
     if (!dropZone || dropZone.contains(event.relatedTarget)) return;
     dropZone.classList.remove("is-dragging");
   });
   $("sourceLibraryList").addEventListener("drop", (event) => {
-    const dropZone = event.target.closest("[data-source-drop]");
+    const dropZone = sourceDropZoneFromEventTarget(event.target);
     if (!dropZone) return;
     handleSourceFileDrop(event, dropZone.dataset.sourceDrop);
   });
