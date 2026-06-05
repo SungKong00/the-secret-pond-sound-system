@@ -16,9 +16,14 @@ from secret_pond.audio.source_library import (
     selected_source_path,
     source_library_payload,
 )
-from secret_pond.config import AppSettings, DeviceSettings
+from secret_pond.config import AppSettings
 from secret_pond.services import maintenance, playback_control
-from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
+from secret_pond.services.device_switcher import (
+    DeviceSelectionError,
+    apply_runtime_devices,
+    device_settings_from_payload,
+    validate_draft_device_settings,
+)
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
@@ -117,7 +122,7 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     with runtime.operation_lock:
         current = _settings_state(runtime)
         try:
-            devices = _device_settings_from_payload(current.active.devices, payload)
+            devices = device_settings_from_payload(current.active.devices, payload)
             apply_runtime_devices(runtime, devices)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -316,7 +321,10 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
     with runtime.operation_lock:
         current = _settings_state(runtime)
-        _validate_draft_devices(current.active, draft)
+        try:
+            validate_draft_device_settings(current.active, draft)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         state = runtime.settings_store.save(SettingsState(active=current.active, draft=draft))
         runtime.settings_state = state
         return {"settings": _settings_payload(runtime)}
@@ -416,34 +424,6 @@ def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[
         "selected_output_device": _device_payload(selected_output),
         "warnings": _device_warnings(selected_input, selected_output, settings),
     }
-
-
-def _device_settings_from_payload(
-    current: DeviceSettings,
-    payload: dict[str, Any],
-) -> DeviceSettings:
-    allowed = {"input_device_id", "output_device_id"}
-    unknown = sorted(set(payload) - allowed)
-    if unknown:
-        raise ValueError(f"unknown device setting: {unknown[0]}")
-    updates: dict[str, str | None] = {}
-    for key in allowed:
-        if key not in payload:
-            continue
-        value = payload[key]
-        if value is not None and not isinstance(value, str):
-            raise ValueError(f"{key} must be a string or null")
-        updates[key] = value or None
-    return current.model_copy(update=updates)
-
-
-def _validate_draft_devices(active: AppSettings, draft: AppSettings) -> None:
-    if draft.devices == active.devices:
-        return
-    raise HTTPException(
-        status_code=422,
-        detail="device changes must be applied from the System panel",
-    )
 
 
 def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:

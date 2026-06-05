@@ -6,7 +6,12 @@ import pytest
 
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
 from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings
-from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
+from secret_pond.services.device_switcher import (
+    DeviceSelectionError,
+    apply_runtime_devices,
+    device_settings_from_payload,
+    validate_draft_device_settings,
+)
 from secret_pond.services.settings_store import SettingsState
 
 
@@ -144,6 +149,39 @@ class FailingApplyRuntimeHarness(RuntimeHarness):
     def apply_settings_state(self, state: SettingsState) -> None:
         self.settings_state = state
         raise RuntimeError("controller update failed")
+
+
+def test_device_settings_from_payload_rejects_unknown_keys_and_normalizes_empty_values() -> None:
+    current = DeviceSettings(input_device_id="mic-1", output_device_id="speaker-1")
+
+    assert device_settings_from_payload(current, {"input_device_id": ""}) == DeviceSettings(
+        input_device_id=None,
+        output_device_id="speaker-1",
+    )
+    assert device_settings_from_payload(current, {"output_device_id": None}) == DeviceSettings(
+        input_device_id="mic-1",
+        output_device_id=None,
+    )
+
+    with pytest.raises(ValueError, match="unknown device setting: latency"):
+        device_settings_from_payload(current, {"latency": 0.1})
+
+    with pytest.raises(ValueError, match="input_device_id must be a string or null"):
+        device_settings_from_payload(current, {"input_device_id": 123})
+
+
+def test_validate_draft_device_settings_rejects_device_changes_outside_system_panel() -> None:
+    active = AppSettings(devices=DeviceSettings(input_device_id="mic-1"))
+    same_devices_draft = active.model_copy(update={"audio": AudioFormatSettings(channels=1)})
+    changed_devices_draft = active.model_copy(
+        update={"devices": DeviceSettings(input_device_id="mic-2")},
+        deep=True,
+    )
+
+    validate_draft_device_settings(active, same_devices_draft)
+
+    with pytest.raises(ValueError, match="device changes must be applied from the System panel"):
+        validate_draft_device_settings(active, changed_devices_draft)
 
 
 def test_apply_runtime_devices_rejects_unavailable_output_before_mutating_runtime() -> None:

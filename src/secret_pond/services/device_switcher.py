@@ -4,13 +4,38 @@ from contextlib import suppress
 from typing import Any
 
 from secret_pond.audio.device_readiness import RecordingInputFormat, resolve_recording_input_format
-from secret_pond.config import DeviceSettings
+from secret_pond.config import AppSettings, DeviceSettings
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_store import SettingsState
 
 
 class DeviceSelectionError(RuntimeError):
     """Raised when a runtime device change cannot be safely applied."""
+
+
+def device_settings_from_payload(
+    current: DeviceSettings,
+    payload: dict[str, Any],
+) -> DeviceSettings:
+    allowed = {"input_device_id", "output_device_id"}
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise ValueError(f"unknown device setting: {unknown[0]}")
+    updates: dict[str, str | None] = {}
+    for key in allowed:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{key} must be a string or null")
+        updates[key] = value or None
+    return current.model_copy(update=updates)
+
+
+def validate_draft_device_settings(active: AppSettings, draft: AppSettings) -> None:
+    if draft.devices == active.devices:
+        return
+    raise ValueError("device changes must be applied from the System panel")
 
 
 def apply_runtime_devices(
