@@ -3856,14 +3856,7 @@ const startFromSpace = async (event) => {
   releaseButtonFocusForSpace();
   event.preventDefault();
   if (event.repeat) return;
-  if (
-    state.recordingStartInFlight ||
-    state.recordingStopInFlight ||
-    !state.snapshot?.armed ||
-    state.snapshot?.is_recording
-  ) {
-    return;
-  }
+  if (deriveControlRequestState("/api/recording/start").skip) return;
   state.spaceRecording = true;
   await control("/api/recording/start");
 };

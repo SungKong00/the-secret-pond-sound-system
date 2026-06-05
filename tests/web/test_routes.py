@@ -1746,12 +1746,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const startFromSpace = async (event) => {",
         "};\n\nconst stopFromSpace",
     )
-    assert "state.recordingStartInFlight" in start_from_space_body
-    assert "state.recordingStopInFlight" in start_from_space_body
-    assert "!state.snapshot?.armed" in start_from_space_body
-    assert "state.snapshot?.is_recording" in start_from_space_body
+    assert 'deriveControlRequestState("/api/recording/start").skip' in start_from_space_body
     assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
     assert "if (event.repeat) return;" in start_from_space_body
+    assert "state.spaceRecording = true" in start_from_space_body
 
 
 def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
@@ -5973,6 +5971,31 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     assert.strictEqual(unexpectedStartPath, null, tagName);
   }}
   globalThis.document.activeElement = null;
+
+  for (const busyKey of ["applyInFlight", "resetDraftInFlight", "sourceMutationInFlight"]) {{
+    const settingsBusySpaceEvent = {{
+      code: "Space",
+      repeat: false,
+      defaultPrevented: false,
+      preventDefault() {{
+        this.defaultPrevented = true;
+      }},
+    }};
+    globalThis.__secretPondTest.state.applyInFlight = false;
+    globalThis.__secretPondTest.state.resetDraftInFlight = false;
+    globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+    globalThis.__secretPondTest.state[busyKey] = true;
+    globalThis.__secretPondTest.state.spaceRecording = false;
+    globalThis.__secretPondTest.state.recordingStartInFlight = false;
+    globalThis.__secretPondTest.state.recordingStopInFlight = false;
+    globalThis.__secretPondTest.state.snapshot.armed = true;
+    globalThis.__secretPondTest.state.snapshot.is_recording = false;
+    await globalThis.__secretPondTest.startFromSpace(settingsBusySpaceEvent);
+    assert.strictEqual(settingsBusySpaceEvent.defaultPrevented, true, busyKey);
+    assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false, busyKey);
+    assert.strictEqual(unexpectedStartPath, null, busyKey);
+    globalThis.__secretPondTest.state[busyKey] = false;
+  }}
 
   let resolveStart = null;
   let stopSeenBeforeDiagnostics = null;
