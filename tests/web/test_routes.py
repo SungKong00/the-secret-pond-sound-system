@@ -445,44 +445,68 @@ globalThis.setInterval = () => 0;
 
 STATIC_APP_RENDER_DOM_SETUP = """
 const elements = {};
-const makeElement = () => ({
-  children: [],
-  innerHTML: "",
-  textContent: "",
-  className: "",
-  hidden: false,
-  disabled: false,
-  title: "",
-  value: "",
-  attributes: {},
-  setAttribute(name, value) {
-    this.attributes[name] = value;
-  },
-  getAttribute(name) {
-    return this.attributes[name] || null;
-  },
-  appendChild(child) {
-    this.children.push(child);
-    return child;
-  },
-  append(...children) {
-    this.children.push(...children);
-  },
-  addEventListener() {},
-  querySelectorAll() {
-    return [];
-  },
-});
+const makeElement = () => {
+  const element = {
+    children: [],
+    innerHTML: "",
+    textContent: "",
+    className: "",
+    hidden: false,
+    disabled: false,
+    title: "",
+    value: "",
+    attributes: {},
+    _classes: new Set(),
+    classList: {
+      toggle(name, force) {
+        if (force) element._classes.add(name);
+        else element._classes.delete(name);
+      },
+      contains(name) {
+        return element._classes.has(name);
+      },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    getAttribute(name) {
+      return this.attributes[name] || null;
+    },
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    append(...children) {
+      this.children.push(...children);
+    },
+    addEventListener() {},
+    querySelector() {
+      return makeElement();
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  return element;
+};
+const createElement = () => makeElement();
+const recordCore = createElement();
+const recordOutcome = createElement();
+recordOutcome.className = "record-outcome ready";
+elements.recordOutcomeStatus = createElement();
+elements.recordOutcomeStatus.parentElement = recordOutcome;
+elements.recordOutcomeDetail = createElement();
+elements.recordOutcomeDetail.parentElement = recordOutcome;
 globalThis.document = {
   getElementById(id) {
-    if (!elements[id]) elements[id] = makeElement();
+    if (!elements[id]) elements[id] = createElement();
     return elements[id];
   },
   createElement() {
-    return makeElement();
+    return createElement();
   },
-  querySelector() {
-    return null;
+  querySelector(selector) {
+    return selector === ".record-core" ? recordCore : createElement();
   },
   querySelectorAll() {
     return [];
@@ -2501,6 +2525,132 @@ def test_static_ui_ignores_stale_diagnostics_refresh_response(tmp_path: Path) ->
   assert.strictEqual(helpers.state.diagnosticsError, null);
   assert.strictEqual(elements.lastEventBadge.textContent, "최근 녹음 추가");
   assert.strictEqual(elements.lastEventBadge.className, "status-pill");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
+def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, applyState, requestState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const settings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const snapshot = (participantCount) => ({
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: participantCount,
+    last_error: null,
+    playback: {
+      output_running: false,
+      output_latest_error: null,
+      output_latest_status: null,
+      layers: {},
+    },
+    settings: {
+      active: settings,
+      draft: settings,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+      },
+    },
+  });
+  helpers.state.draft = settings;
+  const stateResponses = [];
+  globalThis.fetch = (path) => {
+    if (path !== "/api/state") {
+      throw new Error(`unexpected fetch ${path}`);
+    }
+    return new Promise((resolve) => {
+      stateResponses.push(resolve);
+    });
+  };
+
+  const olderRefresh = helpers.requestState({ syncDraft: false });
+  const newerRefresh = helpers.requestState({ syncDraft: false });
+  assert.strictEqual(stateResponses.length, 2);
+
+  stateResponses[1]({
+    ok: true,
+    json: async () => snapshot(2),
+  });
+  await newerRefresh;
+  assert.strictEqual(helpers.state.snapshot.participant_count, 2);
+  assert.strictEqual(elements.participantCount.textContent, 2);
+
+  stateResponses[0]({
+    ok: true,
+    json: async () => snapshot(1),
+  });
+  await olderRefresh;
+
+  assert.strictEqual(helpers.state.snapshot.participant_count, 2);
+  assert.strictEqual(elements.participantCount.textContent, 2);
+
+  const staleAfterPushedState = helpers.requestState({ syncDraft: false });
+  assert.strictEqual(stateResponses.length, 3);
+  helpers.applyState(snapshot(3), { syncDraft: false });
+  assert.strictEqual(helpers.state.snapshot.participant_count, 3);
+
+  stateResponses[2]({
+    ok: true,
+    json: async () => snapshot(2),
+  });
+  await staleAfterPushedState;
+
+  assert.strictEqual(helpers.state.snapshot.participant_count, 3);
+  assert.strictEqual(elements.participantCount.textContent, 3);
 })().catch((error) => {
   console.error(error);
   process.exit(1);

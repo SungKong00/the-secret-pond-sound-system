@@ -49,6 +49,7 @@ const state = {
   draftSaveRequestId: 0,
   draftEditRevision: 0,
   sourceMutationRequestId: 0,
+  stateRefreshRequestId: 0,
   sourceRefreshRequestId: 0,
   diagnosticsRefreshRequestId: 0,
   deviceChangeRequestId: 0,
@@ -1203,8 +1204,16 @@ const clearTransientError = () => {
 };
 
 const requestState = async (options = {}) => {
-  const payload = await api("/api/state");
-  applyState(payload, options);
+  const request = beginStateRefresh();
+  try {
+    const payload = await api("/api/state");
+    if (!isCurrentStateRefresh(request)) return payload;
+    applyState(payload, { ...options, fromStateRefresh: true });
+    return payload;
+  } catch (error) {
+    if (!isCurrentStateRefresh(request)) return null;
+    throw error;
+  }
 };
 
 const beginTrackedRequest = (requestKey, trackedKeys = []) => {
@@ -1219,6 +1228,17 @@ const beginTrackedRequest = (requestKey, trackedKeys = []) => {
 const isCurrentTrackedRequest = (request) =>
   request.requestId === state[request.requestKey] &&
   request.tracked.every(([key, value]) => state[key] === value);
+
+const beginStateRefresh = () => {
+  return beginTrackedRequest("stateRefreshRequestId");
+};
+
+const isCurrentStateRefresh = (request) =>
+  isCurrentTrackedRequest(request);
+
+const invalidatePendingStateRefreshes = () => {
+  state.stateRefreshRequestId += 1;
+};
 
 const beginDeviceRefresh = () => {
   return {
@@ -1383,6 +1403,9 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
+  if (!options.fromStateRefresh) {
+    invalidatePendingStateRefreshes();
+  }
   const nextServerStateSignature = serverStateSignature(payload);
   const serverStateChanged = state.serverStateSignature !== nextServerStateSignature;
   if (!serverStateChanged && !syncDraft && state.snapshot) {
