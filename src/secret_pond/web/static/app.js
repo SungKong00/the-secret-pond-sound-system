@@ -2281,12 +2281,24 @@ const rememberSourceUploadFile = (category, file) => {
   sourceUploadState(category).file = file || null;
 };
 
+const rememberSourceUploadFileFromInput = (fileInput) => {
+  if (sourceCommandBlocked()) return false;
+  rememberSourceUploadFile(fileInput.dataset.sourceFile, fileInput.files?.[0] || null);
+  return true;
+};
+
 const clearSourceUploadFile = (category) => {
   rememberSourceUploadFile(category, null);
 };
 
 const rememberSourceUploadMode = (category, selectAfterUpload) => {
   sourceUploadState(category).selectAfterUpload = selectAfterUpload;
+};
+
+const rememberSourceUploadModeFromControl = (uploadMode) => {
+  if (sourceCommandBlocked()) return false;
+  rememberSourceUploadMode(uploadMode.dataset.sourceUploadSelect, uploadMode.checked);
+  return true;
 };
 
 const sourceCategoryCard = (category) => {
@@ -4133,14 +4145,12 @@ const bindEvents = () => {
     }
     const fileInput = event.target.closest("[data-source-file]");
     if (fileInput) {
-      rememberSourceUploadFile(fileInput.dataset.sourceFile, fileInput.files?.[0] || null);
-      renderSourceLibrary();
+      if (rememberSourceUploadFileFromInput(fileInput)) renderSourceLibrary();
       return;
     }
     const uploadMode = event.target.closest("[data-source-upload-select]");
     if (uploadMode) {
-      rememberSourceUploadMode(uploadMode.dataset.sourceUploadSelect, uploadMode.checked);
-      renderSourceLibrary();
+      if (rememberSourceUploadModeFromControl(uploadMode)) renderSourceLibrary();
     }
   });
   $("sourceLibraryList").addEventListener("dragover", (event) => {

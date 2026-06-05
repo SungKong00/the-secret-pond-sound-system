@@ -3826,6 +3826,55 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
     )
 
 
+def test_static_ui_source_upload_change_events_short_circuit_while_locked(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, bindEvents }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+let sourceChangeHandler = null;
+const sourceLibraryList = document.getElementById("sourceLibraryList");
+sourceLibraryList.addEventListener = (type, handler) => {
+  if (type === "change") sourceChangeHandler = handler;
+};
+helpers.bindEvents();
+assert.strictEqual(typeof sourceChangeHandler, "function");
+
+const selectedFile = { name: "blocked.wav", size: 12, lastModified: 1 };
+helpers.state.sourceUploads.low = { selectAfterUpload: true, file: null };
+helpers.state.sourceMutationInFlight = true;
+sourceChangeHandler({
+  target: {
+    closest(selector) {
+      if (selector === "[data-source-file]") {
+        return { dataset: { sourceFile: "low" }, files: [selectedFile] };
+      }
+      return null;
+    },
+  },
+});
+assert.strictEqual(helpers.state.sourceUploads.low.file, null);
+
+helpers.state.sourceMutationInFlight = false;
+helpers.state.resetDraftInFlight = true;
+sourceChangeHandler({
+  target: {
+    closest(selector) {
+      if (selector === "[data-source-upload-select]") {
+        return { dataset: { sourceUploadSelect: "low" }, checked: false };
+      }
+      return null;
+    },
+  },
+});
+assert.strictEqual(helpers.state.sourceUploads.low.selectAfterUpload, true);
+""",
+    )
+
+
 def test_static_ui_source_library_busy_state_updates_when_render_is_deferred(
     tmp_path: Path,
 ) -> None:
