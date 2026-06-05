@@ -6468,6 +6468,13 @@ def test_api_playback_restart_restores_player_snapshot_when_resume_fails(
     assert state["playback"]["frame_cursor"] == 10
     assert state["playback"]["is_playing"] is True
     assert state["playback"]["output_running"] is False
+    events = events_by_type(client, "playback.restart_failed")
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert "stream start failed" in payload["error"]
+    assert "rollback resume failed" in payload["error"]
+    assert payload["frame_cursor"] == 10
+    assert payload["output_running"] is False
 
 
 def test_api_settings_apply_and_restart_restarts_running_output(
