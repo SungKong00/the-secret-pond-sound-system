@@ -73,6 +73,7 @@ def arm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         runtime.controller.arm_input()
+        runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
 
@@ -81,6 +82,7 @@ def disarm_input(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_control(runtime.controller.disarm_input)
+        runtime.mark_state_changed()
         return {
             "outcome": outcome_payload(outcome),
             "state": _state_payload(runtime),
@@ -92,6 +94,7 @@ def start_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         _run_control(runtime.controller.start_recording)
+        runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
 
@@ -100,6 +103,7 @@ def stop_recording(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_recording_control(runtime, runtime.controller.stop_recording)
+        runtime.mark_state_changed()
         return {
             "outcome": outcome_payload(outcome),
             "state": _state_payload(runtime),
@@ -111,6 +115,8 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         outcome = _run_recording_control(runtime, runtime.controller.poll_auto_stop)
+        if outcome is not None:
+            runtime.mark_state_changed()
         return {
             "outcome": outcome_payload(outcome),
             "state": _state_payload(runtime),
@@ -145,6 +151,8 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (RuntimeError, OSError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if settings_state.active.devices != current.active.devices:
+            runtime.mark_state_changed()
         return {
             "settings": _settings_payload(runtime, settings_state),
             "state": _state_payload(runtime, settings_state),
@@ -185,6 +193,7 @@ def select_source_file(
             )
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
+        runtime.mark_state_changed()
         return _source_settings_payload(runtime, state)
 
 
@@ -210,6 +219,7 @@ def upload_source(
             )
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
+        runtime.mark_state_changed()
         return {
             "file": result.file,
             **_source_settings_payload(runtime, result.settings_state),
@@ -235,7 +245,12 @@ def delete_source(
             )
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
-        return {"sources": _sources_payload(runtime, settings_state)}
+        runtime.mark_state_changed()
+        return {
+            "state_epoch": runtime.state_epoch,
+            "state_revision": runtime.state_revision,
+            "sources": _sources_payload(runtime, settings_state),
+        }
 
 
 @router.post("/playback/start")
@@ -246,6 +261,7 @@ def start_playback(request: Request) -> dict[str, Any]:
             playback_control.start_playback(runtime)
         except playback_control.PlaybackControlError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
 
@@ -257,6 +273,7 @@ def stop_playback(request: Request) -> dict[str, Any]:
             playback_control.stop_playback(runtime)
         except playback_control.PlaybackControlError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
 
@@ -268,6 +285,7 @@ def restart_playback(request: Request) -> dict[str, Any]:
             playback_control.restart_playback(runtime)
         except playback_control.PlaybackControlError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
 
 
@@ -288,12 +306,13 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
     with runtime.operation_lock:
         current = _settings_state(runtime)
         try:
-            save_draft_settings(runtime, draft, current=current)
+            settings_state = save_draft_settings(runtime, draft, current=current)
         except SettingsDraftValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except SettingsDraftUpdateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"settings": _settings_payload(runtime)}
+        runtime.mark_state_changed()
+        return _settings_response_payload(runtime, settings_state)
 
 
 @router.post("/settings/reset-draft")
@@ -303,7 +322,10 @@ def reset_draft_settings(request: Request) -> dict[str, Any]:
     try:
         return maintenance.reset_draft_settings(
             runtime,
-            build_result=lambda _: {"settings": _settings_payload(runtime)},
+            build_result=lambda settings_state: _changed_settings_response_payload(
+                runtime,
+                settings_state,
+            ),
         )
     except maintenance.MaintenanceOperationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -315,7 +337,7 @@ def reset_participant_count(request: Request) -> dict[str, Any]:
     try:
         return maintenance.reset_participant_count(
             runtime,
-            build_result=lambda _: {"state": _state_payload(runtime)},
+            build_result=lambda _: {"state": _changed_state_payload(runtime)},
         )
     except maintenance.MaintenanceOperationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -330,6 +352,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
             result = apply_draft_settings(runtime)
         except SettingsApplyError as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
+        runtime.mark_state_changed()
         return {
             "settings": _settings_payload(runtime, result.settings_state),
             "state": _state_payload(runtime, result.settings_state),
@@ -370,6 +393,33 @@ def _settings_payload(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _changed_state_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
+    runtime.mark_state_changed()
+    return _state_payload(runtime, settings_state)
+
+
+def _settings_response_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState | None = None,
+) -> dict[str, Any]:
+    return {
+        "state_epoch": runtime.state_epoch,
+        "state_revision": runtime.state_revision,
+        "settings": _settings_payload(runtime, settings_state),
+    }
+
+
+def _changed_settings_response_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState,
+) -> dict[str, Any]:
+    runtime.mark_state_changed()
+    return _settings_response_payload(runtime, settings_state)
+
+
 def _sources_payload(runtime: SecretPondRuntime, settings_state: SettingsState) -> dict[str, Any]:
     return source_library_payload(
         runtime.paths,
@@ -407,6 +457,8 @@ def _source_settings_payload(
     settings_state: SettingsState,
 ) -> dict[str, Any]:
     return {
+        "state_epoch": runtime.state_epoch,
+        "state_revision": runtime.state_revision,
         "settings": _settings_payload(runtime, settings_state),
         "sources": _sources_payload(runtime, settings_state),
     }

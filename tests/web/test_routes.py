@@ -4102,6 +4102,106 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
     )
 
 
+def test_static_ui_ignores_older_state_revision_payloads(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, applyState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(() => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const settings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const snapshot = (epoch, revision, participantCount) => ({
+    state_epoch: epoch,
+    state_revision: revision,
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: participantCount,
+    last_error: null,
+    playback: {
+      output_running: false,
+      output_latest_error: null,
+      output_latest_status: null,
+      layers: {},
+    },
+    settings: {
+      active: settings,
+      draft: settings,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+      },
+    },
+  });
+
+  assert.strictEqual(helpers.applyState(snapshot(10, 2, 2), { syncDraft: false }), true);
+  assert.strictEqual(helpers.state.snapshot.participant_count, 2);
+  assert.strictEqual(elements.participantCount.textContent, 2);
+
+  assert.strictEqual(helpers.applyState(snapshot(10, 1, 1), { syncDraft: false }), false);
+  assert.strictEqual(helpers.state.snapshot.participant_count, 2);
+  assert.strictEqual(elements.participantCount.textContent, 2);
+
+  assert.strictEqual(helpers.applyState(snapshot(10, 2, 3), { syncDraft: false }), true);
+  assert.strictEqual(helpers.state.snapshot.participant_count, 3);
+  assert.strictEqual(elements.participantCount.textContent, 3);
+
+  assert.strictEqual(helpers.applyState(snapshot(9, 9, 1), { syncDraft: false }), false);
+  assert.strictEqual(helpers.state.snapshot.participant_count, 3);
+  assert.strictEqual(elements.participantCount.textContent, 3);
+
+  assert.strictEqual(helpers.applyState(snapshot(11, 0, 4), { syncDraft: false }), true);
+  assert.strictEqual(helpers.state.snapshot.participant_count, 4);
+  assert.strictEqual(elements.participantCount.textContent, 4);
+})();
+""",
+    )
+
+
 def test_static_ui_apply_response_state_uses_embedded_state_or_refresh_fallback(
     tmp_path: Path,
 ) -> None:
@@ -6762,13 +6862,33 @@ const runSourceSocketRefreshCheck = async () => {{
     ],
   }};
   globalThis.__secretPondTest.syncAppliedSourceSignature();
+  globalThis.__secretPondTest.state.acceptedStateEpoch = 10;
+  globalThis.__secretPondTest.state.acceptedStateRevision = 4;
   const socketSourceSettings = cloneSettings(activeSettings);
   socketSourceSettings.sources.low_path = "sources/low/new.wav";
   const socketSourceState = {{
     ...snapshot,
+    state_epoch: 10,
+    state_revision: 5,
     settings: {{
       active: socketSourceSettings,
       draft: socketSourceSettings,
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      }},
+    }},
+  }};
+  const staleSocketSourceSettings = cloneSettings(activeSettings);
+  staleSocketSourceSettings.sources.low_path = "sources/low/stale.wav";
+  const staleSocketSourceState = {{
+    ...snapshot,
+    state_epoch: 10,
+    state_revision: 4,
+    settings: {{
+      active: staleSocketSourceSettings,
+      draft: staleSocketSourceSettings,
       change: {{
         runtime_config_changed: false,
         changed_runtime_fields: [],
@@ -6824,6 +6944,12 @@ const runSourceSocketRefreshCheck = async () => {{
   await sourceSocket.emit("message", {{ data: JSON.stringify(socketSourceState) }});
   assert.strictEqual(socketSourceResponses.length, 1);
   assert.strictEqual(elements.participantCount.textContent, "native dropdown still open");
+  await sourceSocket.emit("message", {{ data: JSON.stringify(staleSocketSourceState) }});
+  assert.strictEqual(socketSourceResponses.length, 1);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.sources.categories[0].selected_path,
+    "sources/low/new.wav",
+  );
 }};
 document.getElementById("inputDeviceSelect");
 document.getElementById("sourceLibraryList");
@@ -8846,6 +8972,9 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert isinstance(payload["state_epoch"], int)
+    assert payload["state_epoch"] > 0
+    assert payload["state_revision"] == 0
     assert payload["armed"] is False
     assert payload["is_recording"] is False
     assert payload["participant_count"] == 0
@@ -8860,6 +8989,24 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
         "changed_sections": [],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
+
+
+def test_api_state_revision_increases_after_successful_state_mutation(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+
+    initial = client.get("/api/state").json()
+    arm_response = client.post("/api/input/arm")
+    follow_up = client.get("/api/state").json()
+
+    assert isinstance(initial["state_epoch"], int)
+    assert arm_response.json()["state"]["state_epoch"] == initial["state_epoch"]
+    assert follow_up["state_epoch"] == initial["state_epoch"]
+    assert initial["state_revision"] == 0
+    assert arm_response.status_code == 200
+    assert arm_response.json()["state"]["state_revision"] == 1
+    assert follow_up["state_revision"] == 1
 
 
 @pytest.mark.parametrize(
@@ -8976,6 +9123,9 @@ def test_ws_state_sends_initial_runtime_state(tmp_path: Path) -> None:
     with client.websocket_connect("/ws/state") as websocket:
         payload = websocket.receive_json()
 
+    assert isinstance(payload["state_epoch"], int)
+    assert payload["state_epoch"] > 0
+    assert payload["state_revision"] == 0
     assert payload["armed"] is False
     assert payload["is_recording"] is False
     assert payload["participant_count"] == 0

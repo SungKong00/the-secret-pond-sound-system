@@ -33,6 +33,8 @@ def state_payload(
     participant_count = _participant_count(runtime)
     settings = _settings_payload(runtime, settings_state)
     return {
+        "state_epoch": runtime.state_epoch,
+        "state_revision": runtime.state_revision,
         "armed": runtime.controller.armed,
         "is_recording": runtime.controller.is_recording,
         "recording_elapsed_seconds": runtime.controller.recording_elapsed_seconds,

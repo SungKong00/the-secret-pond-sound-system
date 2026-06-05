@@ -44,6 +44,8 @@ const state = {
   sourcesError: null,
   appliedSourceSignature: null,
   serverStateSignature: null,
+  acceptedStateEpoch: null,
+  acceptedStateRevision: null,
   sourceUploads: {},
   sourceMutationInFlight: false,
   saveTimer: null,
@@ -1326,8 +1328,7 @@ const requestState = async (options = {}) => {
 
 const applyResponseState = async (payload, options = {}) => {
   if (payload?.state) {
-    applyState(payload.state, options);
-    return true;
+    return applyState(payload.state, options);
   }
   await requestState(options);
   return false;
@@ -1474,6 +1475,59 @@ const volatileServerStateFields = [
   "recording_remaining_seconds",
 ];
 
+const stateRevisionFromPayload = (payload) => {
+  const revision = payload?.state_revision;
+  if (!Number.isSafeInteger(revision) || revision < 0) return null;
+  return revision;
+};
+
+const stateEpochFromPayload = (payload) => {
+  const epoch = payload?.state_epoch;
+  if (!Number.isSafeInteger(epoch) || epoch < 0) return null;
+  return epoch;
+};
+
+const serverPayloadRevisionIsOlder = (payload) => {
+  const epoch = stateEpochFromPayload(payload);
+  const revision = stateRevisionFromPayload(payload);
+  if (
+    epoch !== null &&
+    state.acceptedStateEpoch !== null &&
+    epoch < state.acceptedStateEpoch
+  ) {
+    return true;
+  }
+  if (
+    epoch !== null &&
+    state.acceptedStateEpoch !== null &&
+    epoch > state.acceptedStateEpoch
+  ) {
+    return false;
+  }
+  return revision !== null &&
+    state.acceptedStateRevision !== null &&
+    revision < state.acceptedStateRevision;
+};
+
+const rememberServerPayloadRevision = (payload) => {
+  const epoch = stateEpochFromPayload(payload);
+  const revision = stateRevisionFromPayload(payload);
+  if (
+    epoch !== null &&
+    state.acceptedStateEpoch !== null &&
+    epoch > state.acceptedStateEpoch
+  ) {
+    state.acceptedStateEpoch = epoch;
+    state.acceptedStateRevision = revision;
+    return;
+  }
+  if (epoch !== null && state.acceptedStateEpoch === null) {
+    state.acceptedStateEpoch = epoch;
+  }
+  if (revision === null) return;
+  state.acceptedStateRevision = Math.max(state.acceptedStateRevision ?? revision, revision);
+};
+
 const stableServerStatePayload = (payload) => {
   if (!payload || typeof payload !== "object") return payload;
   const stablePayload = clone(payload);
@@ -1581,6 +1635,10 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
+  if (serverPayloadRevisionIsOlder(payload)) {
+    return false;
+  }
+  rememberServerPayloadRevision(payload);
   if (!options.fromStateRefresh) {
     invalidatePendingStateRefreshes();
   }
@@ -2713,6 +2771,8 @@ const finishSourceMutation = (requestId) => {
 };
 
 const applySourceMutationPayload = (payload, options = {}) => {
+  if (serverPayloadRevisionIsOlder(payload)) return false;
+  rememberServerPayloadRevision(payload);
   if (payload.settings) {
     applySettingsPayload(payload.settings, {
       syncDraft: false,
@@ -2729,6 +2789,7 @@ const applySourceMutationPayload = (payload, options = {}) => {
     renderState();
   }
   renderSourceLibrary();
+  return true;
 };
 
 const recoverSourceMutationError = async (error) => {
@@ -3945,6 +4006,8 @@ const saveDraft = async () => {
       body: JSON.stringify(draftPayload),
     });
     if (!isCurrentDraftSave(request)) return payload;
+    if (serverPayloadRevisionIsOlder(payload)) return payload;
+    rememberServerPayloadRevision(payload);
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
     renderState();
     renderDevices();
@@ -4120,6 +4183,8 @@ const resetDraft = async () => {
   invalidatePendingDraftSaves();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
+    if (serverPayloadRevisionIsOlder(payload)) return;
+    rememberServerPayloadRevision(payload);
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
     await requestDiagnostics();
     await requestSources();
@@ -4173,7 +4238,11 @@ const changeDevice = async (key, value) => {
       body: JSON.stringify({ [key]: value || null }),
     });
     if (!isCurrentDeviceChange(requestId)) return payload;
-    await applyResponseState(payload, { syncDraft: false, mergeDraftSections: ["devices"] });
+    const applied = await applyResponseState(
+      payload,
+      { syncDraft: false, mergeDraftSections: ["devices"] },
+    );
+    if (!applied) return payload;
     state.devices = payload.devices;
     renderDevices();
     await requestDiagnostics();
@@ -4298,8 +4367,8 @@ const connectStateSocket = () => {
         return;
       }
       const shouldRefreshSources = activeSourcePathsChanged(state.snapshot, payload);
-      applyState(payload, { syncDraft: false });
-      if (shouldRefreshSources) {
+      const applied = applyState(payload, { syncDraft: false });
+      if (applied && shouldRefreshSources) {
         await requestSources({ syncAppliedSourceSignature: true });
       }
     } catch (error) {

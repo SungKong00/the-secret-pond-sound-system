@@ -59,7 +59,9 @@ async def _poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
 def _locked_poll_auto_stop_best_effort(runtime: SecretPondRuntime) -> None:
     try:
         with runtime.operation_lock:
-            run_recording_workflow(runtime, runtime.controller.poll_auto_stop)
+            outcome = run_recording_workflow(runtime, runtime.controller.poll_auto_stop)
+            if outcome is not None:
+                runtime.mark_state_changed()
     except (OSError, RecordingControlError, RuntimeError, ValueError):
         return
 
@@ -74,6 +76,7 @@ def _locked_stop_recording_if_active(runtime: SecretPondRuntime) -> None:
             if not runtime.controller.is_recording:
                 return
             run_recording_workflow(runtime, runtime.controller.stop_recording)
+            runtime.mark_state_changed()
     except (RecordingControlError, RuntimeError):
         return
 

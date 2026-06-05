@@ -3,6 +3,7 @@ from __future__ import annotations
 import platform
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -65,10 +66,16 @@ class SecretPondRuntime:
     player: LayeredLoopPlayer
     output: PlaybackOutput
     operation_lock: Any = field(default_factory=threading.RLock)
+    state_epoch: int = field(default_factory=lambda: time.time_ns() // 1_000_000)
+    state_revision: int = 0
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.update_settings(settings_state.active)
         self.settings_state = settings_state
+
+    def mark_state_changed(self) -> int:
+        self.state_revision += 1
+        return self.state_revision
 
 
 def build_runtime(
