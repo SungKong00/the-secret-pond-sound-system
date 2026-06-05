@@ -1654,7 +1654,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert '"resetButton").disabled = controlState.resetDisabled' in script.text
     assert "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요." in script.text
     assert "취소할 설정 변경사항이 없습니다." in script.text
-    assert "const currentSettingsActionState = (snapshot = state.snapshot) => {" in script.text
+    assert "const currentSettingsUiState = (snapshot = state.snapshot) => {" in script.text
+    assert (
+        "const currentSettingsActionState = (snapshot = state.snapshot) =>\n"
+        "  currentSettingsUiState(snapshot).controlState"
+        in script.text
+    )
     assert "if (currentSettingsActionState().applyDisabled) return" in script.text
     assert "if (currentSettingsActionState().resetDisabled) return" in script.text
     assert (
@@ -2132,7 +2137,7 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
             "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
             "deriveSystemDeviceSelectState, deriveStorageModeControlState, "
-            "firstOperationLockTitle }"
+            "firstOperationLockTitle, currentSettingsUiState }"
         ),
         body="""
 const snapshot = {{
@@ -2149,6 +2154,7 @@ const deriveLocks = globalThis.__secretPondTest.deriveOperationLocks;
 const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
 const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
 const firstLockTitle = globalThis.__secretPondTest.firstOperationLockTitle;
+const settingsUiSelector = globalThis.__secretPondTest.currentSettingsUiState;
 const settings = {{
   active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
 }};
@@ -2163,6 +2169,29 @@ assert.strictEqual(
   "두 번째",
 );
 assert.strictEqual(firstLockTitle([[false, "첫 번째"]]), "");
+
+const settingsSnapshot = {{
+  ...snapshot,
+  settings: {{
+    active: settings.active,
+    draft,
+    change: {{
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+      runtime_config_fields: ["audio.sample_rate"],
+    }},
+  }},
+}};
+const settingsUiState = settingsUiSelector(settingsSnapshot);
+assert.deepStrictEqual(settingsUiState.pendingChangeState, {{
+  settingsChanged: false,
+  sourceFilesChanged: false,
+  pendingChanges: false,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(settingsUiState.controlState.applyDisabled, true);
+assert.strictEqual(settingsUiState.controlState.applyTitle, "적용할 변경사항이 없습니다.");
 
 assert.deepStrictEqual(
   deriveLocks({{

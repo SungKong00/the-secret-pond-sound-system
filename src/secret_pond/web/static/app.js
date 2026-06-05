@@ -1722,7 +1722,7 @@ const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
   };
 };
 
-const currentDashboardControlState = (snapshot = state.snapshot) => {
+const currentSettingsUiState = (snapshot = state.snapshot) => {
   const pendingChangeState = derivePendingChangeState(
     settingsChangePlan(snapshot),
     hasSourceFileChanges(snapshot),
@@ -1741,6 +1741,11 @@ const currentDashboardControlState = (snapshot = state.snapshot) => {
       runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
     }),
   };
+};
+
+const currentDashboardControlState = (snapshot = state.snapshot) => {
+  const { pendingChangeState, controlState } = currentSettingsUiState(snapshot);
+  return { pendingChangeState, controlState };
 };
 
 const renderState = () => {
@@ -2906,27 +2911,11 @@ const hasSourceFileChanges = (snapshot = state.snapshot) => {
   return draftSignature !== null && draftSignature !== state.appliedSourceSignature;
 };
 
-const hasPendingChanges = (snapshot) => derivePendingChangeState(
-  settingsChangePlan(snapshot),
-  hasSourceFileChanges(snapshot),
-).pendingChanges;
+const hasPendingChanges = (snapshot) =>
+  currentSettingsUiState(snapshot).pendingChangeState.pendingChanges;
 
-const currentSettingsActionState = (snapshot = state.snapshot) => {
-  const pendingChangeState = derivePendingChangeState(
-    settingsChangePlan(snapshot),
-    hasSourceFileChanges(snapshot),
-  );
-  return deriveSettingsActionState({
-    snapshot,
-    applyInFlight: state.applyInFlight,
-    resetDraftInFlight: state.resetDraftInFlight,
-    sourceMutationInFlight: state.sourceMutationInFlight,
-    recordingStopInFlight: state.recordingStopInFlight,
-    playbackControlInFlight: state.playbackControlInFlight,
-    pendingChanges: pendingChangeState.pendingChanges,
-    runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
-  });
-};
+const currentSettingsActionState = (snapshot = state.snapshot) =>
+  currentSettingsUiState(snapshot).controlState;
 
 const hasLayerInclusionDraftChange = (layerId) => {
   if (!state.snapshot || !state.draft) return false;
