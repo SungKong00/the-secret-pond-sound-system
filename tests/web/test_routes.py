@@ -4551,7 +4551,10 @@ helpers.state.activeInteractiveControl = sourceSelect;
 helpers.state.sourceMutationInFlight = true;
 helpers.renderSourceLibrary();
 
-for (const control of [sourceSelect, fileInput, uploadMode, uploadButton, deleteButton]) {
+assert.strictEqual(sourceSelect.disabled, false);
+assert.strictEqual(sourceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+
+for (const control of [fileInput, uploadMode, uploadButton, deleteButton]) {
   assert.strictEqual(control.disabled, true);
   assert.strictEqual(control.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 }
@@ -4585,7 +4588,7 @@ elements.sourceLibraryList.querySelectorAll = (selector) => {
 helpers.state.activeInteractiveControl = sourceSelect;
 helpers.state.sourceMutationInFlight = true;
 helpers.renderSourceLibrary();
-assert.strictEqual(sourceSelect.disabled, true);
+assert.strictEqual(sourceSelect.disabled, false);
 assert.strictEqual(sourceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 assert.strictEqual(uploadButton.disabled, true);
 assert.strictEqual(uploadButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");

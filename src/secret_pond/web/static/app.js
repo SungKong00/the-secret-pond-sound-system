@@ -2289,6 +2289,7 @@ const sourceLibraryBusyControlState = new WeakMap();
 const syncSourceLibraryBusyControls = (container) => {
   if (typeof container.querySelectorAll !== "function") return;
   const controls = container.querySelectorAll(sourceLibraryBusyControlSelector);
+  const activeControl = activeInteractiveControlFor(container);
   const busyTitle = currentSourceLockState().sourceActionTitle;
   if (!busyTitle) {
     controls.forEach((control) => {
@@ -2306,6 +2307,10 @@ const syncSourceLibraryBusyControls = (container) => {
         disabled: control.disabled,
         title: control.title,
       });
+    }
+    if (control === activeControl) {
+      control.title = busyTitle;
+      return;
     }
     control.disabled = true;
     control.title = busyTitle;
