@@ -9,6 +9,7 @@ import numpy as np
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LAYER_IDS, LayerId
+from secret_pond.config import EqSettings
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class SeekEnvelopeState:
 class LayeredLoopPlayerSnapshot:
     layers: dict[LayerId, AudioBuffer] | None
     states: dict[LayerId, LayerPlaybackState]
+    live_eq_states: dict[LayerId, EqSettings]
     frame_cursor: int
     playing: bool
     peak_ceiling: float
@@ -76,6 +78,9 @@ class LayeredLoopPlayer:
         self._layers: dict[LayerId, AudioBuffer] | None = None
         self._states: dict[LayerId, LayerPlaybackState] = {
             layer_id: LayerPlaybackState() for layer_id in LAYER_IDS
+        }
+        self._live_eq_states: dict[LayerId, EqSettings] = {
+            layer_id: EqSettings() for layer_id in LAYER_IDS
         }
         self._frame_cursor = 0
         self._playing = False
@@ -96,6 +101,13 @@ class LayeredLoopPlayer:
         return dict(self._states)
 
     @property
+    def live_eq_states(self) -> dict[LayerId, EqSettings]:
+        return {
+            layer_id: eq.model_copy(deep=True)
+            for layer_id, eq in self._live_eq_states.items()
+        }
+
+    @property
     def rendered_cache_ready(self) -> bool:
         return self._layers is not None
 
@@ -109,6 +121,7 @@ class LayeredLoopPlayer:
         return LayeredLoopPlayerSnapshot(
             layers=None if self._layers is None else dict(self._layers),
             states=dict(self._states),
+            live_eq_states=self.live_eq_states,
             frame_cursor=self._frame_cursor,
             playing=self._playing,
             peak_ceiling=self._peak_ceiling,
@@ -119,6 +132,10 @@ class LayeredLoopPlayer:
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
         self._layers = None if snapshot.layers is None else dict(snapshot.layers)
         self._states = dict(snapshot.states)
+        self._live_eq_states = {
+            layer_id: snapshot.live_eq_states.get(layer_id, EqSettings()).model_copy(deep=True)
+            for layer_id in LAYER_IDS
+        }
         self._frame_cursor = snapshot.frame_cursor
         self._playing = snapshot.playing
         self._peak_ceiling = snapshot.peak_ceiling
@@ -158,6 +175,10 @@ class LayeredLoopPlayer:
         next_layers[normalized_layer_id] = buffer
         _validate_loaded_layers(next_layers)
         self._layers = next_layers
+
+    def set_live_eq_state(self, layer_id: str, eq: EqSettings) -> None:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        self._live_eq_states[normalized_layer_id] = eq.model_copy(deep=True)
 
     def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)

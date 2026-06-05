@@ -74,6 +74,7 @@ class PlayerSpy:
         self.enabled_updates: list[tuple[str, bool]] = []
         self.realtime_trim_updates: list[tuple[str, float]] = []
         self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
+        self.live_eq_state_updates: list[tuple[str, float]] = []
         self.restart_called = False
         self.reload_and_restart_called = False
 
@@ -85,6 +86,9 @@ class PlayerSpy:
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
         self.layer_buffer_updates.append((layer_id, buffer))
+
+    def set_live_eq_state(self, layer_id: str, eq) -> None:
+        self.live_eq_state_updates.append((layer_id, eq.mid_gain_db))
 
     def restart(self) -> None:
         self.restart_called = True
@@ -219,6 +223,63 @@ def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_re
     assert after > before * 1.5
 
 
+def test_live_update_draft_settings_applies_mid_eq_to_current_playback_state(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                "low": AppSettings().layers["low"].model_copy(update={"volume_db": 0.0}),
+                "mid": AppSettings().layers["mid"].model_copy(update={"volume_db": 0.0}),
+                "voice": AppSettings().layers["voice"].model_copy(update={"volume_db": 0.0}),
+            },
+        },
+        deep=True,
+    )
+    t = np.arange(8_000, dtype=np.float32) / 8_000
+    mid_tone = (np.sin(2 * np.pi * 1_000.0 * t) * 0.05).astype(np.float32)
+    mid_samples = np.column_stack([mid_tone, mid_tone])
+    silence = np.zeros((8_000, 2), dtype=np.float32)
+    write_wav_atomic(paths.low_source, AudioBuffer(silence, sample_rate=8_000))
+    write_wav_atomic(paths.mid_source, AudioBuffer(mid_samples, sample_rate=8_000))
+    write_wav_atomic(paths.voice_stack_raw, AudioBuffer(silence, sample_rate=8_000))
+    renderer = LayerRenderer(paths)
+    renderer.render_all(settings)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(
+        {"low": paths.low_playback, "mid": paths.mid_playback, "voice": paths.voice_playback}
+    )
+    player.start()
+    state = SettingsState(active=settings, draft=settings)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.paths = paths
+    runtime.renderer = renderer
+    runtime.player = player
+
+    before = _rms(player.next_block(2_048).samples[:, 0])
+    draft_layers = {
+        **settings.layers,
+        "mid": settings.layers["mid"].model_copy(
+            update={
+                "eq": settings.layers["mid"].eq.model_copy(update={"mid_gain_db": 6.0}),
+            },
+        ),
+    }
+    draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+    after = _rms(player.next_block(2_048).samples[:, 0])
+
+    assert result.active.layers["mid"].eq.mid_gain_db == 6.0
+    assert player.live_eq_states["mid"].mid_gain_db == 6.0
+    assert after > before * 1.5
+    assert player.is_playing is True
+
+
 def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_restart() -> None:
     active = AppSettings().model_copy(
         update={
@@ -251,6 +312,8 @@ def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_res
     assert runtime.controller.settings.layers["mid"].eq.mid_gain_db == 5.0
     assert runtime.renderer.layer_buffer_renders == [("mid", result.active)]
     assert runtime.player.layer_buffer_updates == [("mid", rendered_mid)]
+    assert runtime.player.live_eq_state_updates == [("mid", 5.0)]
+    assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 5.0
     assert runtime.player.restart_called is False
     assert runtime.player.reload_and_restart_called is False
 
