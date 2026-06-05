@@ -79,9 +79,7 @@ class LayeredLoopPlayer:
         self._states: dict[LayerId, LayerPlaybackState] = {
             layer_id: LayerPlaybackState() for layer_id in LAYER_IDS
         }
-        self._live_eq_states: dict[LayerId, EqSettings] = {
-            layer_id: EqSettings() for layer_id in LAYER_IDS
-        }
+        self._live_eq_states: dict[LayerId, EqSettings] = _default_live_eq_states()
         self._frame_cursor = 0
         self._playing = False
         self._peak_ceiling = peak_ceiling
@@ -191,6 +189,7 @@ class LayeredLoopPlayer:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)
         self._layers = layers
+        self._live_eq_states = _default_live_eq_states()
         self._frame_cursor = 0
         self._playing = True
         self._voice_transition = None
@@ -566,6 +565,10 @@ def _load_rendered_layers(paths: Mapping[LayerId, Path]) -> dict[LayerId, AudioB
         msg = f"missing rendered layer files: {', '.join(missing_files)}"
         raise FileNotFoundError(msg)
     return {layer_id: read_wav(paths[layer_id]) for layer_id in LAYER_IDS}
+
+
+def _default_live_eq_states() -> dict[LayerId, EqSettings]:
+    return {layer_id: EqSettings() for layer_id in LAYER_IDS}
 
 
 def _validate_loaded_layers(layers: Mapping[LayerId, AudioBuffer]) -> None:

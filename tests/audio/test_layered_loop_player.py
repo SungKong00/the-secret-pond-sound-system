@@ -217,6 +217,25 @@ def test_player_reload_and_restart_loads_new_files_and_preserves_states(tmp_path
     np.testing.assert_allclose(block.samples, np.ones((4, 2)) * (0.4 + expected_voice), atol=1e-6)
 
 
+def test_player_reload_and_restart_clears_live_eq_state_for_rendered_cache(
+    tmp_path: Path,
+) -> None:
+    first_paths = write_layers(tmp_path / "first", low=0.1, mid=0.2, voice=0.3)
+    second_paths = write_layers(tmp_path / "second", low=0.4, mid=0.5, voice=0.6)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(first_paths)
+    player.set_live_eq_state("mid", EqSettings(mid_gain_db=9.0))
+    player.set_live_eq_state("voice", EqSettings(high_gain_db=-6.0))
+
+    player.reload_and_restart(second_paths)
+
+    assert player.live_eq_states == {
+        "low": EqSettings(),
+        "mid": EqSettings(),
+        "voice": EqSettings(),
+    }
+
+
 def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_cursor(
     tmp_path: Path,
 ) -> None:
