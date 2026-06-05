@@ -46,6 +46,11 @@ const selectorMatches = (element, selector) => {
   return false;
 };
 const makeElement = (tagName = "div") => {
+    const style = {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+    };
     const element = {
     tagName: String(tagName).toUpperCase(),
     children: [],
@@ -56,6 +61,7 @@ const makeElement = (tagName = "div") => {
     disabled: false,
     title: "",
     value: "",
+    style,
     attributes: {},
     dataset: {},
     listeners: {},

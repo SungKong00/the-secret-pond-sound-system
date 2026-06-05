@@ -32,6 +32,12 @@ def state_payload(
 ) -> dict[str, Any]:
     participant_count = _participant_count(runtime)
     settings = _settings_payload(runtime, settings_state)
+    active_settings = runtime.controller.settings
+    playback_timeline = _playback_timeline_payload(
+        frame_cursor=runtime.player.frame_cursor,
+        sample_rate=active_settings.audio.sample_rate,
+        loop_seconds=active_settings.audio.loop_seconds,
+    )
     transition_guard = runtime.voice_stack.transition_guard_state(runtime.controller.settings)
     return {
         **state_version_payload(runtime),
@@ -43,6 +49,7 @@ def state_payload(
         "participant_count": participant_count,
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
+            **playback_timeline,
             "is_playing": runtime.player.is_playing,
             "rendered_cache_ready": runtime.player.rendered_cache_ready,
             "active_voice_transition_target_id": runtime.player.active_voice_transition_target_id,
@@ -107,6 +114,26 @@ def _participant_count(runtime: SecretPondRuntime) -> int:
         return runtime.participants.get_count()
     except (OSError, ValueError) as exc:
         raise StatePayloadUnavailable(str(exc)) from exc
+
+
+def _playback_timeline_payload(
+    *,
+    frame_cursor: int,
+    sample_rate: int,
+    loop_seconds: int,
+) -> dict[str, float]:
+    duration_seconds = float(loop_seconds)
+    position_seconds = 0.0 if sample_rate <= 0 else frame_cursor / sample_rate
+    if duration_seconds > 0:
+        position_seconds %= duration_seconds
+        progress = position_seconds / duration_seconds
+    else:
+        progress = 0.0
+    return {
+        "position_seconds": position_seconds,
+        "duration_seconds": duration_seconds,
+        "progress": progress,
+    }
 
 
 def _settings_payload(

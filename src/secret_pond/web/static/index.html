@@ -58,6 +58,19 @@
                   No Rendered Cache <small lang="ko">재생 준비 전</small>
                 </span>
               </div>
+              <div class="playback-timeline" aria-label="재생 위치">
+                <div class="playback-timeline-head">
+                  <span>Loop Position</span>
+                  <strong>
+                    <span id="playbackPositionTime">0.0s</span>
+                    <span aria-hidden="true">/</span>
+                    <span id="playbackDurationTime">0.0s</span>
+                  </strong>
+                </div>
+                <div class="playback-progress-track" aria-hidden="true">
+                  <span id="playbackProgressBar" class="playback-progress-bar"></span>
+                </div>
+              </div>
               <div class="button-row playback-actions">
                 <button id="startOutputButton" class="button playback-button playback-start" type="button">
                   재생

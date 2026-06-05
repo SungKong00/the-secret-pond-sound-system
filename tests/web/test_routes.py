@@ -11809,6 +11809,25 @@ def test_api_playback_restart_resets_frame_cursor(tmp_path: Path) -> None:
     assert output.start_calls == 2
 
 
+def test_api_state_reports_playback_timeline_from_audio_loop_seconds(tmp_path: Path) -> None:
+    settings = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "voice_stack": VoiceStackSettings(loop_seconds=5),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    client.post("/api/settings/apply-and-restart")
+    client.app.state.runtime.player.next_block(8_000 * 30)
+
+    playback = client.get("/api/state").json()["playback"]
+
+    assert playback["position_seconds"] == pytest.approx(30.0)
+    assert playback["duration_seconds"] == pytest.approx(60.0)
+    assert playback["progress"] == pytest.approx(0.5)
+
+
 def test_api_playback_restart_logs_success_event(tmp_path: Path) -> None:
     output = FakeOutput()
     client = create_test_client(tmp_path, with_sources=True, output=output)

@@ -2140,6 +2140,22 @@ const renderRecordingTimes = (snapshot = state.snapshot) => {
     `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
 };
 
+const renderPlaybackTimeline = (snapshot = state.snapshot) => {
+  const playback = snapshot?.playback || {};
+  const positionSeconds = Number(playback.position_seconds || 0);
+  const durationSeconds = Number(playback.duration_seconds || 0);
+  const progress = Math.max(0, Math.min(1, Number(playback.progress || 0)));
+  const progressPercent = (progress * 100).toFixed(3).replace(/\.?0+$/, "");
+  const progressBar = $("playbackProgressBar");
+  $("playbackPositionTime").textContent = formatSeconds(positionSeconds);
+  $("playbackDurationTime").textContent = formatSeconds(durationSeconds);
+  if (progressBar.style) {
+    progressBar.style.width = `${progressPercent}%`;
+  } else {
+    progressBar.setAttribute("style", `width: ${progressPercent}%`);
+  }
+};
+
 const renderTransitionModeBadge = (snapshot) => {
   const badge = $("transitionModeBadge");
   const transitionTarget = snapshot.playback.active_voice_transition_target_id;
@@ -2200,6 +2216,7 @@ const renderState = () => {
   renderStorageModeControls();
   $("participantCount").textContent = snapshot.participant_count;
   renderRecordingTimes(snapshot);
+  renderPlaybackTimeline(snapshot);
   $("minimumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.minimum_recording_seconds,
   );
