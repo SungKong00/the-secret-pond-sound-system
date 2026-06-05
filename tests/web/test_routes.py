@@ -2416,6 +2416,16 @@ assert.strictEqual(playbackControlBusy.outputControlBusy, true);
 assert.strictEqual(playbackControlBusy.startOutputDisabled, true);
 assert.strictEqual(playbackControlBusy.stopOutputDisabled, true);
 assert.strictEqual(playbackControlBusy.restartOutputDisabled, true);
+assert.strictEqual(playbackControlBusy.applyDisabled, true);
+assert.strictEqual(
+  playbackControlBusy.applyTitle,
+  "출력 제어가 끝날 때까지 기다리세요.",
+);
+assert.strictEqual(playbackControlBusy.resetDisabled, true);
+assert.strictEqual(
+  playbackControlBusy.resetTitle,
+  "출력 제어가 끝날 때까지 기다리세요.",
+);
 
 const activeRecording = derive({{
   snapshot: {{ ...snapshot, is_recording: true, playback: {{ output_running: true }} }},
@@ -2478,7 +2488,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, control, renderState }",
+        exports="{ state, applyAndRestart, control, renderState }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {{
@@ -2565,6 +2575,11 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
   globalThis.__secretPondTest.renderState();
   assert.strictEqual(elements.startOutputButton.disabled, false);
+  assert.strictEqual(elements.applyButton.disabled, true);
+
+  globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds = 61;
+  globalThis.__secretPondTest.renderState();
+  assert.strictEqual(elements.applyButton.disabled, false);
 
   const playbackFetches = [];
   let resolvePlaybackStart = null;
@@ -2605,6 +2620,11 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.startOutputButton.disabled, true);
   assert.strictEqual(elements.stopOutputButton.disabled, true);
   assert.strictEqual(elements.restartOutputButton.disabled, true);
+  assert.strictEqual(elements.applyButton.disabled, true);
+  assert.strictEqual(elements.applyButton.title, "출력 제어가 끝날 때까지 기다리세요.");
+
+  await globalThis.__secretPondTest.applyAndRestart();
+  assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);
 
   await globalThis.__secretPondTest.control("/api/playback/start");
   assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);

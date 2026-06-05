@@ -1451,6 +1451,7 @@ const operationLockMessages = {
   draftReset: "설정 변경 취소가 끝날 때까지 기다리세요.",
   sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
   sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
   deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
   deviceChange: "장치 변경을 적용하는 중입니다.",
@@ -1548,31 +1549,35 @@ const deriveSettingsActionState = ({
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
   recordingStopInFlight = false,
+  playbackControlInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const resetBusy = Boolean(resetDraftInFlight);
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
+  const playbackControlBusy = Boolean(playbackControlInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetBusy
       ? "설정 변경 취소가 끝날 때까지 기다리세요."
-    : isRecording
-      ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
-      : applyInFlight
-        ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
-        : sourceMutationBusy
-          ? operationLockMessages.sourceMutation
-        : runtimeConfigChanged
-          ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
-          : !pendingChanges
-            ? "적용할 변경사항이 없습니다."
-            : outputRunning
-              ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
-              : "";
+      : isRecording
+        ? "준비된 설정을 적용하기 전에 녹음을 중지하세요."
+        : applyInFlight
+          ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
+          : sourceMutationBusy
+            ? operationLockMessages.sourceMutation
+            : playbackControlBusy
+              ? operationLockMessages.playbackControl
+              : runtimeConfigChanged
+                ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                : !pendingChanges
+                  ? "적용할 변경사항이 없습니다."
+                  : outputRunning
+                    ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
+                    : "";
   const resetTitle = resetBusy
     ? "설정 변경 취소가 끝날 때까지 기다리세요."
     : recordingStopBusy
@@ -1581,22 +1586,33 @@ const deriveSettingsActionState = ({
         ? "설정 적용이 끝날 때까지 기다리세요."
         : sourceMutationBusy
           ? operationLockMessages.sourceMutation
-        : isRecording
-          ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
-          : !pendingChanges
-            ? "취소할 설정 변경사항이 없습니다."
-            : "";
+          : playbackControlBusy
+            ? operationLockMessages.playbackControl
+            : isRecording
+              ? "저장하지 않은 설정 변경을 취소하기 전에 녹음을 중지하세요."
+              : !pendingChanges
+                ? "취소할 설정 변경사항이 없습니다."
+                : "";
   const resetDisabled = Boolean(
     applyInFlight ||
       resetBusy ||
       sourceMutationBusy ||
+      playbackControlBusy ||
       recordingStopBusy ||
       isRecording ||
       !pendingChanges,
   );
   return {
-    applyDisabled: applyInFlight || resetBusy || sourceMutationBusy ||
-      recordingStopBusy || isRecording || runtimeConfigChanged || !pendingChanges,
+    applyDisabled: Boolean(
+      applyInFlight ||
+        resetBusy ||
+        sourceMutationBusy ||
+        playbackControlBusy ||
+        recordingStopBusy ||
+        isRecording ||
+        runtimeConfigChanged ||
+        !pendingChanges,
+    ),
     applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
     applyAttention: pendingChanges && !runtimeConfigChanged,
     applyTitle,
@@ -1634,6 +1650,7 @@ const deriveDashboardControlState = ({
     resetDraftInFlight,
     sourceMutationInFlight,
     recordingStopInFlight,
+    playbackControlInFlight,
     pendingChanges,
     runtimeConfigChanged,
   });
@@ -2738,6 +2755,7 @@ const currentSettingsActionState = (snapshot = state.snapshot) => {
     resetDraftInFlight: state.resetDraftInFlight,
     sourceMutationInFlight: state.sourceMutationInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
+    playbackControlInFlight: state.playbackControlInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
   });
