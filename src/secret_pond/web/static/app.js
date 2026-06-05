@@ -1457,6 +1457,7 @@ const operationLockMessages = {
   draftReset: "설정 변경 취소가 끝날 때까지 기다리세요.",
   sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
   sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  sourceReset: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
   resetParticipants: "참여자 초기화가 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
@@ -1490,6 +1491,8 @@ const deriveOperationLocks = ({
 } = {}) => {
   const sourceActionTitle = applyInFlight
     ? operationLockMessages.sourceApply
+    : resetDraftInFlight
+      ? operationLockMessages.sourceReset
     : sourceMutationInFlight
       ? operationLockMessages.sourceMutation
       : "";
@@ -2039,6 +2042,7 @@ const renderSourceLibrary = () => {
 const sourceLibrarySignature = (categories) => JSON.stringify([
   state.sourceMutationInFlight,
   state.applyInFlight,
+  state.resetDraftInFlight,
   categories.map((category) => [
     category.id,
     category.label,
@@ -2091,12 +2095,24 @@ const sourceUploadSignature = (category) => {
   ];
 };
 
-const sourceActionBusyTitle = (sourceMutationInFlight = false, applyInFlight = false) => {
-  return deriveOperationLocks({ sourceMutationInFlight, applyInFlight }).sourceActionTitle;
-};
+const sourceActionBusyTitle = ({
+  sourceMutationInFlight = false,
+  applyInFlight = false,
+  resetDraftInFlight = false,
+} = {}) => deriveOperationLocks({
+  sourceMutationInFlight,
+  applyInFlight,
+  resetDraftInFlight,
+}).sourceActionTitle;
+
+const currentSourceLockState = () => deriveOperationLocks({
+  sourceMutationInFlight: state.sourceMutationInFlight,
+  applyInFlight: state.applyInFlight,
+  resetDraftInFlight: state.resetDraftInFlight,
+});
 
 const sourceCommandBlocked = () =>
-  Boolean(sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight));
+  currentSourceLockState().sourceCommandBlocked;
 
 const sourceLibraryBusyControlSelector = [
   "[data-source-select]",
@@ -2110,7 +2126,7 @@ const sourceLibraryBusyControlState = new WeakMap();
 const syncSourceLibraryBusyControls = (container) => {
   if (typeof container.querySelectorAll !== "function") return;
   const controls = container.querySelectorAll(sourceLibraryBusyControlSelector);
-  const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
+  const busyTitle = currentSourceLockState().sourceActionTitle;
   if (!busyTitle) {
     controls.forEach((control) => {
       const previous = sourceLibraryBusyControlState.get(control);
@@ -2137,10 +2153,15 @@ const deriveSourceUploadActionState = (
   upload = {},
   sourceMutationInFlight = false,
   applyInFlight = false,
+  resetDraftInFlight = false,
 ) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
-  const busyTitle = sourceActionBusyTitle(sourceMutationInFlight, applyInFlight);
+  const busyTitle = sourceActionBusyTitle({
+    sourceMutationInFlight,
+    applyInFlight,
+    resetDraftInFlight,
+  });
   const busy = Boolean(busyTitle);
   return {
     selectAfterUpload: upload.selectAfterUpload !== false,
@@ -2159,10 +2180,15 @@ const deriveSourceFileActionState = (
   file = {},
   sourceMutationInFlight = false,
   applyInFlight = false,
+  resetDraftInFlight = false,
 ) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
-  const busyTitle = sourceActionBusyTitle(sourceMutationInFlight, applyInFlight);
+  const busyTitle = sourceActionBusyTitle({
+    sourceMutationInFlight,
+    applyInFlight,
+    resetDraftInFlight,
+  });
   const busy = Boolean(busyTitle);
   return {
     active,
@@ -2193,7 +2219,7 @@ const sourceCategoryCard = (category) => {
     helper: category.directory,
   };
   const upload = sourceUploadState(category.id);
-  const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
+  const busyTitle = currentSourceLockState().sourceActionTitle;
   const sourceActionDisabled = busyTitle ? " disabled" : "";
   const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
   const required = sourceCategoryRequired(category);
@@ -2203,6 +2229,7 @@ const sourceCategoryCard = (category) => {
     upload,
     state.sourceMutationInFlight,
     state.applyInFlight,
+    state.resetDraftInFlight,
   );
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
@@ -2278,6 +2305,7 @@ const sourceFileRows = (category) => {
       file,
       state.sourceMutationInFlight,
       state.applyInFlight,
+      state.resetDraftInFlight,
     );
     const badges = [
       action.active ? `<span class="source-file-badge">선택됨</span>` : "",
@@ -3641,6 +3669,7 @@ const resetDraft = async () => {
   invalidatePendingDraftSaves();
   renderState();
   renderControls();
+  renderSourceLibrary();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
@@ -3654,6 +3683,7 @@ const resetDraft = async () => {
     renderState();
     renderControls();
     renderDevices();
+    renderSourceLibrary();
     if (resetError) showError(resetError.message);
   }
 };

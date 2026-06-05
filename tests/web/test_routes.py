@@ -1992,6 +1992,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ resetDraftInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+    deviceLocked: false,
+    deviceTitle: "",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -3325,6 +3337,25 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   );
   assert.strictEqual(helpers.state.sourceMutationInFlight, true);
   assert.strictEqual(confirmCalls, 0);
+
+  helpers.state.sourceMutationInFlight = false;
+  helpers.state.resetDraftInFlight = true;
+  assert.strictEqual(
+    await helpers.selectSourceFile("low", "sources/low/newer.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.uploadSourceFile(
+      "low",
+      { name: "reset-busy.wav", size: 12, lastModified: 1 },
+    ),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.resetDraftInFlight, true);
   assert.deepStrictEqual(fetchCalls, []);
 })().catch((error) => {
   console.error(error);
@@ -3507,6 +3538,20 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}, false, false, true),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: true,
+    uploadTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileActionState({{ active: true }}),
   {{
     active: true,
@@ -3539,6 +3584,15 @@ assert.deepStrictEqual(
     active: false,
     deleteDisabled: true,
     deleteTitle: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}, false, false, true),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   }},
 );
 
@@ -5280,6 +5334,32 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
   globalThis.__secretPondTest.setStorageMode("test_library");
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  const resetSourceCategories = [
+    {{
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      active_exists: true,
+      legacy_exists: true,
+      selected_path: "sources/low/current.wav",
+      files: [
+        {{
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+        }},
+      ],
+    }},
+  ];
+  globalThis.__secretPondTest.state.sources = {{ categories: resetSourceCategories }};
+  globalThis.__secretPondTest.state.sourceUploads.low = {{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }};
+  globalThis.__secretPondTest.state.renderSignatures.sourceLibrary = null;
+  globalThis.__secretPondTest.renderSourceLibrary();
   window.confirm = () => true;
   globalThis.fetch = (path) => {{
     if (path === "/api/settings/reset-draft") {{
@@ -5296,7 +5376,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     if (path === "/api/sources") {{
       return Promise.resolve({{
         ok: true,
-        json: async () => ({{ categories: [] }}),
+        json: async () => ({{ categories: resetSourceCategories }}),
       }});
     }}
     throw new Error(`unexpected fetch ${{path}}`);
@@ -5307,6 +5387,13 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
   assert.strictEqual(elements.resetButton.disabled, true);
   assert.strictEqual(elements.resetButton.title, "설정 변경 취소가 끝날 때까지 기다리세요.");
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(
+    latestSourceLibraryHtml().includes(
+      "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+    ),
+    true,
+  );
   globalThis.__secretPondTest.setStorageMode("live_ephemeral");
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
   resetInFlightRequests[0]({{
