@@ -2667,7 +2667,6 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     resetDraftInFlight: state.resetDraftInFlight,
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
-    select.disabled = selectState.disabled;
     select.title = selectState.title;
     return;
   }

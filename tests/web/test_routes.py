@@ -3953,7 +3953,7 @@ def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, renderDevices, changeDeviceFromEvent }",
+        exports="{ state, renderDevices, releaseInteractiveControl, changeDeviceFromEvent }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {
@@ -4035,6 +4035,21 @@ def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
     typeof helpers.state.deferredInteractiveRenders["device-inputDeviceSelect"],
     "function",
   );
+  helpers.state.applyInFlight = true;
+  helpers.renderDevices();
+  assert.strictEqual(select.disabled, false);
+  assert.strictEqual(
+    typeof helpers.state.deferredInteractiveRenders["device-inputDeviceSelect"],
+    "function",
+  );
+  helpers.releaseInteractiveControl(select);
+  assert.strictEqual(select.disabled, true);
+  assert.strictEqual(select.title, "설정 적용이 끝날 때까지 기다리세요.");
+  helpers.state.applyInFlight = false;
+  helpers.renderDevices();
+  assert.strictEqual(select.disabled, false);
+  helpers.state.activeInteractiveControl = select;
+  helpers.renderDevices();
 
   const deviceRequests = [];
   globalThis.fetch = (path, options = {}) => {
