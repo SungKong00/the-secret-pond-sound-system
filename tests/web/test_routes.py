@@ -710,6 +710,19 @@ def draft_with_mid_volume(volume_db: float, *, base: AppSettings | None = None) 
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
 
 
+def draft_with_mid_eq_gain(gain_db: float, *, base: AppSettings | None = None) -> dict:
+    settings = base or api_settings()
+    layers = {
+        **settings.layers,
+        "mid": settings.layers["mid"].model_copy(
+            update={
+                "eq": settings.layers["mid"].eq.model_copy(update={"mid_gain_db": gain_db}),
+            },
+        ),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
 def draft_with_mid_layer_disabled(*, base: AppSettings | None = None) -> dict:
     settings = base or api_settings()
     layers = {
@@ -11039,6 +11052,26 @@ def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
     }
     state = client.get("/api/state").json()
     assert state["settings"]["change"] == {
+        "runtime_config_changed": False,
+        "changed_runtime_fields": [],
+        "changed_sections": ["layers"],
+        "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_fields": [],
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
+    }
+
+
+def test_api_stable_eq_draft_change_marks_settings_pending(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.put("/api/settings/draft", json=draft_with_mid_eq_gain(4.0))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert client.get("/api/state").json()["playback"]["apply_mode"] == "stable"
+    assert payload["settings"]["active"]["layers"]["mid"]["eq"]["mid_gain_db"] == 0.0
+    assert payload["settings"]["draft"]["layers"]["mid"]["eq"]["mid_gain_db"] == 4.0
+    assert payload["settings"]["change"] == {
         "runtime_config_changed": False,
         "changed_runtime_fields": [],
         "changed_sections": ["layers"],
