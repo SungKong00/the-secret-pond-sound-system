@@ -2136,8 +2136,8 @@ assert.deepStrictEqual(
     sourceUiLocked: true,
     sourceCommandBlocked: true,
     sourceActionTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
-    deviceLocked: false,
-    deviceTitle: "",
+    deviceLocked: true,
+    deviceTitle: "설정 변경 취소가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2198,6 +2198,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "설정 적용이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, resetDraftInFlight: true }}),
+  {{
+    disabled: true,
+    title: "설정 변경 취소가 끝날 때까지 기다리세요.",
   }},
 );
 

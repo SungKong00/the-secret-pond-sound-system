@@ -1513,11 +1513,13 @@ const deriveOperationLocks = ({
     ? operationLockMessages.deviceLoading
     : applyInFlight
       ? operationLockMessages.deviceApply
-      : deviceChangeInFlight
-        ? operationLockMessages.deviceChange
-        : forceDeviceDisabled
-          ? operationLockMessages.deviceRecording
-          : "";
+      : resetDraftInFlight
+        ? operationLockMessages.draftReset
+        : deviceChangeInFlight
+          ? operationLockMessages.deviceChange
+          : forceDeviceDisabled
+            ? operationLockMessages.deviceRecording
+            : "";
   const draftLock = deriveDraftControlLockState({ applyInFlight, resetDraftInFlight });
   return {
     draftLocked: draftLock.disabled,
@@ -1525,7 +1527,8 @@ const deriveOperationLocks = ({
     sourceCommandBlocked: Boolean(sourceActionTitle),
     sourceActionTitle,
     deviceLocked: Boolean(
-      forceDeviceDisabled || deviceChangeInFlight || applyInFlight || !devicesLoaded,
+      forceDeviceDisabled || deviceChangeInFlight || applyInFlight || resetDraftInFlight ||
+        !devicesLoaded,
     ),
     deviceTitle,
   };
@@ -2541,9 +2544,11 @@ const deriveSystemDeviceSelectState = ({
   devicesLoaded = false,
   deviceChangeInFlight = false,
   applyInFlight = false,
+  resetDraftInFlight = false,
 } = {}) => {
   const locks = deriveOperationLocks({
     applyInFlight,
+    resetDraftInFlight,
     deviceChangeInFlight,
     devicesLoaded,
     forceDeviceDisabled: forceDisabled,
@@ -2560,6 +2565,7 @@ const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({
   devicesLoaded: Boolean(state.devices),
   deviceChangeInFlight: state.deviceChangeInFlight,
   applyInFlight: state.applyInFlight,
+  resetDraftInFlight: state.resetDraftInFlight,
 });
 
 const deriveStorageModeControlState = ({
@@ -2603,6 +2609,7 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     devicesLoaded: Boolean(state.devices),
     deviceChangeInFlight: state.deviceChangeInFlight,
     applyInFlight: state.applyInFlight,
+    resetDraftInFlight: state.resetDraftInFlight,
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.disabled = selectState.disabled;
