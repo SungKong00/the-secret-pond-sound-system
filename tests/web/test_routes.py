@@ -3919,6 +3919,147 @@ assert.strictEqual(elements.systemStatus.textContent, "소스 준비됨");
     )
 
 
+def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderDevices, changeDeviceFromEvent }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const activeSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const snapshot = {
+    armed: false,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 0,
+    participant_count: 0,
+    last_error: null,
+    playback: { output_running: false, layers: {} },
+    settings: {
+      active: activeSettings,
+      draft: activeSettings,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      },
+    },
+  };
+  helpers.state.snapshot = snapshot;
+  helpers.state.devices = {
+    input_devices: [
+      { id: "mic-1", name: "Mic 1" },
+      { id: "mic-2", name: "Mic 2" },
+    ],
+    output_devices: [{ id: "speaker-1", name: "Speaker 1" }],
+    warnings: [],
+  };
+  helpers.renderDevices();
+
+  const select = elements.inputDeviceSelect;
+  helpers.state.activeInteractiveControl = select;
+  helpers.renderDevices();
+  assert.strictEqual(
+    typeof helpers.state.deferredInteractiveRenders["device-inputDeviceSelect"],
+    "function",
+  );
+
+  const deviceRequests = [];
+  globalThis.fetch = (path, options = {}) => {
+    if (path === "/api/devices") {
+      deviceRequests.push({ path, options });
+      const requestedDevices = JSON.parse(options.body);
+      const nextActive = {
+        ...activeSettings,
+        devices: {
+          input_device_id: requestedDevices.input_device_id,
+          output_device_id: "speaker-1",
+        },
+      };
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          state: {
+            ...snapshot,
+            settings: {
+              active: nextActive,
+              draft: nextActive,
+              change: snapshot.settings.change,
+            },
+          },
+          devices: helpers.state.devices,
+        }),
+      });
+    }
+    if (path === "/api/diagnostics") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ sources: [], events: { recent: [] } }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  select.value = "mic-2";
+  await helpers.changeDeviceFromEvent("input_device_id", { target: select });
+
+  assert.strictEqual(deviceRequests.length, 1);
+  assert.deepStrictEqual(
+    JSON.parse(deviceRequests[0].options.body),
+    { input_device_id: "mic-2" },
+  );
+  assert.strictEqual(select.value, "mic-2");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,

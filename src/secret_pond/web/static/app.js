@@ -3895,6 +3895,12 @@ const changeDevice = async (key, value) => {
   }
 };
 
+const changeDeviceFromEvent = (key, event) => {
+  const selectedValue = event.target.value;
+  releaseInteractiveControl(event.target);
+  return changeDevice(key, selectedValue);
+};
+
 const shouldIgnoreSpace = () => {
   const element = document.activeElement;
   if (!element) return false;
@@ -4093,12 +4099,10 @@ const bindEvents = () => {
     select.addEventListener("blur", () => releaseInteractiveControl(select));
   }
   $("inputDeviceSelect").addEventListener("change", (event) => {
-    releaseInteractiveControl(event.target);
-    changeDevice("input_device_id", event.target.value);
+    changeDeviceFromEvent("input_device_id", event);
   });
   $("outputDeviceSelect").addEventListener("change", (event) => {
-    releaseInteractiveControl(event.target);
-    changeDevice("output_device_id", event.target.value);
+    changeDeviceFromEvent("output_device_id", event);
   });
   $("sourceLibraryList").addEventListener("pointerdown", (event) => {
     const select = sourceSelectFromEventTarget(event.target);
