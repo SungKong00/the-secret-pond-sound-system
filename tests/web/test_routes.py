@@ -326,10 +326,15 @@ class LockAwareSettingsStore:
         self.delegate = delegate
         self.lock = lock
         self.lock_owned_during_load = False
+        self.patch_draft_owned_during_call = False
 
     def load(self):
         self.lock_owned_during_load = self.lock._is_owned()
         return self.delegate.load()
+
+    def patch_draft(self, patch):
+        self.patch_draft_owned_during_call = self.lock._is_owned()
+        return self.delegate.patch_draft(patch)
 
     def __getattr__(self, name):
         return getattr(self.delegate, name)
@@ -4533,6 +4538,30 @@ def test_api_sources_select_persists_draft_selection(tmp_path: Path) -> None:
         "data/sources/mid/library-mid.wav"
     )
     assert SettingsStore(paths).load().draft.sources.mid_path == (
+        "data/sources/mid/library-mid.wav"
+    )
+
+
+def test_api_sources_select_patches_draft_inside_runtime_lock(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    write_wav_atomic(
+        paths.mid_sources_dir / "library-mid.wav",
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    client = create_test_client(tmp_path)
+    runtime = client.app.state.runtime
+    settings_store = LockAwareSettingsStore(runtime.settings_store, runtime.operation_lock)
+    runtime.settings_store = settings_store
+
+    response = client.put(
+        "/api/sources/mid/select",
+        json={"path": "data/sources/mid/library-mid.wav"},
+    )
+
+    assert response.status_code == 200
+    assert settings_store.patch_draft_owned_during_call is True
+    assert response.json()["settings"]["draft"]["sources"]["mid_path"] == (
         "data/sources/mid/library-mid.wav"
     )
 

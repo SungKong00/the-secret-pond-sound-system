@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -68,6 +69,10 @@ class SettingsStore:
         current = self.load()
         return self.save(SettingsState(active=current.active, draft=draft))
 
+    def patch_draft(self, patch: Callable[[AppSettings], AppSettings]) -> SettingsState:
+        current = self.load()
+        return self.save(SettingsState(active=current.active, draft=patch(current.draft)))
+
     def apply_draft(self) -> SettingsState:
         current = self.load()
         return self.save(SettingsState(active=current.draft, draft=current.draft))
@@ -130,4 +135,3 @@ def _validated_settings_payload(payload: Any, key: str) -> dict[str, Any]:
 
 def _validated_settings_copy(settings: AppSettings) -> AppSettings:
     return AppSettings.model_validate(settings.model_dump(mode="json"))
-

@@ -150,19 +150,18 @@ def select_source_file(
         relative_path = payload.get("path")
         if relative_path is not None and not isinstance(relative_path, str):
             raise ValueError("path must be a string or null")
-        draft_state = runtime.settings_store.load()
-        draft = select_source(draft_state.draft, config.id, relative_path)
-        if relative_path is not None:
-            selected = selected_source_path(runtime.paths, draft, config.id)
-            if selected is None or not selected.exists():
-                raise FileNotFoundError(f"source file does not exist: {relative_path}")
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     with runtime.operation_lock:
-        state = runtime.settings_store.set_draft(draft)
+        try:
+            state = runtime.settings_store.patch_draft(
+                lambda draft: _select_source_draft(runtime, draft, config.id, relative_path),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         runtime.settings_state = state
         return {
             "settings": settings_payload(runtime),
@@ -196,11 +195,13 @@ def upload_source(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        settings_state = runtime.settings_store.load()
         if select:
-            draft = select_source(settings_state.draft, config.id, file_payload["path"])
-            settings_state = runtime.settings_store.set_draft(draft)
+            settings_state = runtime.settings_store.patch_draft(
+                lambda draft: select_source(draft, config.id, file_payload["path"]),
+            )
             runtime.settings_state = settings_state
+        else:
+            settings_state = runtime.settings_store.load()
         return {
             "file": file_payload,
             "settings": settings_payload(runtime),
@@ -454,6 +455,20 @@ def _device_settings_from_payload(
             raise ValueError(f"{key} must be a string or null")
         updates[key] = value or None
     return current.model_copy(update=updates)
+
+
+def _select_source_draft(
+    runtime: SecretPondRuntime,
+    draft: AppSettings,
+    category: str,
+    relative_path: str | None,
+) -> AppSettings:
+    next_draft = select_source(draft, category, relative_path)
+    if relative_path is not None:
+        selected = selected_source_path(runtime.paths, next_draft, category)
+        if selected is None or not selected.exists():
+            raise FileNotFoundError(f"source file does not exist: {relative_path}")
+    return next_draft
 
 
 def _validate_device_selection(
