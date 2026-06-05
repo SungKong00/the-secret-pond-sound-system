@@ -228,6 +228,58 @@ def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_c
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
 
+def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(
+    tmp_path: Path,
+) -> None:
+    frames = 8
+    low_samples = np.column_stack(
+        [
+            np.linspace(0.01, 0.08, num=frames, dtype=np.float32),
+            np.linspace(0.01, 0.08, num=frames, dtype=np.float32),
+        ],
+    )
+    mid_samples = np.column_stack(
+        [
+            np.linspace(0.10, 0.135, num=frames, dtype=np.float32),
+            np.linspace(0.10, 0.135, num=frames, dtype=np.float32),
+        ],
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=low_samples, sample_rate=8_000),
+            "mid": AudioBuffer(samples=mid_samples, sample_rate=8_000),
+            "voice": stereo(0.0, frames=frames),
+        }
+    )
+    player.start()
+    player.next_block(3)
+
+    player.start_voice_crossfade(
+        stereo(0.2, frames=frames),
+        duration_frames=4,
+        transition_target_id="vs-2",
+    )
+    block = player.next_block(4)
+
+    cursor_indices = np.array([3, 4, 5, 6])
+    progress = np.array([0.0, 0.25, 0.5, 0.75], dtype=np.float32)
+    expected_voice = 0.2 * np.sin(progress * np.pi / 2.0)
+    expected_non_voice = low_samples[cursor_indices, 0] + mid_samples[cursor_indices, 0]
+    expected = np.column_stack(
+        [
+            expected_non_voice + expected_voice,
+            expected_non_voice + expected_voice,
+        ],
+    )
+    reset_cursor_non_voice = low_samples[:4, 0] + mid_samples[:4, 0]
+
+    assert player.frame_cursor == 7
+    assert block.next_frame_cursor == 7
+    assert not np.allclose(expected_non_voice, reset_cursor_non_voice)
+    np.testing.assert_allclose(block.samples, expected, atol=1e-6)
+
+
 def test_player_voice_crossfade_finishes_by_installing_candidate_voice(tmp_path: Path) -> None:
     paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.0, frames=8)
     player = LayeredLoopPlayer()
