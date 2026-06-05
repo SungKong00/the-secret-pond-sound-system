@@ -39,6 +39,7 @@ const state = {
   draftSaveRequestId: 0,
   draftEditRevision: 0,
   sourceMutationRequestId: 0,
+  sourceRefreshRequestId: 0,
   spaceRecording: false,
   stateSocket: null,
   websocketConnected: false,
@@ -1190,20 +1191,44 @@ const requestDiagnostics = async () => {
   renderErrors();
 };
 
+const beginSourceRefresh = () => {
+  state.sourceRefreshRequestId += 1;
+  return {
+    refreshRequestId: state.sourceRefreshRequestId,
+    sourceMutationRequestId: state.sourceMutationRequestId,
+  };
+};
+
+const isCurrentSourceRefresh = (request) =>
+  request.refreshRequestId === state.sourceRefreshRequestId &&
+  request.sourceMutationRequestId === state.sourceMutationRequestId;
+
 const requestSources = async (options = {}) => {
+  const request = beginSourceRefresh();
+  let shouldRender = false;
   try {
-    state.sources = await api("/api/sources");
+    const sources = await api("/api/sources");
+    if (!isCurrentSourceRefresh(request)) return sources;
+    state.sources = sources;
     state.sourcesError = null;
     if (options.syncAppliedSourceSignature) {
       syncAppliedSourceSignature();
     }
+    shouldRender = true;
+    return sources;
   } catch (error) {
+    if (!isCurrentSourceRefresh(request)) return null;
     state.sources = null;
     state.sourcesError = error.message;
+    shouldRender = true;
+    return null;
+  } finally {
+    if (shouldRender) {
+      renderState();
+      renderSourceLibrary();
+      renderErrors();
+    }
   }
-  renderState();
-  renderSourceLibrary();
-  renderErrors();
 };
 
 const serverStateSignature = (payload) => JSON.stringify(payload);

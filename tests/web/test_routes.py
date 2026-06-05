@@ -2431,7 +2431,7 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "setWorkspaceTab, setStorageMode, translateUiErrorMessage, describeUiNotice, "
             "renderEventLogSummary, draftEditLocked, "
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
-            "releaseInteractiveControl, refreshAll, "
+            "releaseInteractiveControl, refreshAll, requestSources, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
             "uploadSourceFile, applyAndRestart, resetDraft }"
@@ -3914,6 +3914,45 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     "sources/low/newer.wav",
   );
   assert.strictEqual(globalThis.__secretPondTest.state.sourceMutationInFlight, false);
+
+  const sourceRefreshResponses = [];
+  globalThis.__secretPondTest.state.sources = sourcePayloadFor("sources/low/current.wav").sources;
+  globalThis.fetch = (path) => {{
+    if (path === "/api/sources") {{
+      return new Promise((resolve) => {{
+        sourceRefreshResponses.push(resolve);
+      }});
+    }}
+    if (path === "/api/sources/low/select") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => sourcePayloadFor("sources/low/newer.wav"),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  const staleSourceRefresh = globalThis.__secretPondTest.requestSources();
+  assert.strictEqual(sourceRefreshResponses.length, 1);
+  await globalThis.__secretPondTest.selectSourceFile("low", "sources/low/newer.wav");
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.sources.categories[0].selected_path,
+    "sources/low/newer.wav",
+  );
+  sourceRefreshResponses[0]({{
+    ok: true,
+    json: async () => sourcePayloadFor("sources/low/older.wav").sources,
+  }});
+  await staleSourceRefresh;
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.sources.categories[0].selected_path,
+    "sources/low/newer.wav",
+  );
 
   const busySpaceEvent = {{
     code: "Space",
