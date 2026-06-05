@@ -612,3 +612,149 @@ assert.strictEqual(captureGateSwitch.disabled, false);
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
+
+
+def test_playback_apply_mode_control_switches_live_and_survives_state_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  renderControls,
+  setPlaybackApplyMode,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const {
+  applyState,
+  renderControls,
+  setPlaybackApplyMode,
+  state,
+  trackInteractiveControl,
+} = globalThis.__secretPond;
+const requests = [];
+globalThis.fetch = async (path, options = {}) => {
+  requests.push({ path, options });
+  assert.strictEqual(path, "/api/playback/apply-mode");
+  assert.strictEqual(options.method, "PUT");
+  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live" });
+  const nextSettings = cloneSettings(state.snapshot.settings.active);
+  nextSettings.playback = {
+    ...nextSettings.playback,
+    apply_mode: "live",
+  };
+  return {
+    ok: true,
+    json: async () => ({
+      state: {
+        ...state.snapshot,
+        settings: {
+          active: cloneSettings(nextSettings),
+          draft: cloneSettings(nextSettings),
+          change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+        },
+        playback: {
+          ...state.snapshot.playback,
+          apply_mode: "live",
+          live: { enabled: true, volume_applies_immediately: true },
+        },
+      },
+    }),
+  };
+};
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "stable", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+state.draft = cloneSettings(activeSettings);
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const panel = document.getElementById("playbackApplyModePanel");
+const liveButton = document.getElementById("playbackApplyModeLiveButton");
+const stableButton = document.getElementById("playbackApplyModeStableButton");
+panel.append(liveButton, stableButton);
+assert.strictEqual(panel.getAttribute("aria-label"), "재생 적용 모드");
+assert.strictEqual(
+  document.getElementById("playbackApplyModeSummary").textContent,
+  "Stable · 활성 · 변경사항 적용 후 재생",
+);
+assert.strictEqual(stableButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(liveButton.disabled, false);
+
+await setPlaybackApplyMode("live");
+
+assert.strictEqual(requests.length, 1);
+assert.strictEqual(state.snapshot.playback.apply_mode, "live");
+assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "live");
+assert.strictEqual(
+  document.getElementById("playbackApplyModeSummary").textContent,
+  "Live · 활성 · 즉시 반영 중",
+);
+assert.strictEqual(stableButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(liveButton.classList.contains("active"), true);
+
+document.activeElement = liveButton;
+trackInteractiveControl(liveButton);
+renderControls();
+
+assert.strictEqual(state.activeInteractiveControl, liveButton);
+assert.strictEqual(
+  state.deferredInteractiveRenders["settings-controls"].name,
+  "renderControls",
+);
+assert.strictEqual(document.getElementById("playbackApplyModeLiveButton"), liveButton);
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )

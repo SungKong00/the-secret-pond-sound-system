@@ -71,6 +71,7 @@ const state = {
   recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
   playbackControlInFlight: false,
+  playbackApplyModeInFlight: false,
   applyInFlight: false,
   resetDraftInFlight: false,
   resetParticipantsInFlight: false,
@@ -457,6 +458,19 @@ const storageModeDetails = {
     summary: "파일 저장",
     idleTitle: "accepted clip을 data/processed/accepted에 저장합니다.",
     className: "library",
+  },
+};
+
+const playbackApplyModeDetails = {
+  live: {
+    label: "Live",
+    summary: "활성 · 즉시 반영 중",
+    className: "live",
+  },
+  stable: {
+    label: "Stable",
+    summary: "활성 · 변경사항 적용 후 재생",
+    className: "stable",
   },
 };
 
@@ -1014,6 +1028,7 @@ const settingsControlContainerIds = [
   "voiceLayerControls",
   "voiceStackControls",
   "recordingControls",
+  "playbackApplyModePanel",
 ];
 
 const activeInteractiveControlFor = (container) => {
@@ -3884,6 +3899,7 @@ const renderControls = () => {
   ) {
     return;
   }
+  renderPlaybackApplyModeControls();
   renderLayerControls();
   renderVoiceStackControls();
   renderRecordingPresets();
@@ -3900,6 +3916,67 @@ const renderOperationLockSurfaces = () => {
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
+};
+
+const currentPlaybackApplyMode = (snapshot = state.snapshot) => {
+  const settingsMode = snapshot?.settings?.active?.playback?.apply_mode;
+  if (playbackApplyModeDetails[settingsMode]) return settingsMode;
+  const playbackMode = snapshot?.playback?.apply_mode;
+  if (playbackApplyModeDetails[playbackMode]) return playbackMode;
+  return "stable";
+};
+
+const renderPlaybackApplyModeControls = () => {
+  const panel = $("playbackApplyModePanel");
+  if (!panel) return;
+  const mode = currentPlaybackApplyMode();
+  const details = playbackApplyModeDetails[mode] || playbackApplyModeDetails.stable;
+  const disabled = !state.snapshot || state.playbackApplyModeInFlight;
+  panel.setAttribute("aria-label", "재생 적용 모드");
+  panel.className = `playback-apply-mode-panel ${details.className}${
+    state.playbackApplyModeInFlight ? " pending" : ""
+  }`;
+  $("playbackApplyModeSummary").textContent = `${details.label} · ${details.summary}`;
+  Object.entries(playbackApplyModeDetails).forEach(([buttonMode, buttonDetails]) => {
+    const button = $(`playbackApplyMode${buttonDetails.label}Button`);
+    if (!button) return;
+    const active = mode === buttonMode;
+    button.disabled = disabled;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.classList.toggle("active", active);
+    button.classList.toggle("pending", state.playbackApplyModeInFlight && active);
+    button.title = disabled && state.playbackApplyModeInFlight
+      ? "재생 적용 모드 변경 중입니다."
+      : "";
+  });
+};
+
+const setPlaybackApplyMode = async (mode) => {
+  if (!playbackApplyModeDetails[mode] || state.playbackApplyModeInFlight) return null;
+  if (currentPlaybackApplyMode() === mode) {
+    renderPlaybackApplyModeControls();
+    return null;
+  }
+  let modeError = null;
+  state.playbackApplyModeInFlight = true;
+  renderControls();
+  try {
+    const payload = await api("/api/playback/apply-mode", {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
+    });
+    await applyResponseState(payload, { syncDraft: false });
+    return payload;
+  } catch (error) {
+    modeError = error;
+    await requestState({ syncDraft: false }).catch(() => {});
+    return null;
+  } finally {
+    state.playbackApplyModeInFlight = false;
+    renderControls();
+    if (modeError) showError(modeError.message);
+    else clearTransientError({ respectMinimumVisibleDuration: true });
+  }
 };
 
 const renderVoiceStackControls = () => {
@@ -5088,6 +5165,9 @@ const bindEvents = () => {
   renderSideTabs();
   document.querySelectorAll("[data-storage-mode]").forEach((button) => {
     button.addEventListener("click", () => setStorageMode(button.dataset.storageMode));
+  });
+  document.querySelectorAll("[data-playback-apply-mode]").forEach((button) => {
+    button.addEventListener("click", () => setPlaybackApplyMode(button.dataset.playbackApplyMode));
   });
   document.addEventListener("pointerdown", trackSettingsInteractiveControl);
   document.addEventListener("focusin", trackSettingsInteractiveControl);

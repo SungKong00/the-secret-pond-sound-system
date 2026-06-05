@@ -570,7 +570,8 @@ input[type="range"]:focus-visible {
   color: rgba(240, 236, 227, 0.72);
 }
 
-.storage-mode-panel {
+.storage-mode-panel,
+.playback-apply-mode-panel {
   display: grid;
   gap: 7px;
   margin-bottom: 8px;
@@ -580,6 +581,10 @@ input[type="range"]:focus-visible {
   background:
     linear-gradient(135deg, rgba(120, 179, 122, 0.065), transparent 68%),
     rgba(255, 255, 255, 0.024);
+}
+
+.playback-apply-mode-panel {
+  margin-bottom: 0;
 }
 
 .storage-mode-panel.safe {
@@ -603,20 +608,41 @@ input[type="range"]:focus-visible {
     0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 
-.storage-mode-head {
+.playback-apply-mode-panel.live {
+  border-color: rgba(120, 179, 122, 0.32);
+  background:
+    linear-gradient(135deg, rgba(120, 179, 122, 0.105), transparent 68%),
+    rgba(255, 255, 255, 0.024);
+}
+
+.playback-apply-mode-panel.stable {
+  border-color: rgba(110, 167, 216, 0.34);
+  background:
+    linear-gradient(135deg, rgba(110, 167, 216, 0.105), transparent 68%),
+    rgba(255, 255, 255, 0.024);
+}
+
+.playback-apply-mode-panel.pending {
+  border-color: rgba(214, 168, 77, 0.5);
+}
+
+.storage-mode-head,
+.playback-apply-mode-head {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.storage-mode-label {
+.storage-mode-label,
+.playback-apply-mode-label {
   color: var(--amber);
   font-size: 10px;
   font-weight: 820;
   letter-spacing: 0.02em;
 }
 
-.storage-mode-head strong {
+.storage-mode-head strong,
+.playback-apply-mode-head strong {
   color: var(--text);
   font-size: 11px;
   font-weight: 820;
@@ -624,13 +650,15 @@ input[type="range"]:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.storage-mode-options {
+.storage-mode-options,
+.playback-apply-mode-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
 }
 
-.storage-mode-button {
+.storage-mode-button,
+.playback-apply-mode-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -648,7 +676,8 @@ input[type="range"]:focus-visible {
   text-align: center;
 }
 
-.storage-mode-button span {
+.storage-mode-button span,
+.playback-apply-mode-button span {
   color: var(--text);
   font-size: 11px;
   font-weight: 820;
@@ -656,7 +685,8 @@ input[type="range"]:focus-visible {
 }
 
 .storage-mode-button.live.active,
-.storage-mode-button.active:not(.library) {
+.storage-mode-button.active:not(.library),
+.playback-apply-mode-button.live.active {
   border-color: rgba(120, 179, 122, 0.5);
   background:
     linear-gradient(180deg, rgba(120, 179, 122, 0.14), rgba(0, 0, 0, 0.12)),
@@ -664,7 +694,8 @@ input[type="range"]:focus-visible {
   box-shadow: inset 3px 0 0 rgba(120, 179, 122, 0.62);
 }
 
-.storage-mode-button.library.active {
+.storage-mode-button.library.active,
+.playback-apply-mode-button.stable.active {
   border-color: rgba(110, 167, 216, 0.58);
   background:
     linear-gradient(180deg, rgba(110, 167, 216, 0.18), rgba(0, 0, 0, 0.12)),
@@ -672,12 +703,14 @@ input[type="range"]:focus-visible {
   box-shadow: inset 3px 0 0 rgba(110, 167, 216, 0.7);
 }
 
-.storage-mode-button.pending {
+.storage-mode-button.pending,
+.playback-apply-mode-button.pending {
   outline: 1px solid rgba(214, 168, 77, 0.56);
   outline-offset: 1px;
 }
 
-.storage-mode-button:disabled {
+.storage-mode-button:disabled,
+.playback-apply-mode-button:disabled {
   cursor: not-allowed;
   color: rgba(240, 236, 227, 0.6);
   opacity: 0.72;

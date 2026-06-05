@@ -302,6 +302,36 @@
                 <p class="eyebrow">스택</p>
                 <h2 id="voiceStackPanelTitle">Voice Stack <small lang="ko">목소리 스택</small></h2>
               </div>
+              <section
+                id="playbackApplyModePanel"
+                class="playback-apply-mode-panel"
+                aria-label="재생 적용 모드"
+              >
+                <div class="playback-apply-mode-head">
+                  <span class="playback-apply-mode-label">재생 적용</span>
+                  <strong id="playbackApplyModeSummary">확인 중</strong>
+                </div>
+                <div class="playback-apply-mode-options" role="group" aria-label="재생 적용 모드 선택">
+                  <button
+                    id="playbackApplyModeLiveButton"
+                    class="playback-apply-mode-button live"
+                    type="button"
+                    data-playback-apply-mode="live"
+                    aria-pressed="false"
+                  >
+                    <span>Live</span>
+                  </button>
+                  <button
+                    id="playbackApplyModeStableButton"
+                    class="playback-apply-mode-button stable"
+                    type="button"
+                    data-playback-apply-mode="stable"
+                    aria-pressed="false"
+                  >
+                    <span>Stable</span>
+                  </button>
+                </div>
+              </section>
               <div id="voiceStackControls" class="control-stack compact voice-stack-controls"></div>
               <div id="voiceLayerControls" class="control-stack"></div>
             </section>
