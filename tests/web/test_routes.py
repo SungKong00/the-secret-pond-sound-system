@@ -4562,6 +4562,78 @@ assert.notStrictEqual(sourceLibraryList.innerHTML, "open file picker");
     )
 
 
+def test_static_ui_source_file_change_renders_selected_file_hint_immediately(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, bindEvents }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const handlers = {};
+const sourceLibraryList = document.getElementById("sourceLibraryList");
+sourceLibraryList.addEventListener = (type, handler) => {
+  handlers[type] = handler;
+};
+
+const fileInput = makeElement();
+fileInput.tagName = "INPUT";
+fileInput.dataset = { sourceFile: "low" };
+fileInput.files = [{ name: "picked-low.wav", size: 4096, lastModified: 1 }];
+fileInput.addEventListener = () => {};
+fileInput.closest = (selector) => selector.includes("[data-source-file]") ? fileInput : null;
+sourceLibraryList.contains = (element) => element === fileInput;
+
+helpers.state.sources = {
+  categories: [
+    {
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      selected_path: "sources/low/current.wav",
+      active_exists: true,
+      files: [
+        {
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+          applied: true,
+        },
+      ],
+    },
+  ],
+};
+helpers.bindEvents();
+assert.strictEqual(typeof handlers.focusin, "function");
+assert.strictEqual(typeof handlers.change, "function");
+
+sourceLibraryList.innerHTML = "open file picker";
+sourceLibraryList.children.push({ marker: "existing" });
+handlers.focusin({ target: fileInput });
+assert.strictEqual(helpers.state.activeInteractiveControl, fileInput);
+
+handlers.change({ target: fileInput });
+
+assert.strictEqual(helpers.state.activeInteractiveControl, null);
+assert.strictEqual(helpers.state.sourceUploads.low.file.name, "picked-low.wav");
+assert.strictEqual(
+  helpers.state.deferredInteractiveRenders["source-library"],
+  undefined,
+);
+assert.notStrictEqual(sourceLibraryList.innerHTML, "open file picker");
+assert.strictEqual(
+  sourceLibraryList.children[sourceLibraryList.children.length - 1].innerHTML.includes(
+    "picked-low.wav",
+  ),
+  true,
+);
+""",
+    )
+
+
 def test_static_ui_source_library_busy_state_updates_when_render_is_deferred(
     tmp_path: Path,
 ) -> None:

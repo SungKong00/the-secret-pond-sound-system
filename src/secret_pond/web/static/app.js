@@ -4423,7 +4423,10 @@ const bindEvents = () => {
     }
     const fileInput = event.target.closest("[data-source-file]");
     if (fileInput) {
-      if (rememberSourceUploadFileFromInput(fileInput)) renderSourceLibrary();
+      if (rememberSourceUploadFileFromInput(fileInput)) {
+        releaseInteractiveControl(fileInput);
+        renderSourceLibrary();
+      }
       return;
     }
     const uploadMode = event.target.closest("[data-source-upload-select]");
