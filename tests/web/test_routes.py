@@ -1608,7 +1608,9 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const resetParticipants = async () => {",
         "};\n\nconst changeDevice",
     )
-    assert "applyState(payload.state, { syncDraft: false })" in reset_participants_body
+    assert "applyResponseState(payload, { syncDraft: false })" in reset_participants_body
+    assert "const applyResponseState = async (payload, options = {}) => {" in script.text
+    assert "applyState(payload.state, options)" in script.text
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
     assert "showError(error.message)" in script.text
     assert "const changeDevice = async (key, value) => {" in script.text
@@ -2816,6 +2818,123 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
 
   assert.strictEqual(helpers.state.snapshot.participant_count, 3);
   assert.strictEqual(elements.participantCount.textContent, 3);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
+def test_static_ui_apply_response_state_uses_embedded_state_or_refresh_fallback(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, applyResponseState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const settings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const snapshot = (participantCount) => ({
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: participantCount,
+    last_error: null,
+    playback: {
+      output_running: false,
+      output_latest_error: null,
+      output_latest_status: null,
+      layers: {},
+    },
+    settings: {
+      active: settings,
+      draft: settings,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: ["audio.sample_rate", "audio.channels"],
+      },
+    },
+  });
+
+  let unexpectedFetchPath = null;
+  globalThis.fetch = (path) => {
+    unexpectedFetchPath = path;
+    throw new Error(`unexpected fetch ${path}`);
+  };
+  const embeddedState = snapshot(4);
+  const usedEmbeddedState = await helpers.applyResponseState(
+    { state: embeddedState },
+    { syncDraft: false },
+  );
+  assert.strictEqual(usedEmbeddedState, true);
+  assert.strictEqual(unexpectedFetchPath, null);
+  assert.strictEqual(helpers.state.snapshot, embeddedState);
+  assert.strictEqual(elements.participantCount.textContent, 4);
+
+  const refreshedState = snapshot(7);
+  const fetchPaths = [];
+  globalThis.fetch = (path) => {
+    fetchPaths.push(path);
+    if (path !== "/api/state") {
+      throw new Error(`unexpected fetch ${path}`);
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => refreshedState,
+    });
+  };
+  const usedFallbackRefresh = await helpers.applyResponseState({}, { syncDraft: false });
+
+  assert.strictEqual(usedFallbackRefresh, false);
+  assert.deepStrictEqual(fetchPaths, ["/api/state"]);
+  assert.strictEqual(helpers.state.snapshot, refreshedState);
+  assert.strictEqual(elements.participantCount.textContent, 7);
 })().catch((error) => {
   console.error(error);
   process.exit(1);

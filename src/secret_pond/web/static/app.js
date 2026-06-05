@@ -1216,6 +1216,15 @@ const requestState = async (options = {}) => {
   }
 };
 
+const applyResponseState = async (payload, options = {}) => {
+  if (payload?.state) {
+    applyState(payload.state, options);
+    return true;
+  }
+  await requestState(options);
+  return false;
+};
+
 const beginTrackedRequest = (requestKey, trackedKeys = []) => {
   state[requestKey] += 1;
   return {
@@ -3414,11 +3423,7 @@ const control = async (path, options = {}) => {
   }
   try {
     const payload = await api(path, { method: "POST" });
-    if (payload.state) {
-      applyState(payload.state, options);
-    } else {
-      await requestState(options);
-    }
+    await applyResponseState(payload, options);
     if (payload.outcome !== undefined) {
       renderRecordingOutcome(payload.outcome);
     } else if (path === "/api/recording/start") {
@@ -3477,7 +3482,7 @@ const applyAndRestart = async () => {
     clearDraftSaveTimer();
     await saveDraft();
     const payload = await api("/api/settings/apply", { method: "POST" });
-    applyState(payload.state);
+    await applyResponseState(payload);
     await requestDiagnostics();
     await requestSources({ syncAppliedSourceSignature: true });
   } catch (error) {
@@ -3523,7 +3528,7 @@ const resetParticipants = async () => {
   if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
   try {
     const payload = await api("/api/participants/reset", { method: "POST" });
-    applyState(payload.state, { syncDraft: false });
+    await applyResponseState(payload, { syncDraft: false });
     await requestDiagnostics();
     await requestSources();
   } catch (error) {
@@ -3548,7 +3553,7 @@ const changeDevice = async (key, value) => {
       method: "PUT",
       body: JSON.stringify({ [key]: value || null }),
     });
-    applyState(payload.state, { syncDraft: false, mergeDraftSections: ["devices"] });
+    await applyResponseState(payload, { syncDraft: false, mergeDraftSections: ["devices"] });
     state.devices = payload.devices;
     renderDevices();
     await requestDiagnostics();
