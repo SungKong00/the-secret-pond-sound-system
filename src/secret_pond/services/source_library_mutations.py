@@ -23,6 +23,23 @@ class SourceUploadMutationResult:
     settings_state: SettingsState
 
 
+def select_source_file_and_update_draft(
+    runtime: SecretPondRuntime,
+    category: str,
+    relative_path: str | None,
+) -> SettingsState:
+    settings_state = runtime.settings_store.patch_draft(
+        lambda draft: select_existing_source(
+            runtime.paths,
+            draft,
+            category,
+            relative_path,
+        ),
+    )
+    runtime.settings_state = settings_state
+    return settings_state
+
+
 def upload_source_file_and_maybe_select(
     runtime: SecretPondRuntime,
     category: str,

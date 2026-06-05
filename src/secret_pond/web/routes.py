@@ -12,7 +12,6 @@ from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.audio.source_library import (
     category_config,
     delete_source_file,
-    select_existing_source,
     selected_source_path,
     source_library_payload,
 )
@@ -33,6 +32,7 @@ from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
+    select_source_file_and_update_draft,
     upload_source_file_and_maybe_select,
 )
 from secret_pond.web.state import (
@@ -173,19 +173,15 @@ def select_source_file(
 
     with runtime.operation_lock:
         try:
-            state = runtime.settings_store.patch_draft(
-                lambda draft: select_existing_source(
-                    runtime.paths,
-                    draft,
-                    config.id,
-                    relative_path,
-                ),
+            state = select_source_file_and_update_draft(
+                runtime,
+                config.id,
+                relative_path,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        runtime.settings_state = state
         return {
             "settings": _settings_payload(runtime),
             "sources": source_library_payload(
