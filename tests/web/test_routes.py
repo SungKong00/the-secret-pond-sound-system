@@ -1469,10 +1469,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const renderState = () => {",
         "};\n\nconst renderLastEventBadge",
     )
+    assert "const currentDashboardControlState = (snapshot = state.snapshot) => {" in script.text
+    assert "resetParticipantsInFlight: state.resetParticipantsInFlight" in script.text
     assert (
-        "const pendingChangeState = derivePendingChangeState(" in render_state_body
+        "const { pendingChangeState, controlState } = currentDashboardControlState(snapshot)"
+        in render_state_body
     )
-    assert "const controlState = deriveDashboardControlState({" in render_state_body
     assert (
         '"captureGateSwitch").disabled = controlState.captureGateSwitchDisabled'
         in render_state_body
@@ -1617,6 +1619,12 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "const resetParticipants = async () => {",
         "};\n\nconst changeDevice",
     )
+    assert (
+        "currentDashboardControlState().controlState.resetParticipantsDisabled"
+        in reset_participants_body
+    )
+    assert "state.resetParticipantsInFlight = true" in reset_participants_body
+    assert "state.resetParticipantsInFlight = false" in reset_participants_body
     assert "applyResponseState(payload, { syncDraft: false })" in reset_participants_body
     assert "const applyResponseState = async (payload, options = {}) => {" in script.text
     assert "applyState(payload.state, options)" in script.text
@@ -2425,6 +2433,20 @@ assert.strictEqual(playbackControlBusy.resetDisabled, true);
 assert.strictEqual(
   playbackControlBusy.resetTitle,
   "출력 제어가 끝날 때까지 기다리세요.",
+);
+
+const resetParticipantsBusy = derive({{
+  snapshot,
+  resetParticipantsInFlight: true,
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(resetParticipantsBusy.resetParticipantsDisabled, true);
+assert.strictEqual(
+  resetParticipantsBusy.resetParticipantsTitle,
+  "참여자 초기화가 끝날 때까지 기다리세요.",
 );
 
 const activeRecording = derive({{
@@ -3515,6 +3537,164 @@ assert.deepStrictEqual(
     className: "status-pill hot",
   }},
 );
+""",
+    )
+
+
+def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderState, resetParticipants }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {{
+  const activeSettings = {{
+    voice_stack: {{ mode: "live_ephemeral", loop_seconds: 60 }},
+    input_control: {{
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    }},
+    recording: {{
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    }},
+    audio: {{ sample_rate: 48000, channels: 2 }},
+    devices: {{ input_device_id: null, output_device_id: null }},
+    sources: {{
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    }},
+    layers: {{
+      low: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+      mid: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+      voice: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+    }},
+  }};
+  const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+  const snapshot = {{
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 3,
+    playback: {{ output_running: false, layers: {{}} }},
+    settings: {{
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: [],
+      }},
+    }},
+  }};
+  globalThis.__secretPondTest.state.snapshot = snapshot;
+  globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.renderState();
+  assert.strictEqual(elements.resetParticipantsButton.disabled, false);
+
+  let confirmCount = 0;
+  window.confirm = () => {{
+    confirmCount += 1;
+    return true;
+  }};
+
+  const resetFetches = [];
+  let resolveParticipantReset = null;
+  globalThis.fetch = (path) => {{
+    resetFetches.push(path);
+    if (path === "/api/participants/reset") {{
+      return new Promise((resolve) => {{
+        resolveParticipantReset = () =>
+          resolve({{
+            ok: true,
+            json: async () => ({{ state: {{ ...snapshot, participant_count: 0 }} }}),
+          }});
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+
+  const reset = globalThis.__secretPondTest.resetParticipants();
+  assert.strictEqual(confirmCount, 1);
+  assert.strictEqual(globalThis.__secretPondTest.state.resetParticipantsInFlight, true);
+  assert.strictEqual(elements.resetParticipantsButton.disabled, true);
+  assert.strictEqual(
+    elements.resetParticipantsButton.title,
+    "참여자 초기화가 끝날 때까지 기다리세요.",
+  );
+  assert.deepStrictEqual(resetFetches, ["/api/participants/reset"]);
+
+  await globalThis.__secretPondTest.resetParticipants();
+  assert.strictEqual(confirmCount, 1);
+  assert.deepStrictEqual(resetFetches, ["/api/participants/reset"]);
+
+  resolveParticipantReset();
+  await reset;
+  assert.strictEqual(globalThis.__secretPondTest.state.resetParticipantsInFlight, false);
+  assert.strictEqual(elements.resetParticipantsButton.disabled, false);
+  assert.deepStrictEqual(resetFetches, [
+    "/api/participants/reset",
+    "/api/diagnostics",
+    "/api/sources",
+  ]);
+})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
 """,
     )
 

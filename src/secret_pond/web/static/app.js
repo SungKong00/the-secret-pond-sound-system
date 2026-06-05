@@ -64,6 +64,7 @@ const state = {
   playbackControlInFlight: false,
   applyInFlight: false,
   resetDraftInFlight: false,
+  resetParticipantsInFlight: false,
   deviceChangeInFlight: false,
   activeInteractiveControl: null,
   renderSignatures: {
@@ -1452,6 +1453,7 @@ const operationLockMessages = {
   sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
   sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
+  resetParticipants: "참여자 초기화가 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
   deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
   deviceChange: "장치 변경을 적용하는 중입니다.",
@@ -1628,11 +1630,13 @@ const deriveDashboardControlState = ({
   sourceMutationInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
+  resetParticipantsInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
+  const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || playbackControlBusy);
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
@@ -1654,13 +1658,15 @@ const deriveDashboardControlState = ({
     pendingChanges,
     runtimeConfigChanged,
   });
-  const resetParticipantsTitle = isRecording
-    ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
-    : recordingStopBusy
-      ? "녹음 처리가 끝날 때까지 기다리세요."
-      : applyInFlight
-        ? "설정 적용이 끝날 때까지 기다리세요."
-        : "";
+  const resetParticipantsTitle = resetParticipantsBusy
+    ? operationLockMessages.resetParticipants
+    : isRecording
+      ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
+      : recordingStopBusy
+        ? "녹음 처리가 끝날 때까지 기다리세요."
+        : applyInFlight
+          ? "설정 적용이 끝날 때까지 기다리세요."
+          : "";
   return {
     recordingStopBusy,
     outputControlBusy,
@@ -1674,7 +1680,8 @@ const deriveDashboardControlState = ({
     stopOutputDisabled: outputControlBusy || !outputRunning,
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
-    resetParticipantsDisabled: applyInFlight || recordingStopBusy || isRecording,
+    resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || recordingStopBusy ||
+      isRecording,
     resetParticipantsTitle,
   };
 };
@@ -1690,24 +1697,32 @@ const derivePendingChangeState = (settingsPlan, sourceFilesChanged = false) => {
   };
 };
 
-const renderState = () => {
-  renderSyncBadge();
-  const snapshot = state.snapshot;
-  if (!snapshot) return;
+const currentDashboardControlState = (snapshot = state.snapshot) => {
   const pendingChangeState = derivePendingChangeState(
     settingsChangePlan(snapshot),
     hasSourceFileChanges(snapshot),
   );
-  const controlState = deriveDashboardControlState({
-    snapshot,
-    applyInFlight: state.applyInFlight,
-    resetDraftInFlight: state.resetDraftInFlight,
-    sourceMutationInFlight: state.sourceMutationInFlight,
-    recordingStopInFlight: state.recordingStopInFlight,
-    playbackControlInFlight: state.playbackControlInFlight,
-    pendingChanges: pendingChangeState.pendingChanges,
-    runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
-  });
+  return {
+    pendingChangeState,
+    controlState: deriveDashboardControlState({
+      snapshot,
+      applyInFlight: state.applyInFlight,
+      resetDraftInFlight: state.resetDraftInFlight,
+      sourceMutationInFlight: state.sourceMutationInFlight,
+      recordingStopInFlight: state.recordingStopInFlight,
+      playbackControlInFlight: state.playbackControlInFlight,
+      resetParticipantsInFlight: state.resetParticipantsInFlight,
+      pendingChanges: pendingChangeState.pendingChanges,
+      runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
+    }),
+  };
+};
+
+const renderState = () => {
+  renderSyncBadge();
+  const snapshot = state.snapshot;
+  if (!snapshot) return;
+  const { pendingChangeState, controlState } = currentDashboardControlState(snapshot);
 
   $("armedBadge").textContent = snapshot.armed ? "녹음 준비 켜짐" : "녹음 준비 꺼짐";
   $("armedBadge").className = `status-pill ${snapshot.armed ? "safe" : "muted"}`;
@@ -3632,15 +3647,28 @@ const resetDraft = async () => {
 };
 
 const resetParticipants = async () => {
+  if (
+    !state.snapshot ||
+    currentDashboardControlState().controlState.resetParticipantsDisabled
+  ) {
+    return;
+  }
   if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+  let resetError = null;
+  state.resetParticipantsInFlight = true;
+  renderState();
   try {
     const payload = await api("/api/participants/reset", { method: "POST" });
     await applyResponseState(payload, { syncDraft: false });
     await requestDiagnostics();
     await requestSources();
   } catch (error) {
+    resetError = error;
     await requestState({ syncDraft: false }).catch(() => {});
-    showError(error.message);
+  } finally {
+    state.resetParticipantsInFlight = false;
+    renderState();
+    if (resetError) showError(resetError.message);
   }
 };
 
