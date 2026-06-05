@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
+from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.source_library import (
     SourceCategoryConfig,
     category_config,
@@ -355,6 +356,12 @@ def add_voice_raw_to_stack(request: Request, payload: dict[str, Any]) -> dict[st
         )
         settings_state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
         runtime.apply_settings_state(settings_state)
+        _update_pending_voice_transition_after_source_select(
+            runtime,
+            "voice_stack",
+            result.selected_voice_stack_path,
+            settings_state,
+        )
         runtime.mark_state_changed()
         return {
             "add_to_stack": {"voice_stack_path": result.selected_voice_stack_path},
@@ -673,9 +680,28 @@ def _update_pending_voice_transition_after_source_select(
         and runtime.controller.settings.playback.apply_mode == "live"
     ):
         runtime.renderer.render_layer("voice", settings_state.draft)
+        if runtime.output.is_running:
+            _start_ready_voice_stack_transition(runtime, relative_path)
+            runtime.pending_voice_transition_target_id = None
+            return
         runtime.pending_voice_transition_target_id = relative_path
         return
     runtime.pending_voice_transition_target_id = None
+
+
+def _start_ready_voice_stack_transition(
+    runtime: SecretPondRuntime,
+    transition_target_id: str,
+) -> None:
+    settings = runtime.controller.settings
+    duration_frames = int(settings.voice_stack.transition_seconds * settings.audio.sample_rate)
+    next_voice = read_wav(runtime.paths.voice_playback)
+    runtime.player.start_voice_crossfade(
+        next_voice,
+        duration_frames=duration_frames,
+        transition_target_id=transition_target_id,
+    )
+    runtime.transition_warning = None
 
 
 def _run_control(runtime: SecretPondRuntime, fn):

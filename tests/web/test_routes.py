@@ -10479,6 +10479,47 @@ def test_api_live_voice_stack_source_select_prepares_pending_voice_transition(
     )] == [("voice", selected_stack)]
 
 
+def test_api_live_voice_stack_source_select_crossfades_as_soon_as_voice_is_ready(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_with_voice_only_live_playback()
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=settings,
+    )
+    output.player = client.app.state.runtime.player
+    paths = ProjectPaths(tmp_path)
+    selected_stack = "data/sources/voice/stack/VS0610_213112.wav"
+    write_wav_atomic(
+        paths.voice_stack_sources_dir / "VS0610_213112.wav",
+        AudioBuffer(
+            samples=np.ones((8_000, 2), dtype=np.float32) * 0.7,
+            sample_rate=8_000,
+        ),
+    )
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    client.app.state.runtime.player.next_block(2_000)
+
+    response = client.put(
+        "/api/sources/voice_stack/select",
+        json={"path": selected_stack},
+    )
+
+    assert response.status_code == 200
+    transition = client.app.state.runtime.player.snapshot().voice_transition
+    assert transition is not None
+    assert transition.transition_target_id == selected_stack
+    assert client.app.state.runtime.player.frame_cursor == 2_000
+    assert response.json()["state"]["playback"]["active_voice_transition_target_id"] == (
+        selected_stack
+    )
+    assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] is None
+
+
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -12074,6 +12115,37 @@ def test_api_add_voice_raw_to_selected_stack_creates_new_vs_and_mirror(
         read_wav(tmp_path / selected_stack).samples,
         atol=1e-4,
     )
+
+
+def test_api_live_add_voice_raw_to_stack_prepares_pending_voice_transition(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    renderer = SpyLayerRenderer(client.app.state.runtime.renderer)
+    client.app.state.runtime.renderer = renderer
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    response = client.post(
+        "/api/voice-stack/add-source",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+
+    assert response.status_code == 200
+    selected_stack = response.json()["add_to_stack"]["voice_stack_path"]
+    assert selected_stack is not None
+    assert response.json()["settings"]["active"]["sources"]["voice_stack_path"] == selected_stack
+    assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] == (
+        selected_stack
+    )
+    assert [(layer_id, call_settings.sources.voice_stack_path) for layer_id, call_settings in (
+        renderer.render_layer_calls
+    )] == [("voice", selected_stack)]
 
 
 def test_api_voice_raw_preview_stops_main_playback_and_starts_preview(
