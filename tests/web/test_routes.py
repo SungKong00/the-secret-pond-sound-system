@@ -2274,9 +2274,9 @@ assert.deepStrictEqual(
   deriveLocks({{ recordingStopInFlight: true }}),
   {{
     draftLocked: true,
-    sourceUiLocked: false,
-    sourceCommandBlocked: false,
-    sourceActionTitle: "",
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "녹음 처리가 끝날 때까지 기다리세요.",
     deviceLocked: true,
     deviceTitle: "녹음 처리가 끝날 때까지 기다리세요.",
   }},
@@ -2286,9 +2286,9 @@ assert.deepStrictEqual(
   deriveLocks({{ playbackControlInFlight: true }}),
   {{
     draftLocked: true,
-    sourceUiLocked: false,
-    sourceCommandBlocked: false,
-    sourceActionTitle: "",
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "출력 제어가 끝날 때까지 기다리세요.",
     deviceLocked: true,
     deviceTitle: "출력 제어가 끝날 때까지 기다리세요.",
   }},
@@ -3035,7 +3035,10 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, applyAndRestart, control, renderState, renderDevices }",
+        exports=(
+            "{ state, applyAndRestart, control, renderState, renderDevices, "
+            "renderSourceLibrary }"
+        ),
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {{
@@ -3127,11 +3130,46 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
     selected_output_device: {{ id: "speaker-1", name: "Speaker 1" }},
     warnings: [],
   }};
+  const sourcePayload = {{
+    categories: [
+      {{
+        id: "low",
+        label: "Low",
+        directory: "sources/low",
+        selected_path: "sources/low/current.wav",
+        files: [
+          {{
+            name: "current.wav",
+            path: "sources/low/current.wav",
+            size_bytes: 10,
+            modified_at: "2026-06-05T00:00:00Z",
+            active: true,
+            applied: true,
+          }},
+        ],
+      }},
+    ],
+  }};
+  globalThis.__secretPondTest.state.sources = sourcePayload;
+  globalThis.__secretPondTest.state.sourceUploads.low = {{
+    selectAfterUpload: true,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }};
+  const latestSourceLibraryHtml = () =>
+    elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
+  const sourceUploadButtonHtml = () => {{
+    const html = latestSourceLibraryHtml();
+    const start = html.indexOf('data-source-upload="low"');
+    const end = html.indexOf('data-source-upload-select="low"');
+    return html.slice(start, end);
+  }};
   globalThis.__secretPondTest.renderState();
   globalThis.__secretPondTest.renderDevices();
+  globalThis.__secretPondTest.renderSourceLibrary();
   assert.strictEqual(elements.startOutputButton.disabled, false);
   assert.strictEqual(elements.inputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
   assert.strictEqual(elements.applyButton.disabled, true);
 
   globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds = 61;
@@ -3165,7 +3203,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
     if (path === "/api/sources") {{
       return Promise.resolve({{
         ok: true,
-        json: async () => ({{ categories: [] }}),
+        json: async () => sourcePayload,
       }});
     }}
     throw new Error(`unexpected fetch ${{path}}`);
@@ -3183,6 +3221,11 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.outputDeviceSelect.disabled, true);
   assert.strictEqual(elements.inputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
   assert.strictEqual(elements.outputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(
+    latestSourceLibraryHtml().includes("출력 제어가 끝날 때까지 기다리세요."),
+    true,
+  );
 
   await globalThis.__secretPondTest.applyAndRestart();
   assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);
@@ -3195,6 +3238,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(globalThis.__secretPondTest.state.playbackControlInFlight, false);
   assert.strictEqual(elements.inputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
   assert.deepStrictEqual(playbackFetches, [
     "/api/playback/start",
     "/api/diagnostics",
@@ -4015,6 +4059,44 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   );
   assert.strictEqual(helpers.state.deviceChangeInFlight, true);
 
+  helpers.state.deviceChangeInFlight = false;
+  helpers.state.recordingStopInFlight = true;
+  assert.strictEqual(
+    await helpers.selectSourceFile("low", "sources/low/recording-stop-busy.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.uploadSourceFile(
+      "low",
+      { name: "recording-stop-busy.wav", size: 12, lastModified: 1 },
+    ),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.recordingStopInFlight, true);
+
+  helpers.state.recordingStopInFlight = false;
+  helpers.state.playbackControlInFlight = true;
+  assert.strictEqual(
+    await helpers.selectSourceFile("low", "sources/low/playback-busy.wav"),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.uploadSourceFile(
+      "low",
+      { name: "playback-busy.wav", size: 12, lastModified: 1 },
+    ),
+    null,
+  );
+  assert.strictEqual(
+    await helpers.deleteSourceFile("low", "sources/low/old.wav"),
+    null,
+  );
+  assert.strictEqual(helpers.state.playbackControlInFlight, true);
+
   const dropZone = {
     removedClasses: [],
     classList: {
@@ -4044,7 +4126,7 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
   assert.strictEqual(dropEvent.dataTransfer.dropEffect, "none");
   assert.deepStrictEqual(dropZone.removedClasses, ["is-dragging"]);
   assert.strictEqual(helpers.state.sourceUploads.low.file, null);
-  helpers.state.deviceChangeInFlight = false;
+  helpers.state.playbackControlInFlight = false;
   assert.deepStrictEqual(fetchCalls, []);
 })().catch((error) => {
   console.error(error);
@@ -4088,6 +4170,34 @@ assert.strictEqual(helpers.state.sourceUploads.low.file, null);
 
 helpers.state.sourceMutationInFlight = false;
 helpers.state.resetDraftInFlight = true;
+sourceChangeHandler({
+  target: {
+    closest(selector) {
+      if (selector === "[data-source-upload-select]") {
+        return { dataset: { sourceUploadSelect: "low" }, checked: false };
+      }
+      return null;
+    },
+  },
+});
+assert.strictEqual(helpers.state.sourceUploads.low.selectAfterUpload, true);
+
+helpers.state.resetDraftInFlight = false;
+helpers.state.recordingStopInFlight = true;
+sourceChangeHandler({
+  target: {
+    closest(selector) {
+      if (selector === "[data-source-file]") {
+        return { dataset: { sourceFile: "low" }, files: [selectedFile] };
+      }
+      return null;
+    },
+  },
+});
+assert.strictEqual(helpers.state.sourceUploads.low.file, null);
+
+helpers.state.recordingStopInFlight = false;
+helpers.state.playbackControlInFlight = true;
 sourceChangeHandler({
   target: {
     closest(selector) {
@@ -4520,6 +4630,34 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}, false, false, false, false, true),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: true,
+    uploadTitle: "녹음 처리가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceUploadActionState({{
+    selectAfterUpload: false,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }}, false, false, false, false, false, true),
+  {{
+    selectAfterUpload: false,
+    hasFile: true,
+    hint: "picked-low.wav · 4.0 KB 선택됨",
+    uploadDisabled: true,
+    uploadTitle: "출력 제어가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileActionState({{ active: true }}),
   {{
     active: true,
@@ -4561,6 +4699,24 @@ assert.deepStrictEqual(
     active: false,
     deleteDisabled: true,
     deleteTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}, false, false, false, false, true),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "녹음 처리가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false }}, false, false, false, false, false, true),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "출력 제어가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -7128,6 +7284,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.notStrictEqual(elements.recordOutcomeStatus.textContent, "녹음 실패");
 
   let resolvePoll = null;
+  const pollSourcePayload = sourcePayloadFor("sources/low/current.wav").sources;
   globalThis.fetch = (path) => {{
     if (path === "/api/recording/poll-auto-stop") {{
       return new Promise((resolve) => {{
@@ -7144,11 +7301,24 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
         json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
       }});
     }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => pollSourcePayload,
+      }});
+    }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
   globalThis.__secretPondTest.state.snapshot.is_recording = true;
   globalThis.__secretPondTest.state.snapshot.recording_remaining_seconds = 12.3;
   globalThis.__secretPondTest.state.recordingStopInFlight = false;
+  globalThis.__secretPondTest.state.sources = pollSourcePayload;
+  globalThis.__secretPondTest.state.sourceUploads.low = {{
+    selectAfterUpload: true,
+    file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
+  }};
+  globalThis.__secretPondTest.renderSourceLibrary();
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
   const pollPromise = globalThis.__secretPondTest.control("/api/recording/poll-auto-stop", {{
     syncDraft: false,
   }});
@@ -7158,10 +7328,16 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(elements.outputDeviceSelect.disabled, true);
   assert.strictEqual(elements.inputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
   assert.strictEqual(elements.outputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(
+    latestSourceLibraryHtml().includes("녹음 처리가 끝날 때까지 기다리세요."),
+    true,
+  );
   resolvePoll();
   await pollPromise;
   assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
 }})().catch((error) => {{
   console.error(error);
   process.exit(1);

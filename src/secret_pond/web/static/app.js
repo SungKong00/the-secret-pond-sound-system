@@ -1523,6 +1523,8 @@ const deriveOperationLocks = ({
     [resetDraftInFlight, operationLockMessages.sourceReset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.sourceDeviceChange],
+    [recordingStopInFlight, operationLockMessages.recordingStop],
+    [playbackControlInFlight, operationLockMessages.playbackControl],
   ]);
   const deviceTitle = firstOperationLockTitle([
     [!devicesLoaded, operationLockMessages.deviceLoading],
@@ -2117,6 +2119,8 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
   state.applyInFlight,
   state.resetDraftInFlight,
   state.deviceChangeInFlight,
+  state.recordingStopInFlight,
+  state.playbackControlInFlight,
   categories.map((category) => [
     category.id,
     category.label,
@@ -2198,11 +2202,15 @@ const sourceActionBusyTitle = ({
   applyInFlight = false,
   resetDraftInFlight = false,
   deviceChangeInFlight = false,
+  recordingStopInFlight = false,
+  playbackControlInFlight = false,
 } = {}) => deriveOperationLocks({
   sourceMutationInFlight,
   applyInFlight,
   resetDraftInFlight,
   deviceChangeInFlight,
+  recordingStopInFlight,
+  playbackControlInFlight,
 }).sourceActionTitle;
 
 const currentSourceLockState = () => deriveOperationLocks({
@@ -2210,6 +2218,8 @@ const currentSourceLockState = () => deriveOperationLocks({
   applyInFlight: state.applyInFlight,
   resetDraftInFlight: state.resetDraftInFlight,
   deviceChangeInFlight: state.deviceChangeInFlight,
+  recordingStopInFlight: state.recordingStopInFlight,
+  playbackControlInFlight: state.playbackControlInFlight,
 });
 
 const sourceCommandBlocked = () =>
@@ -2268,6 +2278,8 @@ const deriveSourceUploadActionState = (
   applyInFlight = false,
   resetDraftInFlight = false,
   deviceChangeInFlight = false,
+  recordingStopInFlight = false,
+  playbackControlInFlight = false,
 ) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
@@ -2276,6 +2288,8 @@ const deriveSourceUploadActionState = (
     applyInFlight,
     resetDraftInFlight,
     deviceChangeInFlight,
+    recordingStopInFlight,
+    playbackControlInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2297,6 +2311,8 @@ const deriveSourceFileActionState = (
   applyInFlight = false,
   resetDraftInFlight = false,
   deviceChangeInFlight = false,
+  recordingStopInFlight = false,
+  playbackControlInFlight = false,
 ) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
@@ -2305,6 +2321,8 @@ const deriveSourceFileActionState = (
     applyInFlight,
     resetDraftInFlight,
     deviceChangeInFlight,
+    recordingStopInFlight,
+    playbackControlInFlight,
   });
   const busy = Boolean(busyTitle);
   return {
@@ -2369,6 +2387,8 @@ const sourceCategoryCard = (category) => {
     state.applyInFlight,
     state.resetDraftInFlight,
     state.deviceChangeInFlight,
+    state.recordingStopInFlight,
+    state.playbackControlInFlight,
   );
   const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
   const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
@@ -2446,6 +2466,8 @@ const sourceFileRows = (category) => {
       state.applyInFlight,
       state.resetDraftInFlight,
       state.deviceChangeInFlight,
+      state.recordingStopInFlight,
+      state.playbackControlInFlight,
     );
     const badges = deriveSourceFileStatusLabels(file, action)
       .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
@@ -3828,11 +3850,13 @@ const control = async (path, options = {}) => {
     state.recordingStopInFlight = true;
     renderState();
     renderDevices();
+    renderSourceLibrary();
   }
   if (playbackControlRequest) {
     state.playbackControlInFlight = true;
     renderState();
     renderDevices();
+    renderSourceLibrary();
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
     setRecordStatus("processing", "녹음 처리 중...");
@@ -3879,11 +3903,13 @@ const control = async (path, options = {}) => {
       state.recordingStopInFlight = false;
       renderState();
       renderDevices();
+      renderSourceLibrary();
     }
     if (playbackControlRequest) {
       state.playbackControlInFlight = false;
       renderState();
       renderDevices();
+      renderSourceLibrary();
     }
     if (startsStartRequest) {
       state.recordingStartInFlight = false;
