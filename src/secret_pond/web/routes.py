@@ -111,14 +111,15 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
 @router.get("/devices")
 def get_devices(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    settings = _settings_state(runtime).active
-    try:
-        return _devices_payload(runtime, settings)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"audio devices unavailable: {exc}",
-        ) from exc
+    with runtime.operation_lock:
+        settings = _settings_state(runtime).active
+        try:
+            return _devices_payload(runtime, settings)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"audio devices unavailable: {exc}",
+            ) from exc
 
 
 @router.put("/devices")

@@ -349,6 +349,32 @@ class LockAwareSettingsStore:
         return getattr(self.delegate, name)
 
 
+class LockAwareDeviceRegistry:
+    def __init__(self, delegate, lock) -> None:
+        self.delegate = delegate
+        self.lock = lock
+        self.lock_owned_during_calls: list[bool] = []
+
+    def _record_lock(self) -> None:
+        self.lock_owned_during_calls.append(self.lock._is_owned())
+
+    def list_input_devices(self):
+        self._record_lock()
+        return self.delegate.list_input_devices()
+
+    def list_output_devices(self):
+        self._record_lock()
+        return self.delegate.list_output_devices()
+
+    def validate_input(self, device_id):
+        self._record_lock()
+        return self.delegate.validate_input(device_id)
+
+    def validate_output(self, device_id):
+        self._record_lock()
+        return self.delegate.validate_output(device_id)
+
+
 class FailingSaveSettingsStore:
     def __init__(self, delegate, error: Exception) -> None:
         self.delegate = delegate
@@ -6887,6 +6913,26 @@ def test_api_devices_returns_device_lists_and_selected_devices(tmp_path: Path) -
     assert payload["selected_input_device"]["host_api_name"] == "Core Audio"
     assert payload["selected_output_device"]["host_api_name"] == "WASAPI"
     assert payload["warnings"] == []
+
+
+def test_api_devices_reads_settings_and_registry_inside_runtime_lock(tmp_path: Path) -> None:
+    client = create_test_client(
+        tmp_path,
+        settings=api_settings_with_devices(),
+        device_registry=fake_device_registry(),
+    )
+    runtime = client.app.state.runtime
+    settings_store = LockAwareSettingsStore(runtime.settings_store, runtime.operation_lock)
+    device_registry = LockAwareDeviceRegistry(runtime.device_registry, runtime.operation_lock)
+    runtime.settings_store = settings_store
+    runtime.device_registry = device_registry
+
+    response = client.get("/api/devices")
+
+    assert response.status_code == 200
+    assert settings_store.lock_owned_during_load is True
+    assert device_registry.lock_owned_during_calls
+    assert all(device_registry.lock_owned_during_calls)
 
 
 def test_api_devices_maps_device_registry_failure_to_503(tmp_path: Path) -> None:
