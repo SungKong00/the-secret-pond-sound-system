@@ -2191,13 +2191,15 @@ const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   if (!live.enabled) return false;
   const volumeLive = Boolean(live.volume_applies_immediately);
   const muteLive = Boolean(live.mute_applies_immediately);
-  if (!volumeLive && !muteLive) return false;
+  const eqLive = Boolean(live.eq_applies_immediately);
+  if (!volumeLive && !muteLive && !eqLive) return false;
   const activeLayers = clone(snapshot.settings.active.layers || {});
   const draftLayers = clone(state.draft.layers || {});
   layerIds.forEach((layerId) => {
     if (!activeLayers[layerId] || !draftLayers[layerId]) return;
     if (volumeLive) draftLayers[layerId].volume_db = activeLayers[layerId].volume_db;
     if (muteLive) draftLayers[layerId].enabled = activeLayers[layerId].enabled;
+    if (eqLive) draftLayers[layerId].eq = activeLayers[layerId].eq;
   });
   return stableSettingsSignature(activeLayers) === stableSettingsSignature(draftLayers);
 };
