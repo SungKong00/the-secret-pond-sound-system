@@ -5,7 +5,12 @@ import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import write_wav_atomic
-from secret_pond.config import AppSettings, AudioFormatSettings, VoiceStackSettings
+from secret_pond.config import (
+    AppSettings,
+    AudioFormatSettings,
+    SourceSelectionSettings,
+    VoiceStackSettings,
+)
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.runtime import build_runtime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
@@ -87,6 +92,12 @@ def write_required_sources(paths: ProjectPaths, settings: AppSettings) -> None:
     write_wav_atomic(paths.mid_source, buffer)
 
 
+def write_source_file(path, settings: AppSettings) -> None:
+    frames = settings.audio.sample_rate * settings.audio.loop_seconds
+    samples = np.ones((frames, settings.audio.channels), dtype=np.float32) * 0.05
+    write_wav_atomic(path, AudioBuffer(samples=samples, sample_rate=settings.audio.sample_rate))
+
+
 def build_service_runtime(tmp_path, settings: AppSettings):
     SettingsStore(ProjectPaths(tmp_path)).save(SettingsState(active=settings, draft=settings))
     return build_runtime(tmp_path, output=MemoryOutput())
@@ -114,6 +125,41 @@ def test_apply_draft_settings_service_applies_render_only_change(tmp_path) -> No
     assert runtime.paths.low_playback.exists()
     assert runtime.paths.mid_playback.exists()
     assert runtime.paths.voice_playback.exists()
+
+
+def test_stable_mode_apply_preserves_settings_flow_for_stable_controlled_fields(
+    tmp_path,
+) -> None:
+    settings = service_settings()
+    runtime = build_service_runtime(tmp_path, settings)
+    paths = ProjectPaths(tmp_path)
+    write_required_sources(paths, settings)
+    write_source_file(paths.low_sources_dir / "custom-low.wav", settings)
+    write_source_file(paths.mid_sources_dir / "custom-mid.wav", settings)
+    draft = settings.model_copy(
+        update={
+            "audio": settings.audio.model_copy(update={"loop_seconds": 2}),
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/custom-low.wav",
+                mid_path="data/sources/mid/custom-mid.wav",
+            ),
+        },
+        deep=True,
+    )
+    runtime.settings_store.set_draft(draft)
+
+    result = apply_draft_settings(runtime)
+
+    stored = SettingsStore(paths).load()
+    assert result.settings_state.active.playback.apply_mode == "stable"
+    assert result.change_plan.runtime_config_changed is False
+    assert result.change_plan.changed_sections == ["audio", "sources"]
+    assert stored.active.playback.apply_mode == "stable"
+    assert stored.active.audio.loop_seconds == 2
+    assert stored.draft.audio.loop_seconds == 2
+    assert stored.active.sources.low_path == "data/sources/low/custom-low.wav"
+    assert stored.draft.sources.mid_path == "data/sources/mid/custom-mid.wav"
+    assert runtime.controller.settings.audio.loop_seconds == 2
 
 
 def test_apply_draft_settings_reloads_rendered_cache_without_live_voice_hot_swap(
