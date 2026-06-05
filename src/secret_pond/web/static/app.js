@@ -1328,7 +1328,50 @@ const syncDraftSnapshot = () => {
   );
 };
 
-const draftEditLocked = () => state.applyInFlight || state.resetDraftInFlight;
+const operationLockMessages = {
+  sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+  deviceLoading: "장치 목록을 불러오는 중입니다.",
+  deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
+  deviceChange: "장치 변경을 적용하는 중입니다.",
+  deviceRecording: "녹음 중에는 입력 장치를 바꿀 수 없습니다.",
+};
+
+const deriveOperationLocks = ({
+  applyInFlight = false,
+  resetDraftInFlight = false,
+  sourceMutationInFlight = false,
+  deviceChangeInFlight = false,
+  devicesLoaded = true,
+  forceDeviceDisabled = false,
+} = {}) => {
+  const sourceActionTitle = applyInFlight
+    ? operationLockMessages.sourceApply
+    : sourceMutationInFlight
+      ? operationLockMessages.sourceMutation
+      : "";
+  const deviceTitle = !devicesLoaded
+    ? operationLockMessages.deviceLoading
+    : applyInFlight
+      ? operationLockMessages.deviceApply
+      : deviceChangeInFlight
+        ? operationLockMessages.deviceChange
+        : forceDeviceDisabled
+          ? operationLockMessages.deviceRecording
+          : "";
+  return {
+    draftLocked: Boolean(applyInFlight || resetDraftInFlight),
+    sourceUiLocked: Boolean(sourceActionTitle),
+    sourceCommandBlocked: Boolean(sourceActionTitle),
+    sourceActionTitle,
+    deviceLocked: Boolean(
+      forceDeviceDisabled || deviceChangeInFlight || applyInFlight || !devicesLoaded,
+    ),
+    deviceTitle,
+  };
+};
+
+const draftEditLocked = (stateLike = state) => deriveOperationLocks(stateLike).draftLocked;
 
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
@@ -1828,13 +1871,8 @@ const sourceUploadSignature = (category) => {
   ];
 };
 
-const sourceMutationBusyTitle = "소스 파일 작업이 끝날 때까지 기다리세요.";
-const sourceApplyBusyTitle = "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.";
-
 const sourceActionBusyTitle = (sourceMutationInFlight = false, applyInFlight = false) => {
-  if (applyInFlight) return sourceApplyBusyTitle;
-  if (sourceMutationInFlight) return sourceMutationBusyTitle;
-  return "";
+  return deriveOperationLocks({ sourceMutationInFlight, applyInFlight }).sourceActionTitle;
 };
 
 const deriveSourceUploadActionState = (
@@ -2188,17 +2226,13 @@ const deriveSystemDeviceSelectState = ({
   deviceChangeInFlight = false,
   applyInFlight = false,
 } = {}) => {
-  const disabled = forceDisabled || deviceChangeInFlight || applyInFlight || !devicesLoaded;
-  const title = !devicesLoaded
-    ? "장치 목록을 불러오는 중입니다."
-    : applyInFlight
-      ? "설정 적용이 끝날 때까지 기다리세요."
-      : deviceChangeInFlight
-        ? "장치 변경을 적용하는 중입니다."
-        : forceDisabled
-          ? "녹음 중에는 입력 장치를 바꿀 수 없습니다."
-          : "";
-  return { disabled, title };
+  const locks = deriveOperationLocks({
+    applyInFlight,
+    deviceChangeInFlight,
+    devicesLoaded,
+    forceDeviceDisabled: forceDisabled,
+  });
+  return { disabled: locks.deviceLocked, title: locks.deviceTitle };
 };
 
 const deriveStorageModeControlState = ({

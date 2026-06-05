@@ -1814,7 +1814,7 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         tmp_path,
         exports=(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
-            "deriveControlRequestState, deriveSystemDeviceSelectState, "
+            "deriveControlRequestState, deriveOperationLocks, deriveSystemDeviceSelectState, "
             "deriveStorageModeControlState }"
         ),
         body="""
@@ -1827,12 +1827,44 @@ const derive = globalThis.__secretPondTest.deriveDashboardControlState;
 const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionState;
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
 const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
+const deriveLocks = globalThis.__secretPondTest.deriveOperationLocks;
 const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
 const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
 const settings = {{
   active: {{ voice_stack: {{ mode: "live_ephemeral" }} }},
 }};
 const draft = {{ voice_stack: {{ mode: "live_ephemeral" }} }};
+
+assert.deepStrictEqual(
+  deriveLocks({{
+    applyInFlight: true,
+    resetDraftInFlight: true,
+    sourceMutationInFlight: true,
+    deviceChangeInFlight: true,
+    devicesLoaded: true,
+    forceDeviceDisabled: true,
+  }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
+    deviceLocked: true,
+    deviceTitle: "설정 적용이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveLocks({{ devicesLoaded: false }}),
+  {{
+    draftLocked: false,
+    sourceUiLocked: false,
+    sourceCommandBlocked: false,
+    sourceActionTitle: "",
+    deviceLocked: true,
+    deviceTitle: "장치 목록을 불러오는 중입니다.",
+  }},
+);
 
 assert.deepStrictEqual(
   deriveDeviceSelect({{ devicesLoaded: false }}),
