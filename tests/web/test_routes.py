@@ -4525,6 +4525,114 @@ assert.strictEqual(uploadButton.title, "추가할 WAV 파일을 먼저 선택하
     )
 
 
+def test_static_ui_settings_controls_render_is_deferred_while_control_is_active(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ state, renderControls, trackSettingsInteractiveControl, "
+            "releaseSettingsInteractiveControl }"
+        ),
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const layerSettings = (volumeDb) => ({
+  enabled: true,
+  volume_db: volumeDb,
+  eq: {
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+  },
+});
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: null, output_device_id: null },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: layerSettings(-12),
+    mid: layerSettings(-12),
+    voice: layerSettings(-18),
+  },
+};
+helpers.state.snapshot = {
+  armed: true,
+  is_recording: false,
+  playback: { output_running: false, layers: {} },
+  settings: {
+    active: activeSettings,
+    draft: activeSettings,
+    change: {
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+    },
+  },
+};
+helpers.state.draft = JSON.parse(JSON.stringify(activeSettings));
+
+const activeInput = makeElement();
+activeInput.tagName = "INPUT";
+[
+  "layerControls",
+  "voiceLayerControls",
+  "voiceStackControls",
+  "recordingControls",
+].forEach((id) => document.getElementById(id));
+const settingsContainers = [
+  elements.layerControls,
+  elements.voiceLayerControls,
+  elements.voiceStackControls,
+  elements.recordingControls,
+];
+settingsContainers.forEach((container, index) => {
+  container.innerHTML = `open settings control ${index}`;
+  container.children.push({ marker: index });
+  container.contains = (element) => element === activeInput;
+});
+
+helpers.trackSettingsInteractiveControl({ target: activeInput });
+assert.strictEqual(helpers.state.activeInteractiveControl, activeInput);
+helpers.renderControls();
+
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["settings-controls"],
+  "function",
+);
+assert.strictEqual(elements.layerControls.innerHTML, "open settings control 0");
+assert.strictEqual(elements.layerControls.children.length, 1);
+
+helpers.releaseSettingsInteractiveControl({ target: activeInput });
+
+assert.strictEqual(helpers.state.deferredInteractiveRenders["settings-controls"], undefined);
+assert.notStrictEqual(elements.layerControls.innerHTML, "open settings control 0");
+""",
+    )
+
+
 def test_static_ui_system_status_render_does_not_rebuild_device_selects(
     tmp_path: Path,
 ) -> None:

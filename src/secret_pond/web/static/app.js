@@ -970,6 +970,12 @@ const recordingPresetIsSelected = (name) => selectedRecordingPresetName() === na
 const deferredInteractiveRenderTargets = new WeakSet();
 const deferredInteractiveRenderControls = {};
 const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
+const settingsControlContainerIds = [
+  "layerControls",
+  "voiceLayerControls",
+  "voiceStackControls",
+  "recordingControls",
+];
 
 const activeInteractiveControlFor = (container) => {
   const tracked = state.activeInteractiveControl;
@@ -1004,6 +1010,32 @@ const releaseInteractiveControl = (element) => {
     state.activeInteractiveControl = null;
   }
   flushDeferredInteractiveRenders(element);
+};
+
+const settingsControlContainers = () =>
+  settingsControlContainerIds.map((id) => $(id)).filter(Boolean);
+
+const activeSettingsControlContainer = () =>
+  settingsControlContainers().find((container) => activeInteractiveControlFor(container)) || null;
+
+const settingsInteractiveControlFromEventTarget = (target) => {
+  const control = target?.closest?.("select,input,textarea") || target;
+  if (!control || !interactiveControlTags.has(control.tagName)) return null;
+  return settingsControlContainers().some((container) => (
+    container === control || container.contains?.(control)
+  ))
+    ? control
+    : null;
+};
+
+const trackSettingsInteractiveControl = (event) => {
+  const control = settingsInteractiveControlFromEventTarget(event.target);
+  if (control) trackInteractiveControl(control);
+};
+
+const releaseSettingsInteractiveControl = (event) => {
+  const control = settingsInteractiveControlFromEventTarget(event.target);
+  if (control) releaseInteractiveControl(control);
 };
 
 const flushDeferredInteractiveRenders = (element) => {
@@ -3093,6 +3125,13 @@ const updateLayerEnabledControl = (card, layerId, enabled) => {
 
 const renderControls = () => {
   if (!state.draft) return;
+  const activeContainer = activeSettingsControlContainer();
+  if (
+    activeContainer &&
+    deferInteractiveRender("settings-controls", activeContainer, renderControls)
+  ) {
+    return;
+  }
   renderLayerControls();
   renderVoiceStackControls();
   renderRecordingPresets();
@@ -4209,6 +4248,9 @@ const bindEvents = () => {
   document.querySelectorAll("[data-storage-mode]").forEach((button) => {
     button.addEventListener("click", () => setStorageMode(button.dataset.storageMode));
   });
+  document.addEventListener("pointerdown", trackSettingsInteractiveControl);
+  document.addEventListener("focusin", trackSettingsInteractiveControl);
+  document.addEventListener("focusout", releaseSettingsInteractiveControl);
   for (const select of [$("inputDeviceSelect"), $("outputDeviceSelect")]) {
     select.addEventListener("pointerdown", () => trackInteractiveControl(select));
     select.addEventListener("focus", () => trackInteractiveControl(select));
