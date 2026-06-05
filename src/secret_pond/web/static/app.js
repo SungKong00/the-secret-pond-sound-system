@@ -1447,12 +1447,29 @@ const syncDraftSnapshot = () => {
 };
 
 const operationLockMessages = {
+  draftApply: "설정 적용이 끝날 때까지 기다리세요.",
+  draftReset: "설정 변경 취소가 끝날 때까지 기다리세요.",
   sourceMutation: "소스 파일 작업이 끝날 때까지 기다리세요.",
   sourceApply: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
   deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
   deviceChange: "장치 변경을 적용하는 중입니다.",
   deviceRecording: "녹음 중에는 입력 장치를 바꿀 수 없습니다.",
+};
+
+const deriveDraftControlLockState = ({
+  applyInFlight = false,
+  resetDraftInFlight = false,
+} = {}) => {
+  const title = applyInFlight
+    ? operationLockMessages.draftApply
+    : resetDraftInFlight
+      ? operationLockMessages.draftReset
+      : "";
+  return {
+    disabled: Boolean(title),
+    title,
+  };
 };
 
 const deriveOperationLocks = ({
@@ -1477,8 +1494,9 @@ const deriveOperationLocks = ({
         : forceDeviceDisabled
           ? operationLockMessages.deviceRecording
           : "";
+  const draftLock = deriveDraftControlLockState({ applyInFlight, resetDraftInFlight });
   return {
-    draftLocked: Boolean(applyInFlight || resetDraftInFlight),
+    draftLocked: draftLock.disabled,
     sourceUiLocked: Boolean(sourceActionTitle),
     sourceCommandBlocked: Boolean(sourceActionTitle),
     sourceActionTitle,
@@ -1489,15 +1507,9 @@ const deriveOperationLocks = ({
   };
 };
 
-const draftEditLocked = (stateLike = state) => deriveOperationLocks(stateLike).draftLocked;
+const draftEditLocked = (stateLike = state) => deriveDraftControlLockState(stateLike).disabled;
 
-const draftEditLockTitle = () => (
-  state.applyInFlight
-    ? "설정 적용이 끝날 때까지 기다리세요."
-    : state.resetDraftInFlight
-      ? "설정 변경 취소가 끝날 때까지 기다리세요."
-      : ""
-);
+const draftEditLockTitle = (stateLike = state) => deriveDraftControlLockState(stateLike).title;
 
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
@@ -2849,8 +2861,9 @@ const renderLayerGroup = (containerId, layerIds) => {
 const renderLayerCard = (layerId) => {
   const layer = state.draft.layers[layerId];
   const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
-  const draftLocked = draftEditLocked();
-  const draftLockTitle = draftEditLockTitle();
+  const draftLock = deriveDraftControlLockState(state);
+  const draftLocked = draftLock.disabled;
+  const draftLockTitle = draftLock.title;
   const card = document.createElement("section");
   card.className = "layer-card";
   const layerLabel = layerLabels[layerId];
@@ -2936,39 +2949,40 @@ const renderLayerCard = (layerId) => {
   return card;
 };
 
-const layerPresetMarkup = (layerId) => `
-  <div class="layer-preset-row" role="group" aria-label="${labelText(layerLabels[layerId])} 톤 프리셋">
-    ${Object.entries(layerPresetLabels)
-      .map(
-        ([name, label]) => {
-          const active = layerPresetIsSelected(layerId, name);
-          const locked = draftEditLocked();
-          return `
-          <button
-            class="layer-preset-button ${active ? "active" : ""}"
-            type="button"
-            data-layer-preset="${name}"
-            aria-pressed="${active ? "true" : "false"}"
-            ${locked ? `disabled title="${escapeHtml(draftEditLockTitle())}"` : ""}
-          >
-            ${labelMarkup(label)}
-          </button>
-        `;
-        },
-      )
-      .join("")}
-  </div>
-`;
+const layerPresetMarkup = (layerId) => {
+  const draftLock = deriveDraftControlLockState(state);
+  return `
+    <div class="layer-preset-row" role="group" aria-label="${labelText(layerLabels[layerId])} 톤 프리셋">
+      ${Object.entries(layerPresetLabels)
+        .map(
+          ([name, label]) => {
+            const active = layerPresetIsSelected(layerId, name);
+            return `
+            <button
+              class="layer-preset-button ${active ? "active" : ""}"
+              type="button"
+              data-layer-preset="${name}"
+              aria-pressed="${active ? "true" : "false"}"
+              ${draftLock.disabled ? `disabled title="${escapeHtml(draftLock.title)}"` : ""}
+            >
+              ${labelMarkup(label)}
+            </button>
+          `;
+          },
+        )
+        .join("")}
+    </div>
+  `;
+};
 
 const updateLayerPresetButtons = (card, layerId) => {
-  const locked = draftEditLocked();
-  const lockedTitle = draftEditLockTitle();
+  const draftLock = deriveDraftControlLockState(state);
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
     const active = layerPresetIsSelected(layerId, button.dataset.layerPreset);
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.disabled = locked;
-    button.title = locked ? lockedTitle : "";
+    button.disabled = draftLock.disabled;
+    button.title = draftLock.disabled ? draftLock.title : "";
   });
 };
 
@@ -3026,16 +3040,15 @@ const renderRecordingControls = () => {
 };
 
 const renderRecordingPresets = () => {
-  const locked = draftEditLocked();
-  const lockedTitle = draftEditLockTitle();
+  const draftLock = deriveDraftControlLockState(state);
   document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
     const label = presetLabels[button.dataset.preset];
     if (label) button.innerHTML = labelMarkup(label);
     const active = recordingPresetMatches(button.dataset.preset);
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.disabled = locked;
-    button.title = locked ? lockedTitle : "";
+    button.disabled = draftLock.disabled;
+    button.title = draftLock.disabled ? draftLock.title : "";
   });
 };
 
@@ -3139,8 +3152,8 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
   if (group.action !== "reset-filter") return "";
   const status = filterStatus(group, draftSource, activeSource);
   if (!status) return "";
-  const lockedTitle = draftEditLockTitle();
-  const actionDisabled = draftEditLocked() || status.bypassed;
+  const draftLock = deriveDraftControlLockState(state);
+  const actionDisabled = draftLock.disabled || status.bypassed;
   return `
     <div class="control-group-actions">
       <span class="filter-status ${
@@ -3154,7 +3167,7 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
         class="mini-button filter-reset-button"
         type="button"
         ${actionDisabled ? "disabled" : ""}
-        ${lockedTitle ? `title="${escapeHtml(lockedTitle)}"` : ""}
+        ${draftLock.title ? `title="${escapeHtml(draftLock.title)}"` : ""}
       >
         필터 초기화
       </button>

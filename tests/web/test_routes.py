@@ -1942,8 +1942,8 @@ def test_static_ui_dashboard_control_state_derives_buttons_without_dom(
         tmp_path,
         exports=(
             "{ deriveDashboardControlState, deriveSettingsActionState, derivePendingChangeState, "
-            "deriveControlRequestState, deriveOperationLocks, deriveSystemDeviceSelectState, "
-            "deriveStorageModeControlState }"
+            "deriveControlRequestState, deriveDraftControlLockState, deriveOperationLocks, "
+            "deriveSystemDeviceSelectState, deriveStorageModeControlState }"
         ),
         body="""
 const snapshot = {{
@@ -1955,6 +1955,7 @@ const derive = globalThis.__secretPondTest.deriveDashboardControlState;
 const deriveSettingsActions = globalThis.__secretPondTest.deriveSettingsActionState;
 const derivePending = globalThis.__secretPondTest.derivePendingChangeState;
 const deriveControl = globalThis.__secretPondTest.deriveControlRequestState;
+const deriveDraftLock = globalThis.__secretPondTest.deriveDraftControlLockState;
 const deriveLocks = globalThis.__secretPondTest.deriveOperationLocks;
 const deriveDeviceSelect = globalThis.__secretPondTest.deriveSystemDeviceSelectState;
 const deriveStorageMode = globalThis.__secretPondTest.deriveStorageModeControlState;
@@ -1991,6 +1992,38 @@ assert.deepStrictEqual(
     sourceActionTitle: "",
     deviceLocked: true,
     deviceTitle: "장치 목록을 불러오는 중입니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{}}),
+  {{
+    disabled: false,
+    title: "",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ applyInFlight: true }}),
+  {{
+    disabled: true,
+    title: "설정 적용이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ resetDraftInFlight: true }}),
+  {{
+    disabled: true,
+    title: "설정 변경 취소가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDraftLock({{ applyInFlight: true, resetDraftInFlight: true }}),
+  {{
+    disabled: true,
+    title: "설정 적용이 끝날 때까지 기다리세요.",
   }},
 );
 
