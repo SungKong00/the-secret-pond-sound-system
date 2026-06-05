@@ -10318,6 +10318,63 @@ def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_
     assert client.app.state.runtime.controller.settings.playback.apply_mode == "stable"
 
 
+def test_api_playback_apply_mode_switch_preserves_unrelated_playback_settings(
+    tmp_path: Path,
+) -> None:
+    active = api_settings().model_copy(
+        update={
+            "playback": PlaybackSettings(
+                auto_start=True,
+                apply_mode="stable",
+                master_volume_db=-11.0,
+            ),
+        },
+        deep=True,
+    )
+    draft = api_settings().model_copy(
+        update={
+            "playback": PlaybackSettings(
+                auto_start=False,
+                apply_mode="stable",
+                master_volume_db=-3.5,
+            ),
+        },
+        deep=True,
+    )
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.put("/api/playback/apply-mode", json={"mode": "live"})
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    assert stored.active.playback == PlaybackSettings(
+        auto_start=True,
+        apply_mode="live",
+        master_volume_db=-11.0,
+    )
+    assert stored.draft.playback == PlaybackSettings(
+        auto_start=False,
+        apply_mode="live",
+        master_volume_db=-3.5,
+    )
+    assert client.app.state.runtime.settings_state.active.playback == stored.active.playback
+    assert client.app.state.runtime.settings_state.draft.playback == stored.draft.playback
+    assert client.app.state.runtime.controller.settings.playback == stored.active.playback
+    assert response.json()["state"]["playback"]["apply_mode"] == "live"
+    assert response.json()["settings"]["active"]["playback"] == {
+        "auto_start": True,
+        "apply_mode": "live",
+        "master_volume_db": -11.0,
+    }
+    assert response.json()["settings"]["draft"]["playback"] == {
+        "auto_start": False,
+        "apply_mode": "live",
+        "master_volume_db": -3.5,
+    }
+
+
 def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(
     tmp_path: Path,
 ) -> None:
