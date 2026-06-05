@@ -2689,8 +2689,10 @@ const deriveStorageModeControlState = ({
   mode = null,
   applyInFlight = false,
   resetDraftInFlight = false,
+  sourceMutationInFlight = false,
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
+  playbackControlInFlight = false,
 } = {}) => {
   const modeDetails = storageModeDetails[mode];
   const ready = Boolean(snapshot && draft && modeDetails);
@@ -2698,13 +2700,17 @@ const deriveStorageModeControlState = ({
   const draftMode = draft?.voice_stack?.mode;
   const active = draftMode === mode;
   const pending = Boolean(activeMode && draftMode && activeMode !== draftMode);
+  const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
+  const playbackControlBusy = Boolean(playbackControlInFlight);
   const disabled =
     !ready ||
     applyInFlight ||
     resetDraftInFlight ||
+    sourceMutationBusy ||
     deviceChangeBusy ||
     recordingStopInFlight ||
+    playbackControlBusy ||
     Boolean(snapshot?.is_recording);
   return {
     active,
@@ -2714,9 +2720,13 @@ const deriveStorageModeControlState = ({
     title: disabled
       ? resetDraftInFlight
         ? "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다."
-        : deviceChangeBusy
-          ? operationLockMessages.deviceChange
-          : storageModeBusyTitle
+        : sourceMutationBusy
+          ? operationLockMessages.sourceMutation
+          : deviceChangeBusy
+            ? operationLockMessages.deviceChange
+            : playbackControlBusy
+              ? operationLockMessages.playbackControl
+              : storageModeBusyTitle
       : modeDetails.idleTitle,
     canCommit: ready && !disabled,
   };
@@ -3084,8 +3094,10 @@ const renderStorageModeControls = () => {
       mode,
       applyInFlight: state.applyInFlight,
       resetDraftInFlight: state.resetDraftInFlight,
+      sourceMutationInFlight: state.sourceMutationInFlight,
       deviceChangeInFlight: state.deviceChangeInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
+      playbackControlInFlight: state.playbackControlInFlight,
     });
     button.disabled = controlState.disabled;
     button.setAttribute("aria-pressed", controlState.ariaPressed);
@@ -3102,8 +3114,10 @@ const setStorageMode = (mode) => {
     mode,
     applyInFlight: state.applyInFlight,
     resetDraftInFlight: state.resetDraftInFlight,
+    sourceMutationInFlight: state.sourceMutationInFlight,
     deviceChangeInFlight: state.deviceChangeInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
+    playbackControlInFlight: state.playbackControlInFlight,
   });
   if (!controlState.canCommit) return;
   commitDraftChange(() => {

@@ -2494,6 +2494,40 @@ assert.deepStrictEqual(
   }},
 );
 
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    sourceMutationInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "소스 파일 작업이 끝날 때까지 기다리세요.",
+    canCommit: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    playbackControlInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "출력 제어가 끝날 때까지 기다리세요.",
+    canCommit: false,
+  }},
+);
+
 assert.strictEqual(
   deriveStorageMode({{
     snapshot: {{ settings, is_recording: true }},
@@ -3690,6 +3724,16 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
   assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
   assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
   helpers.state.deviceChangeInFlight = false;
+  helpers.state.sourceMutationInFlight = true;
+  helpers.setStorageMode("test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
+  helpers.state.sourceMutationInFlight = false;
+  helpers.state.playbackControlInFlight = true;
+  helpers.setStorageMode("test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
+  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
+  helpers.state.playbackControlInFlight = false;
 
   helpers.applyState(snapshotWithDraftLoop(11, 75), { syncDraft: false });
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
@@ -5606,6 +5650,27 @@ assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), 
 assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "true");
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.applyButton.classList.contains("attention"), true);
+
+globalThis.__secretPondTest.state.sourceMutationInFlight = true;
+globalThis.__secretPondTest.renderVoiceStackControls();
+assert.strictEqual(elements.storageModeLiveButton.disabled, true);
+assert.strictEqual(elements.storageModeLibraryButton.disabled, true);
+assert.strictEqual(
+  elements.storageModeLibraryButton.title,
+  "소스 파일 작업이 끝날 때까지 기다리세요.",
+);
+globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+
+globalThis.__secretPondTest.state.playbackControlInFlight = true;
+globalThis.__secretPondTest.renderVoiceStackControls();
+assert.strictEqual(elements.storageModeLiveButton.disabled, true);
+assert.strictEqual(elements.storageModeLibraryButton.disabled, true);
+assert.strictEqual(
+  elements.storageModeLibraryButton.title,
+  "출력 제어가 끝날 때까지 기다리세요.",
+);
+globalThis.__secretPondTest.state.playbackControlInFlight = false;
+
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.active.voice_stack.mode = "test_library";
 globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.mode = "test_library";
