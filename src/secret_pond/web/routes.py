@@ -625,6 +625,13 @@ def _voice_raw_path_from_payload(payload: dict[str, Any], *, fallback: str | Non
     return relative_path
 
 
+def _seek_progress(payload: dict[str, Any]) -> float:
+    progress = payload.get("progress")
+    if not isinstance(progress, int | float):
+        raise HTTPException(status_code=422, detail="progress must be a number")
+    return float(progress)
+
+
 def _source_mutation_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
         status_code = 404
