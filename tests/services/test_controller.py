@@ -77,13 +77,25 @@ class SpyVoiceStack:
         if self.add_error is not None:
             raise self.add_error
         if self.mutate_settings:
-            settings.sources.voice_raw_path = "data/sources/voice/raw/generated-raw.wav"
             settings.sources.voice_stack_path = "data/sources/voice/stack/generated-stack.wav"
         return SimpleNamespace(
             added_chunks=1,
-            voice_raw_path="data/sources/voice/raw/generated-raw.wav",
+            voice_raw_path=None,
             voice_stack_path="data/sources/voice/stack/generated-stack.wav",
         )
+
+
+class SpyVoiceSource:
+    def __init__(self, *, save_error: Exception | None = None) -> None:
+        self.save_error = save_error
+        self.calls: list[dict] = []
+
+    def save_recording_source(self, recording, settings):
+        self.calls.append({"recording": recording, "settings": settings})
+        if self.save_error is not None:
+            raise self.save_error
+        settings.sources.voice_raw_path = "data/sources/voice/raw/generated-raw.wav"
+        return SimpleNamespace(relative_path="data/sources/voice/raw/generated-raw.wav")
 
 
 class SpyRenderer:
@@ -160,6 +172,7 @@ def mono_device_take() -> AudioBuffer:
 def controller_fixture(
     *,
     recorder: ScriptedRecorder | None = None,
+    voice_source: SpyVoiceSource | None = None,
     voice_stack: SpyVoiceStack | None = None,
     renderer: SpyRenderer | None = None,
     participants: FakeParticipants | None = None,
@@ -183,6 +196,7 @@ def controller_fixture(
         ),
     )
     recorder = recorder or ScriptedRecorder()
+    voice_source = voice_source or SpyVoiceSource()
     voice_stack = voice_stack or SpyVoiceStack()
     renderer = renderer or SpyRenderer()
     participants = participants or FakeParticipants()
@@ -190,6 +204,7 @@ def controller_fixture(
     controller = RecordingController(
         settings=settings,
         recorder=recorder,
+        voice_source=voice_source,
         voice_stack=voice_stack,
         renderer=renderer,
         participants=participants,
@@ -270,6 +285,54 @@ def test_controller_processes_adds_renders_and_counts_accepted_recording() -> No
     )
 
 
+def test_controller_test_library_saves_vr_without_adding_to_stack() -> None:
+    voice_source = SpyVoiceSource()
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture(
+        voice_source=voice_source,
+    )
+    controller.settings.voice_stack.mode = "test_library"
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert outcome.stack_result is None
+    assert outcome.render_result is None
+    assert len(voice_source.calls) == 1
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 1
+    assert controller.settings.sources.voice_raw_path == "data/sources/voice/raw/generated-raw.wav"
+    assert controller.settings.sources.voice_stack_path is None
+
+
+def test_controller_live_ephemeral_adds_to_stack_without_retaining_vr() -> None:
+    voice_source = SpyVoiceSource()
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture(
+        voice_source=voice_source,
+    )
+    controller.settings.voice_stack.mode = "live_ephemeral"
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert outcome.stack_result is not None
+    assert outcome.render_result is not None
+    assert voice_source.calls == []
+    assert len(voice_stack.calls) == 1
+    assert renderer.rendered_layers == ["voice"]
+    assert participants.count == 1
+    assert controller.settings.sources.voice_raw_path is None
+    assert controller.settings.sources.voice_stack_path == (
+        "data/sources/voice/stack/generated-stack.wav"
+    )
+
+
 def test_controller_applies_voice_stack_result_paths_before_rendering() -> None:
     voice_stack = SpyVoiceStack(mutate_settings=False)
     renderer = SpyRenderer()
@@ -293,19 +356,19 @@ def test_controller_applies_voice_stack_result_paths_before_rendering() -> None:
 
     assert outcome.accepted is True
     assert participants.count == 1
-    assert controller.settings.sources.voice_raw_path == "data/sources/voice/raw/generated-raw.wav"
+    assert controller.settings.sources.voice_raw_path is None
     assert controller.settings.sources.voice_stack_path == (
         "data/sources/voice/stack/generated-stack.wav"
     )
     assert renderer.rendered_source_paths == [
         (
-            "data/sources/voice/raw/generated-raw.wav",
+            None,
             "data/sources/voice/stack/generated-stack.wav",
         ),
     ]
     assert persisted_source_paths == [
         (
-            "data/sources/voice/raw/generated-raw.wav",
+            None,
             "data/sources/voice/stack/generated-stack.wav",
         ),
     ]

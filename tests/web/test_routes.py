@@ -10090,17 +10090,12 @@ def test_recording_acceptance_persists_timestamped_voice_stack_selection(
     stored = SettingsStore(paths).load()
     selected_raw = stored.active.sources.voice_raw_path
     selected_stack = stored.active.sources.voice_stack_path
-    assert selected_raw is not None
-    assert selected_raw.startswith("data/sources/voice/raw/")
-    assert selected_raw.endswith(".wav")
-    assert (tmp_path / selected_raw).exists()
+    assert selected_raw is None
     assert selected_stack is not None
     assert selected_stack.startswith("data/sources/voice/stack/")
     assert selected_stack.endswith(".wav")
     assert (tmp_path / selected_stack).exists()
-    assert response.json()["state"]["settings"]["active"]["sources"]["voice_raw_path"] == (
-        selected_raw
-    )
+    assert response.json()["state"]["settings"]["active"]["sources"]["voice_raw_path"] is None
     assert response.json()["state"]["settings"]["active"]["sources"]["voice_stack_path"] == (
         selected_stack
     )
@@ -10143,13 +10138,11 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
     stored = SettingsStore(paths).load()
     selected_raw = stored.active.sources.voice_raw_path
     selected_stack = stored.active.sources.voice_stack_path
-    assert selected_raw is not None
+    assert selected_raw is None
     assert selected_stack is not None
-    assert selected_raw.startswith("data/sources/voice/raw/")
     assert selected_stack.startswith("data/sources/voice/stack/")
-    assert_timestamped_voice_filename(selected_raw, "VR")
     assert_timestamped_voice_filename(selected_stack, "VS")
-    assert len(list(paths.voice_raw_sources_dir.glob("*.wav"))) == 1
+    assert len(list(paths.voice_raw_sources_dir.glob("*.wav"))) == 0
     assert len(list(paths.voice_stack_sources_dir.glob("*.wav"))) == 1
 
     stack = read_wav(tmp_path / selected_stack)
@@ -10172,7 +10165,7 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
     assert float(np.max(np.abs(after.samples))) > 0.00001
 
 
-def test_api_test_library_recording_persists_timestamped_raw_and_accepted_clip(
+def test_api_test_library_recording_persists_timestamped_vr_without_stack(
     tmp_path: Path,
 ) -> None:
     settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
@@ -10193,19 +10186,13 @@ def test_api_test_library_recording_persists_timestamped_raw_and_accepted_clip(
     selected_raw = stored.active.sources.voice_raw_path
     selected_stack = stored.active.sources.voice_stack_path
     assert selected_raw is not None
-    assert selected_stack is not None
     assert selected_raw.startswith("data/sources/voice/raw/")
-    assert selected_stack.startswith("data/sources/voice/stack/")
     assert_timestamped_voice_filename(selected_raw, "VR")
-    assert_timestamped_voice_filename(selected_stack, "VS")
     assert (tmp_path / selected_raw).exists()
-    assert (tmp_path / selected_stack).exists()
+    assert selected_stack is None
+    assert list(paths.voice_stack_sources_dir.glob("*.wav")) == []
     manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
-    assert len(manifest["entries"]) == 1
-    entry = manifest["entries"][0]
-    assert entry["source_mode"] == "test_library"
-    assert entry["accepted_clip_path"].startswith("data/processed/accepted/")
-    assert (tmp_path / entry["accepted_clip_path"]).exists()
+    assert manifest["entries"] == []
 
 
 def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(

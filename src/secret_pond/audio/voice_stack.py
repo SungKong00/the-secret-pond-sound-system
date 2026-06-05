@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.source_library import selected_source_path
-from secret_pond.audio.voice_stack_naming import next_voice_raw_path, next_voice_stack_path
+from secret_pond.audio.voice_stack_naming import next_voice_stack_path
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 
@@ -183,8 +183,6 @@ class VoiceStackStore:
         new_entries: list[dict[str, Any]] = []
         accepted_writes: list[tuple[Path, AudioBuffer]] = []
         snapshot_payload = _json_safe_snapshot(processing_settings_snapshot)
-        voice_raw_path: str | None = None
-
         for chunk_index, chunk in enumerate(chunks):
             entry_id = uuid4().hex
             chunk_offset = (
@@ -225,13 +223,7 @@ class VoiceStackStore:
         raw_buffer = AudioBuffer(samples=guarded_samples, sample_rate=settings.audio.sample_rate)
 
         written_accepted_paths: list[Path] = []
-        written_raw_path: Path | None = None
         try:
-            voice_raw_path, written_raw_path = _write_voice_raw_buffer(
-                self._paths,
-                settings,
-                source,
-            )
             for path, accepted_buffer in accepted_writes:
                 write_wav_atomic(path, accepted_buffer)
                 written_accepted_paths.append(path)
@@ -247,8 +239,6 @@ class VoiceStackStore:
             _write_json_atomic(self._paths.voice_manifest, manifest)
         except Exception:
             _cleanup_paths(written_accepted_paths)
-            if written_raw_path is not None:
-                _cleanup_paths([written_raw_path])
             _restore_raw_stack(self._paths.voice_stack_raw, previous_raw_bytes)
             raise
 
@@ -259,7 +249,7 @@ class VoiceStackStore:
             peak_after_guard=peak_after_guard,
             gain_reduction_db=gain_reduction_db,
             voice_stack_path=voice_stack_path,
-            voice_raw_path=voice_raw_path,
+            voice_raw_path=None,
         )
 
     def rebuild_from_test_library(self, settings: AppSettings) -> VoiceStackRebuildResult:
@@ -392,22 +382,6 @@ def _write_stack_buffer(
 
     write_wav_atomic(paths.voice_stack_raw, buffer)
     return settings.sources.voice_stack_path
-
-
-def _write_voice_raw_buffer(
-    paths: ProjectPaths,
-    settings: AppSettings,
-    buffer: AudioBuffer,
-) -> tuple[str, Path]:
-    raw_path = _timestamped_raw_path(paths)
-    write_wav_atomic(raw_path, buffer)
-    relative_path = _relative_path(paths.root, raw_path)
-    settings.sources.voice_raw_path = relative_path
-    return relative_path, raw_path
-
-
-def _timestamped_raw_path(paths: ProjectPaths) -> Path:
-    return next_voice_raw_path(paths)
 
 
 def _timestamped_stack_path(paths: ProjectPaths) -> Path:

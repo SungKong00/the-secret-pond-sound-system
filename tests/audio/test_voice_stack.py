@@ -262,12 +262,11 @@ def test_voice_stack_add_writes_timestamped_stack_without_overwriting_active_sou
     assert result.voice_stack_path is not None
     assert result.voice_stack_path.startswith("data/sources/voice/stack/")
     assert result.voice_raw_path == settings.sources.voice_raw_path
-    assert result.voice_raw_path is not None
-    assert result.voice_raw_path.startswith("data/sources/voice/raw/")
+    assert result.voice_raw_path is None
     assert result.voice_stack_path.endswith(".wav")
     assert result.voice_stack_path != "data/sources/voice/stack/initial-stack.wav"
     assert (tmp_path / result.voice_stack_path).exists()
-    assert (tmp_path / result.voice_raw_path).exists()
+    assert list(paths.voice_raw_sources_dir.glob("*.wav")) == []
     loaded = read_wav(tmp_path / result.voice_stack_path)
     np.testing.assert_allclose(loaded.samples[:1_000], 0.1, atol=1e-4)
 

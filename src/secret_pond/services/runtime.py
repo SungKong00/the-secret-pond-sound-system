@@ -27,6 +27,7 @@ from secret_pond.services.logging_service import EventLogger
 from secret_pond.services.participants import ParticipantCounter
 from secret_pond.services.player_settings import apply_player_settings
 from secret_pond.services.settings_store import SettingsState, SettingsStore
+from secret_pond.services.voice_source_service import VoiceSourceService
 
 
 class PlaybackOutput(Protocol):
@@ -57,6 +58,7 @@ class SecretPondRuntime:
     settings_store: SettingsStore
     settings_state: SettingsState
     recorder: Recorder
+    voice_source: VoiceSourceService
     voice_stack: VoiceStackStore
     renderer: LayerRenderer
     participants: ParticipantCounter
@@ -95,6 +97,7 @@ def build_runtime(
     active_settings = settings_state.active
 
     voice_stack = VoiceStackStore(paths)
+    voice_source = VoiceSourceService(paths)
     voice_stack_snapshot = voice_stack.ensure_initialized(active_settings)
 
     resolved_device_registry = device_registry or SoundDeviceRegistry()
@@ -151,6 +154,7 @@ def build_runtime(
     controller = RecordingController(
         settings=active_settings,
         recorder=resolved_recorder,
+        voice_source=voice_source,
         voice_stack=voice_stack,
         renderer=renderer,
         participants=participants,
@@ -163,6 +167,7 @@ def build_runtime(
         settings_store=settings_store,
         settings_state=settings_state,
         recorder=resolved_recorder,
+        voice_source=voice_source,
         voice_stack=voice_stack,
         renderer=renderer,
         participants=participants,

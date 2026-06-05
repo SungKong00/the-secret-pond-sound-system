@@ -21,10 +21,22 @@ class VoiceStack(Protocol):
     ) -> VoiceStackAddResult: ...
 
 
+class VoiceSource(Protocol):
+    def save_recording_source(
+        self,
+        recording: AudioBuffer,
+        settings: AppSettings,
+    ) -> VoiceSourceSaveResult: ...
+
+
 class VoiceStackAddResult(Protocol):
     added_chunks: int
     voice_raw_path: str | None
     voice_stack_path: str | None
+
+
+class VoiceSourceSaveResult(Protocol):
+    relative_path: str
 
 
 class VoiceLayerRenderer(Protocol):
@@ -59,6 +71,7 @@ class RecordingController:
         *,
         settings: AppSettings,
         recorder: Recorder,
+        voice_source: VoiceSource,
         voice_stack: VoiceStack,
         renderer: VoiceLayerRenderer,
         participants: Participants,
@@ -68,6 +81,7 @@ class RecordingController:
     ) -> None:
         self._settings = settings
         self._recorder = recorder
+        self._voice_source = voice_source
         self._voice_stack = voice_stack
         self._renderer = renderer
         self._participants = participants
@@ -198,6 +212,53 @@ class RecordingController:
                 accepted=False,
                 duration_seconds=duration_seconds,
                 reason="empty",
+            )
+
+        if self._settings.voice_stack.mode == "test_library":
+            try:
+                canonical_recording = recorded.to_canonical(
+                    sample_rate=self._settings.audio.sample_rate,
+                    channels=self._settings.audio.channels,
+                )
+                source_result = self._voice_source.save_recording_source(
+                    canonical_recording,
+                    self._settings,
+                )
+                self._settings.sources.voice_raw_path = source_result.relative_path
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log_event(
+                    "recording.source_failed",
+                    {"duration_seconds": duration_seconds, "error": str(exc)},
+                )
+                raise
+
+            try:
+                self._persist_settings and self._persist_settings(self._settings)
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log_event(
+                    "recording.settings_failed",
+                    {"duration_seconds": duration_seconds, "error": str(exc)},
+                )
+                raise
+
+            participant_count = self._increment_participants_best_effort()
+            if participant_count is not None:
+                self._last_error = None
+            self._log_event(
+                "recording.accepted",
+                {
+                    "added_chunks": None,
+                    "duration_seconds": duration_seconds,
+                    "participant_count": participant_count,
+                    "voice_raw_path": source_result.relative_path,
+                },
+            )
+            return RecordingOutcome(
+                accepted=True,
+                duration_seconds=duration_seconds,
+                participant_count=participant_count,
             )
 
         try:
