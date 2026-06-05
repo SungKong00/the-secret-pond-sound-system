@@ -1491,6 +1491,14 @@ const deriveOperationLocks = ({
 
 const draftEditLocked = (stateLike = state) => deriveOperationLocks(stateLike).draftLocked;
 
+const draftEditLockTitle = () => (
+  state.applyInFlight
+    ? "설정 적용이 끝날 때까지 기다리세요."
+    : state.resetDraftInFlight
+      ? "설정 변경 취소가 끝날 때까지 기다리세요."
+      : ""
+);
+
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
 };
@@ -2841,6 +2849,8 @@ const renderLayerGroup = (containerId, layerIds) => {
 const renderLayerCard = (layerId) => {
   const layer = state.draft.layers[layerId];
   const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
+  const draftLocked = draftEditLocked();
+  const draftLockTitle = draftEditLockTitle();
   const card = document.createElement("section");
   card.className = "layer-card";
   const layerLabel = layerLabels[layerId];
@@ -2854,12 +2864,13 @@ const renderLayerCard = (layerId) => {
       <div class="layer-head-actions">
         <label class="layer-toggle ${layer.enabled ? "enabled" : ""} ${
           pendingEnabled ? "pending" : ""
-        }">
+        }" ${draftLockTitle ? `title="${escapeHtml(draftLockTitle)}"` : ""}>
           <input
             type="checkbox"
             role="switch"
             aria-label="${labelText(layerLabel)} 켜짐 꺼짐"
             aria-checked="${layer.enabled ? "true" : "false"}"
+            ${draftLocked ? "disabled" : ""}
             ${
             layer.enabled ? "checked" : ""
           }
@@ -2874,18 +2885,28 @@ const renderLayerCard = (layerId) => {
     ${layerId === "voice" ? "" : layerPresetMarkup(layerId)}
     <div class="layer-controls"></div>
   `;
-  card.querySelector("input[type='checkbox']").addEventListener("change", (event) => {
-    commitDraftChange(
+  const toggle = card.querySelector("input[type='checkbox']");
+  toggle.disabled = draftLocked;
+  toggle.title = draftLockTitle;
+  toggle.addEventListener("change", (event) => {
+    const previousChecked = Boolean(state.draft.layers[layerId].enabled);
+    const nextChecked = event.target.checked;
+    const committed = commitDraftChange(
       () => {
-        state.draft.layers[layerId].enabled = event.target.checked;
+        state.draft.layers[layerId].enabled = nextChecked;
       },
       {
         afterSync: () => {
-          event.target.setAttribute("aria-checked", event.target.checked ? "true" : "false");
-          updateLayerEnabledControl(card, layerId, event.target.checked);
+          event.target.setAttribute("aria-checked", nextChecked ? "true" : "false");
+          updateLayerEnabledControl(card, layerId, nextChecked);
         },
       },
     );
+    if (!committed) {
+      event.target.checked = previousChecked;
+      event.target.setAttribute("aria-checked", previousChecked ? "true" : "false");
+      updateLayerEnabledControl(card, layerId, previousChecked);
+    }
   });
 
   const controls = card.querySelector(".layer-controls");
@@ -2921,12 +2942,14 @@ const layerPresetMarkup = (layerId) => `
       .map(
         ([name, label]) => {
           const active = layerPresetIsSelected(layerId, name);
+          const locked = draftEditLocked();
           return `
           <button
             class="layer-preset-button ${active ? "active" : ""}"
             type="button"
             data-layer-preset="${name}"
             aria-pressed="${active ? "true" : "false"}"
+            ${locked ? `disabled title="${escapeHtml(draftEditLockTitle())}"` : ""}
           >
             ${labelMarkup(label)}
           </button>
@@ -2938,10 +2961,14 @@ const layerPresetMarkup = (layerId) => `
 `;
 
 const updateLayerPresetButtons = (card, layerId) => {
+  const locked = draftEditLocked();
+  const lockedTitle = draftEditLockTitle();
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
     const active = layerPresetIsSelected(layerId, button.dataset.layerPreset);
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.disabled = locked;
+    button.title = locked ? lockedTitle : "";
   });
 };
 
@@ -2999,12 +3026,16 @@ const renderRecordingControls = () => {
 };
 
 const renderRecordingPresets = () => {
+  const locked = draftEditLocked();
+  const lockedTitle = draftEditLockTitle();
   document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {
     const label = presetLabels[button.dataset.preset];
     if (label) button.innerHTML = labelMarkup(label);
     const active = recordingPresetMatches(button.dataset.preset);
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.disabled = locked;
+    button.title = locked ? lockedTitle : "";
   });
 };
 
@@ -3108,6 +3139,8 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
   if (group.action !== "reset-filter") return "";
   const status = filterStatus(group, draftSource, activeSource);
   if (!status) return "";
+  const lockedTitle = draftEditLockTitle();
+  const actionDisabled = draftEditLocked() || status.bypassed;
   return `
     <div class="control-group-actions">
       <span class="filter-status ${
@@ -3117,9 +3150,12 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
         <strong>${status.label}</strong>
         <small>${status.detail}</small>
       </span>
-      <button class="mini-button filter-reset-button" type="button" ${
-        status.bypassed ? "disabled" : ""
-      }>
+      <button
+        class="mini-button filter-reset-button"
+        type="button"
+        ${actionDisabled ? "disabled" : ""}
+        ${lockedTitle ? `title="${escapeHtml(lockedTitle)}"` : ""}
+      >
         필터 초기화
       </button>
     </div>
@@ -3514,6 +3550,7 @@ const applyAndRestart = async () => {
   let applyError = null;
   state.applyInFlight = true;
   renderState();
+  renderControls();
   renderDevices();
   renderSourceLibrary();
   try {
@@ -3531,6 +3568,7 @@ const applyAndRestart = async () => {
   } finally {
     state.applyInFlight = false;
     renderState();
+    renderControls();
     renderDevices();
     renderSourceLibrary();
     if (applyError) showError(applyError.message);

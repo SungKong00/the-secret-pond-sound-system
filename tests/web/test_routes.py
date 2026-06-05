@@ -4382,6 +4382,25 @@ mixerLayerToggle.dispatchEvent({{ type: "change", target: mixerLayerToggle }});
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
 assert.strictEqual(elements.applyButton.disabled, false);
+
+let applyDraftSavePath = null;
+globalThis.fetch = (path) => {{
+  applyDraftSavePath = path;
+  if (path === "/api/settings/draft") {{
+    return new Promise(() => {{}});
+  }}
+  throw new Error(`unexpected fetch ${{path}}`);
+}};
+globalThis.__secretPondTest.applyAndRestart();
+assert.strictEqual(applyDraftSavePath, "/api/settings/draft");
+assert.strictEqual(globalThis.__secretPondTest.state.applyInFlight, true);
+assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+const lockedMixerLayerCard =
+  elements.layerControls.children[elements.layerControls.children.length - 1];
+const lockedMixerLayerToggle = lockedMixerLayerCard.querySelector("input[type='checkbox']");
+assert.strictEqual(lockedMixerLayerToggle.disabled, true);
+globalThis.__secretPondTest.state.applyInFlight = false;
+
 globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.pendingBadge.hidden, true);
