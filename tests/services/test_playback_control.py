@@ -4,14 +4,22 @@ from types import SimpleNamespace
 
 import pytest
 
-from secret_pond.services.playback_control import PlaybackControlError, restart_playback
+from secret_pond.config import AppSettings
+from secret_pond.services.playback_control import (
+    PlaybackControlError,
+    restart_playback,
+    start_playback,
+    stop_playback,
+)
 
 
 class FakePlayer:
-    def __init__(self) -> None:
+    def __init__(self, operations: list[str] | None = None) -> None:
+        self.operations = operations
         self.frame_cursor = 10
         self.restart_calls = 0
         self.restore_calls = 0
+        self.loaded_rendered_layers = None
 
     def snapshot(self):
         return {"frame_cursor": self.frame_cursor}
@@ -24,19 +32,43 @@ class FakePlayer:
         self.restart_calls += 1
         self.frame_cursor = 0
 
+    def load_rendered_layers(self, paths) -> None:
+        if self.operations is not None:
+            self.operations.append("load_main")
+        self.loaded_rendered_layers = paths
+
+    def set_peak_ceiling(self, peak_ceiling: float) -> None:
+        self.peak_ceiling = peak_ceiling
+
+    def set_enabled(self, layer_id: str, enabled: bool) -> None:
+        pass
+
+    def set_realtime_trim(self, layer_id: str, trim_db: float) -> None:
+        pass
+
 
 class FakeOutput:
-    def __init__(self, *, fail_start_on_call: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_start_on_call: int | None = None,
+        operations: list[str] | None = None,
+    ) -> None:
+        self.operations = operations
         self.fail_start_on_call = fail_start_on_call
         self.is_running = True
         self.start_calls = 1
         self.stop_calls = 0
 
     def stop(self) -> None:
+        if self.operations is not None:
+            self.operations.append("stop_output")
         self.stop_calls += 1
         self.is_running = False
 
     def start(self) -> None:
+        if self.operations is not None:
+            self.operations.append("start_output")
         self.start_calls += 1
         if self.fail_start_on_call == self.start_calls:
             self.is_running = False
@@ -50,6 +82,51 @@ class EventLogger:
 
     def log_event(self, event_type: str, payload: dict) -> None:
         self.events.append((event_type, payload))
+
+
+class FakeVoiceStack:
+    def __init__(self) -> None:
+        self.begin_calls = 0
+        self.end_calls = 0
+
+    def begin_playback_session(self, settings: AppSettings) -> None:
+        self.begin_calls += 1
+
+    def end_playback_session(self) -> None:
+        self.end_calls += 1
+
+
+def test_start_playback_stops_voice_raw_preview_before_main_output_starts(tmp_path) -> None:
+    operations: list[str] = []
+    voice_stack = FakeVoiceStack()
+    runtime = SimpleNamespace(
+        player=FakePlayer(operations),
+        output=FakeOutput(operations=operations),
+        logger=EventLogger(),
+        controller=SimpleNamespace(settings=AppSettings()),
+        voice_stack=voice_stack,
+        transition_warning="preview active",
+        voice_raw_preview_path="data/sources/voice/raw/VR0610_213112.wav",
+        voice_raw_preview_resume_main=False,
+        voice_raw_preview_layers={"voice": object()},
+        paths=SimpleNamespace(
+            low_playback=tmp_path / "low.wav",
+            mid_playback=tmp_path / "mid.wav",
+            voice_playback=tmp_path / "voice.wav",
+        ),
+    )
+
+    start_playback(runtime)
+
+    assert operations == ["stop_output", "load_main", "start_output"]
+    assert runtime.output.stop_calls == 1
+    assert runtime.output.start_calls == 2
+    assert runtime.output.is_running is True
+    assert runtime.voice_raw_preview_path is None
+    assert runtime.voice_raw_preview_resume_main is False
+    assert runtime.voice_raw_preview_layers is None
+    assert voice_stack.begin_calls == 1
+    assert voice_stack.end_calls == 0
 
 
 def test_restart_playback_restores_snapshot_and_running_output_after_start_failure() -> None:
@@ -77,3 +154,34 @@ def test_restart_playback_restores_snapshot_and_running_output_after_start_failu
             },
         )
     ]
+
+
+def test_stop_playback_restores_preview_without_starting_inactive_main_playback(
+    tmp_path,
+) -> None:
+    runtime = SimpleNamespace(
+        player=FakePlayer(),
+        output=FakeOutput(),
+        logger=EventLogger(),
+        controller=SimpleNamespace(settings=AppSettings()),
+        voice_stack=SimpleNamespace(end_playback_session=lambda: None),
+        transition_warning="preview active",
+        voice_raw_preview_path="data/sources/voice/raw/VR0610_213112.wav",
+        voice_raw_preview_resume_main=False,
+        voice_raw_preview_layers={"voice": object()},
+        paths=SimpleNamespace(
+            low_playback=tmp_path / "low.wav",
+            mid_playback=tmp_path / "mid.wav",
+            voice_playback=tmp_path / "voice.wav",
+        ),
+    )
+
+    stop_playback(runtime)
+
+    assert runtime.output.stop_calls == 1
+    assert runtime.output.start_calls == 1
+    assert runtime.output.is_running is False
+    assert runtime.voice_raw_preview_path is None
+    assert runtime.voice_raw_preview_resume_main is False
+    assert runtime.voice_raw_preview_layers is None
+    assert runtime.transition_warning is None

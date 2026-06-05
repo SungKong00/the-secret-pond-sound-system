@@ -13,6 +13,10 @@ class PlaybackControlError(RuntimeError):
 
 def start_playback(runtime: SecretPondRuntime) -> None:
     try:
+        if runtime.voice_raw_preview_path is not None:
+            if runtime.output.is_running:
+                runtime.output.stop()
+            restore_main_playback_after_voice_raw_preview(runtime, runtime.controller.settings)
         runtime.output.start()
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.start_failed", error=str(exc))
@@ -23,14 +27,20 @@ def start_playback(runtime: SecretPondRuntime) -> None:
 
 
 def stop_playback(runtime: SecretPondRuntime) -> None:
+    preview_should_resume_main = bool(
+        runtime.voice_raw_preview_path is not None and runtime.voice_raw_preview_resume_main,
+    )
     try:
         runtime.output.stop()
+        if runtime.voice_raw_preview_path is not None:
+            restore_main_playback_after_voice_raw_preview(runtime, runtime.controller.settings)
+            if preview_should_resume_main:
+                runtime.output.start()
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.stop_failed", error=str(exc))
         raise PlaybackControlError(str(exc)) from exc
-    if runtime.voice_raw_preview_path is not None:
-        restore_main_playback_after_voice_raw_preview(runtime, runtime.controller.settings)
-    runtime.voice_stack.end_playback_session()
+    if not preview_should_resume_main:
+        runtime.voice_stack.end_playback_session()
     runtime.transition_warning = None
     _log_playback_event(runtime, "playback.stopped")
 
