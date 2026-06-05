@@ -5,7 +5,11 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import ValidationError
 
-from secret_pond.audio.source_library import category_config, source_library_payload
+from secret_pond.audio.source_library import (
+    SourceCategoryConfig,
+    category_config,
+    source_library_payload,
+)
 from secret_pond.config import AppSettings
 from secret_pond.services import maintenance, playback_control
 from secret_pond.services.device_inventory import device_inventory_payload
@@ -44,6 +48,16 @@ from secret_pond.web.state import (
 )
 
 router = APIRouter(prefix="/api")
+
+SOURCE_MUTATION_ERRORS = (
+    FileNotFoundError,
+    FileExistsError,
+    PermissionError,
+    SourceLibraryMutationError,
+    OSError,
+    RuntimeError,
+    ValueError,
+)
 
 
 @router.get("/state")
@@ -158,13 +172,8 @@ def select_source_file(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     runtime = _runtime(request)
-    try:
-        config = category_config(category)
-        relative_path = payload.get("path")
-        if relative_path is not None and not isinstance(relative_path, str):
-            raise ValueError("path must be a string or null")
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    config = _source_category_config(category)
+    relative_path = _source_select_path(payload)
 
     with runtime.operation_lock:
         try:
@@ -173,12 +182,8 @@ def select_source_file(
                 config.id,
                 relative_path,
             )
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except SourceLibraryMutationError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
         return _source_settings_payload(runtime, state)
 
 
@@ -191,10 +196,7 @@ def upload_source(
     body: bytes = Body(...),
 ) -> dict[str, Any]:
     runtime = _runtime(request)
-    try:
-        config = category_config(category)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    config = _source_category_config(category)
 
     with runtime.operation_lock:
         try:
@@ -205,12 +207,8 @@ def upload_source(
                 content=body,
                 select_after_upload=select,
             )
-        except FileExistsError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except SourceLibraryMutationError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
         return {
             "file": result.file,
             **_source_settings_payload(runtime, result.settings_state),
@@ -224,10 +222,7 @@ def delete_source(
     path: str,
 ) -> dict[str, Any]:
     runtime = _runtime(request)
-    try:
-        config = category_config(category)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    config = _source_category_config(category)
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
@@ -237,14 +232,8 @@ def delete_source(
                 path,
                 settings_state=settings_state,
             )
-        except PermissionError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except OSError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
         return {"sources": _sources_payload(runtime, settings_state)}
 
 
@@ -386,6 +375,30 @@ def _sources_payload(runtime: SecretPondRuntime, settings_state: SettingsState) 
         settings_state.draft,
         active_settings=settings_state.active,
     )
+
+
+def _source_category_config(category: str) -> SourceCategoryConfig:
+    try:
+        return category_config(category)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _source_select_path(payload: dict[str, Any]) -> str | None:
+    relative_path = payload.get("path")
+    if relative_path is not None and not isinstance(relative_path, str):
+        raise HTTPException(status_code=422, detail="path must be a string or null")
+    return relative_path
+
+
+def _source_mutation_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, FileNotFoundError):
+        status_code = 404
+    elif isinstance(exc, (FileExistsError, PermissionError, SourceLibraryMutationError)):
+        status_code = 409
+    else:
+        status_code = 422
+    return HTTPException(status_code=status_code, detail=str(exc))
 
 
 def _source_settings_payload(

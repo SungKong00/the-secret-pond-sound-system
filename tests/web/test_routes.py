@@ -7024,6 +7024,30 @@ def test_api_sources_select_maps_draft_save_failure_to_conflict(tmp_path: Path) 
     assert SettingsStore(paths).load().draft.sources.mid_path is None
 
 
+def test_api_sources_select_maps_missing_file_to_not_found(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.put(
+        "/api/sources/mid/select",
+        json={"path": "data/sources/mid/missing.wav"},
+    )
+
+    assert response.status_code == 404
+    assert "missing.wav" in response.json()["detail"]
+
+
+def test_api_sources_select_rejects_invalid_path_payload(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.put(
+        "/api/sources/mid/select",
+        json={"path": 42},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "path must be a string or null"
+
+
 def test_api_sources_upload_writes_wav_to_category_directory(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     client = create_test_client(tmp_path)
