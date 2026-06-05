@@ -15,6 +15,15 @@ from secret_pond.audio.layers import LAYER_IDS, LayerId
 class LayerPlaybackState:
     enabled: bool = True
     realtime_trim_db: float = 0.0
+    realtime_gain_ramp: RealtimeGainRampState | None = None
+
+
+@dataclass(frozen=True)
+class RealtimeGainRampState:
+    from_gain_db: float
+    to_gain_db: float
+    duration_frames: int
+    elapsed_frames: int = 0
 
 
 @dataclass(frozen=True)
@@ -35,6 +44,12 @@ class VoiceCrossfadeState:
 
 
 @dataclass(frozen=True)
+class SeekEnvelopeState:
+    duration_frames: int
+    elapsed_frames: int = 0
+
+
+@dataclass(frozen=True)
 class LayeredLoopPlayerSnapshot:
     layers: dict[LayerId, AudioBuffer] | None
     states: dict[LayerId, LayerPlaybackState]
@@ -42,6 +57,7 @@ class LayeredLoopPlayerSnapshot:
     playing: bool
     peak_ceiling: float
     voice_transition: VoiceCrossfadeState | None
+    seek_envelope: SeekEnvelopeState | None
 
 
 class LayeredLoopPlayer:
@@ -55,6 +71,7 @@ class LayeredLoopPlayer:
         self._playing = False
         self._peak_ceiling = peak_ceiling
         self._voice_transition: VoiceCrossfadeState | None = None
+        self._seek_envelope: SeekEnvelopeState | None = None
 
     @property
     def is_playing(self) -> bool:
@@ -86,6 +103,7 @@ class LayeredLoopPlayer:
             playing=self._playing,
             peak_ceiling=self._peak_ceiling,
             voice_transition=self._voice_transition,
+            seek_envelope=self._seek_envelope,
         )
 
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
@@ -95,6 +113,7 @@ class LayeredLoopPlayer:
         self._playing = snapshot.playing
         self._peak_ceiling = snapshot.peak_ceiling
         self._voice_transition = snapshot.voice_transition
+        self._seek_envelope = snapshot.seek_envelope
 
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -103,6 +122,7 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
+        self._seek_envelope = None
 
     def load_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
         _validate_loaded_layers(buffers)
@@ -111,6 +131,7 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
+        self._seek_envelope = None
 
     def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -119,6 +140,7 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = True
         self._voice_transition = None
+        self._seek_envelope = None
 
     def start_voice_crossfade(
         self,
@@ -158,6 +180,7 @@ class LayeredLoopPlayer:
             msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
             raise ValueError(msg)
         self._frame_cursor = frame_cursor
+        self._seek_envelope = _seek_envelope_for_layer(first_layer) if self._playing else None
 
     def start(self) -> None:
         self._require_loaded()
@@ -206,6 +229,17 @@ class LayeredLoopPlayer:
                     elapsed_frames=elapsed_frames,
                 )
         self._frame_cursor = block.next_frame_cursor
+        if self._seek_envelope is not None:
+            block = _apply_seek_envelope(block, self._seek_envelope)
+            elapsed_frames = self._seek_envelope.elapsed_frames + block_size
+            if elapsed_frames >= self._seek_envelope.duration_frames:
+                self._seek_envelope = None
+            else:
+                self._seek_envelope = replace(
+                    self._seek_envelope,
+                    elapsed_frames=elapsed_frames,
+                )
+        self._advance_realtime_gain_ramps(block_size)
         return block
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
@@ -214,14 +248,21 @@ class LayeredLoopPlayer:
         self._states[normalized_layer_id] = LayerPlaybackState(
             enabled=enabled,
             realtime_trim_db=current.realtime_trim_db,
+            realtime_gain_ramp=current.realtime_gain_ramp,
         )
 
     def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
         normalized_layer_id = _validate_layer_id(layer_id)
         current = self._states[normalized_layer_id]
+        ramp = self._realtime_gain_ramp(
+            normalized_layer_id,
+            from_gain_db=current.realtime_trim_db,
+            to_gain_db=realtime_trim_db,
+        )
         self._states[normalized_layer_id] = LayerPlaybackState(
             enabled=current.enabled,
             realtime_trim_db=realtime_trim_db,
+            realtime_gain_ramp=ramp,
         )
 
     def set_peak_ceiling(self, peak_ceiling: float) -> None:
@@ -233,6 +274,46 @@ class LayeredLoopPlayer:
             msg = "rendered layers must be loaded before playback"
             raise ValueError(msg)
         return self._layers
+
+    def _realtime_gain_ramp(
+        self,
+        layer_id: LayerId,
+        *,
+        from_gain_db: float,
+        to_gain_db: float,
+    ) -> RealtimeGainRampState | None:
+        if from_gain_db == to_gain_db or not self._playing or self._layers is None:
+            return None
+        duration_frames = _short_ramp_frames(self._layers[layer_id])
+        return RealtimeGainRampState(
+            from_gain_db=from_gain_db,
+            to_gain_db=to_gain_db,
+            duration_frames=duration_frames,
+        )
+
+    def _advance_realtime_gain_ramps(self, block_size: int) -> None:
+        next_states: dict[LayerId, LayerPlaybackState] = {}
+        changed = False
+        for layer_id, state in self._states.items():
+            ramp = state.realtime_gain_ramp
+            if ramp is None:
+                next_states[layer_id] = state
+                continue
+            elapsed_frames = ramp.elapsed_frames + block_size
+            if elapsed_frames >= ramp.duration_frames:
+                next_states[layer_id] = LayerPlaybackState(
+                    enabled=state.enabled,
+                    realtime_trim_db=state.realtime_trim_db,
+                )
+            else:
+                next_states[layer_id] = LayerPlaybackState(
+                    enabled=state.enabled,
+                    realtime_trim_db=state.realtime_trim_db,
+                    realtime_gain_ramp=replace(ramp, elapsed_frames=elapsed_frames),
+                )
+            changed = True
+        if changed:
+            self._states = next_states
 
 
 def mix_layer_blocks(
@@ -252,7 +333,7 @@ def mix_layer_blocks(
             continue
 
         layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
-        mixed += _apply_gain(layer_block, state.realtime_trim_db)
+        mixed += _apply_realtime_gain(layer_block, state)
 
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
@@ -283,7 +364,7 @@ def mix_layer_blocks_with_voice_crossfade(
         if not state.enabled:
             continue
         layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
-        mixed += _apply_gain(layer_block, state.realtime_trim_db)
+        mixed += _apply_realtime_gain(layer_block, state)
 
     voice_state = states.get("voice", LayerPlaybackState())
     if voice_state.enabled:
@@ -306,7 +387,7 @@ def mix_layer_blocks_with_voice_crossfade(
         from_gain = np.cos(progress * np.pi / 2.0)[:, np.newaxis]
         to_gain = np.sin(progress * np.pi / 2.0)[:, np.newaxis]
         voice_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
-        mixed += _apply_gain(voice_block, voice_state.realtime_trim_db)
+        mixed += _apply_realtime_gain(voice_block, voice_state)
 
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
@@ -333,6 +414,31 @@ def _canonical_voice_candidate(
     candidate_layers["voice"] = candidate
     _validate_loaded_layers(candidate_layers)
     return candidate
+
+
+def _seek_envelope_for_layer(layer: AudioBuffer) -> SeekEnvelopeState:
+    duration_frames = _short_ramp_frames(layer)
+    return SeekEnvelopeState(duration_frames=duration_frames)
+
+
+def _short_ramp_frames(layer: AudioBuffer) -> int:
+    return max(1, min(layer.frames, layer.sample_rate // 200))
+
+
+def _apply_seek_envelope(block: MixerBlock, seek_envelope: SeekEnvelopeState) -> MixerBlock:
+    frame_offsets = seek_envelope.elapsed_frames + np.arange(
+        block.samples.shape[0],
+        dtype=np.float32,
+    )
+    gains = np.clip(frame_offsets / seek_envelope.duration_frames, 0.0, 1.0)[:, np.newaxis]
+    samples = (block.samples * gains).astype(np.float32)
+    peak_after = _peak(samples)
+    return MixerBlock(
+        samples=samples,
+        next_frame_cursor=block.next_frame_cursor,
+        peak_before_guard=block.peak_before_guard,
+        peak_after_guard=peak_after,
+    )
 
 
 def _load_rendered_layers(paths: Mapping[LayerId, Path]) -> dict[LayerId, AudioBuffer]:
@@ -407,6 +513,25 @@ def _read_wrapped(samples: np.ndarray, frame_cursor: int, block_size: int) -> np
 def _apply_gain(samples: np.ndarray, gain_db: float) -> np.ndarray:
     gain = 10 ** (gain_db / 20.0)
     return (samples * gain).astype(np.float32)
+
+
+def _apply_realtime_gain(samples: np.ndarray, state: LayerPlaybackState) -> np.ndarray:
+    if state.realtime_gain_ramp is None:
+        return _apply_gain(samples, state.realtime_trim_db)
+    return _apply_gain_ramp(samples, state.realtime_gain_ramp)
+
+
+def _apply_gain_ramp(samples: np.ndarray, ramp: RealtimeGainRampState) -> np.ndarray:
+    from_gain = _db_to_gain(ramp.from_gain_db)
+    to_gain = _db_to_gain(ramp.to_gain_db)
+    frame_offsets = ramp.elapsed_frames + np.arange(samples.shape[0], dtype=np.float32)
+    progress = np.clip(frame_offsets / ramp.duration_frames, 0.0, 1.0)
+    gains = from_gain + ((to_gain - from_gain) * progress)
+    return (samples * gains[:, np.newaxis]).astype(np.float32)
+
+
+def _db_to_gain(gain_db: float) -> float:
+    return 10 ** (gain_db / 20.0)
 
 
 def _guard_peak(samples: np.ndarray, peak: float, peak_ceiling: float) -> np.ndarray:

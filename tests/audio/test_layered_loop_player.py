@@ -58,6 +58,26 @@ def test_player_start_and_next_block_advances_cursor(tmp_path: Path) -> None:
     np.testing.assert_allclose(block.samples, np.ones((3, 2), dtype=np.float32) * 0.6, atol=1e-6)
 
 
+def test_player_seek_during_playback_applies_short_ramp_in(tmp_path: Path) -> None:
+    paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    player.next_block(16)
+
+    player.seek(256)
+    ramped = player.next_block(4)
+    after_ramp = player.next_block(64)
+
+    assert player.is_playing is True
+    assert ramped.next_frame_cursor == 260
+    assert player.frame_cursor == 324
+    assert ramped.samples[0, 0] == pytest.approx(0.0, abs=1e-6)
+    assert np.all(np.diff(ramped.samples[:, 0]) > 0.0)
+    assert np.all(ramped.samples[:, 0] < 0.6)
+    np.testing.assert_allclose(after_ramp.samples[-1], np.array([0.6, 0.6]), atol=1e-6)
+
+
 def test_player_stop_returns_silence_without_advancing_cursor(tmp_path: Path) -> None:
     paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3)
     player = LayeredLoopPlayer()
@@ -91,6 +111,32 @@ def test_player_enabled_and_realtime_trim_state_affect_next_block(tmp_path: Path
 
     expected_voice = 0.2 * (10 ** (-6.0 / 20.0))
     np.testing.assert_allclose(block.samples, np.ones((4, 2)) * (0.2 + expected_voice), atol=1e-6)
+
+
+def test_player_realtime_trim_change_while_playing_applies_short_gain_ramp(
+    tmp_path: Path,
+) -> None:
+    paths = write_layers(tmp_path, low=0.2, mid=0.2, voice=0.2, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    before = player.next_block(4)
+
+    player.set_realtime_trim("voice", -6.0)
+    ramped = player.next_block(4)
+    after_ramp = player.next_block(64)
+
+    target_voice = 0.2 * (10 ** (-6.0 / 20.0))
+    target_mix = 0.4 + target_voice
+    np.testing.assert_allclose(before.samples, np.ones((4, 2)) * 0.6, atol=1e-6)
+    assert ramped.samples[0, 0] == pytest.approx(0.6, abs=1e-6)
+    assert np.all(np.diff(ramped.samples[:, 0]) < 0.0)
+    assert np.all(ramped.samples[:, 0] > target_mix)
+    np.testing.assert_allclose(
+        after_ramp.samples[-1],
+        np.array([target_mix, target_mix]),
+        atol=1e-6,
+    )
 
 
 def test_player_rejects_unknown_layer_state_updates() -> None:
