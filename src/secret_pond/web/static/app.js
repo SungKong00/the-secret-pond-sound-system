@@ -1249,20 +1249,23 @@ const invalidatePendingStateRefreshes = () => {
   state.stateRefreshRequestId += 1;
 };
 
-const beginDeviceRefresh = () => {
+const beginDeviceRefresh = (options = {}) => {
   return {
     token: beginTrackedRequest("deviceRefreshRequestId", ["deviceChangeRequestId"]),
     deviceChangeInFlight: state.deviceChangeInFlight,
+    allowDuringDeviceChange: options.allowDuringDeviceChange === true,
   };
 };
 
 const isCurrentDeviceRefresh = (request) =>
   isCurrentTrackedRequest(request.token) &&
-  !request.deviceChangeInFlight &&
-  !state.deviceChangeInFlight;
+  (
+    request.allowDuringDeviceChange ||
+    (!request.deviceChangeInFlight && !state.deviceChangeInFlight)
+  );
 
-const requestDevices = async () => {
-  const request = beginDeviceRefresh();
+const requestDevices = async (options = {}) => {
+  const request = beginDeviceRefresh(options);
   let shouldRender = false;
   try {
     const devices = await api("/api/devices");
@@ -3559,7 +3562,7 @@ const changeDevice = async (key, value) => {
     await requestDiagnostics();
   } catch (error) {
     await requestState({ syncDraft: false }).catch(() => {});
-    await requestDevices().catch(() => {});
+    await requestDevices({ allowDuringDeviceChange: true }).catch(() => {});
     showError(error.message);
   } finally {
     state.deviceChangeInFlight = false;

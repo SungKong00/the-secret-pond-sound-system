@@ -1622,7 +1622,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "if (state.deviceChangeInFlight || state.applyInFlight) return" in change_device_body
     assert '"/api/devices"' in change_device_body
     assert "state.devices = payload.devices" in change_device_body
-    assert "await requestDevices().catch(() => {})" in change_device_body
+    assert 'allowDuringDeviceChange: true' in change_device_body
     assert "await requestState({ syncDraft: false }).catch(() => {})" in change_device_body
     derive_control_body = slice_between(
         script.text,
@@ -4454,6 +4454,49 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     globalThis.__secretPondTest.state.devices.selected_output_device.id,
     "speaker-2",
   );
+
+  globalThis.__secretPondTest.state.devices = newDeviceList;
+  globalThis.fetch = (path, options = {{}}) => {{
+    if (path === "/api/devices" && options.method === "PUT") {{
+      return Promise.resolve({{
+        ok: false,
+        status: 409,
+        json: async () => ({{ detail: "device change failed" }}),
+      }});
+    }}
+    if (path === "/api/state") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          ...snapshot,
+          is_recording: false,
+          settings: {{
+            active: cloneSettings(activeSettings),
+            draft: cloneSettings(activeSettings),
+            change: {{
+              runtime_config_changed: false,
+              changed_runtime_fields: [],
+              changed_sections: [],
+            }},
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/devices") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => oldDeviceList,
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-1");
+  assert.strictEqual(globalThis.__secretPondTest.state.deviceChangeInFlight, false);
+  assert.strictEqual(
+    globalThis.__secretPondTest.state.devices.selected_output_device.id,
+    "speaker-1",
+  );
+  assert.strictEqual(elements.errorBadge.textContent, "오류 있음");
 
   globalThis.__secretPondTest.applyState({{
     ...snapshot,
