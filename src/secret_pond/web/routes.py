@@ -39,6 +39,11 @@ from secret_pond.services.source_library_mutations import (
     select_source_file_and_update_draft,
     upload_source_file_and_maybe_select,
 )
+from secret_pond.services.storage_mode import (
+    StorageModeChangeError,
+    apply_voice_stack_mode,
+    parse_voice_stack_mode,
+)
 from secret_pond.web.state import (
     SettingsPayloadUnavailable,
     StatePayloadUnavailable,
@@ -176,6 +181,28 @@ def get_sources(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
         return _sources_payload(runtime, _settings_state(runtime))
+
+
+@router.put("/voice-stack/mode")
+def update_voice_stack_mode(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        mode = parse_voice_stack_mode(payload.get("mode"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with runtime.operation_lock:
+        try:
+            settings_state = apply_voice_stack_mode(runtime, mode)
+        except StorageModeChangeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
+        return {
+            "settings": _settings_payload(runtime, settings_state),
+            "state": _state_payload(runtime, settings_state),
+        }
 
 
 @router.put("/sources/{category}/select")

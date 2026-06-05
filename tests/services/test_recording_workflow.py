@@ -3,9 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.player import LayeredLoopPlayer
 from secret_pond.config import AppSettings, AudioFormatSettings, VoiceStackSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.recording_workflow import (
@@ -129,6 +131,247 @@ def test_refresh_playback_uses_voice_crossfade_when_output_running_and_guard_mat
     assert call["duration_frames"] == 32_000
     assert call["transition_target_id"] == "data/sources/voice/stack/VS0610_213112.wav"
     assert call["next_voice"].frames == 8_000
+    assert runtime.logger.events == [
+        {
+            "event_type": "recording.voice_transition_started",
+            "payload": {
+                "status": "applying",
+                "source_layer_id": "voice",
+                "target_layer_id": "voice",
+                "transition_source_id": "data/voice/voice_stack_raw.wav",
+                "transition_target_id": "data/sources/voice/stack/VS0610_213112.wav",
+                "transition_seconds": 4,
+                "duration_frames": 32_000,
+                "crossfade_scheduled": True,
+                "reason": "output_running_guard_matched_next_voice_ready",
+                "previous_transition_target_id": None,
+                "output_running": True,
+                "guard_matched": True,
+                "playback_session_id": "session-1",
+                "guard_current_stack_id": "data/voice/voice_stack_raw.wav",
+                "next_voice_frames": 8_000,
+            },
+        }
+    ]
+
+
+def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_ready(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    old_low = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.1, sample_rate=8_000)
+    old_mid = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.2, sample_rate=8_000)
+    old_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.3, sample_rate=8_000)
+    next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.7, sample_rate=8_000)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers({"low": old_low, "mid": old_mid, "voice": old_voice})
+    player.start()
+    player.next_block(3)
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+    guard = RecordingPlaybackGuard(
+        playback_session_id="session-1",
+        current_stack_id="data/voice/voice_stack_raw.wav",
+    )
+
+    before_ready = player.snapshot()
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
+
+    after_ready = player.snapshot()
+    assert before_ready.voice_transition is None
+    assert after_ready.voice_transition is not None
+    assert after_ready.voice_transition.transition_target_id == (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+    assert after_ready.voice_transition.duration_frames == 32_000
+    assert player.frame_cursor == 3
+    assert player.is_playing is True
+    np.testing.assert_allclose(
+        after_ready.voice_transition.from_buffer.samples,
+        old_voice.samples,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        after_ready.voice_transition.to_buffer.samples,
+        next_voice.samples,
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(after_ready.layers["low"].samples, old_low.samples, atol=1e-6)
+    np.testing.assert_allclose(after_ready.layers["mid"].samples, old_mid.samples, atol=1e-6)
+    assert runtime.logger.events[-1]["event_type"] == "recording.voice_transition_started"
+    assert runtime.logger.events[-1]["payload"]["transition_target_id"] == (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+
+
+def test_live_ephemeral_ready_diagnostic_captures_audible_voice_layer(tmp_path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    current_voice_samples = np.linspace(0.1, 0.8, num=16, dtype=np.float32).reshape(8, 2)
+    current_voice = AudioBuffer(samples=current_voice_samples, sample_rate=8_000)
+    next_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.9,
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "mid": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "voice": current_voice,
+        }
+    )
+    player.start()
+    player.next_block(5)
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+    guard = RecordingPlaybackGuard(
+        playback_session_id="session-1",
+        current_stack_id="data/voice/voice_stack_raw.wav",
+    )
+
+    ready_moment_snapshot = player.snapshot()
+    assert ready_moment_snapshot.layers is not None
+    ready_moment_voice = ready_moment_snapshot.layers["voice"]
+    ready_moment_cursor = ready_moment_snapshot.frame_cursor
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
+
+    transition = player.snapshot().voice_transition
+    assert transition is not None
+    assert ready_moment_cursor == 5
+    assert player.frame_cursor == ready_moment_cursor
+    np.testing.assert_allclose(
+        transition.from_buffer.samples,
+        ready_moment_voice.samples,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(transition.to_buffer.samples, next_voice.samples, atol=1e-4)
+
+
+def test_live_ephemeral_transition_log_emits_exact_crossfade_runtime_evidence(tmp_path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    current_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.25,
+        sample_rate=8_000,
+    )
+    next_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.75,
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "mid": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "voice": current_voice,
+        }
+    )
+    player.start()
+    player.next_block(6)
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+    guard = RecordingPlaybackGuard(
+        playback_session_id="session-1",
+        current_stack_id="data/voice/voice_stack_raw.wav",
+    )
+
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
+
+    assert runtime.logger.events[-1] == {
+        "event_type": "recording.voice_transition_started",
+        "payload": {
+            "status": "applying",
+            "source_layer_id": "voice",
+            "target_layer_id": "voice",
+            "transition_source_id": "data/voice/voice_stack_raw.wav",
+            "transition_target_id": "data/sources/voice/stack/VS0610_213112.wav",
+            "transition_seconds": 4,
+            "duration_frames": 32_000,
+            "crossfade_scheduled": True,
+            "reason": "output_running_guard_matched_next_voice_ready",
+            "output_running": True,
+            "guard_matched": True,
+            "playback_session_id": "session-1",
+            "guard_current_stack_id": "data/voice/voice_stack_raw.wav",
+            "frame_cursor_at_ready": 6,
+            "player_was_playing": True,
+            "previous_transition_target_id": None,
+            "current_voice_frames": 8,
+            "next_voice_frames": 8,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("guard", "expected"),
+    [
+        (
+            RecordingPlaybackGuard(
+                playback_session_id="session-1",
+                current_stack_id="data/voice/voice_stack_raw.wav",
+            ),
+            {"crossfade_scheduled": True, "skip_logged": False},
+        ),
+        (
+            RecordingPlaybackGuard(
+                playback_session_id="session-1",
+                current_stack_id="data/voice/stale_stack_raw.wav",
+            ),
+            {"crossfade_scheduled": False, "skip_logged": True},
+        ),
+    ],
+)
+def test_live_ephemeral_ready_diagnostic_records_crossfade_schedule_or_skip(
+    tmp_path,
+    guard,
+    expected,
+) -> None:
+    runtime = workflow_runtime(tmp_path, output_running=True)
+
+    refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
+
+    diagnostic = {
+        "crossfade_scheduled": bool(runtime.player.crossfade_calls),
+        "skip_logged": any(
+            event["event_type"] == "recording.playback_refresh_skipped"
+            for event in runtime.logger.events
+        ),
+    }
+    assert diagnostic == expected
+    if not expected["crossfade_scheduled"]:
+        assert runtime.transition_warning == (
+            "목소리 전환을 건너뛰었습니다. 재생 중 선택된 스택이 바뀌었습니다. "
+            "기존 목소리를 유지합니다."
+        )
 
 
 def test_refresh_playback_loads_rendered_layers_without_crossfade_when_output_stopped(
@@ -154,5 +397,8 @@ def test_refresh_playback_keeps_running_output_on_crossfade_failure(tmp_path) ->
     refresh_playback_after_recording(runtime, accepted_outcome())
 
     assert runtime.output.is_running is True
+    assert runtime.transition_warning == (
+        "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다."
+    )
     assert runtime.player.reload_paths == []
     assert runtime.logger.events[-1]["event_type"] == "recording.playback_refresh_failed"

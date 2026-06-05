@@ -1,0 +1,178 @@
+goal: >-
+  Verify that the completed Voice Source / Voice Stack live-transition implementation is
+  present on main, then reproduce or conclusively diagnose and fix two manual QA defects on
+  main: live_ephemeral recordings not crossfading into the currently audible voice layer as
+  soon as the next voice audio is ready, and operator UI controls closing during playback
+  websocket/state refreshes.
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - path: /Users/nohsungbeen/dev/project/The Secret Pond
+      role: primary
+      summary: Main checkout and single source of truth for all follow-up debugging, fixes, tests, and manual QA.
+    - path: /Users/nohsungbeen/.ouroboros/worktrees/The Secret Pond/orch_261f9e343f47
+      role: historical_reference
+      summary: Removed Ouroboros worktree that previously held the completed implementation; use only for history if available through git refs.
+    - path: docs/ouroboros/seed_58148696dd2f_amended.yaml
+      role: prior_seed
+      summary: Original implementation scope for VR/VS storage policy and live_ephemeral voice-only transition.
+    - path: docs/superpowers/plans/2026-06-05-voice-source-stack-live-transition.md
+      role: prior_plan
+      summary: Prior implementation plan and architecture boundaries for naming, storage services, recording workflow, player crossfade, and UI state.
+    - path: AGENTS.md
+      role: reference
+      summary: Repository guidance for verification, UI/audio checks, and commit style.
+  current_state:
+    - main has already fast-forwarded to the completed implementation commit 2828c54.
+    - The old separated Ouroboros worktree has been removed to avoid branch/worktree drift.
+    - A stale pre-merge local test edit was preserved in stash@{0} and must not be reapplied blindly.
+    - Post-merge verification on main already passed once with ruff and pytest 439 passed, 1 warning.
+  existing_patterns:
+    - Inspect and reproduce the actual symptom before patching.
+    - Preserve unrelated dirty worktree changes.
+    - Keep Stable Apply and Restart as operator-initiated fallback.
+    - WebSocket/state refreshes drive dashboard runtime state.
+    - Active UI controls already use some render deferral for selects/inputs/buttons; extend this pattern instead of replacing the dashboard.
+    - RecordingWorkflow owns post-recording live transition policy and session guards.
+    - LayeredLoopPlayer owns voice-only equal-power crossfade behavior.
+    - Low/mid playback continuity must remain independent from voice-layer transition.
+  existing_dependencies:
+    - Python project workflow with uv.
+    - pytest test suite.
+    - ruff linting.
+    - FastAPI web routes and WebSocket state path.
+    - Browser dashboard JavaScript/CSS.
+    - Existing audio runtime, renderer, recording workflow, voice stack services, and player.
+constraints:
+  - Work only from /Users/nohsungbeen/dev/project/The Secret Pond on main after verifying current git status.
+  - Do not attempt to re-merge the removed implementation worktree.
+  - Preserve stash@{0} and any unrelated dirty changes; do not apply or drop them unless explicitly needed and verified.
+  - Reproduce each reported symptom on main, or document why it cannot be reproduced with exact evidence.
+  - Do not automatically stop or restart exhibition/live_ephemeral playback as a recovery path.
+  - If next voice preparation, rendering, or hot-swap fails, keep the existing voice layer and existing playback running.
+  - Show a clear operator-visible preparing/error state when transition is delayed or fails, including that the existing voice is being kept.
+  - New visitor voice must begin crossfade as soon as the next voice audio is ready; waiting until the next full loop is a failure.
+  - "Crossfade must overlap exactly for the configured transition duration: current voice fades out while next voice fades in."
+  - Low and mid layer buffers, cursors, enabled state, and trim state must remain continuous during voice transition.
+  - User-opened or user-focused controls must remain stable across websocket/state refreshes until explicit close, focus loss, or completed action.
+  - Do not implement broader realtime EQ, seek, progress bar, general VS queue, or unrelated UI redesign in this follow-up.
+  - Keep changes aligned with existing responsibility boundaries and add focused tests before or alongside fixes.
+  - Verify with UV_CACHE_DIR=.uv-cache uv --native-tls run --extra dev ruff check . and UV_CACHE_DIR=.uv-cache uv --native-tls run --extra dev pytest -q.
+acceptance_criteria:
+  - "MainIntegrationVerified: git status and git log on main show the completed implementation is present at or after commit 2828c54, no redundant merge is attempted, and any dirty/stashed changes are explicitly accounted for. Evidence must include branch output, implementation commit evidence, and pre-edit git status."
+  - "AudioSymptomReproducedOrDiagnosed: live_ephemeral recording transition behavior is reproduced in an automated test, browser/API run, or documented manual QA flow; if not reproducible, exact runtime state/logs must prove the diagnosis. Evidence must include test name or manual QA steps, transition status/log/event payload, and old/new voice-layer state before and after recording."
+  - "ImmediateReadyCrossfade: after accepted live_ephemeral recording, the prepared next voice layer starts crossfading into the currently audible voice layer as soon as ready, without waiting for the next full loop and without playback restart. Evidence must include a focused player or recording workflow test and an assertion that output remains running and playback session is not restarted."
+  - "ExactOverlapFade: the configured transition duration controls the exact overlap window where old voice fades out and new voice fades in using the existing equal-power voice transition API. Evidence must assert duration_frames derives from voice_stack.transition_seconds and that old and new voice are both mixed during overlap."
+  - "FailureKeepsExistingPlayback: if preparing, rendering, or hot-swap fails, old voice remains audible, low/mid playback continues, output remains running, and no automatic Apply and Restart or stop/start occurs. Evidence must include a regression test and UI/API state with transition warning/error and fallback guidance."
+  - "UIRefreshDoesNotCloseActiveControls: playback websocket/state refreshes do not close active device selects, source selects, upload mode selects, toggles, menus, details panels, or technical detail panels while the operator is interacting with them. Evidence must include focused static app tests and browser/manual verification for at least one select and one details/toggle panel during playback refresh."
+  - "StableFallbackPreserved: operator-initiated Apply and Restart still works as Stable fallback and is not triggered automatically by transition failure. Evidence must include an existing or added apply/restart test and a failure test proving no automatic restart call."
+  - "FullVerificationPasses: repository checks pass on main after fixes. Evidence must include passing UV_CACHE_DIR=.uv-cache uv --native-tls run --extra dev ruff check ., passing UV_CACHE_DIR=.uv-cache uv --native-tls run --extra dev pytest -q, and targeted browser/manual QA notes in the final report."
+ontology_schema:
+  name: MainLiveTransitionManualQAFollowup
+  description: Domain model for verifying the already-integrated main branch and fixing exhibition live voice transition plus operator UI refresh stability defects.
+  fields:
+    - name: main_checkout_path
+      type: string
+      description: Primary checkout used for all follow-up work.
+      required: true
+    - name: main_integration_status
+      type: object
+      description: Evidence that main already contains the completed implementation and no re-merge is needed.
+      required: true
+    - name: historical_worktree_reference
+      type: object
+      description: Prior Ouroboros worktree or branch metadata retained only for history/comparison.
+      required: false
+    - name: preserved_dirty_changes
+      type: array
+      description: Stashed or dirty changes that must be preserved and not blindly reapplied.
+      required: false
+    - name: audio_reproduction_case
+      type: object
+      description: Test, API/browser, or manual QA scenario for live_ephemeral recording transition behavior.
+      required: true
+    - name: ui_reproduction_case
+      type: object
+      description: Test or browser scenario proving whether active controls close during websocket/state refresh.
+      required: true
+    - name: playback_session
+      type: object
+      description: Active playback identity and guard state used to prevent stale transition overrides.
+      required: true
+    - name: current_voice_layer
+      type: object
+      description: Currently audible voice buffer/state that must remain until crossfade readiness or failure handling.
+      required: true
+    - name: next_voice_layer
+      type: object
+      description: Prepared voice buffer/state for accepted live_ephemeral recording transition.
+      required: true
+    - name: transition_duration_seconds
+      type: number
+      description: Configured fade overlap duration, validated by transition_seconds.
+      required: true
+    - name: transition_status
+      type: string
+      description: Operator-visible state such as preparing, applying, succeeded, delayed, or failed.
+      required: true
+    - name: failure_policy
+      type: object
+      description: Existing playback retention and operator-visible fallback messaging when transition fails.
+      required: true
+    - name: operator_control_state
+      type: object
+      description: Open/focused UI control state that must survive websocket/state refresh.
+      required: true
+    - name: websocket_refresh
+      type: object
+      description: Runtime state update that can trigger UI render and must preserve active controls.
+      required: true
+    - name: stable_fallback_action
+      type: object
+      description: Operator-initiated Apply and Restart path retained as fallback.
+      required: true
+    - name: fix_evidence
+      type: object
+      description: Tests, logs, browser screenshots, or manual QA notes proving the defects are fixed.
+      required: true
+evaluation_principles:
+  - name: PlaybackContinuity
+    description: Exhibition playback remains continuous with no automatic stop/restart during live_ephemeral voice updates or failures.
+    weight: 0.25
+  - name: ImmediateReadyTransition
+    description: New visitor voice begins crossfade as soon as the prepared voice audio is ready, with no next-loop delay tolerated.
+    weight: 0.25
+  - name: UIInteractionStability
+    description: Active operator controls remain stable across websocket/state refreshes.
+    weight: 0.20
+  - name: BrownfieldSafety
+    description: Work proceeds on main, preserves unrelated changes, and follows existing architecture and test patterns.
+    weight: 0.15
+  - name: Verifiability
+    description: Automated and manual/browser evidence is collected before claiming completion.
+    weight: 0.15
+exit_conditions:
+  - name: MainStateVerified
+    description: main is confirmed as the current source of truth with implementation present.
+    criteria: Git evidence confirms main contains the prior implementation and no redundant merge or worktree split remains necessary.
+  - name: AudioIssueResolved
+    description: live_ephemeral recording transition behavior satisfies exhibition policy.
+    criteria: New voice crossfades immediately when ready, does not wait for next loop, and does not restart playback.
+  - name: UIIssueResolved
+    description: Playback refreshes no longer close active controls.
+    criteria: Selects, toggles, menus, details panels, and technical panels stay open until user-driven close, focus loss, or action completion.
+  - name: FailurePolicyResolved
+    description: Delayed or failed voice preparation preserves exhibition playback and informs the operator.
+    criteria: Existing voice continues, output remains running, and UI/API exposes clear preparing/error state with Stable fallback guidance.
+  - name: VerificationComplete
+    description: Repository and targeted manual/browser verification pass.
+    criteria: ruff, pytest, and targeted browser/manual QA all pass with evidence in the final report.
+metadata:
+  seed_id: seed_cfad41388f29
+  version: 1.0.1
+  created_at: '2026-06-05T13:19:08.175532Z'
+  updated_at: '2026-06-05T13:22:00+09:00'
+  ambiguity_score: 0.121
+  interview_id: interview_20260605_130054
+  parent_seed_id: null

@@ -31,17 +31,35 @@ globalThis.setInterval = () => 0;
 
 STATIC_APP_RENDER_DOM_SETUP = """
 const elements = {};
-const makeElement = () => {
-  const element = {
+const selectorMatches = (element, selector) => {
+  if (!element) return false;
+  if (selector === "select,input,textarea,button") {
+    return ["SELECT", "INPUT", "TEXTAREA", "BUTTON"].includes(element.tagName);
+  }
+  const dataSelector = selector.match(/^\\[([^=\\]]+)(?:="([^"]+)")?\\]$/);
+  if (dataSelector) {
+    const attribute = dataSelector[1];
+    const expected = dataSelector[2];
+    const actual = element.getAttribute(attribute);
+    return expected === undefined ? actual !== null : actual === expected;
+  }
+  return false;
+};
+const makeElement = (tagName = "div") => {
+    const element = {
+    tagName: String(tagName).toUpperCase(),
     children: [],
-    innerHTML: "",
     textContent: "",
     className: "",
     hidden: false,
+    open: false,
     disabled: false,
     title: "",
     value: "",
     attributes: {},
+    dataset: {},
+    listeners: {},
+    parentElement: null,
     _classes: new Set(),
     classList: {
       toggle(name, force) {
@@ -53,19 +71,45 @@ const makeElement = () => {
       },
     },
     setAttribute(name, value) {
-      this.attributes[name] = value;
+      const stringValue = String(value);
+      this.attributes[name] = stringValue;
+      if (name.startsWith("data-")) {
+        const key = name.slice(5).replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
+        this.dataset[key] = stringValue;
+      }
     },
     getAttribute(name) {
-      return this.attributes[name] || null;
+      return this.attributes[name] ?? null;
     },
     appendChild(child) {
+      child.parentElement = this;
       this.children.push(child);
       return child;
     },
     append(...children) {
-      this.children.push(...children);
+      children.forEach((child) => {
+        child.parentElement = this;
+        this.children.push(child);
+      });
     },
-    addEventListener() {},
+    addEventListener(eventName, handler) {
+      this.listeners[eventName] = handler;
+    },
+    dispatchEvent(event) {
+      this.listeners[event.type]?.(event);
+    },
+    contains(target) {
+      if (target === this) return true;
+      return this.children.some((child) => child?.contains?.(target));
+    },
+    closest(selector) {
+      let current = this;
+      while (current) {
+        if (selectorMatches(current, selector)) return current;
+        current = current.parentElement;
+      }
+      return null;
+    },
     querySelector() {
       return makeElement();
     },
@@ -73,9 +117,18 @@ const makeElement = () => {
       return [];
     },
   };
+  Object.defineProperty(element, "innerHTML", {
+    get() {
+      return this._innerHTML || "";
+    },
+    set(value) {
+      this._innerHTML = String(value);
+      this.children = [];
+    },
+  });
   return element;
 };
-const createElement = () => makeElement();
+const createElement = (tagName = "div") => makeElement(tagName);
 const recordCore = createElement();
 const recordOutcome = createElement();
 recordOutcome.className = "record-outcome ready";
@@ -88,8 +141,8 @@ globalThis.document = {
     if (!elements[id]) elements[id] = createElement();
     return elements[id];
   },
-  createElement() {
-    return createElement();
+  createElement(tagName) {
+    return createElement(tagName);
   },
   querySelector(selector) {
     return selector === ".record-core" ? recordCore : createElement();

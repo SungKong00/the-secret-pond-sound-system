@@ -7,6 +7,12 @@ from typing import Any, Protocol
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.effects import apply_recording_processing
+from secret_pond.audio.level_analysis import (
+    AudioLevelMetrics,
+    analyze_audio_levels,
+    audio_level_payload,
+    is_effectively_silent,
+)
 from secret_pond.audio.recorder import Recorder
 from secret_pond.config import AppSettings
 from secret_pond.services.recording_processing_policy import recording_processing_sample_rate
@@ -143,7 +149,8 @@ class RecordingController:
             raise
 
         duration_seconds = self._elapsed_since(started_at)
-        self._log_stop(recorded, duration_seconds)
+        input_levels = analyze_audio_levels(recorded)
+        self._log_stop(recorded, duration_seconds, input_levels)
         self._clear_recording_state()
         self._log_discard("disarmed", duration_seconds)
         return RecordingOutcome(
@@ -197,7 +204,8 @@ class RecordingController:
             raise
 
         duration_seconds = self._elapsed_since(started_at)
-        self._log_stop(recorded, duration_seconds)
+        input_levels = analyze_audio_levels(recorded)
+        self._log_stop(recorded, duration_seconds, input_levels)
         self._clear_recording_state()
 
         if duration_seconds < self._settings.input_control.minimum_recording_seconds:
@@ -208,11 +216,18 @@ class RecordingController:
                 reason="too_short",
             )
         if recorded.frames == 0:
-            self._log_discard("empty", duration_seconds)
+            self._log_discard("empty", duration_seconds, input_levels)
             return RecordingOutcome(
                 accepted=False,
                 duration_seconds=duration_seconds,
                 reason="empty",
+            )
+        if is_effectively_silent(input_levels):
+            self._log_discard("silent_input", duration_seconds, input_levels)
+            return RecordingOutcome(
+                accepted=False,
+                duration_seconds=duration_seconds,
+                reason="silent_input",
             )
 
         if self._settings.voice_stack.mode == "test_library":
@@ -285,6 +300,7 @@ class RecordingController:
                 self._settings,
                 processing_settings_snapshot=self._settings.recording.model_dump(mode="json"),
             )
+            self._settings.sources.voice_raw_path = None
             _apply_voice_stack_result_paths(self._settings, stack_result)
         except Exception as exc:
             self._last_error = str(exc)
@@ -360,22 +376,37 @@ class RecordingController:
         self._log_event("participant.incremented", {"count": participant_count})
         return participant_count
 
-    def _log_stop(self, recorded: AudioBuffer, duration_seconds: float) -> None:
+    def _log_stop(
+        self,
+        recorded: AudioBuffer,
+        duration_seconds: float,
+        input_levels: AudioLevelMetrics,
+    ) -> None:
         self._log_event(
             "recording.stop",
             {
                 "duration_seconds": duration_seconds,
                 "frames": recorded.frames,
+                "input_levels": audio_level_payload(input_levels),
+                "input_stream": self._recorder_diagnostics(),
             },
         )
 
-    def _log_discard(self, reason: str, duration_seconds: float) -> None:
+    def _log_discard(
+        self,
+        reason: str,
+        duration_seconds: float,
+        input_levels: AudioLevelMetrics | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "duration_seconds": duration_seconds,
+            "reason": reason,
+        }
+        if input_levels is not None:
+            payload["input_levels"] = audio_level_payload(input_levels)
         self._log_event(
             "recording.discarded",
-            {
-                "duration_seconds": duration_seconds,
-                "reason": reason,
-            },
+            payload,
         )
 
     def _log_event(self, event_type: str, payload: Mapping[str, Any] | None = None) -> None:
@@ -385,6 +416,22 @@ class RecordingController:
             self._logger.log_event(event_type, payload)
         except Exception:
             return
+
+    def _recorder_diagnostics(self) -> dict[str, Any]:
+        statuses = getattr(self._recorder, "statuses", None)
+        if callable(statuses):
+            statuses_value = statuses()
+        else:
+            statuses_value = statuses
+        if statuses_value is None:
+            statuses_payload: list[str] = []
+        else:
+            statuses_payload = [str(status) for status in statuses_value]
+        return {
+            "sample_rate": getattr(self._recorder, "stream_sample_rate", None),
+            "channels": getattr(self._recorder, "stream_channels", None),
+            "statuses": statuses_payload,
+        }
 
 
 def _added_chunks(stack_result: Any) -> int | None:

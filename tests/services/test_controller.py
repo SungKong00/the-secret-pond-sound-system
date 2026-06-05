@@ -164,6 +164,10 @@ def empty_take() -> AudioBuffer:
     return AudioBuffer(samples=np.zeros((0, 2), dtype=np.float32), sample_rate=48_000)
 
 
+def silent_take(frames: int = 2_000) -> AudioBuffer:
+    return AudioBuffer(samples=np.zeros((frames, 2), dtype=np.float32), sample_rate=48_000)
+
+
 def mono_device_take() -> AudioBuffer:
     samples = np.ones(4_410, dtype=np.float32) * 0.05
     return AudioBuffer(samples=samples, sample_rate=44_100)
@@ -260,6 +264,38 @@ def test_controller_discards_empty_recording_even_when_duration_is_long_enough()
     assert participants.count == 0
 
 
+def test_controller_discards_silent_recording_without_side_effects() -> None:
+    recorder = ScriptedRecorder(silent_take())
+    voice_source = SpyVoiceSource()
+    logger = SpyLogger()
+    controller, _, voice_stack, renderer, participants, _, clock = controller_fixture(
+        recorder=recorder,
+        voice_source=voice_source,
+        logger=logger,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(2.0)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is False
+    assert outcome.reason == "silent_input"
+    assert voice_source.calls == []
+    assert voice_stack.calls == []
+    assert renderer.rendered_layers == []
+    assert participants.count == 0
+    assert controller.settings.sources.voice_raw_path is None
+    assert controller.settings.sources.voice_stack_path is None
+
+    discarded = logger.events[-1]
+    assert discarded["event_type"] == "recording.discarded"
+    assert discarded["payload"]["reason"] == "silent_input"
+    assert discarded["payload"]["input_levels"]["peak"] == 0.0
+    assert discarded["payload"]["input_levels"]["rms"] == 0.0
+    assert discarded["payload"]["input_levels"]["nonzero_ratio"] == 0.0
+
+
 def test_controller_processes_adds_renders_and_counts_accepted_recording() -> None:
     controller, _, voice_stack, renderer, participants, _, clock = controller_fixture()
 
@@ -314,6 +350,7 @@ def test_controller_live_ephemeral_adds_to_stack_without_retaining_vr() -> None:
         voice_source=voice_source,
     )
     controller.settings.voice_stack.mode = "live_ephemeral"
+    controller.settings.sources.voice_raw_path = "data/sources/voice/raw/stale-vr.wav"
 
     controller.arm_input()
     controller.start_recording()

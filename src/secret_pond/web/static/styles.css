@@ -1478,7 +1478,7 @@ select:disabled {
 
 .source-file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: center;
   min-height: 38px;
@@ -1488,15 +1488,45 @@ select:disabled {
   background: rgba(0, 0, 0, 0.11);
 }
 
+.source-file-row.voice-raw {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.source-file-main {
+  min-width: 0;
+}
+
+.source-file-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
 .source-file-actions {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   justify-content: flex-end;
 }
 
-.source-file-row strong,
-.source-file-row small {
+.source-file-actions.voice-raw-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-content: stretch;
+}
+
+.source-file-actions.voice-raw-actions .mini-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.source-file-main strong,
+.source-file-main small {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -1504,12 +1534,12 @@ select:disabled {
   white-space: nowrap;
 }
 
-.source-file-row strong {
+.source-file-main strong {
   color: var(--text);
   font-size: 12px;
 }
 
-.source-file-row small {
+.source-file-main small {
   color: var(--muted);
   font-size: 10px;
 }
@@ -2460,7 +2490,18 @@ input[type="checkbox"] {
 
   .device-select-row,
   .record-outcome,
-  .event-item {
+  .event-item,
+  .source-file-row,
+  .source-file-row.voice-raw {
+    grid-template-columns: 1fr;
+  }
+
+  .source-file-badges,
+  .source-file-actions {
+    justify-content: flex-start;
+  }
+
+  .source-file-actions.voice-raw-actions {
     grid-template-columns: 1fr;
   }
 

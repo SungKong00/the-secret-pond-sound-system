@@ -53,6 +53,7 @@ const state = {
   draftEditRevision: 0,
   confirmedDraftSignature: null,
   sourceMutationRequestId: 0,
+  storageModeRequestId: 0,
   stateRefreshRequestId: 0,
   sourceRefreshRequestId: 0,
   diagnosticsRefreshRequestId: 0,
@@ -71,6 +72,7 @@ const state = {
   resetParticipantsInFlight: false,
   deviceChangeInFlight: false,
   activeInteractiveControl: null,
+  releasedInteractiveControl: null,
   renderSignatures: {
     deviceSelects: {},
     sourceLibrary: null,
@@ -79,6 +81,7 @@ const state = {
     layers: {},
     recording: null,
   },
+  expandedControlGroups: {},
   workspaceTab: workspaceTabFromUrl(),
   deferredInteractiveRenders: {},
 };
@@ -999,8 +1002,19 @@ const settingsControlContainerIds = [
 
 const activeInteractiveControlFor = (container) => {
   const tracked = state.activeInteractiveControl;
-  if (!tracked || !container) return null;
-  return tracked === container || container.contains?.(tracked) ? tracked : null;
+  if (!container) return null;
+  if (tracked && (tracked === container || container.contains?.(tracked))) return tracked;
+  const focused = document.activeElement;
+  if (
+    focused &&
+    focused !== state.releasedInteractiveControl &&
+    deferredInteractiveControlTags.has(focused.tagName) &&
+    (focused === container || container.contains?.(focused))
+  ) {
+    state.activeInteractiveControl = focused;
+    return focused;
+  }
+  return null;
 };
 
 const deferredInteractiveControlFromTarget = (target) => {
@@ -1065,12 +1079,14 @@ const deferInteractiveRender = (key, container, renderFn, options = {}) => {
 
 const trackInteractiveControl = (element) => {
   state.activeInteractiveControl = element;
+  state.releasedInteractiveControl = null;
 };
 
 const releaseInteractiveControl = (element) => {
   if (state.activeInteractiveControl === element) {
     state.activeInteractiveControl = null;
   }
+  if (element) state.releasedInteractiveControl = element;
   flushDeferredInteractiveRenders(element);
 };
 
@@ -1183,7 +1199,8 @@ const collectNoticeDetailElements = (element, result = []) => {
 
 const noticeDetailElements = (container) => {
   const detailElements = container.querySelectorAll?.("details[data-notice-key]");
-  if (detailElements) return Array.from(detailElements);
+  const queried = detailElements ? Array.from(detailElements) : [];
+  if (queried.length) return queried;
   return collectNoticeDetailElements(container);
 };
 
@@ -2255,6 +2272,12 @@ const renderRecordingOutcome = (outcome) => {
     setRecordStatus("discarded", "너무 짧음", `${duration} 녹음됨. 최소 시간을 채우지 못했습니다.`);
   } else if (outcome.reason === "empty") {
     setRecordStatus("discarded", "빈 녹음", `${duration} 녹음됨.`);
+  } else if (outcome.reason === "silent_input") {
+    setRecordStatus(
+      "discarded",
+      "녹음 실패",
+      "마이크 입력이 거의 감지되지 않았습니다. 선택된 마이크, 운영체제 마이크 권한, 외장 마이크 연결을 확인한 뒤 다시 녹음해 주세요.",
+    );
   } else if (outcome.reason === "disarmed") {
     setRecordStatus("discarded", "녹음 준비 꺼짐", `${duration} 녹음됨.`);
   } else {
@@ -2407,11 +2430,12 @@ const renderSourceHealthList = (sources) => {
   });
 };
 
-const renderSourceLibrary = () => {
+const renderSourceLibrary = (options = {}) => {
   const container = $("sourceLibraryList");
   if (!container) return;
   syncSourceLibraryBusyControls(container);
   if (
+    options.allowInteractiveDeferral !== false &&
     deferInteractiveRender("source-library", container, renderSourceLibrary, {
       nextControlForTarget: (_container, target) => sourceInteractiveControlFromEventTarget(target),
     })
@@ -2783,8 +2807,18 @@ const sourceFileRows = (category) => {
     const deleteTitle = action.deleteTitle
       ? ` title="${escapeHtml(action.deleteTitle)}"`
       : "";
+    const deleteButton = `
+        <button
+          class="mini-button danger"
+          type="button"
+          data-source-delete="${escapeHtml(category.id)}"
+          data-source-path="${escapeHtml(file.path)}"
+          ${deleteTitle}
+          ${disabled}
+        >삭제</button>
+      `;
     const voiceRawActions = category.id === "voice_raw" ? `
-        <div class="source-file-actions">
+        <div class="source-file-actions voice-raw-actions">
           <button
             class="mini-button"
             type="button"
@@ -2799,24 +2833,21 @@ const sourceFileRows = (category) => {
             title="${escapeHtml(voiceRawAction.addTitle)}"
             ${voiceRawAction.addDisabled ? " disabled" : ""}
           >Add to Stack</button>
+          ${deleteButton}
         </div>
       ` : "";
+    const rowClass = category.id === "voice_raw"
+      ? "source-file-row voice-raw"
+      : "source-file-row";
     return `
-      <div class="source-file-row">
-        <div>
+      <div class="${rowClass}">
+        <div class="source-file-main">
           <strong>${escapeHtml(file.name)}</strong>
           <small>${formatBytes(file.size_bytes)} · ${formatTimestamp(file.modified_at)}</small>
         </div>
-        ${badges}
+        <div class="source-file-badges">${badges}</div>
         ${voiceRawActions}
-        <button
-          class="mini-button danger"
-          type="button"
-          data-source-delete="${escapeHtml(category.id)}"
-          data-source-path="${escapeHtml(file.path)}"
-          ${deleteTitle}
-          ${disabled}
-        >삭제</button>
+        ${category.id === "voice_raw" ? "" : deleteButton}
       </div>
     `;
   }).join("");
@@ -2857,6 +2888,17 @@ const nextSourceMutationRequestId = () => {
 
 const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutationRequestId;
 
+const beginStorageModeChange = () => {
+  state.storageModeRequestId += 1;
+  return state.storageModeRequestId;
+};
+
+const isCurrentStorageModeChange = (requestId) => requestId === state.storageModeRequestId;
+
+const invalidatePendingStorageModeChanges = () => {
+  state.storageModeRequestId += 1;
+};
+
 const beginSourceMutation = () => {
   const requestId = nextSourceMutationRequestId();
   setOperationLockFlag("sourceMutationInFlight", true);
@@ -2886,7 +2928,7 @@ const applySourceMutationPayload = (payload, options = {}) => {
   if (payload.settings) {
     renderState();
   }
-  renderSourceLibrary();
+  renderSourceLibrary({ allowInteractiveDeferral: false });
   return true;
 };
 
@@ -3166,7 +3208,6 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     ...currentOperationFlags(),
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
-    select.title = selectState.title;
     return;
   }
 
@@ -3520,7 +3561,7 @@ const renderStorageModeControls = () => {
   const draftDetails = storageModeDetails[draftMode] || activeDetails;
   const pending = activeMode !== draftMode;
   $("storageModeSummary").textContent = pending
-    ? `${activeDetails.label} · 재시작 시 적용: ${draftDetails.optionLabel}`
+    ? `${activeDetails.label} · 적용 중: ${draftDetails.optionLabel}`
     : `${activeDetails.label} · ${activeDetails.summary}`;
   $("storageModePanel").className = `storage-mode-panel ${draftDetails.className}${
     pending ? " pending" : ""
@@ -3544,17 +3585,47 @@ const renderStorageModeControls = () => {
   });
 };
 
-const setStorageMode = (mode) => {
+const setStorageMode = async (mode) => {
   const controlState = deriveStorageModeControlState({
     snapshot: state.snapshot,
     draft: state.draft,
     mode,
     ...currentOperationFlags(),
   });
-  if (!controlState.canCommit) return;
-  commitDraftChange(() => {
-    state.draft.voice_stack.mode = mode;
-  });
+  if (!controlState.canCommit) return null;
+  const requestId = beginStorageModeChange();
+  state.draft.voice_stack.mode = mode;
+  markDraftEdited();
+  syncDraftSnapshot();
+  renderState();
+  let modeError = null;
+  setOperationLockFlag("applyInFlight", true);
+  try {
+    clearDraftSaveTimer();
+    await saveDraft();
+    if (!isCurrentStorageModeChange(requestId)) return null;
+    const payload = await api("/api/voice-stack/mode", {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
+    });
+    if (!isCurrentStorageModeChange(requestId)) return payload;
+    await applyResponseState(payload, {
+      syncDraft: false,
+      mergeDraftSections: ["voice_stack"],
+    });
+    return payload;
+  } catch (error) {
+    if (!isCurrentStorageModeChange(requestId)) return null;
+    modeError = error;
+    await requestState({ syncDraft: false }).catch(() => {});
+    return null;
+  } finally {
+    if (isCurrentStorageModeChange(requestId)) {
+      setOperationLockFlag("applyInFlight", false);
+      if (modeError) showError(modeError.message);
+      else clearTransientError({ respectMinimumVisibleDuration: true });
+    }
+  }
 };
 
 const renderLayerGroup = (containerId, layerIds) => {
@@ -3893,10 +3964,19 @@ const groupActionsMarkup = (group, draftSource, activeSource = null) => {
   `;
 };
 
+const controlGroupKey = (group) =>
+  [labelText(group.title), group.className || "", group.action || ""].join(":");
+
 const controlGroup = (group, draftSource, activeSource, onInput, onGroupAction = null) => {
   const section = document.createElement(group.collapsible ? "details" : "section");
   section.className = `control-group ${group.className || ""}`;
-  if (group.open) section.open = true;
+  const groupKey = controlGroupKey(group);
+  if (group.collapsible) {
+    section.open = state.expandedControlGroups[groupKey] ?? Boolean(group.open);
+    section.addEventListener("toggle", () => {
+      state.expandedControlGroups[groupKey] = Boolean(section.open);
+    });
+  } else if (group.open) section.open = true;
   let currentDraftSource = draftSource;
   const headTag = group.collapsible ? "summary" : "div";
   section.innerHTML = `
@@ -4325,6 +4405,7 @@ const resetDraft = async () => {
   let resetError = null;
   setOperationLockFlag("resetDraftInFlight", true);
   invalidatePendingDraftSaves();
+  invalidatePendingStorageModeChanges();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     if (serverPayloadRevisionIsOlder(payload)) return;
@@ -4349,7 +4430,7 @@ const resetParticipants = async () => {
   ) {
     return;
   }
-  if (!window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+  if (!window.confirm("참여자 수를 0으로 초기화할까요? 목소리 스택과 녹음 파일은 삭제되지 않습니다.")) return;
   let resetError = null;
   setOperationLockFlag("resetParticipantsInFlight", true);
   try {

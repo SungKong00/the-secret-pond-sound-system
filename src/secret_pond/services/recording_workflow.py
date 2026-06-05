@@ -42,24 +42,42 @@ def refresh_playback_after_recording(
         if runtime.output.is_running:
             if not _playback_guard_matches(runtime, settings, guard):
                 runtime.transition_warning = (
-                    "목소리 전환을 건너뛰었습니다. 재생 중 선택된 스택이 바뀌었습니다."
+                    "목소리 전환을 건너뛰었습니다. 재생 중 선택된 스택이 바뀌었습니다. "
+                    "기존 목소리를 유지합니다."
                 )
                 _log_event_best_effort(
                     runtime,
                     "recording.playback_refresh_skipped",
-                    {
-                        "reason": "playback_guard_mismatch",
-                        "voice_stack_path": _voice_stack_path(outcome),
-                    },
+                    _transition_skip_evidence(runtime, settings, outcome, guard),
                 )
                 return
             voice = read_wav(runtime.paths.voice_playback)
-            runtime.player.start_voice_crossfade(
+            duration_frames = int(
+                settings.voice_stack.transition_seconds * settings.audio.sample_rate
+            )
+            transition_target_id = _voice_stack_path(outcome) or "voice-stack"
+            ready_evidence = _transition_ready_evidence(runtime, voice, guard)
+            superseded = runtime.player.start_voice_crossfade(
                 voice,
-                duration_frames=int(
-                    settings.voice_stack.transition_seconds * settings.audio.sample_rate
-                ),
-                transition_target_id=_voice_stack_path(outcome) or "voice-stack",
+                duration_frames=duration_frames,
+                transition_target_id=transition_target_id,
+            )
+            _log_event_best_effort(
+                runtime,
+                "recording.voice_transition_started",
+                {
+                    "status": "applying",
+                    "source_layer_id": "voice",
+                    "target_layer_id": "voice",
+                    "transition_source_id": _transition_source_id(runtime, settings, guard),
+                    "transition_target_id": transition_target_id,
+                    "transition_seconds": settings.voice_stack.transition_seconds,
+                    "duration_frames": duration_frames,
+                    "crossfade_scheduled": True,
+                    "reason": "output_running_guard_matched_next_voice_ready",
+                    "previous_transition_target_id": superseded,
+                    **ready_evidence,
+                },
             )
             runtime.transition_warning = None
         else:
@@ -67,7 +85,9 @@ def refresh_playback_after_recording(
             runtime.transition_warning = None
         apply_player_layer_settings(runtime, settings)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        runtime.transition_warning = "목소리 전환을 적용하지 못했습니다."
+        runtime.transition_warning = (
+            "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다."
+        )
         _log_event_best_effort(
             runtime,
             "recording.playback_refresh_failed",
@@ -106,6 +126,71 @@ def _voice_stack_path(outcome: Any) -> str | None:
     stack_result = getattr(outcome, "stack_result", None)
     voice_stack_path = getattr(stack_result, "voice_stack_path", None)
     return voice_stack_path if isinstance(voice_stack_path, str) else None
+
+
+def _transition_source_id(
+    runtime: SecretPondRuntime,
+    settings: Any,
+    guard: RecordingPlaybackGuard | None,
+) -> str:
+    if guard is not None:
+        return guard.current_stack_id
+    return runtime.voice_stack.transition_guard_state(settings).current_stack_id
+
+
+def _transition_ready_evidence(
+    runtime: SecretPondRuntime,
+    next_voice: Any,
+    guard: RecordingPlaybackGuard | None,
+) -> dict[str, Any]:
+    evidence: dict[str, Any] = {
+        "output_running": runtime.output.is_running,
+        "guard_matched": True,
+        "playback_session_id": None if guard is None else guard.playback_session_id,
+        "guard_current_stack_id": None if guard is None else guard.current_stack_id,
+        "next_voice_frames": getattr(next_voice, "frames", None),
+    }
+    snapshot = _player_snapshot_best_effort(runtime)
+    if snapshot is None:
+        return evidence
+
+    evidence["frame_cursor_at_ready"] = getattr(snapshot, "frame_cursor", None)
+    evidence["player_was_playing"] = getattr(snapshot, "playing", None)
+    layers = getattr(snapshot, "layers", None)
+    if layers is not None and "voice" in layers:
+        evidence["current_voice_frames"] = getattr(layers["voice"], "frames", None)
+    return evidence
+
+
+def _transition_skip_evidence(
+    runtime: SecretPondRuntime,
+    settings: Any,
+    outcome: Any,
+    guard: RecordingPlaybackGuard | None,
+) -> dict[str, Any]:
+    current = runtime.voice_stack.transition_guard_state(settings)
+    return {
+        "reason": "playback_guard_mismatch",
+        "crossfade_scheduled": False,
+        "output_running": runtime.output.is_running,
+        "guard_matched": False,
+        "voice_stack_path": _voice_stack_path(outcome),
+        "guard_playback_session_id": None if guard is None else guard.playback_session_id,
+        "current_playback_session_id": current.playback_session_id,
+        "guard_current_stack_id": None if guard is None else guard.current_stack_id,
+        "current_stack_id": current.current_stack_id,
+    }
+
+
+def _player_snapshot_best_effort(runtime: SecretPondRuntime) -> Any | None:
+    try:
+        snapshot = runtime.player.snapshot
+    except AttributeError:
+        return None
+    try:
+        return snapshot()
+    except Exception:
+        return None
 
 
 def _log_event_best_effort(

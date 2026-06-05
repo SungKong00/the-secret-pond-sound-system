@@ -1322,7 +1322,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "파일 저장" in script.text
     assert "개별 녹음 파일을 남기지 않습니다." not in script.text
     assert "accepted clip을 파일로 저장합니다." not in script.text
-    assert "재시작 시 적용" in script.text
+    assert "적용 중:" in script.text
+    assert 'api("/api/voice-stack/mode"' in script.text
     assert ".storage-mode-panel" in styles.text
     assert ".storage-mode-options" in styles.text
     assert ".storage-mode-button" in styles.text
@@ -1351,9 +1352,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'document.querySelectorAll("[data-workspace-pane]")' in script.text
     assert "renderWorkspaceTabs();" in script.text
     assert 'window.confirm("저장하지 않은 설정 변경을 취소할까요?")' in script.text
-    assert 'window.confirm("참여자 녹음 스택을 초기화할까요? 이 작업은 되돌릴 수 없습니다.")' in (
-        script.text
+    reset_participants_confirm = (
+        'window.confirm("참여자 수를 0으로 초기화할까요? '
+        '목소리 스택과 녹음 파일은 삭제되지 않습니다.")'
     )
+    assert reset_participants_confirm in script.text
     assert '"voiceStackControls"' in script.text
     assert "voiceStackControlDefs" in script.text
     assert 'label: { ko: "목소리 루프 길이", en: "Voice Loop" }' in script.text
@@ -1395,6 +1398,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "녹음 추가됨" in script.text
     assert "너무 짧음" in script.text
     assert "빈 녹음" in script.text
+    assert "마이크 입력이 거의 감지되지 않았습니다" in script.text
     assert "녹음 준비 꺼짐" in script.text
     assert "녹음 실패" in script.text
     assert "captureReady: armed && !isRecording && !captureOperationBusy" in script.text
@@ -1620,10 +1624,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "commitDraftChange(() => {" in voice_stack_body
     storage_mode_body = slice_between(
         script.text,
-        "const setStorageMode = (mode) => {",
+        "const setStorageMode = async (mode) => {",
         "};\n\nconst renderLayerGroup",
     )
-    assert "commitDraftChange(() => {" in storage_mode_body
+    assert 'api("/api/voice-stack/mode"' in storage_mode_body
+    assert 'mergeDraftSections: ["voice_stack"]' in storage_mode_body
     recording_controls_body = slice_between(
         script.text,
         "const renderRecordingControls = () => {",
@@ -4357,6 +4362,149 @@ def test_static_ui_apply_response_state_uses_embedded_state_or_refresh_fallback(
     )
 
 
+def test_static_ui_storage_mode_applies_immediately_without_global_apply(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, setStorageMode }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const activeSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 3 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const nextSettings = JSON.parse(JSON.stringify(activeSettings));
+  nextSettings.voice_stack.mode = "test_library";
+  helpers.state.snapshot = {
+    armed: false,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 0,
+    playback: { output_running: false, layers: {} },
+    settings: {
+      active: activeSettings,
+      draft: activeSettings,
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      },
+    },
+  };
+  helpers.state.draft = JSON.parse(JSON.stringify(activeSettings));
+
+  const calls = [];
+  globalThis.fetch = (path, options = {}) => {
+    calls.push({ path, method: options.method, body: options.body });
+    if (path === "/api/settings/draft") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          settings: {
+            active: activeSettings,
+            draft: nextSettings,
+            change: {
+              runtime_config_changed: false,
+              changed_runtime_fields: [],
+              changed_sections: ["voice_stack"],
+            },
+          },
+        }),
+      });
+    }
+    if (path === "/api/voice-stack/mode") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          state: {
+            ...helpers.state.snapshot,
+            settings: {
+              active: nextSettings,
+              draft: nextSettings,
+              change: {
+                runtime_config_changed: false,
+                changed_runtime_fields: [],
+                changed_sections: [],
+              },
+            },
+          },
+          settings: {
+            active: nextSettings,
+            draft: nextSettings,
+            change: {
+              runtime_config_changed: false,
+              changed_runtime_fields: [],
+              changed_sections: [],
+            },
+          },
+        }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  await helpers.setStorageMode("test_library");
+
+  assert.deepStrictEqual(calls.map((call) => call.path), [
+    "/api/settings/draft",
+    "/api/voice-stack/mode",
+  ]);
+  assert.strictEqual(calls[0].method, "PUT");
+  assert.strictEqual(JSON.parse(calls[0].body).voice_stack.mode, "test_library");
+  assert.strictEqual(calls[1].method, "PUT");
+  assert.deepStrictEqual(JSON.parse(calls[1].body), { mode: "test_library" });
+  assert.strictEqual(helpers.state.snapshot.settings.active.voice_stack.mode, "test_library");
+  assert.strictEqual(helpers.state.draft.voice_stack.mode, "test_library");
+  assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_static_ui_source_mutation_commands_short_circuit_while_locked(
     tmp_path: Path,
 ) -> None:
@@ -4969,6 +5117,110 @@ assert.notStrictEqual(elements.layerControls.innerHTML, "open settings control 0
     )
 
 
+def test_static_ui_focused_binary_toggle_survives_playback_refresh(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderOperationLockSurfaces }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const layerSettings = (volumeDb) => ({
+  enabled: true,
+  volume_db: volumeDb,
+  eq: {
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+  },
+});
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 3 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: null, output_device_id: null },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: layerSettings(-12),
+    mid: layerSettings(-12),
+    voice: layerSettings(-18),
+  },
+};
+helpers.state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  playback: { output_running: true, rendered_cache_ready: true, layers: {} },
+  settings: {
+    active: activeSettings,
+    draft: activeSettings,
+    change: {
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+    },
+  },
+};
+helpers.state.draft = JSON.parse(JSON.stringify(activeSettings));
+helpers.state.devices = {
+  input_devices: [],
+  output_devices: [],
+  warnings: [],
+};
+helpers.state.sources = { categories: [] };
+
+[
+  "layerControls",
+  "voiceLayerControls",
+  "voiceStackControls",
+  "recordingControls",
+].forEach((id) => document.getElementById(id));
+const focusedToggle = makeElement();
+focusedToggle.tagName = "INPUT";
+focusedToggle.type = "checkbox";
+focusedToggle.checked = true;
+focusedToggle.setAttribute("role", "switch");
+elements.layerControls.innerHTML = "focused layer toggle remains open";
+elements.layerControls.children.push(focusedToggle);
+elements.layerControls.contains = (element) => element === focusedToggle;
+document.activeElement = focusedToggle;
+
+helpers.renderOperationLockSurfaces();
+
+assert.strictEqual(elements.layerControls.innerHTML, "focused layer toggle remains open");
+assert.strictEqual(elements.layerControls.children[0], focusedToggle);
+assert.strictEqual(focusedToggle.checked, true);
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["settings-controls"],
+  "function",
+);
+""",
+    )
+
+
 def test_static_ui_settings_controls_keep_deferred_render_across_internal_focus_move(
     tmp_path: Path,
 ) -> None:
@@ -5292,6 +5544,119 @@ def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
   console.error(error);
   process.exit(1);
 });
+""",
+    )
+
+
+def test_static_ui_device_select_stays_stable_during_playback_state_refresh(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderDevices, applyState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const layerSettings = (volumeDb) => ({
+  enabled: true,
+  volume_db: volumeDb,
+  eq: {
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+  },
+});
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: layerSettings(-12),
+    mid: layerSettings(-12),
+    voice: layerSettings(-18),
+  },
+};
+const snapshot = {
+  state_epoch: "epoch-1",
+  state_revision: 1,
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 0,
+  participant_count: 0,
+  last_error: null,
+  playback: { output_running: false, layers: {} },
+  settings: {
+    active: activeSettings,
+    draft: activeSettings,
+    change: {
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      changed_sections: [],
+    },
+  },
+};
+helpers.state.snapshot = snapshot;
+helpers.state.draft = activeSettings;
+helpers.state.devices = {
+  input_devices: [
+    { id: "mic-1", name: "Mic 1" },
+    { id: "mic-2", name: "Mic 2" },
+  ],
+  output_devices: [{ id: "speaker-1", name: "Speaker 1" }],
+  warnings: [],
+};
+helpers.state.diagnostics = {
+  sources: [],
+  events: { recent: [] },
+};
+helpers.renderDevices();
+
+const select = elements.inputDeviceSelect;
+select.value = "mic-2";
+select.disabled = false;
+select.title = "native input dropdown is open";
+select.innerHTML = "native input dropdown options";
+helpers.state.activeInteractiveControl = select;
+globalThis.document.activeElement = select;
+
+const nextSnapshot = {
+  ...snapshot,
+  state_revision: 2,
+  playback: { output_running: true, layers: { voice: { enabled: true } } },
+};
+helpers.applyState(nextSnapshot, { syncDraft: false });
+
+assert.strictEqual(select.value, "mic-2");
+assert.strictEqual(select.disabled, false);
+assert.strictEqual(select.title, "native input dropdown is open");
+assert.strictEqual(select.innerHTML, "native input dropdown options");
+assert.strictEqual(
+  typeof helpers.state.deferredInteractiveRenders["device-inputDeviceSelect"],
+  "function",
+);
 """,
     )
 
@@ -6747,7 +7112,9 @@ assert.strictEqual(elements.errorBanner.hidden, true);
 assert.strictEqual(elements.errorBadge.textContent, "오류 없음");
 
 globalThis.__secretPondTest.state.snapshot = {{
-  playback: {{ transition_warning: "목소리 전환을 적용하지 못했습니다." }},
+  playback: {{
+    transition_warning: "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다.",
+  }},
 }};
 globalThis.__secretPondTest.renderErrors();
 assert.strictEqual(elements.errorBanner.hidden, false);
@@ -6755,7 +7122,7 @@ assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner c
 assert.strictEqual(elements.errorBanner.children[0].children[0].textContent, "주의");
 assert.strictEqual(
   elements.errorBanner.children[0].children[1].textContent,
-  "목소리 전환을 적용하지 못했습니다.",
+  "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다.",
 );
 assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
 globalThis.__secretPondTest.state.snapshot = null;
@@ -7335,17 +7702,29 @@ assert.strictEqual(
 );
 globalThis.document.activeElement = null;
 
-globalThis.__secretPondTest.setStorageMode("test_library");
+const modeAppliedSettings = cloneSettings(activeSettings);
+modeAppliedSettings.voice_stack.mode = "test_library";
+globalThis.__secretPondTest.state.snapshot.settings = {{
+  active: cloneSettings(modeAppliedSettings),
+  draft: cloneSettings(modeAppliedSettings),
+  change: {{
+    runtime_config_changed: false,
+    changed_runtime_fields: [],
+    changed_sections: [],
+  }},
+}};
+globalThis.__secretPondTest.state.draft = cloneSettings(modeAppliedSettings);
+globalThis.__secretPondTest.renderState();
 assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
 assert.strictEqual(
   elements.storageModeSummary.textContent,
-  "운영 모드 · 재시작 시 적용: 테스트 저장",
+  "테스트 모드 · 파일 저장",
 );
-assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel library pending");
+assert.strictEqual(elements.storageModePanel.className, "storage-mode-panel library");
 assert.strictEqual(elements.storageModeLiveButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(elements.storageModeLibraryButton.getAttribute("aria-pressed"), "true");
-assert.strictEqual(elements.pendingBadge.hidden, false);
-assert.strictEqual(elements.applyButton.classList.contains("attention"), true);
+assert.strictEqual(elements.pendingBadge.hidden, true);
+assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 
 globalThis.__secretPondTest.state.sourceMutationInFlight = true;
 globalThis.__secretPondTest.renderVoiceStackControls();
@@ -8204,9 +8583,9 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     }});
   const saveBeforeNewEdit = globalThis.__secretPondTest.saveDraft();
   assert.strictEqual(inFlightEditSaveRequests.length, 1);
-  globalThis.__secretPondTest.setStorageMode("test_library");
+  const modeChangeWhileSaving = globalThis.__secretPondTest.setStorageMode("test_library");
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
-  assert.strictEqual(inFlightEditSaveRequests.length, 1);
+  assert.strictEqual(inFlightEditSaveRequests.length, 2);
   inFlightEditSaveRequests[0].resolve({{
     ok: true,
     json: async () => ({{
@@ -8217,6 +8596,40 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     }}),
   }});
   await saveBeforeNewEdit;
+  assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
+  const inFlightModeDraft = cloneSettings(inFlightOlderDraft);
+  inFlightModeDraft.voice_stack.mode = "test_library";
+  inFlightEditSaveRequests[1].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(inFlightModeDraft),
+      }},
+    }}),
+  }});
+  for (let tick = 0; tick < 10 && inFlightEditSaveRequests.length < 3; tick += 1) {{
+    await Promise.resolve();
+  }}
+  assert.strictEqual(inFlightEditSaveRequests.length, 3);
+  inFlightEditSaveRequests[2].resolve({{
+    ok: true,
+    json: async () => ({{
+      state: {{
+        ...snapshot,
+        settings: {{
+          active: cloneSettings(inFlightModeDraft),
+          draft: cloneSettings(inFlightModeDraft),
+          change: {{
+            runtime_config_changed: false,
+            changed_runtime_fields: [],
+            changed_sections: [],
+          }},
+        }},
+      }},
+    }}),
+  }});
+  await modeChangeWhileSaving;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
   assert.strictEqual(
     globalThis.__secretPondTest.state.snapshot.settings.draft.voice_stack.mode,
@@ -8229,6 +8642,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   staleDraftValue.voice_stack.loop_seconds = 89;
   globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
   globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(staleDraftValue);
+  globalThis.__secretPondTest.state.snapshot.settings.change = {{
+    runtime_config_changed: false,
+    changed_runtime_fields: [],
+    changed_sections: ["voice_stack"],
+    runtime_config_fields: [],
+  }};
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.draft = cloneSettings(staleDraftValue);
   window.confirm = () => true;
@@ -8280,11 +8699,20 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 60);
 
   const resetInFlightRequests = [];
+  const storageModePendingDraft = cloneSettings(activeSettings);
+  storageModePendingDraft.voice_stack.mode = "test_library";
   globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
-  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft =
+    cloneSettings(storageModePendingDraft);
+  globalThis.__secretPondTest.state.snapshot.settings.change = {{
+    runtime_config_changed: false,
+    changed_runtime_fields: [],
+    changed_sections: ["voice_stack"],
+    runtime_config_fields: [],
+  }};
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
-  globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
-  globalThis.__secretPondTest.setStorageMode("test_library");
+  globalThis.__secretPondTest.state.draft = cloneSettings(storageModePendingDraft);
+  globalThis.__secretPondTest.renderState();
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.mode, "test_library");
   const resetSourceCategories = [
     {{
@@ -10473,6 +10901,53 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
     assert loaded_voice.frames == 60 * 8_000
     np.testing.assert_allclose(loaded_voice.samples, rendered.samples, atol=1e-4)
     assert float(np.max(np.abs(after.samples))) > 0.00001
+
+
+def test_api_storage_mode_switch_immediately_makes_next_recording_save_vr(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="live_ephemeral")
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        recorder=FakeRecorder(twenty_second_voice_take()),
+        settings=settings,
+    )
+    paths = ProjectPaths(tmp_path)
+    draft = settings.model_copy(
+        update={
+            "voice_stack": settings.voice_stack.model_copy(
+                update={"mode": "live_ephemeral", "loop_seconds": 75}
+            )
+        },
+        deep=True,
+    )
+    client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
+
+    mode_response = client.put("/api/voice-stack/mode", json={"mode": "test_library"})
+
+    assert mode_response.status_code == 200
+    stored_after_mode = SettingsStore(paths).load()
+    assert stored_after_mode.active.voice_stack.mode == "test_library"
+    assert stored_after_mode.active.voice_stack.loop_seconds == 60
+    assert stored_after_mode.draft.voice_stack.mode == "test_library"
+    assert stored_after_mode.draft.voice_stack.loop_seconds == 75
+    assert client.app.state.runtime.controller.settings.voice_stack.mode == "test_library"
+
+    client.post("/api/input/arm")
+    client.post("/api/recording/start")
+    response = client.post("/api/recording/stop")
+
+    assert response.status_code == 200
+    stored_after_recording = SettingsStore(paths).load()
+    selected_raw = stored_after_recording.active.sources.voice_raw_path
+    selected_stack = stored_after_recording.active.sources.voice_stack_path
+    assert selected_raw is not None
+    assert selected_raw.startswith("data/sources/voice/raw/")
+    assert_timestamped_voice_filename(selected_raw, "VR")
+    assert (tmp_path / selected_raw).exists()
+    assert selected_stack is None
+    assert list(paths.voice_stack_sources_dir.glob("*.wav")) == []
 
 
 def test_api_test_library_recording_persists_timestamped_vr_without_stack(
