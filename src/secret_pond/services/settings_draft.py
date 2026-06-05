@@ -4,7 +4,9 @@ from secret_pond.config import AppSettings
 from secret_pond.services.device_switcher import validate_draft_device_settings
 from secret_pond.services.player_settings import apply_live_player_layer_controls
 from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.settings_changes import classify_settings_change
 from secret_pond.services.settings_store import SettingsState
+from secret_pond.services.voice_raw_preview import prepare_voice_raw_preview
 
 
 class SettingsDraftUpdateError(RuntimeError):
@@ -25,6 +27,7 @@ def update_draft_settings(
         validate_draft_device_settings(current.active, draft)
     except ValueError as exc:
         raise SettingsDraftValidationError(str(exc)) from exc
+    live_preview_reprocess_needed = _live_preview_reprocess_needed(runtime, current, draft)
     active_snapshot = _active_settings_for_draft_update(current.active, draft)
     try:
         saved_state = runtime.settings_store.save(
@@ -41,6 +44,8 @@ def update_draft_settings(
             current=state.active,
         )
         runtime.apply_settings_state(state)
+        if live_preview_reprocess_needed:
+            prepare_voice_raw_preview(runtime, runtime.voice_raw_preview_path, state.draft)
     else:
         runtime.settings_state = state
     return state
@@ -59,6 +64,19 @@ def _playback_render_settings(
         render_settings = _settings_copy(current.active)
         runtime.playback_render_settings = render_settings
     return render_settings
+
+
+def _live_preview_reprocess_needed(
+    runtime: SecretPondRuntime,
+    current: SettingsState,
+    draft: AppSettings,
+) -> bool:
+    if current.active.playback.apply_mode != "live":
+        return False
+    if getattr(runtime, "voice_raw_preview_path", None) is None:
+        return False
+    change = classify_settings_change(current.draft, draft)
+    return bool(change.live_preview_reprocessable_fields)
 
 
 def _active_settings_for_draft_update(active: AppSettings, draft: AppSettings) -> AppSettings:

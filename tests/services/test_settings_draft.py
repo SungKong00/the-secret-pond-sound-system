@@ -54,6 +54,7 @@ class RuntimeHarness:
         self.settings_store = settings_store
         self.controller = type("Controller", (), {"settings": state.active})()
         self.player = PlayerSpy()
+        self.voice_raw_preview_path: str | None = None
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.settings = settings_state.active
@@ -131,6 +132,51 @@ def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_
     assert result.draft.layers["low"].volume_db == -24.0
     assert runtime.controller.settings.layers["low"].volume_db == -24.0
     assert runtime.player.realtime_trim_updates == [("low", -12.0)]
+
+
+def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "recording": active.recording.model_copy(
+                update={
+                    "gain_db": active.recording.gain_db + 3.0,
+                    "reverb_mix": 0.7,
+                }
+            ),
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.voice_raw_preview_path = "data/sources/voice/raw/VR0610_213112.wav"
+    calls = []
+
+    def fake_prepare_voice_raw_preview(runtime_arg, relative_path, settings) -> None:
+        calls.append((runtime_arg, relative_path, settings))
+
+    monkeypatch.setattr(
+        "secret_pond.services.settings_draft.prepare_voice_raw_preview",
+        fake_prepare_voice_raw_preview,
+    )
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert calls == [
+        (
+            runtime,
+            "data/sources/voice/raw/VR0610_213112.wav",
+            result.draft,
+        )
+    ]
 
 
 def test_live_update_draft_settings_keeps_voice_gain_relative_to_rendered_volume() -> None:
