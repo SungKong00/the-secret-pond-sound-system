@@ -2613,6 +2613,15 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  helpers.deriveSourceFileActionState({{ active: false, applied: true }}),
+  {{
+    active: false,
+    deleteDisabled: true,
+    deleteTitle: "현재 적용된 파일은 삭제할 수 없습니다",
+  }},
+);
+
+assert.deepStrictEqual(
   helpers.deriveSourceFileActionState({{ active: false }}, true),
   {{
     active: false,
@@ -2636,6 +2645,42 @@ assert.deepStrictEqual(
     active: false,
     deleteDisabled: false,
     deleteTitle: "",
+  }},
+);
+""",
+    )
+
+
+def test_static_ui_source_library_status_ignores_optional_categories(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ deriveSourceLibraryStatusState }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+
+assert.deepStrictEqual(
+  helpers.deriveSourceLibraryStatusState([
+    {{ id: "low", required: true, active_exists: true }},
+    {{ id: "mid", required: true, active_exists: true }},
+    {{ id: "voice_raw", required: false, active_exists: false }},
+    {{ id: "voice_stack", required: true, active_exists: true }},
+  ]),
+  {{
+    missingCount: 0,
+    text: "파일 준비됨",
+    className: "status-pill safe",
+  }},
+);
+
+assert.deepStrictEqual(
+  helpers.deriveSourceLibraryStatusState([
+    {{ id: "low", required: true, active_exists: false }},
+    {{ id: "voice_raw", required: false, active_exists: false }},
+  ]),
+  {{
+    missingCount: 1,
+    text: "1개 선택 필요",
+    className: "status-pill hot",
   }},
 );
 """,
@@ -4703,8 +4748,44 @@ def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None
     assert categories["low"]["active_exists"] is True
     assert categories["low"]["legacy_size_bytes"] == 0
     assert categories["low"]["legacy_modified_at"] is None
+    assert categories["low"]["required"] is True
+    assert categories["voice_raw"]["required"] is False
     assert categories["low"]["files"][0]["path"] == "data/sources/low/library-low.wav"
     assert categories["low"]["files"][0]["active"] is True
+
+
+def test_api_sources_marks_applied_files_when_draft_selection_differs(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    active_relative = "data/sources/low/applied-low.wav"
+    draft_relative = "data/sources/low/draft-low.wav"
+    for relative_path in (active_relative, draft_relative):
+        write_wav_atomic(
+            tmp_path / relative_path,
+            AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+        )
+    active_settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=active_relative)},
+        deep=True,
+    )
+    draft_settings = active_settings.model_copy(
+        update={"sources": SourceSelectionSettings(low_path=draft_relative)},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=active_settings)
+    settings_state = SettingsState(active=active_settings, draft=draft_settings)
+    SettingsStore(paths).save(settings_state)
+    client.app.state.runtime.settings_state = settings_state
+
+    response = client.get("/api/sources")
+
+    assert response.status_code == 200
+    categories = {category["id"]: category for category in response.json()["categories"]}
+    files = {file["path"]: file for file in categories["low"]["files"]}
+    assert files[active_relative]["active"] is False
+    assert files[active_relative]["applied"] is True
+    assert files[draft_relative]["active"] is True
+    assert files[draft_relative]["applied"] is False
 
 
 def test_api_sources_select_persists_draft_selection(tmp_path: Path) -> None:

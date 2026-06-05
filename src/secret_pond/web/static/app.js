@@ -1896,9 +1896,9 @@ const renderSourceLibrary = () => {
   }
 
   const categories = state.sources.categories || [];
-  const missingCount = categories.filter((category) => !category.active_exists).length;
-  status.textContent = missingCount ? `${missingCount}개 선택 필요` : "파일 준비됨";
-  status.className = `status-pill ${missingCount ? "hot" : "safe"}`;
+  const statusState = deriveSourceLibraryStatusState(categories);
+  status.textContent = statusState.text;
+  status.className = statusState.className;
   const nextSignature = sourceLibrarySignature(categories);
   if (state.renderSignatures.sourceLibrary === nextSignature) return;
   state.renderSignatures.sourceLibrary = nextSignature;
@@ -1914,6 +1914,7 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
   categories.map((category) => [
     category.id,
     category.label,
+    category.required,
     category.directory,
     category.active_exists,
     category.legacy_exists,
@@ -1927,10 +1928,24 @@ const sourceLibrarySignature = (categories) => JSON.stringify([
       file.size_bytes,
       file.modified_at,
       file.active,
+      file.applied,
     ]),
     sourceUploadSignature(category.id),
   ]),
 ]);
+
+const sourceCategoryRequired = (category) => category?.required !== false;
+
+const deriveSourceLibraryStatusState = (categories = []) => {
+  const missingCount = categories.filter(
+    (category) => sourceCategoryRequired(category) && !category.active_exists,
+  ).length;
+  return {
+    missingCount,
+    text: missingCount ? `${missingCount}개 선택 필요` : "파일 준비됨",
+    className: `status-pill ${missingCount ? "hot" : "safe"}`,
+  };
+};
 
 const sourceUploadState = (category) => {
   if (!state.sourceUploads[category]) {
@@ -1980,13 +1995,16 @@ const deriveSourceFileActionState = (
   applyInFlight = false,
 ) => {
   const active = Boolean(file.active);
+  const applied = Boolean(file.applied);
   const busyTitle = sourceActionBusyTitle(sourceMutationInFlight, applyInFlight);
   const busy = Boolean(busyTitle);
   return {
     active,
-    deleteDisabled: active || busy,
+    deleteDisabled: active || applied || busy,
     deleteTitle: active
       ? "현재 선택된 파일은 삭제할 수 없습니다"
+      : applied
+        ? "현재 적용된 파일은 삭제할 수 없습니다"
       : busy ? busyTitle : "",
   };
 };
@@ -2012,6 +2030,9 @@ const sourceCategoryCard = (category) => {
   const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
   const sourceActionDisabled = busyTitle ? " disabled" : "";
   const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
+  const required = sourceCategoryRequired(category);
+  const statusClass = category.active_exists ? "safe" : required ? "hot" : "muted";
+  const statusText = category.active_exists ? "선택됨" : required ? "없음" : "보관용";
   const uploadAction = deriveSourceUploadActionState(
     upload,
     state.sourceMutationInFlight,
@@ -2037,8 +2058,8 @@ const sourceCategoryCard = (category) => {
         <h3>${escapeHtml(label.title)}</h3>
         <p>${escapeHtml(label.helper)}</p>
       </div>
-      <span class="status-pill ${category.active_exists ? "safe" : "hot"}">
-        ${category.active_exists ? "선택됨" : "없음"}
+      <span class="status-pill ${statusClass}">
+        ${statusText}
       </span>
     </div>
     <label class="source-select-row">
@@ -2092,7 +2113,10 @@ const sourceFileRows = (category) => {
       state.sourceMutationInFlight,
       state.applyInFlight,
     );
-    const active = action.active ? `<span class="source-file-badge">사용 중</span>` : "";
+    const badges = [
+      action.active ? `<span class="source-file-badge">선택됨</span>` : "",
+      file.applied ? `<span class="source-file-badge">적용됨</span>` : "",
+    ].join("");
     const disabled = action.deleteDisabled ? " disabled" : "";
     const deleteTitle = action.deleteTitle
       ? ` title="${escapeHtml(action.deleteTitle)}"`
@@ -2103,7 +2127,7 @@ const sourceFileRows = (category) => {
           <strong>${escapeHtml(file.name)}</strong>
           <small>${formatBytes(file.size_bytes)} · ${formatTimestamp(file.modified_at)}</small>
         </div>
-        ${active}
+        ${badges}
         <button
           class="mini-button danger"
           type="button"

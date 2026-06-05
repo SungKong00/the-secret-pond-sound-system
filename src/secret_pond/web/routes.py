@@ -16,7 +16,6 @@ from secret_pond.audio.source_library import (
     delete_source_file,
     select_source,
     selected_source_path,
-    source_file_is_selected,
     source_library_payload,
     upload_source_file,
 )
@@ -142,8 +141,12 @@ def get_diagnostics(request: Request) -> dict[str, Any]:
 def get_sources(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        settings = _settings_state(runtime).draft
-        return source_library_payload(runtime.paths, settings)
+        settings = _settings_state(runtime)
+        return source_library_payload(
+            runtime.paths,
+            settings.draft,
+            active_settings=settings.active,
+        )
 
 
 @router.put("/sources/{category}/select")
@@ -173,7 +176,11 @@ def select_source_file(
         runtime.settings_state = state
         return {
             "settings": _settings_payload(runtime),
-            "sources": source_library_payload(runtime.paths, state.draft),
+            "sources": source_library_payload(
+                runtime.paths,
+                state.draft,
+                active_settings=state.active,
+            ),
         }
 
 
@@ -213,7 +220,11 @@ def upload_source(
         return {
             "file": file_payload,
             "settings": _settings_payload(runtime),
-            "sources": source_library_payload(runtime.paths, settings_state.draft),
+            "sources": source_library_payload(
+                runtime.paths,
+                settings_state.draft,
+                active_settings=settings_state.active,
+            ),
         }
 
 
@@ -231,11 +242,13 @@ def delete_source(
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
-            if source_file_is_selected(runtime.paths, settings_state.active, config.id, path):
-                raise PermissionError("cannot delete the active source file")
-            if source_file_is_selected(runtime.paths, settings_state.draft, config.id, path):
-                raise PermissionError("cannot delete the draft source file")
-            delete_source_file(runtime.paths, settings_state.active, config.id, path)
+            delete_source_file(
+                runtime.paths,
+                config.id,
+                path,
+                active_settings=settings_state.active,
+                draft_settings=settings_state.draft,
+            )
         except PermissionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except FileNotFoundError as exc:
@@ -243,7 +256,11 @@ def delete_source(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {
-            "sources": source_library_payload(runtime.paths, settings_state.draft),
+            "sources": source_library_payload(
+                runtime.paths,
+                settings_state.draft,
+                active_settings=settings_state.active,
+            ),
         }
 
 

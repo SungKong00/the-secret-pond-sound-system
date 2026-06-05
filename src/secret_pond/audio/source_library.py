@@ -20,6 +20,7 @@ class SourceCategoryConfig:
     directory_name: str
     settings_field: str
     legacy_attr: str | None = None
+    required: bool = True
 
 
 SOURCE_CATEGORIES: dict[SourceCategory, SourceCategoryConfig] = {
@@ -42,6 +43,7 @@ SOURCE_CATEGORIES: dict[SourceCategory, SourceCategoryConfig] = {
         label="Voice Raw",
         directory_name="voice_raw_sources_dir",
         settings_field="voice_raw_path",
+        required=False,
     ),
     "voice_stack": SourceCategoryConfig(
         id="voice_stack",
@@ -100,10 +102,15 @@ def render_source_path(paths: ProjectPaths, settings: AppSettings, layer_id: str
     return path
 
 
-def source_library_payload(paths: ProjectPaths, settings: AppSettings) -> dict[str, Any]:
+def source_library_payload(
+    paths: ProjectPaths,
+    settings: AppSettings,
+    *,
+    active_settings: AppSettings | None = None,
+) -> dict[str, Any]:
     return {
         "categories": [
-            category_payload(paths, settings, category_id)
+            category_payload(paths, settings, category_id, active_settings=active_settings)
             for category_id in source_category_ids()
         ],
     }
@@ -113,14 +120,18 @@ def category_payload(
     paths: ProjectPaths,
     settings: AppSettings,
     category: SourceCategory,
+    *,
+    active_settings: AppSettings | None = None,
 ) -> dict[str, Any]:
     config = SOURCE_CATEGORIES[category]
     selected = getattr(settings.sources, config.settings_field)
     active = selected_source_path(paths, settings, category)
     active_relative = _relative_path(paths.root, active) if active is not None else None
+    applied = selected_source_path(paths, active_settings or settings, category)
+    applied_relative = _relative_path(paths.root, applied) if applied is not None else None
     directory = category_directory(paths, category)
     files = [
-        _source_file_payload(paths, file_path, active_relative)
+        _source_file_payload(paths, file_path, active_relative, applied_relative)
         for file_path in _wav_files(directory)
     ]
     legacy = getattr(paths, config.legacy_attr) if config.legacy_attr is not None else None
@@ -128,6 +139,7 @@ def category_payload(
     return {
         "id": config.id,
         "label": config.label,
+        "required": config.required,
         "directory": _relative_path(paths.root, directory),
         "selected_path": selected,
         "active_path": active_relative,
@@ -167,18 +179,33 @@ def upload_source_file(
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
-    return _source_file_payload(paths, destination, active_relative=None)
+    return _source_file_payload(paths, destination, active_relative=None, applied_relative=None)
 
 
 def delete_source_file(
     paths: ProjectPaths,
-    settings: AppSettings,
     category: SourceCategory,
     relative_path: str,
+    *,
+    active_settings: AppSettings | None = None,
+    draft_settings: AppSettings | None = None,
 ) -> None:
     path = resolve_category_path(paths, category, relative_path)
-    if source_file_is_selected(paths, settings, category, relative_path):
+    if active_settings is not None and source_file_is_selected(
+        paths,
+        active_settings,
+        category,
+        relative_path,
+    ):
         msg = "cannot delete the active source file"
+        raise PermissionError(msg)
+    if draft_settings is not None and source_file_is_selected(
+        paths,
+        draft_settings,
+        category,
+        relative_path,
+    ):
+        msg = "cannot delete the draft source file"
         raise PermissionError(msg)
     path.unlink()
 
@@ -230,6 +257,7 @@ def _source_file_payload(
     paths: ProjectPaths,
     path: Path,
     active_relative: str | None,
+    applied_relative: str | None,
 ) -> dict[str, Any]:
     stat = path.stat()
     relative = _relative_path(paths.root, path)
@@ -239,6 +267,7 @@ def _source_file_payload(
         "size_bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
         "active": relative == active_relative,
+        "applied": relative == applied_relative,
     }
 
 
