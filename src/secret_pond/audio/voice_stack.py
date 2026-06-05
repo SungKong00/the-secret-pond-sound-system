@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.source_library import selected_source_path
+from secret_pond.audio.voice_stack_naming import next_voice_raw_path, next_voice_stack_path
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 
@@ -52,9 +53,44 @@ class VoiceStackRebuildResult:
     voice_stack_path: str | None = None
 
 
+@dataclass(frozen=True)
+class VoiceStackSelectionState:
+    selected_vr: str | None
+    selected_vs: str | None
+
+
+@dataclass(frozen=True)
+class VoiceStackTransitionGuardState:
+    playback_session_id: str | None
+    current_stack_id: str
+
+
 class VoiceStackStore:
     def __init__(self, paths: ProjectPaths) -> None:
         self._paths = paths
+        self._playback_session_id: str | None = None
+
+    def selected_voice_state(self, settings: AppSettings) -> VoiceStackSelectionState:
+        return VoiceStackSelectionState(
+            selected_vr=settings.sources.voice_raw_path,
+            selected_vs=settings.sources.voice_stack_path,
+        )
+
+    def begin_playback_session(self) -> str:
+        self._playback_session_id = uuid4().hex
+        return self._playback_session_id
+
+    def transition_guard_state(self, settings: AppSettings) -> VoiceStackTransitionGuardState:
+        return VoiceStackTransitionGuardState(
+            playback_session_id=self._playback_session_id,
+            current_stack_id=self.current_stack_id(settings),
+        )
+
+    def current_stack_id(self, settings: AppSettings) -> str:
+        return settings.sources.voice_stack_path or _relative_path(
+            self._paths.root,
+            self._paths.voice_stack_raw,
+        )
 
     def ensure_initialized(self, settings: AppSettings) -> VoiceStackSnapshot:
         self._paths.ensure_directories()
@@ -371,25 +407,11 @@ def _write_voice_raw_buffer(
 
 
 def _timestamped_raw_path(paths: ProjectPaths) -> Path:
-    paths.voice_raw_sources_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    candidate = paths.voice_raw_sources_dir / f"{timestamp}-raw.wav"
-    suffix = 1
-    while candidate.exists():
-        candidate = paths.voice_raw_sources_dir / f"{timestamp}-raw-{suffix}.wav"
-        suffix += 1
-    return candidate
+    return next_voice_raw_path(paths)
 
 
 def _timestamped_stack_path(paths: ProjectPaths) -> Path:
-    paths.voice_stack_sources_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    candidate = paths.voice_stack_sources_dir / f"{timestamp}-stack.wav"
-    suffix = 1
-    while candidate.exists():
-        candidate = paths.voice_stack_sources_dir / f"{timestamp}-stack-{suffix}.wav"
-        suffix += 1
-    return candidate
+    return next_voice_stack_path(paths)
 
 
 def _relative_path(root: Path, path: Path) -> str:

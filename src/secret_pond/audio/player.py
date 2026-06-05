@@ -57,6 +57,10 @@ class LayeredLoopPlayer:
     def layer_states(self) -> dict[LayerId, LayerPlaybackState]:
         return dict(self._states)
 
+    @property
+    def rendered_cache_ready(self) -> bool:
+        return self._layers is not None
+
     def snapshot(self) -> LayeredLoopPlayerSnapshot:
         return LayeredLoopPlayerSnapshot(
             layers=None if self._layers is None else dict(self._layers),

@@ -8,6 +8,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     EqSettings,
     InputControlSettings,
+    PlaybackSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
 )
@@ -61,6 +62,27 @@ def test_voice_stack_loop_seconds_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         VoiceStackSettings(loop_seconds=601)
+
+
+def test_playback_voice_crossfade_duration_defaults_to_three_seconds() -> None:
+    assert PlaybackSettings().voice_crossfade_seconds == 3.0
+
+
+@pytest.mark.parametrize("duration", [1.0, 10.0])
+def test_playback_voice_crossfade_duration_accepts_configured_range(
+    duration: float,
+) -> None:
+    settings = PlaybackSettings(voice_crossfade_seconds=duration)
+
+    assert settings.voice_crossfade_seconds == duration
+
+
+@pytest.mark.parametrize("duration", [0.999, 10.001])
+def test_playback_voice_crossfade_duration_rejects_out_of_range_values(
+    duration: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        PlaybackSettings(voice_crossfade_seconds=duration)
 
 
 def test_audio_loop_seconds_can_be_short_for_setup_or_tests() -> None:

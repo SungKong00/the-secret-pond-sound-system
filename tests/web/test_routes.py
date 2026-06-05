@@ -160,15 +160,19 @@ def twenty_second_voice_take() -> AudioBuffer:
     return AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate)
 
 
-def assert_timestamped_voice_filename(path: str, suffix: str) -> None:
+def assert_timestamped_voice_filename(path: str, prefix: str) -> None:
     name = Path(path).name
-    assert name.endswith(suffix)
-    timestamp = name.removesuffix(suffix)
-    assert len(timestamp) == 22
-    assert timestamp[8] == "T"
-    assert timestamp[-1] == "Z"
-    assert timestamp[:8].isdigit()
-    assert timestamp[9:-1].isdigit()
+    assert name.startswith(prefix)
+    assert name.endswith(".wav")
+    timestamp = name.removeprefix(prefix).removesuffix(".wav")
+    if "_" in timestamp[12:]:
+        timestamp, suffix = timestamp.rsplit("_", 1)
+        assert suffix.isdigit()
+        assert int(suffix) >= 2
+    assert len(timestamp) == 11
+    assert timestamp[4] == "_"
+    assert timestamp[:4].isdigit()
+    assert timestamp[5:].isdigit()
 
 
 def corrupt_settings_json(paths: ProjectPaths) -> None:
@@ -2183,6 +2187,7 @@ const settingsSnapshot = {{
     }},
   }},
 }};
+helpers.state.draft = draft;
 const settingsUiState = settingsUiSelector(settingsSnapshot);
 assert.deepStrictEqual(settingsUiState.pendingChangeState, {{
   settingsChanged: false,
@@ -2192,6 +2197,17 @@ assert.deepStrictEqual(settingsUiState.pendingChangeState, {{
 }});
 assert.strictEqual(settingsUiState.controlState.applyDisabled, true);
 assert.strictEqual(settingsUiState.controlState.applyTitle, "적용할 변경사항이 없습니다.");
+
+const renderedCacheSnapshot = {{
+  ...settingsSnapshot,
+  playback: {{ ...settingsSnapshot.playback, rendered_cache_ready: true }},
+}};
+const renderedCacheUiState = settingsUiSelector(renderedCacheSnapshot);
+assert.strictEqual(renderedCacheUiState.controlState.applyDisabled, false);
+assert.strictEqual(
+  renderedCacheUiState.controlState.applyTitle,
+  "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
+);
 
 const sourceChangedUiState = deriveSettingsUi({{
   snapshot: settingsSnapshot,
@@ -7667,6 +7683,88 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }};
   await globalThis.__secretPondTest.applyAndRestart();
   assert.strictEqual(cleanApplyFetchPath, null);
+
+  globalThis.__secretPondTest.applyState({{
+    ...snapshot,
+    playback: {{ ...snapshot.playback, rendered_cache_ready: true }},
+    settings: {{
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+      }},
+    }},
+  }});
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
+  assert.strictEqual(
+    elements.applyButton.title,
+    "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
+  );
+
+  const renderedCacheApplyFetches = [];
+  globalThis.fetch = (path) => {{
+    renderedCacheApplyFetches.push(path);
+    if (path === "/api/settings/draft") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          settings: {{
+            active: cloneSettings(activeSettings),
+            draft: cloneSettings(activeSettings),
+            change: {{
+              runtime_config_changed: false,
+              changed_runtime_fields: [],
+              changed_sections: [],
+            }},
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/settings/apply") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{
+          state: {{
+            ...snapshot,
+            playback: {{ ...snapshot.playback, rendered_cache_ready: true }},
+            settings: {{
+              active: cloneSettings(activeSettings),
+              draft: cloneSettings(activeSettings),
+              change: {{
+                runtime_config_changed: false,
+                changed_runtime_fields: [],
+                changed_sections: [],
+              }},
+            }},
+          }},
+        }}),
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.applyAndRestart();
+  assert.deepStrictEqual(renderedCacheApplyFetches, [
+    "/api/settings/draft",
+    "/api/settings/apply",
+    "/api/diagnostics",
+    "/api/sources",
+  ]);
+
   let cleanResetConfirmed = false;
   window.confirm = () => {{
     cleanResetConfirmed = true;
@@ -8985,6 +9083,7 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["participant_count"] == 0
     assert payload["playback"]["is_playing"] is False
     assert payload["playback"]["output_running"] is False
+    assert payload["playback"]["rendered_cache_ready"] is False
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
     assert payload["settings"]["draft"]["voice_stack"]["loop_seconds"] == 1
@@ -8994,6 +9093,18 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
         "changed_sections": [],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
     }
+
+
+def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, with_sources=True)
+
+    apply_response = client.post("/api/settings/apply-and-restart")
+    payload = client.get("/api/state").json()
+
+    assert apply_response.status_code == 200
+    assert payload["playback"]["rendered_cache_ready"] is True
 
 
 def test_api_state_revision_increases_after_successful_state_mutation(
@@ -10036,8 +10147,8 @@ def test_api_first_live_recording_creates_sixty_second_stack_and_refreshes_playb
     assert selected_stack is not None
     assert selected_raw.startswith("data/sources/voice/raw/")
     assert selected_stack.startswith("data/sources/voice/stack/")
-    assert_timestamped_voice_filename(selected_raw, "-raw.wav")
-    assert_timestamped_voice_filename(selected_stack, "-stack.wav")
+    assert_timestamped_voice_filename(selected_raw, "VR")
+    assert_timestamped_voice_filename(selected_stack, "VS")
     assert len(list(paths.voice_raw_sources_dir.glob("*.wav"))) == 1
     assert len(list(paths.voice_stack_sources_dir.glob("*.wav"))) == 1
 
@@ -10085,8 +10196,8 @@ def test_api_test_library_recording_persists_timestamped_raw_and_accepted_clip(
     assert selected_stack is not None
     assert selected_raw.startswith("data/sources/voice/raw/")
     assert selected_stack.startswith("data/sources/voice/stack/")
-    assert_timestamped_voice_filename(selected_raw, "-raw.wav")
-    assert_timestamped_voice_filename(selected_stack, "-stack.wav")
+    assert_timestamped_voice_filename(selected_raw, "VR")
+    assert_timestamped_voice_filename(selected_stack, "VS")
     assert (tmp_path / selected_raw).exists()
     assert (tmp_path / selected_stack).exists()
     manifest = json.loads(paths.voice_manifest.read_text(encoding="utf-8"))

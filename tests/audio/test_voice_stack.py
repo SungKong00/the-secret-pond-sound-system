@@ -30,6 +30,56 @@ def load_manifest(paths: ProjectPaths) -> dict:
     return json.loads(paths.voice_manifest.read_text(encoding="utf-8"))
 
 
+def test_voice_stack_exposes_selected_vr_and_vs_state(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    settings.sources = SourceSelectionSettings(
+        voice_raw_path="data/sources/voice/raw/VR0605_112233.wav",
+        voice_stack_path="data/sources/voice/stack/VS0605_112233.wav",
+    )
+    store = VoiceStackStore(paths)
+
+    selected = store.selected_voice_state(settings)
+
+    assert selected.selected_vr == "data/sources/voice/raw/VR0605_112233.wav"
+    assert selected.selected_vs == "data/sources/voice/stack/VS0605_112233.wav"
+
+
+def test_voice_stack_exposes_current_stack_id_for_transition_guard(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    selected_settings = voice_stack_settings()
+    selected_settings.sources = SourceSelectionSettings(
+        voice_stack_path="data/sources/voice/stack/VS0605_112233.wav",
+    )
+    legacy_settings = voice_stack_settings()
+    store = VoiceStackStore(paths)
+
+    assert store.current_stack_id(selected_settings) == "data/sources/voice/stack/VS0605_112233.wav"
+    assert store.current_stack_id(legacy_settings) == "data/voice/voice_stack_raw.wav"
+
+
+def test_voice_stack_exposes_playback_session_id_for_transition_guard(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = voice_stack_settings()
+    settings.sources = SourceSelectionSettings(
+        voice_stack_path="data/sources/voice/stack/VS0605_112233.wav",
+    )
+    store = VoiceStackStore(paths)
+
+    initial_guard = store.transition_guard_state(settings)
+    first_session_id = store.begin_playback_session()
+    active_guard = store.transition_guard_state(settings)
+    second_session_id = store.begin_playback_session()
+    restarted_guard = store.transition_guard_state(settings)
+
+    assert initial_guard.playback_session_id is None
+    assert initial_guard.current_stack_id == "data/sources/voice/stack/VS0605_112233.wav"
+    assert active_guard.playback_session_id == first_session_id
+    assert active_guard.current_stack_id == "data/sources/voice/stack/VS0605_112233.wav"
+    assert restarted_guard.playback_session_id == second_session_id
+    assert second_session_id != first_session_id
+
+
 def test_voice_stack_initializes_missing_raw_and_manifest(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     store = VoiceStackStore(paths)

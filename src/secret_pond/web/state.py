@@ -43,6 +43,7 @@ def state_payload(
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
             "is_playing": runtime.player.is_playing,
+            "rendered_cache_ready": runtime.player.rendered_cache_ready,
             "output_running": runtime.output.is_running,
             "output_latest_status": runtime.output.latest_status,
             "output_latest_error": runtime.output.latest_error,

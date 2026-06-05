@@ -1850,6 +1850,8 @@ const deriveSettingsActionState = ({
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
+  const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
+  const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetParticipantsBusy
@@ -1868,6 +1870,8 @@ const deriveSettingsActionState = ({
                 ? operationLockMessages.playbackControl
                 : runtimeConfigChanged
                   ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                  : canApplyRenderedCache
+                    ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
                   : !pendingChanges
                     ? "적용할 변경사항이 없습니다."
                     : outputRunning
@@ -1914,7 +1918,7 @@ const deriveSettingsActionState = ({
         resetParticipantsBusy ||
         isRecording ||
         runtimeConfigChanged ||
-        !pendingChanges,
+        (!pendingChanges && !canApplyRenderedCache),
     ),
     applyLabel: applyInFlight ? "적용 중…" : "변경사항 적용 후 재생",
     applyAttention: pendingChanges && !runtimeConfigChanged,

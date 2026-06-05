@@ -73,6 +73,7 @@ class DeviceSettings(BaseModel):
 class PlaybackSettings(BaseModel):
     auto_start: bool = False
     master_volume_db: float = Field(default=-6.0, ge=-60.0, le=6.0)
+    voice_crossfade_seconds: float = Field(default=3.0, ge=1.0, le=10.0)
 
 
 class SourceSelectionSettings(BaseModel):
