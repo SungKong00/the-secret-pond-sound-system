@@ -1310,11 +1310,16 @@ const isCurrentDiagnosticsRefresh = (request) =>
   isCurrentTrackedRequest(request);
 
 const beginSourceRefresh = () => {
-  return beginTrackedRequest("sourceRefreshRequestId", ["sourceMutationRequestId"]);
+  return {
+    token: beginTrackedRequest("sourceRefreshRequestId", ["sourceMutationRequestId"]),
+    sourceMutationInFlight: state.sourceMutationInFlight,
+  };
 };
 
 const isCurrentSourceRefresh = (request) =>
-  isCurrentTrackedRequest(request);
+  isCurrentTrackedRequest(request.token) &&
+  !request.sourceMutationInFlight &&
+  !state.sourceMutationInFlight;
 
 const requestSources = async (options = {}) => {
   const request = beginSourceRefresh();

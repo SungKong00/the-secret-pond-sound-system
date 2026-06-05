@@ -2584,6 +2584,103 @@ def test_static_ui_ignores_stale_diagnostics_refresh_response(tmp_path: Path) ->
     )
 
 
+def test_static_ui_ignores_source_refresh_started_during_source_mutation(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, requestSources, selectSourceFile }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const sourcePayloadFor = (lowPath) => ({
+    sources: {
+      categories: [
+        {
+          id: "low",
+          label: "Low",
+          directory: "sources/low",
+          active_exists: true,
+          legacy_exists: true,
+          selected_path: lowPath,
+          files: [
+            {
+              name: "older.wav",
+              path: "sources/low/older.wav",
+              size_bytes: 10,
+              modified_at: "2026-06-05T00:00:00Z",
+              active: lowPath === "sources/low/older.wav",
+            },
+            {
+              name: "newer.wav",
+              path: "sources/low/newer.wav",
+              size_bytes: 10,
+              modified_at: "2026-06-05T00:01:00Z",
+              active: lowPath === "sources/low/newer.wav",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const selectResponses = [];
+  const sourceRefreshResponses = [];
+  globalThis.fetch = (path) => {
+    if (path === "/api/sources/low/select") {
+      return new Promise((resolve) => {
+        selectResponses.push(resolve);
+      });
+    }
+    if (path === "/api/sources") {
+      return new Promise((resolve) => {
+        sourceRefreshResponses.push(resolve);
+      });
+    }
+    if (path === "/api/diagnostics") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ sources: [], events: { recent: [], error: null } }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  helpers.state.sources = sourcePayloadFor("sources/low/current.wav").sources;
+  const selectPromise = helpers.selectSourceFile("low", "sources/low/newer.wav");
+  assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+  const refreshDuringMutation = helpers.requestSources();
+  assert.strictEqual(sourceRefreshResponses.length, 1);
+
+  selectResponses[0]({
+    ok: true,
+    json: async () => sourcePayloadFor("sources/low/newer.wav"),
+  });
+  await selectPromise;
+  assert.strictEqual(helpers.state.sourceMutationInFlight, false);
+  assert.strictEqual(
+    helpers.state.sources.categories[0].selected_path,
+    "sources/low/newer.wav",
+  );
+
+  sourceRefreshResponses[0]({
+    ok: true,
+    json: async () => sourcePayloadFor("sources/low/older.wav").sources,
+  });
+  await refreshDuringMutation;
+
+  assert.strictEqual(
+    helpers.state.sources.categories[0].selected_path,
+    "sources/low/newer.wav",
+  );
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
