@@ -11557,6 +11557,38 @@ def test_api_voice_raw_preview_plays_voice_even_when_main_voice_layer_is_disable
     assert float(np.max(np.abs(block.samples))) > 0.01
 
 
+def test_api_voice_raw_preview_uses_selected_voice_raw_when_payload_omits_path(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
+        update={
+            "sources": SourceSelectionSettings(
+                voice_raw_path="data/sources/voice/raw/VR0610_213112.wav",
+            ),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    response = client.post("/api/voice-raw/preview", json={})
+
+    assert response.status_code == 200
+    assert response.json()["preview"] == {
+        "voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav",
+        "playing": True,
+    }
+    assert response.json()["state"]["playback"]["voice_raw_preview_path"] == (
+        "data/sources/voice/raw/VR0610_213112.wav"
+    )
+    assert output.start_calls == 1
+    block = client.app.state.runtime.player.next_block(512)
+    assert float(np.max(np.abs(block.samples))) > 0.01
+
+
 def test_api_settings_apply_preserves_running_voice_raw_preview_with_new_treatment(
     tmp_path: Path,
 ) -> None:

@@ -352,10 +352,13 @@ def add_voice_raw_to_stack(request: Request, payload: dict[str, Any]) -> dict[st
 @router.post("/voice-raw/preview")
 def preview_voice_raw(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime(request)
-    relative_path = _voice_raw_path_from_payload(payload)
 
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
+        relative_path = _voice_raw_path_from_payload(
+            payload,
+            fallback=settings_state.active.sources.voice_raw_path,
+        )
         try:
             if runtime.output.is_running:
                 playback_control.stop_playback(runtime)
@@ -566,8 +569,10 @@ def _source_rename_payload(payload: dict[str, Any]) -> tuple[str, str]:
     return relative_path, stem
 
 
-def _voice_raw_path_from_payload(payload: dict[str, Any]) -> str:
+def _voice_raw_path_from_payload(payload: dict[str, Any], *, fallback: str | None = None) -> str:
     relative_path = payload.get("voice_raw_path")
+    if relative_path is None and fallback:
+        return fallback
     if not isinstance(relative_path, str) or not relative_path:
         raise HTTPException(status_code=422, detail="voice_raw_path must be a non-empty string")
     return relative_path
