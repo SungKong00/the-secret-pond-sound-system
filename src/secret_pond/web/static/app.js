@@ -24,6 +24,7 @@ const api = async (path, options = {}) => {
 };
 
 const workspaceTabNames = ["treatment", "stack", "mixer"];
+const sideTabNames = ["library", "system"];
 
 const workspaceTabFromUrl = () => {
   const query = new URLSearchParams(window.location.search || "");
@@ -47,6 +48,9 @@ const state = {
   acceptedStateEpoch: null,
   acceptedStateRevision: null,
   sourceUploads: {},
+  sourceCardSelections: {},
+  sourceRenameDrafts: {},
+  sourceRenameEditing: {},
   sourceMutationInFlight: false,
   saveTimer: null,
   draftSaveRequestId: 0,
@@ -83,6 +87,7 @@ const state = {
   },
   expandedControlGroups: {},
   workspaceTab: workspaceTabFromUrl(),
+  sideTab: "library",
   deferredInteractiveRenders: {},
 };
 
@@ -622,6 +627,7 @@ const recordingControlGroups = [
     note: "녹음 소스의 기본 크기와 피크를 정리합니다.",
     className: "input-safety-group",
     collapsible: true,
+    open: true,
     controls: [
       {
         path: "gain_db",
@@ -650,6 +656,7 @@ const recordingControlGroups = [
     note: "전시장 안개감과 잔향의 길이를 만듭니다.",
     className: "space-tail-group",
     collapsible: true,
+    open: true,
     controls: [
       {
         path: "reverb_mix",
@@ -846,6 +853,15 @@ const formatTimestamp = (value) => {
     hour: "2-digit",
     minute: "2-digit",
   });
+};
+
+const formatShortTimestamp = (value) => {
+  if (!value) return "시간 없음";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${date.getMonth() + 1}/${date.getDate()} ${hours}:${minutes}`;
 };
 
 const escapeHtml = (value) =>
@@ -2197,8 +2213,8 @@ const renderState = () => {
   $("captureGateState").textContent = snapshot.is_recording
     ? "녹음 중"
     : snapshot.armed
-      ? "녹음 준비 켜짐"
-      : "녹음 준비 꺼짐";
+      ? "켜짐"
+      : "꺼짐";
   $("startButton").disabled = controlState.startDisabled;
   $("stopButton").disabled = controlState.stopDisabled;
   $("startOutputButton").disabled = controlState.startOutputDisabled;
@@ -2226,15 +2242,23 @@ const renderRecordReadiness = (snapshot, controlState) => {
   } else if (controlState.recordingStopBusy) {
     setRecordStatus("processing", "녹음 처리 중...");
   } else if (snapshot.is_recording) {
-    setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지합니다.");
+    setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지됩니다.");
   } else if (!replaceableRecordOutcomeKinds.has(recordOutcomeKind())) {
     return;
   } else if (controlState.captureReady) {
-    setRecordStatus("armed-ready", "스페이스바를 눌러 녹음", "스페이스바를 떼면 녹음을 중지합니다.");
+    setRecordStatus(
+      "armed-ready",
+      "준비 완료",
+      "누르고 있는 동안 녹음되고, 떼면 중지됩니다.",
+    );
   } else if (snapshot.armed) {
     setRecordStatus("processing", "설정 작업 중...", "설정 작업이 끝나면 녹음을 시작할 수 있습니다.");
   } else {
-    setRecordStatus("ready", "녹음 준비 필요", "녹음 준비를 켠 뒤 스페이스바를 누르세요.");
+    setRecordStatus(
+      "ready",
+      "녹음 준비 필요",
+      "켜면 스페이스바로 녹음할 수 있습니다.",
+    );
   }
 };
 
@@ -2421,10 +2445,20 @@ const renderSourceHealthList = (sources) => {
     row.className = `diagnostic-row source-row ${source.exists ? "source-ready" : "source-missing"}`;
     const label = document.createElement("span");
     label.textContent = source.label;
-    const value = document.createElement("strong");
-    value.textContent = source.exists
-      ? `준비됨 · ${formatBytes(source.size_bytes)} · ${formatTimestamp(source.modified_at)}`
-      : `없음 · ${source.path}`;
+    const value = document.createElement("div");
+    value.className = "source-status-value";
+    const main = document.createElement("strong");
+    main.className = "source-status-main";
+    const meta = document.createElement("small");
+    meta.className = "source-status-meta";
+    if (source.exists) {
+      main.textContent = "준비됨";
+      meta.textContent = `${formatBytes(source.size_bytes)} · ${formatTimestamp(source.modified_at)}`;
+    } else {
+      main.textContent = "없음";
+      meta.textContent = source.path;
+    }
+    value.append(main, meta);
     row.append(label, value);
     container.appendChild(row);
   });
@@ -2466,7 +2500,7 @@ const renderSourceLibrary = (options = {}) => {
     return;
   }
 
-  const categories = state.sources.categories || [];
+  const categories = orderedSourceCategories(state.sources.categories || []);
   const statusState = deriveSourceLibraryStatusState(categories);
   status.textContent = statusState.text;
   status.className = statusState.className;
@@ -2483,6 +2517,9 @@ const sourceLibrarySignature = (categories) => {
   const sourceLockState = currentSourceLockState();
   return JSON.stringify([
     sourceLockState.sourceActionTitle,
+    state.sourceCardSelections,
+    state.sourceRenameDrafts,
+    state.sourceRenameEditing,
     categories.map((category) => [
       category.id,
       category.label,
@@ -2508,12 +2545,31 @@ const sourceLibrarySignature = (categories) => {
   ]);
 };
 
+const sourceCategoryDisplayOrder = ["voice_stack", "voice_raw", "mid", "low"];
+
+const orderedSourceCategories = (categories = []) => {
+  const order = new Map(sourceCategoryDisplayOrder.map((id, index) => [id, index]));
+  return [...categories].sort((left, right) => {
+    const leftOrder = order.has(left.id) ? order.get(left.id) : sourceCategoryDisplayOrder.length;
+    const rightOrder = order.has(right.id) ? order.get(right.id) : sourceCategoryDisplayOrder.length;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return String(left.id || "").localeCompare(String(right.id || ""));
+  });
+};
+
 const sourceCategoryRequired = (category) => category?.required !== false;
+
+const sourceCategorySelectable = (_category) => true;
+
+const sourceCategoryConfirmable = (category) => category !== "voice_raw";
 
 const sourceCategoryHasPendingSelection = (category = {}) =>
   Boolean((category.files || []).some((file) => file.active && !file.applied));
 
 const deriveSourceCategoryStatusState = (category = {}) => {
+  if (!sourceCategoryConfirmable(category.id)) {
+    return { text: "", className: "" };
+  }
   if (sourceCategoryHasPendingSelection(category)) {
     return {
       text: "적용 대기",
@@ -2521,15 +2577,12 @@ const deriveSourceCategoryStatusState = (category = {}) => {
     };
   }
   if (category.active_exists) {
-    return {
-      text: "선택됨",
-      className: "status-pill safe",
-    };
+    return { text: "", className: "" };
   }
   const required = sourceCategoryRequired(category);
   return {
-    text: required ? "없음" : "보관용",
-    className: `status-pill ${required ? "hot" : "muted"}`,
+    text: required ? "없음" : "",
+    className: required ? "status-pill hot" : "",
   };
 };
 
@@ -2546,7 +2599,7 @@ const deriveSourceLibraryStatusState = (categories = []) => {
 
 const sourceUploadState = (category) => {
   if (!state.sourceUploads[category]) {
-    state.sourceUploads[category] = { selectAfterUpload: true, file: null };
+    state.sourceUploads[category] = { file: null };
   }
   return state.sourceUploads[category];
 };
@@ -2555,10 +2608,11 @@ const sourceUploadSignature = (category) => {
   const upload = sourceUploadState(category);
   const file = upload.file;
   return [
-    upload.selectAfterUpload,
     file ? [file.name, file.size, file.lastModified] : null,
   ];
 };
+
+const shouldSelectUploadedSource = (_category) => false;
 
 const sourceActionBusyTitle = (operationFlags = {}) =>
   deriveOperationLocks(operationFlagsFrom(operationFlags)).sourceActionTitle;
@@ -2569,15 +2623,28 @@ const sourceCommandBlocked = () =>
   currentSourceLockState().sourceCommandBlocked;
 
 const sourceLibraryInteractiveControlSelector = [
-  "[data-source-select]",
+  "[data-source-pick]",
   "[data-source-file]",
-  "[data-source-upload-select]",
-  "[data-voice-raw-preview]",
-  "[data-voice-raw-add]",
+  "[data-source-delete]",
+  "[data-source-rename]",
+  "[data-source-rename-input]",
+  "[data-source-rename-save]",
+  "[data-source-rename-cancel]",
+  "[data-voice-raw-preview-selected]",
+  "[data-voice-raw-add-selected]",
 ].join(", ");
 
-const sourceSelectFromEventTarget = (target) =>
-  target?.closest?.("[data-source-select]") || null;
+const sourceFileControlFromEventTarget = (target) =>
+  target?.closest?.("[data-source-pick]") || null;
+
+const sourceFileSelectionControlSelector = "button,input,select,textarea";
+
+const selectSourceFileFromEventTarget = (target) => {
+  if (target?.closest?.(sourceFileSelectionControlSelector)) return false;
+  const fileControl = sourceFileControlFromEventTarget(target);
+  if (!fileControl) return false;
+  return selectSourceFileFromCard(fileControl.dataset.sourcePick, fileControl.dataset.sourcePath);
+};
 
 const sourceInteractiveControlFromEventTarget = (target) => {
   const container = $("sourceLibraryList");
@@ -2596,13 +2663,15 @@ const blockSourceFileDrop = (event, dropZone) => {
 };
 
 const sourceLibraryBusyControlSelector = [
-  "[data-source-select]",
+  "[data-source-pick]",
   "[data-source-file]",
-  "[data-source-upload-select]",
-  "[data-source-upload]",
   "[data-source-delete]",
-  "[data-voice-raw-preview]",
-  "[data-voice-raw-add]",
+  "[data-source-rename]",
+  "[data-source-rename-input]",
+  "[data-source-rename-save]",
+  "[data-source-rename-cancel]",
+  "[data-voice-raw-preview-selected]",
+  "[data-voice-raw-add-selected]",
 ].join(", ");
 const sourceLibraryBusyControlState = new WeakMap();
 
@@ -2637,21 +2706,14 @@ const syncSourceLibraryBusyControls = (container) => {
   });
 };
 
-const deriveSourceUploadActionState = (upload = {}, operationFlags = {}) => {
+const deriveSourceUploadActionState = (upload = {}) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
-  const busyTitle = sourceActionBusyTitle(operationFlags);
-  const busy = Boolean(busyTitle);
   return {
-    selectAfterUpload: upload.selectAfterUpload !== false,
     hasFile,
     hint: hasFile
       ? `${file.name} · ${formatBytes(file.size || 0)} 선택됨`
       : "WAV 파일을 이 폴더로 복사합니다.",
-    uploadDisabled: busy || !hasFile,
-    uploadTitle: busy
-      ? busyTitle
-      : hasFile ? "" : "추가할 WAV 파일을 먼저 선택하세요.",
   };
 };
 
@@ -2682,15 +2744,11 @@ const deriveVoiceRawActionState = (file = {}, operationFlags = {}) => {
   };
 };
 
-const deriveSourceFileStatusLabels = (file = {}, action = null) => {
-  const state = action || deriveSourceFileActionState(file);
-  const active = Boolean(state.active);
-  const applied = Boolean(file.applied);
-  if (active && !applied) return ["적용 대기"];
-  return [
-    active ? "선택됨" : "",
-    applied ? "현재 적용됨" : "",
-  ].filter(Boolean);
+const deriveSourceFileStatusBadges = (file = {}, action = null) => {
+  const fileState = action || deriveSourceFileActionState(file);
+  const active = Boolean(fileState.active);
+  if (active && !file.applied) return [{ text: "적용 대기", tone: "pending" }];
+  return [];
 };
 
 const rememberSourceUploadFile = (category, file) => {
@@ -2707,14 +2765,136 @@ const clearSourceUploadFile = (category) => {
   rememberSourceUploadFile(category, null);
 };
 
-const rememberSourceUploadMode = (category, selectAfterUpload) => {
-  sourceUploadState(category).selectAfterUpload = selectAfterUpload;
+const sourceRenameKey = (category, path) => `${category}:${path}`;
+
+const sourceFileNameParts = (name = "") => {
+  const index = name.lastIndexOf(".");
+  if (index <= 0) return { stem: name, extension: "" };
+  return {
+    stem: name.slice(0, index),
+    extension: name.slice(index),
+  };
 };
 
-const rememberSourceUploadModeFromControl = (uploadMode) => {
+const sourceRenameDraft = (category, file) => {
+  const key = sourceRenameKey(category, file.path);
+  const fallback = sourceFileNameParts(file.name).stem;
+  return state.sourceRenameDrafts[key] ?? fallback;
+};
+
+const startSourceRename = (category, file) => {
+  const key = sourceRenameKey(category, file.path);
+  state.sourceRenameEditing[key] = true;
+  state.sourceRenameDrafts[key] = sourceRenameDraft(category, file);
+  renderSourceLibrary({ allowInteractiveDeferral: false });
+};
+
+const rememberSourceRenameDraft = (category, path, stem) => {
+  state.sourceRenameDrafts[sourceRenameKey(category, path)] = stem;
+};
+
+const clearSourceRename = (category, path) => {
+  const key = sourceRenameKey(category, path);
+  delete state.sourceRenameEditing[key];
+  delete state.sourceRenameDrafts[key];
+};
+
+const cancelSourceRename = (category, path) => {
+  clearSourceRename(category, path);
+  renderSourceLibrary({ allowInteractiveDeferral: false });
+};
+
+const selectSourceFileFromCard = (category, path) => {
   if (sourceCommandBlocked()) return false;
-  rememberSourceUploadMode(uploadMode.dataset.sourceUploadSelect, uploadMode.checked);
+  if (!sourceCategorySelectable(category)) return false;
+  state.sourceCardSelections[category] = path;
+  renderSourceLibrary({ allowInteractiveDeferral: false });
   return true;
+};
+
+const cancelSelectedSourceCard = (category) => {
+  delete state.sourceCardSelections[category];
+  renderSourceLibrary({ allowInteractiveDeferral: false });
+};
+
+const confirmSelectedSourceCard = (category) => {
+  const path = state.sourceCardSelections[category];
+  if (!path) return null;
+  return selectSourceFile(category, path, { clearCardSelection: true });
+};
+
+const sourceStatusMarkup = (status) => {
+  if (!status?.text) return "";
+  return `
+      <span class="${status.className}">
+        ${escapeHtml(status.text)}
+      </span>
+    `;
+};
+
+const sourceCategoryVoiceRawActionsMarkup = (category) => {
+  const selectedPath = state.sourceCardSelections.voice_raw || null;
+  const selectedFile = category.files?.find((file) => file.path === selectedPath) || null;
+  const noSelectionTitle = "먼저 Voice Raw 파일을 선택하세요.";
+  const action = selectedFile
+    ? deriveVoiceRawActionState(selectedFile, currentOperationFlags())
+    : {
+        previewDisabled: true,
+        addDisabled: true,
+        previewTitle: noSelectionTitle,
+        addTitle: noSelectionTitle,
+      };
+  const selectedPathValue = selectedFile?.path || "";
+  return `
+    <div class="source-category-actions voice-raw-source-actions">
+      <button
+        class="mini-button"
+        type="button"
+        data-voice-raw-preview-selected="${escapeHtml(selectedPathValue)}"
+        title="${escapeHtml(action.previewTitle)}"
+        ${action.previewDisabled ? " disabled" : ""}
+      >Preview</button>
+      <button
+        class="mini-button"
+        type="button"
+        data-voice-raw-add-selected="${escapeHtml(selectedPathValue)}"
+        title="${escapeHtml(action.addTitle)}"
+        ${action.addDisabled ? " disabled" : ""}
+      >Add to Stack</button>
+    </div>
+  `;
+};
+
+const sourceCategoryHeaderActionMarkup = (category, status) => {
+  if (category.id === "voice_raw") {
+    return sourceCategoryVoiceRawActionsMarkup(category);
+  }
+  const selectedPath = state.sourceCardSelections[category.id] || null;
+  const selectedFile = category.files?.find((file) => file.path === selectedPath) || null;
+  if (!selectedFile) {
+    return sourceStatusMarkup(status);
+  }
+  const canConfirmSelection = selectedPath !== category.selected_path;
+  const confirmDisabled = canConfirmSelection && !sourceCommandBlocked() ? "" : " disabled";
+  const confirmTitle = sourceCommandBlocked()
+    ? ` title="${escapeHtml(currentSourceLockState().sourceActionTitle)}"`
+    : "";
+  return `
+    <div class="source-category-actions">
+      <button
+        class="mini-button primary"
+        type="button"
+        data-source-confirm-selection="${escapeHtml(category.id)}"
+        ${confirmTitle}
+        ${confirmDisabled}
+      >선택</button>
+      <button
+        class="mini-button"
+        type="button"
+        data-source-cancel="${escapeHtml(category.id)}"
+      >취소</button>
+    </div>
+  `;
 };
 
 const sourceCategoryCard = (category) => {
@@ -2727,41 +2907,18 @@ const sourceCategoryCard = (category) => {
   const sourceActionDisabled = busyTitle ? " disabled" : "";
   const sourceActionTitle = busyTitle ? ` title="${escapeHtml(busyTitle)}"` : "";
   const status = deriveSourceCategoryStatusState(category);
-  const uploadAction = deriveSourceUploadActionState(upload, currentOperationFlags());
-  const uploadChecked = uploadAction.selectAfterUpload ? " checked" : "";
-  const uploadDisabled = uploadAction.uploadDisabled ? " disabled" : "";
-  const uploadTitle = uploadAction.uploadTitle
-    ? ` title="${escapeHtml(uploadAction.uploadTitle)}"`
-    : "";
+  const uploadAction = deriveSourceUploadActionState(upload);
   const card = document.createElement("section");
   card.className = "source-category-card";
-  const options = [
-    `<option value="">${category.legacy_exists ? "기존 파일 사용" : "선택 안 함"}</option>`,
-    ...(category.files || []).map((file) => {
-      const selected = category.selected_path === file.path ? " selected" : "";
-      return `<option value="${escapeHtml(file.path)}"${selected}>${escapeHtml(file.name)}</option>`;
-    }),
-  ].join("");
   card.innerHTML = `
     <div class="source-category-head">
       <div>
         <h3>${escapeHtml(label.title)}</h3>
         <p>${escapeHtml(label.helper)}</p>
       </div>
-      <span class="${status.className}">
-        ${escapeHtml(status.text)}
-      </span>
+      ${sourceCategoryHeaderActionMarkup(category, status)}
     </div>
-    <label class="source-select-row">
-      <span>사용 파일</span>
-      <select
-        class="source-file-select"
-        data-source-select="${escapeHtml(category.id)}"
-        ${sourceActionDisabled}
-        ${sourceActionTitle}
-      >${options}</select>
-    </label>
-    <div class="source-file-list">
+    <div class="source-file-list source-file-list-scroll">
       ${sourceFileRows(category)}
     </div>
     <div class="source-upload-row">
@@ -2777,17 +2934,6 @@ const sourceCategoryCard = (category) => {
         <strong>파일 선택 또는 드롭</strong>
         <small>${escapeHtml(uploadAction.hint)}</small>
       </label>
-      <button
-        class="button"
-        type="button"
-        data-source-upload="${escapeHtml(category.id)}"
-        ${uploadDisabled}
-        ${uploadTitle}
-      >추가</button>
-      <label class="source-upload-select">
-        <input type="checkbox" data-source-upload-select="${escapeHtml(category.id)}"${uploadChecked}${sourceActionDisabled}${sourceActionTitle} />
-        <span>업로드 후 바로 선택</span>
-      </label>
     </div>
   `;
   return card;
@@ -2798,10 +2944,15 @@ const sourceFileRows = (category) => {
     return `<div class="source-library-empty">아직 추가된 WAV 파일이 없습니다.</div>`;
   }
   return category.files.map((file) => {
+    const selectable = sourceCategorySelectable(category.id);
+    const confirmable = sourceCategoryConfirmable(category.id);
     const action = deriveSourceFileActionState(file, currentOperationFlags());
-    const voiceRawAction = deriveVoiceRawActionState(file, currentOperationFlags());
-    const badges = deriveSourceFileStatusLabels(file, action)
-      .map((label) => `<span class="source-file-badge">${escapeHtml(label)}</span>`)
+    const selectedPath = selectable ? state.sourceCardSelections[category.id] || null : null;
+    const locallySelected = selectedPath === file.path;
+    const badges = (confirmable ? deriveSourceFileStatusBadges(file, action) : [])
+      .map((badge) => (
+        `<span class="source-file-badge ${escapeHtml(badge.tone)}">${escapeHtml(badge.text)}</span>`
+      ))
       .join("");
     const disabled = action.deleteDisabled ? " disabled" : "";
     const deleteTitle = action.deleteTitle
@@ -2809,7 +2960,7 @@ const sourceFileRows = (category) => {
       : "";
     const deleteButton = `
         <button
-          class="mini-button danger"
+          class="mini-button danger source-file-delete-button"
           type="button"
           data-source-delete="${escapeHtml(category.id)}"
           data-source-path="${escapeHtml(file.path)}"
@@ -2817,37 +2968,87 @@ const sourceFileRows = (category) => {
           ${disabled}
         >삭제</button>
       `;
-    const voiceRawActions = category.id === "voice_raw" ? `
-        <div class="source-file-actions voice-raw-actions">
+    const renameKey = sourceRenameKey(category.id, file.path);
+    const renaming = Boolean(state.sourceRenameEditing[renameKey]);
+    const nameParts = sourceFileNameParts(file.name);
+    const renameDraft = sourceRenameDraft(category.id, file);
+    const shortModifiedAt = formatShortTimestamp(file.modified_at);
+    const modifiedDatetime = file.modified_at
+      ? ` datetime="${escapeHtml(file.modified_at)}"`
+      : "";
+    const renameControls = renaming ? `
+        <div class="source-rename-row">
+          <input
+            class="source-rename-input"
+            type="text"
+            value="${escapeHtml(renameDraft)}"
+            data-source-rename-input="${escapeHtml(category.id)}"
+            data-source-path="${escapeHtml(file.path)}"
+            aria-label="${escapeHtml(file.name)} 파일명"
+            ${sourceCommandBlocked() ? " disabled" : ""}
+          />
+          <span class="source-rename-extension">${escapeHtml(nameParts.extension)}</span>
           <button
             class="mini-button"
             type="button"
-            data-voice-raw-preview="${escapeHtml(file.path)}"
-            title="${escapeHtml(voiceRawAction.previewTitle)}"
-            ${voiceRawAction.previewDisabled ? " disabled" : ""}
-          >Preview VR</button>
+            data-source-rename-save="${escapeHtml(category.id)}"
+            data-source-path="${escapeHtml(file.path)}"
+            ${sourceCommandBlocked() ? " disabled" : ""}
+          >저장</button>
           <button
             class="mini-button"
             type="button"
-            data-voice-raw-add="${escapeHtml(file.path)}"
-            title="${escapeHtml(voiceRawAction.addTitle)}"
-            ${voiceRawAction.addDisabled ? " disabled" : ""}
-          >Add to Stack</button>
+            data-source-rename-cancel="${escapeHtml(category.id)}"
+            data-source-path="${escapeHtml(file.path)}"
+          >취소</button>
+        </div>
+      ` : `
+        <div class="source-file-name-line">
+          <span class="source-file-title">
+            <strong>${escapeHtml(file.name)}</strong>
+            <button
+              class="icon-mini-button"
+              type="button"
+              data-source-rename="${escapeHtml(category.id)}"
+              data-source-path="${escapeHtml(file.path)}"
+              aria-label="${escapeHtml(file.name)} 파일명 수정"
+              title="파일명 수정"
+              ${sourceCommandBlocked() ? " disabled" : ""}
+            >✎</button>
+          </span>
+          <time class="source-file-date"${modifiedDatetime}>${escapeHtml(shortModifiedAt)}</time>
           ${deleteButton}
         </div>
-      ` : "";
-    const rowClass = category.id === "voice_raw"
-      ? "source-file-row voice-raw"
-      : "source-file-row";
-    return `
-      <div class="${rowClass}">
-        <div class="source-file-main">
-          <strong>${escapeHtml(file.name)}</strong>
-          <small>${formatBytes(file.size_bytes)} · ${formatTimestamp(file.modified_at)}</small>
+      `;
+    const metaLine = badges ? `
+        <div class="source-file-meta-line">
+          <div class="source-file-badges">${badges}</div>
         </div>
-        <div class="source-file-badges">${badges}</div>
-        ${voiceRawActions}
-        ${category.id === "voice_raw" ? "" : deleteButton}
+      ` : "";
+    const rowClass = [
+      "source-file-row",
+      category.id === "voice_raw" ? "voice-raw" : "",
+      locallySelected ? "selected" : "",
+      confirmable && file.active && !file.applied ? "pending" : "",
+      confirmable && file.applied ? "applied" : "",
+    ].filter(Boolean).join(" ");
+    const selectionAttributes = selectable
+      ? `
+        role="button"
+        tabindex="0"
+        data-source-pick="${escapeHtml(category.id)}"
+        data-source-path="${escapeHtml(file.path)}"
+      `
+      : "";
+    return `
+      <div
+        class="${rowClass}"
+        ${selectionAttributes}
+      >
+        <div class="source-file-main">
+          ${renameControls}
+          ${metaLine}
+        </div>
       </div>
     `;
   }).join("");
@@ -2937,7 +3138,7 @@ const recoverSourceMutationError = async (error) => {
   await requestSources().catch(() => {});
 };
 
-const selectSourceFile = async (category, path) => {
+const selectSourceFile = async (category, path, options = {}) => {
   if (sourceCommandBlocked()) return null;
   const requestId = beginSourceMutation();
   try {
@@ -2946,6 +3147,7 @@ const selectSourceFile = async (category, path) => {
       body: JSON.stringify({ path: path || null }),
     });
     if (!isCurrentSourceMutation(requestId)) return payload;
+    if (options.clearCardSelection) delete state.sourceCardSelections[category];
     applySourceMutationPayload(payload);
     await requestDiagnostics();
     return payload;
@@ -2957,14 +3159,6 @@ const selectSourceFile = async (category, path) => {
   } finally {
     finishSourceMutation(requestId);
   }
-};
-
-const selectedSourceUploadMode = (category) => {
-  const checkbox = document.querySelector(`[data-source-upload-select="${category}"]`);
-  if (typeof checkbox?.checked === "boolean") {
-    rememberSourceUploadMode(category, checkbox.checked);
-  }
-  return sourceUploadState(category).selectAfterUpload;
 };
 
 const uploadSourceFile = async (category, droppedFile = null) => {
@@ -2983,7 +3177,7 @@ const uploadSourceFile = async (category, droppedFile = null) => {
   const requestId = beginSourceMutation();
   const params = new URLSearchParams({
     filename: file.name,
-    select: String(selectedSourceUploadMode(category)),
+    select: String(shouldSelectUploadedSource(category)),
   });
   try {
     const payload = await api(
@@ -3036,6 +3230,29 @@ const deleteSourceFile = async (category, path) => {
       { method: "DELETE" },
     );
     if (!isCurrentSourceMutation(requestId)) return payload;
+    applySourceMutationPayload(payload);
+    await requestDiagnostics();
+    return payload;
+  } catch (error) {
+    if (isCurrentSourceMutation(requestId)) {
+      await recoverSourceMutationError(error);
+    }
+    return null;
+  } finally {
+    finishSourceMutation(requestId);
+  }
+};
+
+const renameSourceFile = async (category, path, stem) => {
+  if (sourceCommandBlocked()) return null;
+  const requestId = beginSourceMutation();
+  try {
+    const payload = await api(`/api/sources/${encodeURIComponent(category)}/files`, {
+      method: "PATCH",
+      body: JSON.stringify({ path, stem }),
+    });
+    if (!isCurrentSourceMutation(requestId)) return payload;
+    clearSourceRename(category, path);
     applySourceMutationPayload(payload);
     await requestDiagnostics();
     return payload;
@@ -3264,9 +3481,8 @@ const deviceOptionLabel = (device, emptyLabel = "시스템 기본값") => {
     : device.max_output_channels;
   return [
     device.name,
-    device.host_api_name,
     channelCount ? `${channelCount}ch` : null,
-    `${device.default_sample_rate || "알 수 없음"} Hz`,
+    device.default_sample_rate ? formatValue(device.default_sample_rate, " Hz") : "Hz 미확인",
   ].filter(Boolean).join(" · ");
 };
 
@@ -3885,6 +4101,28 @@ const setWorkspaceTab = (tabName, options = {}) => {
   if (options.syncUrl !== false) updateWorkspaceUrl();
 };
 
+const sideTabs = () => Array.from(document.querySelectorAll("[data-side-tab]"));
+
+const renderSideTabs = () => {
+  const activeTab = sideTabNames.includes(state.sideTab) ? state.sideTab : "library";
+  state.sideTab = activeTab;
+  sideTabs().forEach((button) => {
+    const active = button.dataset.sideTab === activeTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll("[data-side-pane]").forEach((pane) => {
+    pane.hidden = pane.dataset.sidePane !== activeTab;
+  });
+};
+
+const setSideTab = (tabName) => {
+  if (!sideTabNames.includes(tabName)) return;
+  state.sideTab = tabName;
+  renderSideTabs();
+};
+
 const frequencyGuideMarkup = (kind) => {
   if (kind !== "eq") return "";
   return `
@@ -4329,7 +4567,7 @@ const control = async (path, options = {}) => {
     if (payload.outcome !== undefined) {
       renderRecordingOutcome(payload.outcome);
     } else if (path === "/api/recording/start") {
-      setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지합니다.");
+      setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지됩니다.");
     }
     let deferredStopHandled = false;
     if (startsStartRequest && state.recordingStopRequestedAfterStart) {
@@ -4678,6 +4916,20 @@ const bindEvents = () => {
       setWorkspaceTab(next.dataset.workspaceTab);
     });
   });
+  sideTabs().forEach((button) => {
+    button.addEventListener("click", () => setSideTab(button.dataset.sideTab));
+    button.addEventListener("keydown", (event) => {
+      const tabs = sideTabs();
+      const index = tabs.indexOf(button);
+      const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (direction === 0 || index < 0) return;
+      event.preventDefault();
+      const next = tabs[(index + direction + tabs.length) % tabs.length];
+      next.focus();
+      setSideTab(next.dataset.sideTab);
+    });
+  });
+  renderSideTabs();
   document.querySelectorAll("[data-storage-mode]").forEach((button) => {
     button.addEventListener("click", () => setStorageMode(button.dataset.storageMode));
   });
@@ -4699,6 +4951,9 @@ const bindEvents = () => {
     const control = sourceInteractiveControlFromEventTarget(event.target);
     if (control) trackInteractiveControl(control);
   });
+  $("sourceLibraryList").addEventListener("pointerup", (event) => {
+    selectSourceFileFromEventTarget(event.target);
+  });
   $("sourceLibraryList").addEventListener("focusin", (event) => {
     const control = sourceInteractiveControlFromEventTarget(event.target);
     if (control) trackInteractiveControl(control);
@@ -4709,24 +4964,39 @@ const bindEvents = () => {
     transferOrReleaseInteractiveControl(control, nextControl);
   });
   $("sourceLibraryList").addEventListener("change", (event) => {
-    const select = sourceSelectFromEventTarget(event.target);
-    if (select) {
-      releaseInteractiveControl(select);
-      selectSourceFile(select.dataset.sourceSelect, select.value);
-      return;
-    }
     const fileInput = event.target.closest("[data-source-file]");
     if (fileInput) {
       if (rememberSourceUploadFileFromInput(fileInput)) {
         releaseInteractiveControl(fileInput);
-        renderSourceLibrary();
+        uploadSourceFile(fileInput.dataset.sourceFile);
       }
       return;
     }
-    const uploadMode = event.target.closest("[data-source-upload-select]");
-    if (uploadMode) {
-      if (rememberSourceUploadModeFromControl(uploadMode)) renderSourceLibrary();
+    const renameInput = event.target.closest("[data-source-rename-input]");
+    if (renameInput) {
+      rememberSourceRenameDraft(
+        renameInput.dataset.sourceRenameInput,
+        renameInput.dataset.sourcePath,
+        renameInput.value,
+      );
+      return;
     }
+  });
+  $("sourceLibraryList").addEventListener("input", (event) => {
+    const renameInput = event.target.closest("[data-source-rename-input]");
+    if (!renameInput) return;
+    rememberSourceRenameDraft(
+      renameInput.dataset.sourceRenameInput,
+      renameInput.dataset.sourcePath,
+      renameInput.value,
+    );
+  });
+  $("sourceLibraryList").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const fileControl = sourceFileControlFromEventTarget(event.target);
+    if (!fileControl) return;
+    event.preventDefault();
+    selectSourceFileFromCard(fileControl.dataset.sourcePick, fileControl.dataset.sourcePath);
   });
   $("sourceLibraryList").addEventListener("dragover", (event) => {
     const dropZone = sourceDropZoneFromEventTarget(event.target);
@@ -4750,29 +5020,64 @@ const bindEvents = () => {
     handleSourceFileDrop(event, dropZone.dataset.sourceDrop);
   });
   $("sourceLibraryList").addEventListener("click", (event) => {
-    const previewButton = event.target.closest("[data-voice-raw-preview]");
+    const renameButton = event.target.closest("[data-source-rename]");
+    if (renameButton) {
+      if (renameButton.disabled) return;
+      const category = renameButton.dataset.sourceRename;
+      const file = state.sources?.categories
+        ?.flatMap((item) => item.files || [])
+        .find((item) => item.path === renameButton.dataset.sourcePath);
+      if (file) startSourceRename(category, file);
+      return;
+    }
+    const renameSaveButton = event.target.closest("[data-source-rename-save]");
+    if (renameSaveButton) {
+      if (renameSaveButton.disabled) return;
+      const category = renameSaveButton.dataset.sourceRenameSave;
+      const path = renameSaveButton.dataset.sourcePath;
+      const stem = state.sourceRenameDrafts[sourceRenameKey(category, path)] || "";
+      renameSourceFile(category, path, stem);
+      return;
+    }
+    const renameCancelButton = event.target.closest("[data-source-rename-cancel]");
+    if (renameCancelButton) {
+      cancelSourceRename(
+        renameCancelButton.dataset.sourceRenameCancel,
+        renameCancelButton.dataset.sourcePath,
+      );
+      return;
+    }
+    const confirmSelectionButton = event.target.closest("[data-source-confirm-selection]");
+    if (confirmSelectionButton) {
+      if (confirmSelectionButton.disabled) return;
+      confirmSelectedSourceCard(confirmSelectionButton.dataset.sourceConfirmSelection);
+      return;
+    }
+    const cancelButton = event.target.closest("[data-source-cancel]");
+    if (cancelButton) {
+      cancelSelectedSourceCard(cancelButton.dataset.sourceCancel);
+      return;
+    }
+    const previewButton = event.target.closest("[data-voice-raw-preview-selected]");
     if (previewButton) {
       if (previewButton.disabled) return;
-      previewVoiceRaw(previewButton.dataset.voiceRawPreview);
+      previewVoiceRaw(previewButton.dataset.voiceRawPreviewSelected);
       return;
     }
-    const addButton = event.target.closest("[data-voice-raw-add]");
+    const addButton = event.target.closest("[data-voice-raw-add-selected]");
     if (addButton) {
       if (addButton.disabled) return;
-      addVoiceRawToStack(addButton.dataset.voiceRawAdd);
-      return;
-    }
-    const uploadButton = event.target.closest("[data-source-upload]");
-    if (uploadButton) {
-      if (uploadButton.disabled) return;
-      uploadSourceFile(uploadButton.dataset.sourceUpload);
+      addVoiceRawToStack(addButton.dataset.voiceRawAddSelected);
       return;
     }
     const deleteButton = event.target.closest("[data-source-delete]");
     if (deleteButton) {
       if (deleteButton.disabled) return;
       deleteSourceFile(deleteButton.dataset.sourceDelete, deleteButton.dataset.sourcePath);
+      return;
     }
+    const fileControl = sourceFileControlFromEventTarget(event.target);
+    if (fileControl) selectSourceFileFromEventTarget(event.target);
   });
   document.addEventListener("keydown", startFromSpace);
   document.addEventListener("keyup", stopFromSpace);

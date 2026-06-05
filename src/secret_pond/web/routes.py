@@ -36,6 +36,7 @@ from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
     delete_source_file_from_library,
+    rename_source_file_in_library,
     select_source_file_and_update_draft,
     upload_source_file_and_maybe_select,
 )
@@ -283,6 +284,36 @@ def delete_source(
         }
 
 
+@router.patch("/sources/{category}/files")
+def rename_source(
+    request: Request,
+    category: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    config = _source_category_config(category)
+    relative_path, stem = _source_rename_payload(payload)
+
+    with runtime.operation_lock:
+        settings_state = _settings_state(runtime)
+        try:
+            settings_state = rename_source_file_in_library(
+                runtime,
+                config.id,
+                relative_path,
+                stem,
+                settings_state=settings_state,
+            )
+        except SOURCE_MUTATION_ERRORS as exc:
+            raise _source_mutation_http_exception(exc) from exc
+        runtime.mark_state_changed()
+        return {
+            "settings": _settings_payload(runtime, settings_state),
+            "state": _state_payload(runtime, settings_state),
+            "sources": _sources_payload(runtime, settings_state),
+        }
+
+
 @router.post("/voice-stack/add-source")
 def add_voice_raw_to_stack(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -526,6 +557,16 @@ def _source_select_path(payload: dict[str, Any]) -> str | None:
     if relative_path is not None and not isinstance(relative_path, str):
         raise HTTPException(status_code=422, detail="path must be a string or null")
     return relative_path
+
+
+def _source_rename_payload(payload: dict[str, Any]) -> tuple[str, str]:
+    relative_path = payload.get("path")
+    stem = payload.get("stem")
+    if not isinstance(relative_path, str) or not relative_path:
+        raise HTTPException(status_code=422, detail="path must be a non-empty string")
+    if not isinstance(stem, str) or not stem:
+        raise HTTPException(status_code=422, detail="stem must be a non-empty string")
+    return relative_path, stem
 
 
 def _voice_raw_path_from_payload(payload: dict[str, Any]) -> str:

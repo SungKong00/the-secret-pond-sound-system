@@ -211,6 +211,24 @@ def delete_source_file(
     path.unlink()
 
 
+def rename_source_file(
+    paths: ProjectPaths,
+    category: SourceCategory,
+    relative_path: str,
+    stem: str,
+) -> str:
+    path = resolve_category_path(paths, category, relative_path)
+    next_stem = _safe_filename_stem(stem)
+    destination = path.with_name(f"{next_stem}{path.suffix}")
+    if destination == path:
+        return _relative_path(paths.root, path)
+    if destination.exists():
+        msg = f"source file already exists: {destination.name}"
+        raise FileExistsError(msg)
+    path.replace(destination)
+    return _relative_path(paths.root, destination)
+
+
 def source_file_is_selected(
     paths: ProjectPaths,
     settings: AppSettings,
@@ -313,6 +331,17 @@ def _safe_wav_filename(filename: str) -> str:
     basename = Path(filename).name.strip()
     if not basename or basename != filename or PurePosixPath(basename).suffix.lower() != ".wav":
         msg = "filename must be a plain .wav filename"
+        raise ValueError(msg)
+    return basename
+
+
+def _safe_filename_stem(stem: str) -> str:
+    basename = Path(stem).name.strip()
+    if not basename or basename != stem:
+        msg = "filename stem must be a plain filename"
+        raise ValueError(msg)
+    if PurePosixPath(basename).suffix:
+        msg = "filename stem must not include an extension"
         raise ValueError(msg)
     return basename
 

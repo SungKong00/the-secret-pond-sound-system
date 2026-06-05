@@ -830,12 +830,12 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     )
     right_stack = slice_between(
         response.text,
-        '<div class="right-stack-panel">',
-        "\n        </div>\n      </section>",
+        '<aside class="panel right-stack-panel" aria-label="오른쪽 정보 패널">',
+        "\n        </aside>\n      </section>",
     )
     system_panel = slice_between(
         right_stack,
-        '<section class="panel system-panel"',
+        '<section\n            id="sidePaneSystem"',
         "</section>",
     )
     assert operation_panel.index("Playback") < operation_panel.index("Voice Capture")
@@ -886,7 +886,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="captureGateSwitch"' in record_panel
     assert 'role="switch"' in record_panel
     assert 'id="captureGateState"' in record_panel
-    assert "녹음 준비 꺼짐" in record_panel
+    assert ">꺼짐</span>" in record_panel
     assert 'id="armButton"' not in record_panel
     assert 'id="disarmButton"' not in record_panel
     assert "Arm" not in record_panel
@@ -911,7 +911,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     main_workspace = slice_between(
         response.text,
         '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
-        '<div class="right-stack-panel">',
+        '<aside class="panel right-stack-panel" aria-label="오른쪽 정보 패널">',
     )
     assert 'class="workspace-tabs"' in main_workspace
     assert 'role="tablist"' in main_workspace
@@ -1004,7 +1004,19 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "Clearer Voice" in response.text
     assert '<small lang="ko">부드럽게</small>' in response.text
     assert '<small lang="ko">선명한 목소리</small>' in response.text
-    assert 'class="right-stack-panel"' in response.text
+    assert '<aside class="panel right-stack-panel" aria-label="오른쪽 정보 패널">' in response.text
+    assert 'class="side-tab-list"' in right_stack
+    assert 'id="sideTabLibrary"' in right_stack
+    assert 'data-side-tab="library"' in right_stack
+    assert 'aria-selected="true"' in right_stack
+    assert 'id="sideTabSystem"' in right_stack
+    assert 'data-side-tab="system"' in right_stack
+    assert 'id="sidePaneLibrary"' in right_stack
+    assert 'data-side-pane="library"' in right_stack
+    assert 'id="sidePaneSystem"' in right_stack
+    assert 'data-side-pane="system"' in system_panel
+    assert "hidden" in system_panel
+    assert right_stack.index('id="sidePaneLibrary"') < right_stack.index('id="sidePaneSystem"')
     assert 'aria-label="시스템 진단"' in right_stack
     assert 'for="inputDeviceSelect"' in system_panel
     assert 'for="outputDeviceSelect"' in system_panel
@@ -1029,7 +1041,7 @@ def test_settings_reset_is_hidden_behind_maintenance_panel(tmp_path: Path) -> No
     main_workspace = slice_between(
         response.text,
         '<section class="panel workspace-panel main-workspace-panel" aria-label="작업 영역">',
-        '<div class="right-stack-panel">',
+        '<aside class="panel right-stack-panel" aria-label="오른쪽 정보 패널">',
     )
     settings_panel = slice_between(
         main_workspace,
@@ -1239,28 +1251,43 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "Source Library" in page.text
     assert "파일 라이브러리" in page.text
     assert ".source-library-panel" in styles.text
+    assert ".source-category-actions" in styles.text
+    assert ".side-tab-list" in styles.text
+    assert ".side-pane[hidden]" in styles.text
     assert ".source-category-card" in styles.text
     assert ".source-file-row" in styles.text
+    assert ".source-file-date" in styles.text
+    assert ".source-file-row.pending" in styles.text
+    assert ".source-file-row.applied" in styles.text
+    assert ".source-file-list-scroll" in styles.text
+    assert "max-height: 237px;" in styles.text
     assert ".source-upload-row" in styles.text
     assert ".source-drop-zone" in styles.text
-    assert ".source-upload-select" in styles.text
-    assert ".source-file-actions" in styles.text
+    assert ".source-upload-select" not in styles.text
+    assert ".source-file-actions" not in styles.text
     assert "is-dragging" in styles.text
     assert "state.sources = null" in script.text
     assert 'api("/api/sources")' in script.text
     assert "requestSources" in script.text
     assert "renderSourceLibrary" in script.text
     assert "applySourceMutationPayload" in script.text
+    assert "formatShortTimestamp" in script.text
+    assert "orderedSourceCategories" in script.text
+    assert "sourceCategoryConfirmable" in script.text
+    assert "selectSourceFileFromCard" in script.text
+    assert "confirmSelectedSourceCard" in script.text
+    assert "cancelSelectedSourceCard" in script.text
+    assert "renameSourceFile" in script.text
     assert "previewVoiceRaw" in script.text
     assert "addVoiceRawToStack" in script.text
-    assert "Preview VR" in script.text
+    assert "Preview" in script.text
     assert "Add to Stack" in script.text
     assert 'api("/api/voice-raw/preview"' in script.text
     assert 'api("/api/voice-stack/add-source"' in script.text
     assert "recoverSourceMutationError" in script.text
     assert "selectSourceFile" in script.text
     assert "uploadSourceFile" in script.text
-    assert "selectedSourceUploadMode" in script.text
+    assert "shouldSelectUploadedSource" in script.text
     assert "deriveSourceUploadActionState" in script.text
     assert "deriveSourceFileActionState" in script.text
     assert 'path: "transition_seconds"' in script.text
@@ -1268,13 +1295,17 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "1s · 3s default · 10s" in script.text
     assert "handleSourceFileDrop" in script.text
     assert "deleteSourceFile" in script.text
-    assert "source-file-select" in script.text
-    assert "data-source-select" in script.text
+    assert "source-file-select" not in script.text
+    assert "data-source-pick" in script.text
+    assert "data-source-confirm-selection" in script.text
+    assert "data-source-apply" not in script.text
+    assert "data-source-cancel" in script.text
+    assert "data-source-rename" in script.text
     assert "data-source-delete" in script.text
-    assert "data-source-upload" in script.text
-    assert "data-source-upload-select" in script.text
+    assert "[data-source-upload]" not in script.text
+    assert "data-source-upload-select" not in script.text
     assert "data-source-drop" in script.text
-    assert "업로드 후 바로 선택" in script.text
+    assert "업로드 후 바로 선택" not in script.text
     assert "파일 선택 또는 드롭" in script.text
     assert "현재 선택된 파일은 삭제할 수 없습니다" in script.text
     assert "eventLogSummary" in script.text
@@ -1390,16 +1421,18 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "maximumRecordingTime" in script.text
     assert ".record-limits" in styles.text
     assert "renderRecordReadiness" in script.text
-    assert "스페이스바를 눌러 녹음" in script.text
+    assert "준비 완료" in script.text
+    assert "누르고 있는 동안 녹음되고, 떼면 중지됩니다." in script.text
     assert "녹음 준비 필요" in script.text
-    assert "녹음 준비를 켠 뒤 스페이스바를 누르세요." in script.text
+    assert "켜면 스페이스바로 녹음할 수 있습니다." in script.text
+    assert "녹음 준비 상태에서만 스페이스바 누름 녹음이 작동합니다." not in page.text
     assert ".record-outcome.armed-ready" in styles.text
     assert "overflow-wrap: anywhere" in styles.text
     assert "녹음 추가됨" in script.text
     assert "너무 짧음" in script.text
     assert "빈 녹음" in script.text
     assert "마이크 입력이 거의 감지되지 않았습니다" in script.text
-    assert "녹음 준비 꺼짐" in script.text
+    assert '"꺼짐"' in script.text
     assert "녹음 실패" in script.text
     assert "captureReady: armed && !isRecording && !captureOperationBusy" in script.text
     assert (
@@ -1833,6 +1866,27 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
     assert "if (event.repeat) return;" in start_from_space_body
     assert "state.spaceRecording = true" in start_from_space_body
+
+
+def test_static_ui_open_control_group_marker_does_not_offset_title(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    styles = client.get("/static/styles.css")
+
+    assert styles.status_code == 200
+    collapsed_marker = slice_between(
+        styles.text,
+        ".control-group summary.control-group-head h4::before {",
+        "}",
+    )
+    open_marker = slice_between(
+        styles.text,
+        ".control-group[open] summary.control-group-head h4::before,",
+        "}",
+    )
+    assert "width: 1em;" in collapsed_marker
+    assert "content: \"\";" in open_marker
+    assert "display: none;" in open_marker
 
 
 def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
@@ -3279,16 +3333,14 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   }};
   globalThis.__secretPondTest.state.sources = sourcePayload;
   globalThis.__secretPondTest.state.sourceUploads.low = {{
-    selectAfterUpload: true,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }};
   const latestSourceLibraryHtml = () =>
     elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
-  const sourceUploadButtonHtml = () => {{
+  const sourceUploadAreaHtml = () => {{
     const html = latestSourceLibraryHtml();
-    const start = html.indexOf('data-source-upload="low"');
-    const end = html.indexOf('data-source-upload-select="low"');
-    return html.slice(start, end);
+    const start = html.indexOf('class="source-upload-row"');
+    return html.slice(start);
   }};
   globalThis.__secretPondTest.renderState();
   globalThis.__secretPondTest.renderDevices();
@@ -3296,7 +3348,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.startOutputButton.disabled, false);
   assert.strictEqual(elements.inputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
   assert.strictEqual(elements.applyButton.disabled, true);
 
   globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds = 61;
@@ -3348,7 +3400,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.outputDeviceSelect.disabled, true);
   assert.strictEqual(elements.inputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
   assert.strictEqual(elements.outputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), true);
   assert.strictEqual(
     latestSourceLibraryHtml().includes("출력 제어가 끝날 때까지 기다리세요."),
     true,
@@ -3365,7 +3417,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(globalThis.__secretPondTest.state.playbackControlInFlight, false);
   assert.strictEqual(elements.inputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
   assert.deepStrictEqual(playbackFetches, [
     "/api/playback/start",
     "/api/diagnostics",
@@ -4670,7 +4722,7 @@ def test_static_ui_source_mutation_commands_short_circuit_while_locked(
       this.defaultPrevented = true;
     },
   };
-  helpers.state.sourceUploads.low = { selectAfterUpload: true, file: null };
+  helpers.state.sourceUploads.low = { file: null };
   assert.strictEqual(helpers.handleSourceFileDrop(dropEvent, "low"), null);
   assert.strictEqual(dropEvent.defaultPrevented, true);
   assert.strictEqual(dropEvent.dataTransfer.dropEffect, "none");
@@ -4704,7 +4756,7 @@ helpers.bindEvents();
 assert.strictEqual(typeof sourceChangeHandler, "function");
 
 const selectedFile = { name: "blocked.wav", size: 12, lastModified: 1 };
-helpers.state.sourceUploads.low = { selectAfterUpload: true, file: null };
+helpers.state.sourceUploads.low = { file: null };
 helpers.state.sourceMutationInFlight = true;
 sourceChangeHandler({
   target: {
@@ -4719,20 +4771,6 @@ sourceChangeHandler({
 assert.strictEqual(helpers.state.sourceUploads.low.file, null);
 
 helpers.state.sourceMutationInFlight = false;
-helpers.state.resetDraftInFlight = true;
-sourceChangeHandler({
-  target: {
-    closest(selector) {
-      if (selector === "[data-source-upload-select]") {
-        return { dataset: { sourceUploadSelect: "low" }, checked: false };
-      }
-      return null;
-    },
-  },
-});
-assert.strictEqual(helpers.state.sourceUploads.low.selectAfterUpload, true);
-
-helpers.state.resetDraftInFlight = false;
 helpers.state.recordingStopInFlight = true;
 sourceChangeHandler({
   target: {
@@ -4745,20 +4783,6 @@ sourceChangeHandler({
   },
 });
 assert.strictEqual(helpers.state.sourceUploads.low.file, null);
-
-helpers.state.recordingStopInFlight = false;
-helpers.state.playbackControlInFlight = true;
-sourceChangeHandler({
-  target: {
-    closest(selector) {
-      if (selector === "[data-source-upload-select]") {
-        return { dataset: { sourceUploadSelect: "low" }, checked: false };
-      }
-      return null;
-    },
-  },
-});
-assert.strictEqual(helpers.state.sourceUploads.low.selectAfterUpload, true);
 """,
     )
 
@@ -4783,21 +4807,13 @@ fileInput.tagName = "INPUT";
 fileInput.dataset = { sourceFile: "low" };
 fileInput.addEventListener = () => {};
 fileInput.closest = (selector) => selector.includes("[data-source-file]") ? fileInput : null;
-const uploadMode = makeElement();
-uploadMode.tagName = "INPUT";
-uploadMode.dataset = { sourceUploadSelect: "low" };
-uploadMode.addEventListener = () => {};
-uploadMode.closest = (selector) =>
-  selector.includes("[data-source-upload-select]") ? uploadMode : null;
-const uploadButton = makeElement();
-uploadButton.tagName = "BUTTON";
-uploadButton.dataset = { sourceUpload: "low" };
-uploadButton.closest = (selector) => selector.includes("[data-source-upload]")
-  ? uploadButton
-  : null;
-
+const renameInput = makeElement("input");
+renameInput.dataset = { sourceRenameInput: "low" };
+renameInput.addEventListener = () => {};
+renameInput.closest = (selector) =>
+  selector.includes("[data-source-rename-input]") ? renameInput : null;
 sourceLibraryList.contains = (element) =>
-  element === fileInput || element === uploadMode || element === uploadButton;
+  element === fileInput || element === renameInput;
 helpers.bindEvents();
 assert.strictEqual(typeof handlers.focusin, "function");
 assert.strictEqual(typeof handlers.focusout, "function");
@@ -4824,7 +4840,6 @@ helpers.state.sources = {
   ],
 };
 helpers.state.sourceUploads.low = {
-  selectAfterUpload: true,
   file: { name: "picked-low.wav", size: 4096, lastModified: 1 },
 };
 sourceLibraryList.innerHTML = "open file picker";
@@ -4836,9 +4851,9 @@ helpers.renderSourceLibrary();
 assert.strictEqual(sourceLibraryList.innerHTML, "open file picker");
 assert.strictEqual(sourceLibraryList.children.length, 1);
 
-handlers.focusout({ target: fileInput, relatedTarget: uploadMode });
+handlers.focusout({ target: fileInput, relatedTarget: renameInput });
 
-assert.strictEqual(helpers.state.activeInteractiveControl, uploadMode);
+assert.strictEqual(helpers.state.activeInteractiveControl, renameInput);
 assert.strictEqual(
   typeof helpers.state.deferredInteractiveRenders["source-library"],
   "function",
@@ -4847,7 +4862,7 @@ helpers.state.sources.categories[0].label = "Renamed Low";
 helpers.renderSourceLibrary();
 assert.strictEqual(sourceLibraryList.innerHTML, "open file picker");
 
-handlers.focusout({ target: uploadMode, relatedTarget: uploadButton });
+handlers.focusout({ target: renameInput, relatedTarget: null });
 
 assert.strictEqual(helpers.state.activeInteractiveControl, null);
 assert.strictEqual(helpers.state.deferredInteractiveRenders["source-library"], undefined);
@@ -4937,29 +4952,29 @@ def test_static_ui_source_library_busy_state_updates_when_render_is_deferred(
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 const helpers = globalThis.__secretPondTest;
-const sourceSelect = makeElement();
-const fileInput = makeElement();
-const uploadMode = makeElement();
-const uploadButton = makeElement();
-const deleteButton = makeElement();
+const fileInput = makeElement("input");
+const renameButton = makeElement("button");
+const deleteButton = makeElement("button");
 
 elements.sourceLibraryList = makeElement();
-elements.sourceLibraryList.contains = (element) => element === sourceSelect;
+elements.sourceLibraryList.contains = (element) => (
+  element === fileInput || element === renameButton || element === deleteButton
+);
 elements.sourceLibraryList.querySelectorAll = (selector) => {
-  if (selector.includes("[data-source-select]")) {
-    return [sourceSelect, fileInput, uploadMode, uploadButton, deleteButton];
+  if (selector.includes("[data-source-pick]")) {
+    return [fileInput, renameButton, deleteButton];
   }
   return [];
 };
 
-helpers.state.activeInteractiveControl = sourceSelect;
+helpers.state.activeInteractiveControl = fileInput;
 helpers.state.sourceMutationInFlight = true;
 helpers.renderSourceLibrary();
 
-assert.strictEqual(sourceSelect.disabled, false);
-assert.strictEqual(sourceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(fileInput.disabled, false);
+assert.strictEqual(fileInput.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 
-for (const control of [fileInput, uploadMode, uploadButton, deleteButton]) {
+for (const control of [renameButton, deleteButton]) {
   assert.strictEqual(control.disabled, true);
   assert.strictEqual(control.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 }
@@ -4976,35 +4991,36 @@ def test_static_ui_source_library_deferred_busy_state_clears_after_unlock(
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 const helpers = globalThis.__secretPondTest;
-const sourceSelect = makeElement();
-const uploadButton = makeElement();
-uploadButton.disabled = true;
-uploadButton.title = "추가할 WAV 파일을 먼저 선택하세요.";
+const fileInput = makeElement("input");
+const renameButton = makeElement("button");
+renameButton.disabled = true;
+renameButton.title = "파일명 수정";
 
 elements.sourceLibraryList = makeElement();
-elements.sourceLibraryList.contains = (element) => element === sourceSelect;
+elements.sourceLibraryList.contains = (element) =>
+  element === fileInput || element === renameButton;
 elements.sourceLibraryList.querySelectorAll = (selector) => {
-  if (selector.includes("[data-source-select]")) {
-    return [sourceSelect, uploadButton];
+  if (selector.includes("[data-source-pick]")) {
+    return [fileInput, renameButton];
   }
   return [];
 };
 
-helpers.state.activeInteractiveControl = sourceSelect;
+helpers.state.activeInteractiveControl = fileInput;
 helpers.state.sourceMutationInFlight = true;
 helpers.renderSourceLibrary();
-assert.strictEqual(sourceSelect.disabled, false);
-assert.strictEqual(sourceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
-assert.strictEqual(uploadButton.disabled, true);
-assert.strictEqual(uploadButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(fileInput.disabled, false);
+assert.strictEqual(fileInput.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(renameButton.disabled, true);
+assert.strictEqual(renameButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 
 helpers.state.sourceMutationInFlight = false;
 helpers.renderSourceLibrary();
 
-assert.strictEqual(sourceSelect.disabled, false);
-assert.strictEqual(sourceSelect.title, "");
-assert.strictEqual(uploadButton.disabled, true);
-assert.strictEqual(uploadButton.title, "추가할 WAV 파일을 먼저 선택하세요.");
+assert.strictEqual(fileInput.disabled, false);
+assert.strictEqual(fileInput.title, "");
+assert.strictEqual(renameButton.disabled, true);
+assert.strictEqual(renameButton.title, "파일명 수정");
 """,
     )
 
@@ -5772,16 +5788,14 @@ def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
   helpers.state.devices = devices;
   helpers.state.sources = sourcePayload;
   helpers.state.sourceUploads.low = {
-    selectAfterUpload: true,
     file: { name: "picked-low.wav", size: 4096, lastModified: 1 },
   };
   const latestSourceLibraryHtml = () =>
     elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
-  const sourceUploadButtonHtml = () => {
+  const sourceUploadAreaHtml = () => {
     const html = latestSourceLibraryHtml();
-    const start = html.indexOf('data-source-upload="low"');
-    const end = html.indexOf('data-source-upload-select="low"');
-    return html.slice(start, end);
+    const start = html.indexOf('class="source-upload-row"');
+    return html.slice(start);
   };
 
   helpers.renderState();
@@ -5790,7 +5804,7 @@ def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
   assert.strictEqual(elements.applyButton.disabled, false);
   assert.strictEqual(elements.resetButton.disabled, false);
   assert.strictEqual(elements.storageModeLibraryButton.disabled, false);
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
 
   let resolveDeviceChange = null;
   globalThis.fetch = (path, options = {}) => {
@@ -5825,9 +5839,9 @@ def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
     elements.storageModeLibraryButton.title,
     "장치 변경을 적용하는 중입니다.",
   );
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), true);
   assert.strictEqual(
-    sourceUploadButtonHtml().includes(
+    sourceUploadAreaHtml().includes(
       'title="장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다."',
     ),
     true,
@@ -5839,7 +5853,7 @@ def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
   assert.strictEqual(elements.applyButton.disabled, false);
   assert.strictEqual(elements.resetButton.disabled, false);
   assert.strictEqual(elements.storageModeLibraryButton.disabled, false);
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -6079,8 +6093,10 @@ def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None
         exports=(
             "{ deriveSourceUploadActionState, deriveSourceFileActionState, "
             "deriveVoiceRawActionState, "
-            "deriveSourceFileStatusLabels, sourceLibrarySignature, state, "
-            "sourceSelectFromEventTarget }"
+            "deriveSourceFileStatusBadges, orderedSourceCategories, "
+            "sourceLibrarySignature, state, sourceFileControlFromEventTarget, "
+            "selectSourceFileFromEventTarget, sourceCategorySelectable, sourceCategoryConfirmable, "
+            "shouldSelectUploadedSource }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -6118,97 +6134,70 @@ assert.strictEqual(idleSourceSignature, recordingStartSourceSignature);
 helpers.state.recordingStartInFlight = false;
 
 assert.deepStrictEqual(
-  helpers.deriveSourceUploadActionState({{ selectAfterUpload: true, file: null }}),
+  helpers.deriveSourceUploadActionState({{ file: null }}),
   {{
-    selectAfterUpload: true,
     hasFile: false,
     hint: "WAV 파일을 이 폴더로 복사합니다.",
-    uploadDisabled: true,
-    uploadTitle: "추가할 WAV 파일을 먼저 선택하세요.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ sourceMutationInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ applyInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "설정 적용이 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ resetDraftInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ recordingStopInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "녹음 처리가 끝날 때까지 기다리세요.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ playbackControlInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "출력 제어가 끝날 때까지 기다리세요.",
   }},
 );
 
 assert.deepStrictEqual(
   helpers.deriveSourceUploadActionState({{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }}, {{ resetParticipantsInFlight: true }}),
   {{
-    selectAfterUpload: false,
     hasFile: true,
     hint: "picked-low.wav · 4.0 KB 선택됨",
-    uploadDisabled: true,
-    uploadTitle: "참여자 초기화가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -6320,29 +6309,47 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileStatusLabels({{ active: true, applied: false }}),
-  ["적용 대기"],
+  helpers.deriveSourceFileStatusBadges({{ active: true, applied: false }}),
+  [{{ text: "적용 대기", tone: "pending" }}],
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileStatusLabels({{ active: true, applied: true }}),
-  ["선택됨", "현재 적용됨"],
+  helpers.deriveSourceFileStatusBadges({{ active: true, applied: true }}),
+  [],
 );
 
 assert.deepStrictEqual(
-  helpers.deriveSourceFileStatusLabels({{ active: false, applied: true }}),
-  ["현재 적용됨"],
+  helpers.deriveSourceFileStatusBadges({{ active: false, applied: true }}),
+  [],
 );
 
-const sourceSelect = {{
-  dataset: {{ sourceSelect: "low" }},
+assert.deepStrictEqual(
+  helpers.orderedSourceCategories([
+    {{ id: "low" }},
+    {{ id: "voice_raw" }},
+    {{ id: "mid" }},
+    {{ id: "voice_stack" }},
+    {{ id: "custom" }},
+  ]).map((category) => category.id),
+  ["voice_stack", "voice_raw", "mid", "low", "custom"],
+);
+
+assert.strictEqual(helpers.sourceCategorySelectable("voice_stack"), true);
+assert.strictEqual(helpers.sourceCategorySelectable("voice_raw"), true);
+assert.strictEqual(helpers.sourceCategoryConfirmable("voice_stack"), true);
+assert.strictEqual(helpers.sourceCategoryConfirmable("voice_raw"), false);
+assert.strictEqual(helpers.shouldSelectUploadedSource("low"), false);
+assert.strictEqual(helpers.shouldSelectUploadedSource("voice_raw"), false);
+
+const sourcePick = {{
+  dataset: {{ sourcePick: "low" }},
   closest(selector) {{
-    return selector === "[data-source-select]" ? this : null;
+    return selector === "[data-source-pick]" ? this : null;
   }},
 }};
-const sourceSelectChild = {{
+const sourcePickChild = {{
   closest(selector) {{
-    return selector === "[data-source-select]" ? sourceSelect : null;
+    return selector === "[data-source-pick]" ? sourcePick : null;
   }},
 }};
 const unrelatedTarget = {{
@@ -6350,10 +6357,171 @@ const unrelatedTarget = {{
     return null;
   }},
 }};
-assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelect), sourceSelect);
-assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelectChild), sourceSelect);
-assert.strictEqual(helpers.sourceSelectFromEventTarget(unrelatedTarget), null);
-assert.strictEqual(helpers.sourceSelectFromEventTarget(null), null);
+assert.strictEqual(helpers.sourceFileControlFromEventTarget(sourcePick), sourcePick);
+assert.strictEqual(helpers.sourceFileControlFromEventTarget(sourcePickChild), sourcePick);
+assert.strictEqual(helpers.sourceFileControlFromEventTarget(unrelatedTarget), null);
+assert.strictEqual(helpers.sourceFileControlFromEventTarget(null), null);
+
+const selectableFileRow = {{
+  dataset: {{ sourcePick: "low", sourcePath: "data/sources/low/next-low.wav" }},
+  closest(selector) {{
+    if (selector === "button,input,select,textarea") return null;
+    return selector === "[data-source-pick]" ? this : null;
+  }},
+}};
+const nestedFileName = {{
+  closest(selector) {{
+    if (selector === "button,input,select,textarea") return null;
+    return selector === "[data-source-pick]" ? selectableFileRow : null;
+  }},
+}};
+const nestedButton = {{
+  closest(selector) {{
+    if (selector === "button,input,select,textarea") return this;
+    return selector === "[data-source-pick]" ? selectableFileRow : null;
+  }},
+}};
+
+helpers.state.sourceMutationInFlight = false;
+assert.strictEqual(helpers.selectSourceFileFromEventTarget(nestedFileName), true);
+assert.strictEqual(
+  helpers.state.sourceCardSelections.low,
+  "data/sources/low/next-low.wav",
+);
+helpers.state.sourceCardSelections = {{}};
+assert.strictEqual(helpers.selectSourceFileFromEventTarget(nestedButton), false);
+assert.strictEqual(helpers.state.sourceCardSelections.low, undefined);
+
+const voiceRawFileRow = {{
+  dataset: {{ sourcePick: "voice_raw", sourcePath: "data/sources/voice/raw/VR0610.wav" }},
+  closest(selector) {{
+    if (selector === "button,input,select,textarea") return null;
+    return selector === "[data-source-pick]" ? this : null;
+  }},
+}};
+assert.strictEqual(helpers.selectSourceFileFromEventTarget(voiceRawFileRow), true);
+assert.strictEqual(
+  helpers.state.sourceCardSelections.voice_raw,
+  "data/sources/voice/raw/VR0610.wav",
+);
+""",
+    )
+
+
+def test_static_ui_source_card_selection_is_local_until_applied(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ state, selectSourceFileFromCard, cancelSelectedSourceCard, "
+            "confirmSelectedSourceCard }"
+        ),
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const calls = [];
+globalThis.fetch = (path, options = {}) => {
+  calls.push({ path, options });
+  return new Promise(() => {});
+};
+
+helpers.state.sourceMutationInFlight = false;
+helpers.state.sources = {
+  categories: [
+    {
+      id: "low",
+      label: "Low",
+      directory: "sources/low",
+      selected_path: "data/sources/low/current.wav",
+      files: [
+        {
+          name: "current.wav",
+          path: "data/sources/low/current.wav",
+          size_bytes: 10,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: true,
+          applied: true,
+        },
+        {
+          name: "next-low.wav",
+          path: "data/sources/low/next-low.wav",
+          size_bytes: 12,
+          modified_at: "2026-06-05T00:00:00Z",
+          active: false,
+          applied: false,
+        },
+      ],
+    },
+  ],
+};
+const sourceLibraryList = document.getElementById("sourceLibraryList");
+const focusedInput = makeElement("input");
+sourceLibraryList.appendChild(focusedInput);
+helpers.state.activeInteractiveControl = focusedInput;
+const latestSourceLibraryHtml = () =>
+  sourceLibraryList.children[sourceLibraryList.children.length - 1].innerHTML;
+
+helpers.selectSourceFileFromCard("low", "data/sources/low/next-low.wav");
+
+assert.strictEqual(
+  helpers.state.sourceCardSelections.low,
+  "data/sources/low/next-low.wav",
+);
+assert.strictEqual(calls.length, 0);
+assert.strictEqual(latestSourceLibraryHtml().includes("source-file-row selected"), true);
+assert.strictEqual(latestSourceLibraryHtml().includes('data-source-confirm-selection="low"'), true);
+assert.strictEqual(latestSourceLibraryHtml().includes(">선택</button>"), true);
+assert.strictEqual(latestSourceLibraryHtml().includes('data-source-cancel="low"'), true);
+
+helpers.cancelSelectedSourceCard("low");
+assert.strictEqual(helpers.state.sourceCardSelections.low, undefined);
+assert.strictEqual(latestSourceLibraryHtml().includes("source-file-row selected"), false);
+
+helpers.selectSourceFileFromCard("low", "data/sources/low/next-low.wav");
+helpers.confirmSelectedSourceCard("low");
+
+assert.strictEqual(calls.length, 1);
+assert.strictEqual(calls[0].path, "/api/sources/low/select");
+assert.strictEqual(calls[0].options.method, "PUT");
+assert.deepStrictEqual(
+  JSON.parse(calls[0].options.body),
+  { path: "data/sources/low/next-low.wav" },
+);
+assert.strictEqual(helpers.state.sourceMutationInFlight, true);
+""",
+    )
+
+
+def test_static_ui_source_rename_calls_patch_endpoint(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renameSourceFile }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const calls = [];
+globalThis.fetch = (path, options = {}) => {
+  calls.push({ path, options });
+  return new Promise(() => {});
+};
+
+helpers.state.sourceMutationInFlight = false;
+helpers.renameSourceFile(
+  "voice_stack",
+  "data/sources/voice/stack/VS0610_213112.wav",
+  "renamed-stack",
+);
+
+assert.strictEqual(calls.length, 1);
+assert.strictEqual(calls[0].path, "/api/sources/voice_stack/files");
+assert.strictEqual(calls[0].options.method, "PATCH");
+assert.deepStrictEqual(
+  JSON.parse(calls[0].options.body),
+  {
+    path: "data/sources/voice/stack/VS0610_213112.wav",
+    stem: "renamed-stack",
+  },
+);
+assert.strictEqual(helpers.state.sourceMutationInFlight, true);
 """,
     )
 
@@ -6452,12 +6620,12 @@ assert.strictEqual(
     )
 
 
-def test_static_ui_source_library_voice_raw_rows_render_preview_and_add_actions(
+def test_static_ui_source_library_voice_raw_uses_common_preview_and_add_actions(
     tmp_path: Path,
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ sourceFileRows, state }",
+        exports="{ sourceCategoryCard, sourceFileRows, state }",
         body="""
 const helpers = globalThis.__secretPondTest;
 helpers.state.sourceMutationInFlight = false;
@@ -6468,6 +6636,7 @@ helpers.state.applyInFlight = false;
 helpers.state.resetDraftInFlight = false;
 helpers.state.resetParticipantsInFlight = false;
 helpers.state.deviceChangeInFlight = false;
+helpers.state.sourceCardSelections.voice_raw = "data/sources/voice/raw/VR0610_213112.wav";
 
 const vrHtml = helpers.sourceFileRows({{
   id: "voice_raw",
@@ -6482,22 +6651,62 @@ const vrHtml = helpers.sourceFileRows({{
     }},
   ],
 }});
-assert.strictEqual(vrHtml.includes("Preview VR"), true);
-assert.strictEqual(vrHtml.includes("Add to Stack"), true);
+assert.strictEqual(vrHtml.includes("Add to Stack"), false);
+assert.strictEqual(vrHtml.includes("Preview"), false);
+assert.strictEqual(vrHtml.includes("Add to Stack"), false);
+assert.strictEqual(vrHtml.includes("data-voice-raw-preview"), false);
+assert.strictEqual(vrHtml.includes("data-voice-raw-add"), false);
+assert.strictEqual(vrHtml.includes('data-source-pick="voice_raw"'), true);
+assert.strictEqual(vrHtml.includes('role="button"'), true);
+assert.strictEqual(vrHtml.includes('tabindex="0"'), true);
+assert.strictEqual(vrHtml.includes("source-file-row voice-raw selected"), true);
+assert.strictEqual(vrHtml.includes("적용 대기"), false);
+assert.strictEqual(vrHtml.includes("적용 됨"), false);
+assert.strictEqual(vrHtml.includes('data-source-delete="voice_raw"'), true);
+
+const vrCard = helpers.sourceCategoryCard({{
+  id: "voice_raw",
+  label: "Voice Raw",
+  directory: "data/sources/voice/raw",
+  selected_path: "data/sources/voice/raw/VR0610_213112.wav",
+  active_exists: true,
+  files: [
+    {{
+      name: "VR0610_213112.wav",
+      path: "data/sources/voice/raw/VR0610_213112.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: true,
+      applied: false,
+    }},
+  ],
+}});
+assert.strictEqual(vrCard.innerHTML.includes("source-category-actions"), true);
+assert.strictEqual(vrCard.innerHTML.includes("data-source-confirm-selection"), false);
+assert.strictEqual(vrCard.innerHTML.includes("보관용"), false);
+assert.strictEqual(vrCard.innerHTML.includes("적용 대기"), false);
+assert.strictEqual(vrCard.innerHTML.includes(">Preview</button>"), true);
+assert.strictEqual(vrCard.innerHTML.includes(">Add to Stack</button>"), true);
 assert.strictEqual(
-  vrHtml.includes('data-voice-raw-preview="data/sources/voice/raw/VR0610_213112.wav"'),
+  vrCard.innerHTML.includes(
+    'data-voice-raw-preview-selected="data/sources/voice/raw/VR0610_213112.wav"',
+  ),
   true,
 );
 assert.strictEqual(
-  vrHtml.includes('data-voice-raw-add="data/sources/voice/raw/VR0610_213112.wav"'),
+  vrCard.innerHTML.includes(
+    'data-voice-raw-add-selected="data/sources/voice/raw/VR0610_213112.wav"',
+  ),
   true,
 );
-assert.strictEqual(vrHtml.includes("현재 목소리 처리로 VR을 미리 듣습니다."), true);
-assert.strictEqual(vrHtml.includes("선택된 Voice Stack에 VR을 추가합니다."), true);
 
 helpers.state.sourceMutationInFlight = true;
-const busyVrHtml = helpers.sourceFileRows({{
+const busyVrCard = helpers.sourceCategoryCard({{
   id: "voice_raw",
+  label: "Voice Raw",
+  directory: "data/sources/voice/raw",
+  selected_path: "data/sources/voice/raw/VR0610_213112.wav",
+  active_exists: true,
   files: [
     {{
       name: "VR0610_213112.wav",
@@ -6509,10 +6718,35 @@ const busyVrHtml = helpers.sourceFileRows({{
     }},
   ],
 }});
-assert.strictEqual(busyVrHtml.includes("Preview VR</button>"), true);
-assert.strictEqual(busyVrHtml.includes("Add to Stack</button>"), true);
-assert.strictEqual(busyVrHtml.includes("disabled"), true);
-assert.strictEqual(busyVrHtml.includes("소스 파일 작업이 끝날 때까지 기다리세요."), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("Preview</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("Add to Stack</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("disabled"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("소스 파일 작업이 끝날 때까지 기다리세요."), true);
+
+helpers.state.sourceMutationInFlight = false;
+delete helpers.state.sourceCardSelections.voice_raw;
+const emptySelectionCard = helpers.sourceCategoryCard({{
+  id: "voice_raw",
+  label: "Voice Raw",
+  directory: "data/sources/voice/raw",
+  selected_path: null,
+  active_exists: false,
+  files: [
+    {{
+      name: "VR0610_213112.wav",
+      path: "data/sources/voice/raw/VR0610_213112.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: false,
+      applied: false,
+    }},
+  ],
+}});
+assert.strictEqual(
+  emptySelectionCard.innerHTML.includes("먼저 Voice Raw 파일을 선택하세요."),
+  true,
+);
+assert.strictEqual(emptySelectionCard.innerHTML.includes("disabled"), true);
 
 const lowHtml = helpers.sourceFileRows({{
   id: "low",
@@ -6530,6 +6764,85 @@ const lowHtml = helpers.sourceFileRows({{
 assert.strictEqual(lowHtml.includes("Preview VR"), false);
 assert.strictEqual(lowHtml.includes("Add to Stack"), false);
 assert.strictEqual(lowHtml.includes("data-voice-raw-preview"), false);
+""",
+    )
+
+
+def test_static_ui_source_file_rows_use_compact_dates_and_header_selection_actions(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, sourceCategoryCard, sourceFileRows, formatShortTimestamp }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+helpers.state.sourceMutationInFlight = false;
+helpers.state.recordingStartInFlight = false;
+helpers.state.recordingStopInFlight = false;
+helpers.state.playbackControlInFlight = false;
+helpers.state.applyInFlight = false;
+helpers.state.resetDraftInFlight = false;
+helpers.state.resetParticipantsInFlight = false;
+helpers.state.deviceChangeInFlight = false;
+helpers.state.sourceCardSelections = {
+  voice_stack: "data/sources/voice/stack/VS0610_213200.wav",
+};
+
+const category = {
+  id: "voice_stack",
+  label: "Voice Stack",
+  directory: "data/sources/voice/stack",
+  selected_path: "data/sources/voice/stack/VS0610_213112.wav",
+  active_exists: true,
+  files: [
+    {
+      name: "VS0610_213112.wav",
+      path: "data/sources/voice/stack/VS0610_213112.wav",
+      size_bytes: 4096,
+      modified_at: "2026-06-10T12:31:12Z",
+      active: true,
+      applied: false,
+    },
+    {
+      name: "VS0610_213200.wav",
+      path: "data/sources/voice/stack/VS0610_213200.wav",
+      size_bytes: 8192,
+      modified_at: "2026-06-10T12:32:00Z",
+      active: false,
+      applied: false,
+    },
+  ],
+};
+
+assert.strictEqual(helpers.formatShortTimestamp("2026-06-10T12:31:12Z"), "6/10 21:31");
+
+const rowsHtml = helpers.sourceFileRows(category);
+assert.strictEqual(rowsHtml.includes("6월"), false);
+assert.strictEqual(rowsHtml.includes("오전"), false);
+assert.strictEqual(rowsHtml.includes("오후"), false);
+assert.strictEqual(rowsHtml.includes('<time class="source-file-date"'), true);
+assert.strictEqual(rowsHtml.includes("6/10 21:31"), true);
+assert.strictEqual(rowsHtml.includes("source-selection-actions"), false);
+assert.strictEqual(rowsHtml.includes("source-file-size"), false);
+assert.strictEqual(rowsHtml.includes("4.0 KB"), false);
+assert.strictEqual(rowsHtml.includes("8.0 KB"), false);
+assert.strictEqual(rowsHtml.includes("source-file-title"), true);
+assert.strictEqual(rowsHtml.indexOf("VS0610_213112.wav") < rowsHtml.indexOf("파일명 수정"), true);
+assert.strictEqual(rowsHtml.indexOf("파일명 수정") < rowsHtml.indexOf("6/10 21:31"), true);
+assert.strictEqual(rowsHtml.indexOf("6/10 21:31") < rowsHtml.indexOf(">삭제</button>"), true);
+assert.strictEqual((rowsHtml.match(/source-file-row selected/g) || []).length, 1);
+assert.strictEqual(rowsHtml.includes("source-file-row pending selected"), false);
+assert.strictEqual(rowsHtml.includes("적용 대기"), true);
+
+const card = helpers.sourceCategoryCard(category);
+const cardHtml = card.innerHTML;
+const actionIndex = cardHtml.indexOf('data-source-confirm-selection="voice_stack"');
+const listIndex = cardHtml.indexOf("source-file-list");
+assert.notStrictEqual(actionIndex, -1);
+assert.notStrictEqual(listIndex, -1);
+assert.strictEqual(actionIndex < listIndex, true);
+assert.strictEqual(cardHtml.includes('data-source-cancel="voice_stack"'), true);
+assert.strictEqual(cardHtml.includes(">선택</button>"), true);
 """,
     )
 
@@ -6624,8 +6937,8 @@ assert.deepStrictEqual(
     files: [{{ active: true, applied: true }}],
   }}),
   {{
-    text: "선택됨",
-    className: "status-pill safe",
+    text: "",
+    className: "",
   }},
 );
 
@@ -6637,8 +6950,8 @@ assert.deepStrictEqual(
     files: [],
   }}),
   {{
-    text: "보관용",
-    className: "status-pill muted",
+    text: "",
+    className: "",
   }},
 );
 """,
@@ -7364,7 +7677,7 @@ assert.strictEqual(elements.captureGateSwitch.disabled, true);
 assert.strictEqual(elements.stopButton.disabled, false);
 assert.strictEqual(elements.recordCoreStatus.textContent, "녹음 중");
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 중");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지합니다.");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지됩니다.");
 assert.strictEqual(recordCore.classList.contains("recording"), true);
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
@@ -7419,51 +7732,38 @@ globalThis.__secretPondTest.syncAppliedSourceSignature();
 globalThis.__secretPondTest.renderSourceLibrary();
 const latestSourceLibraryHtml = () =>
   elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
-const sourceUploadButtonHtml = () => {{
+const sourceUploadAreaHtml = () => {{
   const html = latestSourceLibraryHtml();
-  const start = html.indexOf('data-source-upload="low"');
-  const end = html.indexOf('data-source-upload-select="low"');
-  return html.slice(start, end);
+  const start = html.indexOf('class="source-upload-row"');
+  return html.slice(start);
 }};
-assert.strictEqual(
-  latestSourceLibraryHtml().includes(
-    'data-source-upload-select="low" checked',
-  ),
-  true,
-);
+assert.strictEqual(latestSourceLibraryHtml().includes("업로드 후 바로 선택"), false);
 assert.strictEqual(latestSourceLibraryHtml().includes("적용 대기"), true);
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
-  true,
+  sourceUploadAreaHtml().includes("disabled"),
+  false,
 );
 assert.strictEqual(
-  sourceUploadButtonHtml().includes('title="추가할 WAV 파일을 먼저 선택하세요."'),
+  latestSourceLibraryHtml().includes("WAV 파일을 이 폴더로 복사합니다."),
   true,
 );
 globalThis.__secretPondTest.state.sourceUploads.low = {{
-  selectAfterUpload: false,
   file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
 }};
 globalThis.__secretPondTest.renderSourceLibrary();
-assert.strictEqual(
-  latestSourceLibraryHtml().includes(
-    'data-source-upload-select="low" checked',
-  ),
-  false,
-);
 assert.strictEqual(
   latestSourceLibraryHtml().includes("picked-low.wav · 4.0 KB 선택됨"),
   true,
 );
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
+  sourceUploadAreaHtml().includes("disabled"),
   false,
 );
 globalThis.__secretPondTest.state.sourceMutationInFlight = true;
 globalThis.__secretPondTest.renderSourceLibrary();
 globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
+  sourceUploadAreaHtml().includes("disabled"),
   true,
 );
 assert.strictEqual(
@@ -7480,13 +7780,13 @@ assert.strictEqual(elements.inputDeviceSelect.disabled, false);
 assert.strictEqual(elements.outputDeviceSelect.disabled, false);
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
+  sourceUploadAreaHtml().includes("disabled"),
   false,
 );
 globalThis.__secretPondTest.state.applyInFlight = true;
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
+  sourceUploadAreaHtml().includes("disabled"),
   true,
 );
 assert.strictEqual(
@@ -7496,7 +7796,7 @@ assert.strictEqual(
 globalThis.__secretPondTest.state.applyInFlight = false;
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(
-  sourceUploadButtonHtml().includes("disabled"),
+  sourceUploadAreaHtml().includes("disabled"),
   false,
 );
 elements.sourceLibraryList.children = [];
@@ -7931,10 +8231,10 @@ globalThis.__secretPondTest.state.snapshot.playback.output_running = false;
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordCoreStatus.textContent, "준비 완료");
-assert.strictEqual(elements.recordOutcomeStatus.textContent, "스페이스바를 눌러 녹음");
+assert.strictEqual(elements.recordOutcomeStatus.textContent, "준비 완료");
 assert.strictEqual(
   elements.recordOutcomeDetail.textContent,
-  "스페이스바를 떼면 녹음을 중지합니다.",
+  "누르고 있는 동안 녹음되고, 떼면 중지됩니다.",
 );
 assert.strictEqual(recordOutcome.className, "record-outcome armed-ready");
 assert.strictEqual(recordCore.classList.contains("recording"), false);
@@ -7942,7 +8242,7 @@ assert.strictEqual(recordCore.classList.contains("armed"), true);
 assert.strictEqual(elements.captureGateSwitch.disabled, false);
 assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "true");
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), true);
-assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 켜짐");
+assert.strictEqual(elements.captureGateState.textContent, "켜짐");
 assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-on");
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "적용할 변경사항이 없습니다.");
@@ -8053,14 +8353,14 @@ assert.strictEqual(elements.recordCoreStatus.textContent, "준비 전");
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 준비 필요");
 assert.strictEqual(
   elements.recordOutcomeDetail.textContent,
-  "녹음 준비를 켠 뒤 스페이스바를 누르세요.",
+  "켜면 스페이스바로 녹음할 수 있습니다.",
 );
 assert.strictEqual(recordCore.classList.contains("armed"), false);
 assert.strictEqual(recordCore.classList.contains("recording"), false);
 assert.strictEqual(elements.captureGateSwitch.getAttribute("aria-checked"), "false");
 assert.strictEqual(elements.captureGateSwitch.classList.contains("checked"), false);
 assert.strictEqual(elements.captureGateSwitch.disabled, false);
-assert.strictEqual(elements.captureGateState.textContent, "녹음 준비 꺼짐");
+assert.strictEqual(elements.captureGateState.textContent, "꺼짐");
 assert.strictEqual(elements.captureGate.className, "capture-gate capture-gate-off");
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.applyButton.title, "적용할 변경사항이 없습니다.");
@@ -8077,7 +8377,7 @@ assert.strictEqual(recordOutcome.className, "record-outcome added");
 globalThis.__secretPondTest.state.snapshot.is_recording = true;
 globalThis.__secretPondTest.renderState();
 assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 중");
-assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지합니다.");
+assert.strictEqual(elements.recordOutcomeDetail.textContent, "스페이스바를 떼면 중지됩니다.");
 assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
@@ -8736,7 +9036,6 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   ];
   globalThis.__secretPondTest.state.sources = {{ categories: resetSourceCategories }};
   globalThis.__secretPondTest.state.sourceUploads.low = {{
-    selectAfterUpload: false,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }};
   globalThis.__secretPondTest.state.renderSignatures.sourceLibrary = null;
@@ -8777,7 +9076,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     elements.resetParticipantsButton.title,
     "설정 변경 취소가 끝날 때까지 기다리세요.",
   );
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), true);
   assert.strictEqual(
     latestSourceLibraryHtml().includes(
       "설정 변경 취소가 끝날 때까지 소스 파일을 바꿀 수 없습니다.",
@@ -8842,7 +9141,6 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   const uploadRequests = [];
   globalThis.__secretPondTest.state.sourceUploads.low = {{
-    selectAfterUpload: false,
     file: {{ name: "stored-low.wav", size: 4096, lastModified: 2 }},
   }};
   globalThis.fetch = (path, options = {{}}) => {{
@@ -9325,11 +9623,10 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.recordingStopInFlight = false;
   globalThis.__secretPondTest.state.sources = pollSourcePayload;
   globalThis.__secretPondTest.state.sourceUploads.low = {{
-    selectAfterUpload: true,
     file: {{ name: "picked-low.wav", size: 4096, lastModified: 1 }},
   }};
   globalThis.__secretPondTest.renderSourceLibrary();
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
   const pollPromise = globalThis.__secretPondTest.control("/api/recording/poll-auto-stop", {{
     syncDraft: false,
   }});
@@ -9339,7 +9636,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(elements.outputDeviceSelect.disabled, true);
   assert.strictEqual(elements.inputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
   assert.strictEqual(elements.outputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), true);
   assert.strictEqual(
     latestSourceLibraryHtml().includes("녹음 처리가 끝날 때까지 기다리세요."),
     true,
@@ -9348,7 +9645,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await pollPromise;
   assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, false);
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
-  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+  assert.strictEqual(sourceUploadAreaHtml().includes("disabled"), false);
 }})().catch((error) => {{
   console.error(error);
   process.exit(1);
@@ -9745,6 +10042,60 @@ def test_api_sources_delete_maps_file_error_to_unprocessable(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "delete failed"
+
+
+def test_api_sources_rename_preserves_active_and_draft_selection(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/original-low.wav"
+    renamed_relative = "data/sources/low/renamed-low.wav"
+    original_path = tmp_path / original_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-low"},
+    )
+
+    assert response.status_code == 200
+    assert original_path.exists() is False
+    assert (tmp_path / renamed_relative).exists() is True
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == renamed_relative
+    assert stored.draft.sources.low_path == renamed_relative
+    low_files = response.json()["sources"]["categories"][0]["files"]
+    renamed = next(file for file in low_files if file["path"] == renamed_relative)
+    assert renamed["active"] is True
+    assert renamed["applied"] is True
+
+
+def test_api_sources_rename_rejects_extension_edits(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/original-low.wav"
+    original_path = tmp_path / original_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-low.wav"},
+    )
+
+    assert response.status_code == 422
+    assert "filename stem must not include an extension" in response.json()["detail"]
+    assert original_path.exists() is True
 
 
 def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -> None:

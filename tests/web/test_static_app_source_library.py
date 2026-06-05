@@ -277,15 +277,20 @@ state.snapshot = {
 
 renderRecordingControls();
 const inputSafetyDetails = recordingControls.children[1];
+const spaceTailDetails = recordingControls.children[2];
 assert.strictEqual(inputSafetyDetails.tagName, "DETAILS");
-assert.strictEqual(inputSafetyDetails.open, false);
+assert.strictEqual(spaceTailDetails.tagName, "DETAILS");
+assert.strictEqual(inputSafetyDetails.open, true);
+assert.strictEqual(spaceTailDetails.open, true);
 
-inputSafetyDetails.open = true;
+inputSafetyDetails.open = false;
 inputSafetyDetails.dispatchEvent({ type: "toggle" });
 renderRecordingControls();
 
 assert.strictEqual(recordingControls.children[1].tagName, "DETAILS");
-assert.strictEqual(recordingControls.children[1].open, true);
+assert.strictEqual(recordingControls.children[2].tagName, "DETAILS");
+assert.strictEqual(recordingControls.children[1].open, false);
+assert.strictEqual(recordingControls.children[2].open, true);
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )

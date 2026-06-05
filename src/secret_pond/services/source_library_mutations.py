@@ -5,8 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from secret_pond.audio.source_library import (
+    SourceCategory,
     delete_source_file,
+    rename_source_file,
     select_existing_source,
+    select_source,
+    source_file_is_selected,
     upload_source_file,
 )
 from secret_pond.services.runtime import SecretPondRuntime
@@ -60,6 +64,44 @@ def delete_source_file_from_library(
         draft_settings=settings_state.draft,
     )
     return settings_state
+
+
+def rename_source_file_in_library(
+    runtime: SecretPondRuntime,
+    category: SourceCategory,
+    relative_path: str,
+    stem: str,
+    *,
+    settings_state: SettingsState,
+) -> SettingsState:
+    active_selected = source_file_is_selected(
+        runtime.paths,
+        settings_state.active,
+        category,
+        relative_path,
+    )
+    draft_selected = source_file_is_selected(
+        runtime.paths,
+        settings_state.draft,
+        category,
+        relative_path,
+    )
+    next_relative_path = rename_source_file(runtime.paths, category, relative_path, stem)
+    next_active = (
+        select_source(settings_state.active, category, next_relative_path)
+        if active_selected
+        else settings_state.active
+    )
+    next_draft = (
+        select_source(settings_state.draft, category, next_relative_path)
+        if draft_selected
+        else settings_state.draft
+    )
+    next_state = runtime.settings_store.save(
+        SettingsState(active=next_active, draft=next_draft),
+    )
+    runtime.apply_settings_state(next_state)
+    return next_state
 
 
 def upload_source_file_and_maybe_select(
