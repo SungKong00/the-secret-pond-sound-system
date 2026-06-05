@@ -4762,6 +4762,31 @@ def test_api_state_maps_unreadable_durable_state_to_503(
     assert response.json()["detail"] == f"state is unavailable: {reason}"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/settings",
+        "/api/sources",
+        "/api/diagnostics",
+        "/api/devices",
+    ],
+)
+def test_api_settings_backed_reads_map_unreadable_settings_to_503(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+    corrupt_settings_json(paths)
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "settings are unavailable: settings file contains invalid JSON"
+    )
+
+
 def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 

@@ -30,7 +30,9 @@ from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.web.state import (
+    SettingsPayloadUnavailable,
     StatePayloadUnavailable,
+    load_settings_state,
     outcome_payload,
     settings_payload,
     state_payload,
@@ -98,8 +100,9 @@ def poll_auto_stop(request: Request) -> dict[str, Any]:
 @router.get("/devices")
 def get_devices(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
+    settings = _settings_state(runtime).active
     try:
-        return _devices_payload(runtime, runtime.settings_store.load().active)
+        return _devices_payload(runtime, settings)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -111,7 +114,7 @@ def get_devices(request: Request) -> dict[str, Any]:
 def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        current = runtime.settings_store.load()
+        current = _settings_state(runtime)
         try:
             devices = _device_settings_from_payload(current.active.devices, payload)
             _validate_device_selection(runtime, current.active.devices, devices)
@@ -123,9 +126,9 @@ def update_devices(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         except (RuntimeError, OSError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {
-            "settings": settings_payload(runtime),
+            "settings": _settings_payload(runtime),
             "state": _state_payload(runtime),
-            "devices": _devices_payload(runtime, runtime.settings_store.load().active),
+            "devices": _devices_payload(runtime, _settings_state(runtime).active),
         }
 
 
@@ -140,7 +143,7 @@ def get_diagnostics(request: Request) -> dict[str, Any]:
 def get_sources(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        settings = runtime.settings_store.load().draft
+        settings = _settings_state(runtime).draft
         return source_library_payload(runtime.paths, settings)
 
 
@@ -170,7 +173,7 @@ def select_source_file(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         runtime.settings_state = state
         return {
-            "settings": settings_payload(runtime),
+            "settings": _settings_payload(runtime),
             "sources": source_library_payload(runtime.paths, state.draft),
         }
 
@@ -207,10 +210,10 @@ def upload_source(
             )
             runtime.settings_state = settings_state
         else:
-            settings_state = runtime.settings_store.load()
+            settings_state = _settings_state(runtime)
         return {
             "file": file_payload,
-            "settings": settings_payload(runtime),
+            "settings": _settings_payload(runtime),
             "sources": source_library_payload(runtime.paths, settings_state.draft),
         }
 
@@ -227,7 +230,7 @@ def delete_source(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     with runtime.operation_lock:
-        settings_state = runtime.settings_store.load()
+        settings_state = _settings_state(runtime)
         try:
             if source_file_is_selected(runtime.paths, settings_state.active, config.id, path):
                 raise PermissionError("cannot delete the active source file")
@@ -304,7 +307,7 @@ def restart_playback(request: Request) -> dict[str, Any]:
 def get_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        return {"settings": settings_payload(runtime)}
+        return {"settings": _settings_payload(runtime)}
 
 
 @router.put("/settings/draft")
@@ -315,11 +318,11 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
     with runtime.operation_lock:
-        current = runtime.settings_store.load()
+        current = _settings_state(runtime)
         _validate_draft_devices(current.active, draft)
         state = runtime.settings_store.save(SettingsState(active=current.active, draft=draft))
         runtime.settings_state = state
-        return {"settings": settings_payload(runtime)}
+        return {"settings": _settings_payload(runtime)}
 
 
 @router.post("/settings/reset-draft")
@@ -334,7 +337,7 @@ def reset_draft_settings(request: Request) -> dict[str, Any]:
             )
         state = runtime.settings_store.reset_draft()
         runtime.settings_state = state
-        return {"settings": settings_payload(runtime)}
+        return {"settings": _settings_payload(runtime)}
 
 
 @router.post("/participants/reset")
@@ -366,7 +369,7 @@ def apply_and_restart(request: Request) -> dict[str, Any]:
         except SettingsApplyError as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         return {
-            "settings": settings_payload(runtime),
+            "settings": _settings_payload(runtime),
             "state": _state_payload(runtime),
         }
 
@@ -382,6 +385,20 @@ def _state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     try:
         return state_payload(runtime)
     except StatePayloadUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _settings_state(runtime: SecretPondRuntime) -> SettingsState:
+    try:
+        return load_settings_state(runtime)
+    except SettingsPayloadUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
+    try:
+        return settings_payload(runtime)
+    except SettingsPayloadUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -546,7 +563,7 @@ def _device_warnings(
 
 def _diagnostics_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     paths = runtime.paths
-    settings = runtime.settings_store.load().active
+    settings = _settings_state(runtime).active
     low_source = selected_source_path(paths, settings, "low") or paths.low_source
     mid_source = selected_source_path(paths, settings, "mid") or paths.mid_source
     voice_source = selected_source_path(paths, settings, "voice_stack") or paths.voice_stack_raw

@@ -9,6 +9,7 @@ from secret_pond.services.settings_changes import (
     classify_settings_change,
     runtime_config_field_names,
 )
+from secret_pond.services.settings_store import SettingsState
 
 
 class StatePayloadUnavailable(RuntimeError):
@@ -17,6 +18,12 @@ class StatePayloadUnavailable(RuntimeError):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(f"state is unavailable: {reason}")
+
+
+class SettingsPayloadUnavailable(RuntimeError):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"settings are unavailable: {reason}")
 
 
 def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
@@ -48,7 +55,7 @@ def state_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
 
 
 def settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
-    settings_state = runtime.settings_store.load()
+    settings_state = load_settings_state(runtime)
     runtime.settings_state = settings_state
     return {
         "active": settings_state.active.model_dump(mode="json"),
@@ -57,6 +64,13 @@ def settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
             classify_settings_change(settings_state.active, settings_state.draft),
         ),
     }
+
+
+def load_settings_state(runtime: SecretPondRuntime) -> SettingsState:
+    try:
+        return runtime.settings_store.load()
+    except (OSError, ValueError) as exc:
+        raise SettingsPayloadUnavailable(str(exc)) from exc
 
 
 def state_unavailable_payload(error: StatePayloadUnavailable) -> dict[str, Any]:
@@ -78,6 +92,8 @@ def _participant_count(runtime: SecretPondRuntime) -> int:
 def _settings_payload(runtime: SecretPondRuntime) -> dict[str, Any]:
     try:
         return settings_payload(runtime)
+    except SettingsPayloadUnavailable as exc:
+        raise StatePayloadUnavailable(exc.reason) from exc
     except (OSError, ValueError) as exc:
         raise StatePayloadUnavailable(str(exc)) from exc
 
