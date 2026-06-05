@@ -1528,7 +1528,10 @@ const deriveOperationLocks = ({
     [!devicesLoaded, operationLockMessages.deviceLoading],
     [applyInFlight, operationLockMessages.deviceApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
+    [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
+    [recordingStopInFlight, operationLockMessages.recordingStop],
+    [playbackControlInFlight, operationLockMessages.playbackControl],
     [forceDeviceDisabled, operationLockMessages.deviceRecording],
   ]);
   const draftLock = deriveDraftControlLockState({
@@ -1546,6 +1549,9 @@ const deriveOperationLocks = ({
     sourceActionTitle,
     deviceLocked: Boolean(
       forceDeviceDisabled || deviceChangeInFlight || applyInFlight || resetDraftInFlight ||
+        sourceMutationInFlight ||
+        recordingStopInFlight ||
+        playbackControlInFlight ||
         !devicesLoaded,
     ),
     deviceTitle,
@@ -2507,6 +2513,7 @@ const beginSourceMutation = () => {
   const requestId = nextSourceMutationRequestId();
   state.sourceMutationInFlight = true;
   renderState();
+  renderDevices();
   renderSourceLibrary();
   return requestId;
 };
@@ -2515,6 +2522,7 @@ const finishSourceMutation = (requestId) => {
   if (!isCurrentSourceMutation(requestId)) return;
   state.sourceMutationInFlight = false;
   renderState();
+  renderDevices();
   renderSourceLibrary();
 };
 
@@ -2660,11 +2668,17 @@ const deriveSystemDeviceSelectState = ({
   deviceChangeInFlight = false,
   applyInFlight = false,
   resetDraftInFlight = false,
+  sourceMutationInFlight = false,
+  recordingStopInFlight = false,
+  playbackControlInFlight = false,
 } = {}) => {
   const locks = deriveOperationLocks({
     applyInFlight,
     resetDraftInFlight,
+    sourceMutationInFlight,
     deviceChangeInFlight,
+    recordingStopInFlight,
+    playbackControlInFlight,
     devicesLoaded,
     forceDeviceDisabled: forceDisabled,
   });
@@ -2681,6 +2695,9 @@ const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({
   deviceChangeInFlight: state.deviceChangeInFlight,
   applyInFlight: state.applyInFlight,
   resetDraftInFlight: state.resetDraftInFlight,
+  sourceMutationInFlight: state.sourceMutationInFlight,
+  recordingStopInFlight: state.recordingStopInFlight,
+  playbackControlInFlight: state.playbackControlInFlight,
 });
 
 const deriveStorageModeControlState = ({
@@ -2740,6 +2757,9 @@ const renderSystemDeviceSelect = (selectId, devices, selectedId, forceDisabled =
     deviceChangeInFlight: state.deviceChangeInFlight,
     applyInFlight: state.applyInFlight,
     resetDraftInFlight: state.resetDraftInFlight,
+    sourceMutationInFlight: state.sourceMutationInFlight,
+    recordingStopInFlight: state.recordingStopInFlight,
+    playbackControlInFlight: state.playbackControlInFlight,
   });
   if (deferInteractiveRender(`device-${selectId}`, select, renderDevices)) {
     select.title = selectState.title;
@@ -3807,10 +3827,12 @@ const control = async (path, options = {}) => {
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
     renderState();
+    renderDevices();
   }
   if (playbackControlRequest) {
     state.playbackControlInFlight = true;
     renderState();
+    renderDevices();
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
     setRecordStatus("processing", "녹음 처리 중...");
@@ -3856,10 +3878,12 @@ const control = async (path, options = {}) => {
     if (startsStopRequest) {
       state.recordingStopInFlight = false;
       renderState();
+      renderDevices();
     }
     if (playbackControlRequest) {
       state.playbackControlInFlight = false;
       renderState();
+      renderDevices();
     }
     if (startsStartRequest) {
       state.recordingStartInFlight = false;

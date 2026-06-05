@@ -2265,8 +2265,8 @@ assert.deepStrictEqual(
     sourceUiLocked: true,
     sourceCommandBlocked: true,
     sourceActionTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
-    deviceLocked: false,
-    deviceTitle: "",
+    deviceLocked: true,
+    deviceTitle: "소스 파일 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2277,8 +2277,8 @@ assert.deepStrictEqual(
     sourceUiLocked: false,
     sourceCommandBlocked: false,
     sourceActionTitle: "",
-    deviceLocked: false,
-    deviceTitle: "",
+    deviceLocked: true,
+    deviceTitle: "녹음 처리가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2289,8 +2289,8 @@ assert.deepStrictEqual(
     sourceUiLocked: false,
     sourceCommandBlocked: false,
     sourceActionTitle: "",
-    deviceLocked: false,
-    deviceTitle: "",
+    deviceLocked: true,
+    deviceTitle: "출력 제어가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -2399,6 +2399,30 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "장치 변경을 적용하는 중입니다.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, sourceMutationInFlight: true }}),
+  {{
+    disabled: true,
+    title: "소스 파일 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, recordingStopInFlight: true }}),
+  {{
+    disabled: true,
+    title: "녹음 처리가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, playbackControlInFlight: true }}),
+  {{
+    disabled: true,
+    title: "출력 제어가 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -3011,7 +3035,7 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
 ) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ state, applyAndRestart, control, renderState }",
+        exports="{ state, applyAndRestart, control, renderState, renderDevices }",
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {{
@@ -3096,8 +3120,18 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   }};
   globalThis.__secretPondTest.state.snapshot = snapshot;
   globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.devices = {{
+    input_devices: [{{ id: "mic-1", name: "Mic 1" }}],
+    output_devices: [{{ id: "speaker-1", name: "Speaker 1" }}],
+    selected_input_device: {{ id: "mic-1", name: "Mic 1" }},
+    selected_output_device: {{ id: "speaker-1", name: "Speaker 1" }},
+    warnings: [],
+  }};
   globalThis.__secretPondTest.renderState();
+  globalThis.__secretPondTest.renderDevices();
   assert.strictEqual(elements.startOutputButton.disabled, false);
+  assert.strictEqual(elements.inputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   assert.strictEqual(elements.applyButton.disabled, true);
 
   globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds = 61;
@@ -3145,6 +3179,10 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   assert.strictEqual(elements.restartOutputButton.disabled, true);
   assert.strictEqual(elements.applyButton.disabled, true);
   assert.strictEqual(elements.applyButton.title, "출력 제어가 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.inputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.outputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
 
   await globalThis.__secretPondTest.applyAndRestart();
   assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);
@@ -3155,6 +3193,8 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   resolvePlaybackStart();
   await playbackStart;
   assert.strictEqual(globalThis.__secretPondTest.state.playbackControlInFlight, false);
+  assert.strictEqual(elements.inputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   assert.deepStrictEqual(playbackFetches, [
     "/api/playback/start",
     "/api/diagnostics",
@@ -5432,6 +5472,7 @@ assert.strictEqual(
 );
 globalThis.__secretPondTest.state.sourceMutationInFlight = true;
 globalThis.__secretPondTest.renderSourceLibrary();
+globalThis.__secretPondTest.renderDevices();
 assert.strictEqual(
   sourceUploadButtonHtml().includes("disabled"),
   true,
@@ -5440,7 +5481,14 @@ assert.strictEqual(
   latestSourceLibraryHtml().includes("소스 파일 작업이 끝날 때까지 기다리세요."),
   true,
 );
+assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+assert.strictEqual(elements.inputDeviceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(elements.outputDeviceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
 globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.inputDeviceSelect.disabled, false);
+assert.strictEqual(elements.outputDeviceSelect.disabled, false);
 globalThis.__secretPondTest.renderSourceLibrary();
 assert.strictEqual(
   sourceUploadButtonHtml().includes("disabled"),
@@ -5951,6 +5999,11 @@ globalThis.__secretPondTest.state.sourceMutationInFlight = false;
 
 globalThis.__secretPondTest.state.playbackControlInFlight = true;
 assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
+globalThis.__secretPondTest.renderDevices();
+assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+assert.strictEqual(elements.inputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
+assert.strictEqual(elements.outputDeviceSelect.title, "출력 제어가 끝날 때까지 기다리세요.");
 const voiceStackControlCountBeforePlaybackLockRender =
   elements.voiceStackControls.children.length;
 globalThis.__secretPondTest.renderVoiceStackControls();
@@ -6030,6 +6083,42 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
   assert.strictEqual(applyDeviceChangePath, null);
   globalThis.__secretPondTest.state.applyInFlight = false;
+  globalThis.__secretPondTest.renderDevices();
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.title, "");
+
+  let sourceDeviceChangePath = null;
+  globalThis.__secretPondTest.state.sourceMutationInFlight = true;
+  globalThis.fetch = (path) => {{
+    sourceDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(sourceDeviceChangePath, null);
+  assert.strictEqual(globalThis.__secretPondTest.state.deviceChangeInFlight, false);
+  globalThis.__secretPondTest.state.sourceMutationInFlight = false;
+
+  let recordingStopDeviceChangePath = null;
+  globalThis.__secretPondTest.state.recordingStopInFlight = true;
+  globalThis.fetch = (path) => {{
+    recordingStopDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(recordingStopDeviceChangePath, null);
+  assert.strictEqual(globalThis.__secretPondTest.state.deviceChangeInFlight, false);
+  globalThis.__secretPondTest.state.recordingStopInFlight = false;
+
+  let playbackDeviceChangePath = null;
+  globalThis.__secretPondTest.state.playbackControlInFlight = true;
+  globalThis.fetch = (path) => {{
+    playbackDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("output_device_id", "speaker-2");
+  assert.strictEqual(playbackDeviceChangePath, null);
+  assert.strictEqual(globalThis.__secretPondTest.state.deviceChangeInFlight, false);
+  globalThis.__secretPondTest.state.playbackControlInFlight = false;
   globalThis.__secretPondTest.renderDevices();
   assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   assert.strictEqual(elements.outputDeviceSelect.title, "");
@@ -6650,10 +6739,17 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
       sourceSelectResponses.push({{ path, options, resolve }});
     }});
   }};
+  globalThis.__secretPondTest.renderDevices();
+  assert.strictEqual(elements.inputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   const olderSelect = globalThis.__secretPondTest.selectSourceFile(
     "low",
     "sources/low/older.wav",
   );
+  assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.inputDeviceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.outputDeviceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
   const newerSelect = globalThis.__secretPondTest.selectSourceFile(
     "low",
     "sources/low/newer.wav",
@@ -6671,6 +6767,8 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
     json: async () => sourcePayloadFor("sources/low/older.wav"),
   }});
   await olderSelect;
+  assert.strictEqual(elements.inputDeviceSelect.disabled, false);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
   assert.strictEqual(
     globalThis.__secretPondTest.state.draft.sources.low_path,
     "sources/low/older.wav",
@@ -7056,9 +7154,14 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, true);
   assert.strictEqual(elements.stopButton.disabled, true);
+  assert.strictEqual(elements.inputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, true);
+  assert.strictEqual(elements.inputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.outputDeviceSelect.title, "녹음 처리가 끝날 때까지 기다리세요.");
   resolvePoll();
   await pollPromise;
   assert.strictEqual(globalThis.__secretPondTest.state.recordingStopInFlight, false);
+  assert.strictEqual(elements.outputDeviceSelect.disabled, false);
 }})().catch((error) => {{
   console.error(error);
   process.exit(1);
