@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings
+from secret_pond.config import (
+    AppSettings,
+    AudioFormatSettings,
+    DeviceSettings,
+    SourceSelectionSettings,
+)
 from secret_pond.services.settings_draft import (
     SettingsDraftUpdateError,
     SettingsDraftValidationError,
@@ -214,6 +219,40 @@ def test_live_update_draft_settings_keeps_sample_rate_on_apply_flow() -> None:
     assert store.saved_states[0].active.audio.sample_rate == 48_000
     assert store.saved_states[0].draft.audio.sample_rate == 44_100
     assert runtime.controller.settings.audio.sample_rate == 48_000
+    assert runtime.player.realtime_trim_updates == []
+
+
+def test_live_update_draft_settings_keeps_source_selection_on_apply_flow() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/applied-low.wav",
+                mid_path="data/sources/mid/applied-mid.wav",
+            ),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/draft-low.wav",
+                mid_path="data/sources/mid/applied-mid.wav",
+            ),
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.sources.low_path == "data/sources/low/applied-low.wav"
+    assert result.draft.sources.low_path == "data/sources/low/draft-low.wav"
+    assert store.saved_states[0].active.sources.low_path == "data/sources/low/applied-low.wav"
+    assert store.saved_states[0].draft.sources.low_path == "data/sources/low/draft-low.wav"
+    assert runtime.controller.settings.sources.low_path == "data/sources/low/applied-low.wav"
     assert runtime.player.realtime_trim_updates == []
 
 

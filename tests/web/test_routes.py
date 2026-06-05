@@ -10020,6 +10020,41 @@ def test_api_sources_select_persists_draft_selection(tmp_path: Path) -> None:
     )
 
 
+def test_api_live_sources_select_keeps_active_playback_source_until_apply(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    active_relative = "data/sources/low/applied-low.wav"
+    draft_relative = "data/sources/low/draft-low.wav"
+    for relative_path in (active_relative, draft_relative):
+        write_wav_atomic(
+            tmp_path / relative_path,
+            AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+        )
+    settings = api_settings().model_copy(
+        update={
+            "playback": PlaybackSettings(apply_mode="live"),
+            "sources": SourceSelectionSettings(low_path=active_relative),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.put(
+        "/api/sources/low/select",
+        json={"path": draft_relative},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["active"]["sources"]["low_path"] == active_relative
+    assert response.json()["settings"]["draft"]["sources"]["low_path"] == draft_relative
+    assert client.app.state.runtime.controller.settings.sources.low_path == active_relative
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == active_relative
+    assert stored.draft.sources.low_path == draft_relative
+
+
 def test_api_sources_select_patches_draft_inside_runtime_lock(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     paths.ensure_directories()
