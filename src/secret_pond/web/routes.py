@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +17,7 @@ from secret_pond.audio.source_library import (
     source_library_payload,
 )
 from secret_pond.config import AppSettings, DeviceSettings
-from secret_pond.services import playback_control
+from secret_pond.services import maintenance, playback_control
 from secret_pond.services.device_switcher import DeviceSelectionError, apply_runtime_devices
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
@@ -328,34 +326,25 @@ def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str
 @router.post("/settings/reset")
 def reset_draft_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    with _maintenance_operation(runtime):
-        if runtime.controller.is_recording:
-            raise HTTPException(
-                status_code=409,
-                detail="cannot reset draft settings while recording",
-            )
-        state = runtime.settings_store.reset_draft()
-        runtime.settings_state = state
-        return {"settings": _settings_payload(runtime)}
+    try:
+        return maintenance.reset_draft_settings(
+            runtime,
+            build_result=lambda _: {"settings": _settings_payload(runtime)},
+        )
+    except maintenance.MaintenanceOperationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/participants/reset")
 def reset_participant_count(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
-    with _maintenance_operation(runtime):
-        if runtime.controller.is_recording:
-            raise HTTPException(
-                status_code=409,
-                detail="cannot reset participant count while recording",
-            )
-        previous_count = runtime.participants.get_count()
-        participant_count = runtime.participants.reset()
-        _log_event_best_effort(
+    try:
+        return maintenance.reset_participant_count(
             runtime,
-            "participants.reset",
-            {"previous_count": previous_count, "count": participant_count},
+            build_result=lambda _: {"state": _state_payload(runtime)},
         )
-        return {"state": _state_payload(runtime)}
+    except maintenance.MaintenanceOperationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/settings/apply")
@@ -413,31 +402,6 @@ def _run_recording_control(runtime: SecretPondRuntime, fn):
         return run_recording_workflow(runtime, fn)
     except RecordingControlError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@contextmanager
-def _maintenance_operation(runtime: SecretPondRuntime) -> Iterator[None]:
-    acquired = runtime.operation_lock.acquire(blocking=False)
-    if not acquired:
-        raise HTTPException(
-            status_code=409,
-            detail="maintenance actions are unavailable while another operation is running",
-        )
-    try:
-        yield
-    finally:
-        runtime.operation_lock.release()
-
-
-def _log_event_best_effort(
-    runtime: SecretPondRuntime,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
-    try:
-        runtime.logger.log_event(event_type, payload)
-    except Exception:
-        return
 
 
 def _devices_payload(runtime: SecretPondRuntime, settings: AppSettings) -> dict[str, Any]:
