@@ -1630,13 +1630,18 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "applyState(payload.state, options)" in script.text
     assert "await requestState({ syncDraft: false }).catch(() => {})" in reset_participants_body
     assert "showError(error.message)" in script.text
+    assert "const deviceChangeForceDisabled = (key) => (" in script.text
+    assert (
+        "const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({"
+        in script.text
+    )
     assert "const changeDevice = async (key, value) => {" in script.text
     change_device_body = slice_between(
         script.text,
         "const changeDevice = async (key, value) => {",
         "};\n\nconst shouldIgnoreSpace",
     )
-    assert "if (state.deviceChangeInFlight || state.applyInFlight) return" in change_device_body
+    assert "if (currentDeviceChangeState(key).disabled) return" in change_device_body
     assert '"/api/devices"' in change_device_body
     assert "state.devices = payload.devices" in change_device_body
     assert 'allowDuringDeviceChange: true' in change_device_body
@@ -4921,6 +4926,25 @@ assert.strictEqual(recordOutcome.className, "record-outcome recording");
 globalThis.__secretPondTest.state.snapshot.is_recording = false;
 
 (async () => {{
+  const recordingInputDevices = {{
+    input_devices: [{{ id: "mic-2", name: "Mic 2" }}],
+    output_devices: [{{ id: "speaker-2", name: "Speaker 2" }}],
+    selected_input_device: {{ id: "mic-1", name: "Mic 1" }},
+    selected_output_device: {{ id: "speaker-1", name: "Speaker 1" }},
+    warnings: [],
+  }};
+  let recordingInputDeviceChangePath = null;
+  globalThis.__secretPondTest.state.devices = recordingInputDevices;
+  globalThis.__secretPondTest.state.snapshot.is_recording = true;
+  globalThis.fetch = (path) => {{
+    recordingInputDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+  await globalThis.__secretPondTest.changeDevice("input_device_id", "mic-2");
+  assert.strictEqual(recordingInputDeviceChangePath, null);
+  assert.strictEqual(globalThis.__secretPondTest.state.deviceChangeInFlight, false);
+  globalThis.__secretPondTest.state.snapshot.is_recording = false;
+
   let applyDeviceChangePath = null;
   globalThis.__secretPondTest.state.applyInFlight = true;
   globalThis.fetch = (path) => {{

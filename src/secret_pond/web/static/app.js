@@ -1962,7 +1962,7 @@ const renderSystemDevices = () => {
     "inputDeviceSelect",
     devices.input_devices || [],
     activeDevices.input_device_id ?? null,
-    Boolean(state.snapshot?.is_recording),
+    deviceChangeForceDisabled("input_device_id"),
   );
   renderSystemDeviceSelect(
     "outputDeviceSelect",
@@ -2530,6 +2530,17 @@ const deriveSystemDeviceSelectState = ({
   });
   return { disabled: locks.deviceLocked, title: locks.deviceTitle };
 };
+
+const deviceChangeForceDisabled = (key) => (
+  key === "input_device_id" && Boolean(state.snapshot?.is_recording)
+);
+
+const currentDeviceChangeState = (key) => deriveSystemDeviceSelectState({
+  forceDisabled: deviceChangeForceDisabled(key),
+  devicesLoaded: Boolean(state.devices),
+  deviceChangeInFlight: state.deviceChangeInFlight,
+  applyInFlight: state.applyInFlight,
+});
 
 const deriveStorageModeControlState = ({
   snapshot = null,
@@ -3754,7 +3765,7 @@ const toggleCaptureGate = () => {
 };
 
 const changeDevice = async (key, value) => {
-  if (state.deviceChangeInFlight || state.applyInFlight) return;
+  if (currentDeviceChangeState(key).disabled) return;
   state.deviceChangeRequestId += 1;
   state.deviceChangeInFlight = true;
   renderDevices();
