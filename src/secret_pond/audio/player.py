@@ -143,6 +143,22 @@ class LayeredLoopPlayer:
         self._voice_transition = None
         self._seek_envelope = None
 
+    def replace_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
+        _validate_loaded_layers(buffers)
+        layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
+        self._layers = layers
+        self._frame_cursor %= layers[LAYER_IDS[0]].frames
+        self._voice_transition = None
+        self._seek_envelope = None
+
+    def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        layers = self._require_loaded()
+        next_layers = dict(layers)
+        next_layers[normalized_layer_id] = buffer
+        _validate_loaded_layers(next_layers)
+        self._layers = next_layers
+
     def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)
@@ -269,6 +285,15 @@ class LayeredLoopPlayer:
             realtime_trim_db=current.realtime_trim_db,
             realtime_gain_ramp=current.realtime_gain_ramp,
             realtime_mute_ramp=ramp,
+        )
+
+    def set_enabled_immediate(self, layer_id: str, enabled: bool) -> None:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        current = self._states[normalized_layer_id]
+        self._states[normalized_layer_id] = LayerPlaybackState(
+            enabled=enabled,
+            realtime_trim_db=current.realtime_trim_db,
+            realtime_gain_ramp=current.realtime_gain_ramp,
         )
 
     def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:

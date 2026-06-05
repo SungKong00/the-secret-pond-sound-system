@@ -10519,6 +10519,22 @@ def test_api_live_voice_stack_source_select_crossfades_as_soon_as_voice_is_ready
     )
     assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] is None
 
+    crossfade_block = client.app.state.runtime.player.next_block(4)
+    progress = np.arange(4, dtype=np.float32) / transition.duration_frames
+    expected_voice = transition.to_buffer.samples[2_000:2_004] * np.sin(
+        progress * np.pi / 2.0,
+    )[:, np.newaxis]
+    np.testing.assert_allclose(crossfade_block.samples, expected_voice, atol=1e-6)
+
+    client.app.state.runtime.player.next_block(transition.duration_frames - 4)
+    loaded_voice = client.app.state.runtime.player.snapshot().layers["voice"]
+    assert client.app.state.runtime.player.active_voice_transition_target_id is None
+    np.testing.assert_allclose(
+        loaded_voice.samples,
+        transition.to_buffer.samples,
+        atol=1e-4,
+    )
+
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
@@ -11018,6 +11034,8 @@ def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
         "changed_runtime_fields": [],
         "changed_sections": ["layers"],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_fields": [],
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
     }
     state = client.get("/api/state").json()
     assert state["settings"]["change"] == {
@@ -11025,6 +11043,8 @@ def test_api_settings_payload_reports_change_plan(tmp_path: Path) -> None:
         "changed_runtime_fields": [],
         "changed_sections": ["layers"],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_fields": [],
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
     }
 
 
@@ -11065,6 +11085,8 @@ def test_api_settings_payload_reports_runtime_config_change_plan(tmp_path: Path)
         "changed_runtime_fields": ["audio.sample_rate"],
         "changed_sections": ["audio"],
         "runtime_config_fields": RUNTIME_CONFIG_FIELDS,
+        "live_preview_reprocessable_fields": [],
+        "live_preview_reprocessable_field_names": LIVE_PREVIEW_REPROCESSABLE_FIELDS,
     }
 
 
@@ -12304,6 +12326,47 @@ def test_api_voice_raw_preview_stop_restores_main_playback_buffers(
 
     assert float(np.max(np.abs(main_before_preview.samples))) < 0.05
     assert float(np.max(np.abs(preview_block.samples))) > 0.1
+    np.testing.assert_allclose(main_after_preview.samples, main_before_preview.samples, atol=1e-4)
+
+
+def test_api_voice_raw_preview_stop_resumes_main_playback_when_main_was_active(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    output.player = client.app.state.runtime.player
+    paths = ProjectPaths(tmp_path)
+    main_voice = AudioBuffer(
+        samples=(
+            np.ones(
+                (settings.audio.sample_rate * settings.audio.loop_seconds, 2),
+                dtype=np.float32,
+            )
+            * 0.03
+        ),
+        sample_rate=settings.audio.sample_rate,
+    )
+    write_wav_atomic(paths.voice_stack_raw, main_voice)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    main_before_preview = client.app.state.runtime.player.next_block(512)
+    client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+
+    response = client.post("/api/playback/stop")
+    main_after_preview = client.app.state.runtime.player.next_block(512)
+
+    assert response.status_code == 200
+    assert response.json()["state"]["playback"]["output_running"] is True
+    assert response.json()["state"]["playback"]["voice_raw_preview_path"] is None
+    assert output.is_running is True
+    assert output.start_calls == 3
     np.testing.assert_allclose(main_after_preview.samples, main_before_preview.samples, atol=1e-4)
 
 

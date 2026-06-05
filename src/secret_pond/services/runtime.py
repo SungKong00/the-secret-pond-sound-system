@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.device_readiness import (
     RecordingInputFormat,
     resolve_recording_input_format,
@@ -76,6 +77,8 @@ class SecretPondRuntime:
     transition_warning: str | None = None
     pending_voice_transition_target_id: str | None = None
     voice_raw_preview_path: str | None = None
+    voice_raw_preview_resume_main: bool = False
+    voice_raw_preview_layers: dict[LayerId, AudioBuffer] | None = None
     playback_render_settings: AppSettings | None = None
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:

@@ -38,6 +38,7 @@ def update_draft_settings(
     state = SettingsState(active=_settings_copy(active_snapshot), draft=saved_state.draft)
     if current.active.playback.apply_mode == "live":
         render_settings = _playback_render_settings(runtime, current)
+        render_settings = _apply_live_eq_buffers(runtime, render_settings, state.active)
         apply_live_player_layer_controls(
             runtime.player,
             previous=render_settings,
@@ -90,6 +91,40 @@ def _active_settings_for_draft_update(active: AppSettings, draft: AppSettings) -
             update={
                 "enabled": draft_layer.enabled,
                 "volume_db": draft_layer.volume_db,
+                "eq": draft_layer.eq,
             },
         )
     return active.model_copy(update={"layers": live_layers}, deep=True)
+
+
+def _apply_live_eq_buffers(
+    runtime: SecretPondRuntime,
+    render_settings: AppSettings,
+    active: AppSettings,
+) -> AppSettings:
+    next_render_layers = {}
+    eq_changed = False
+    for layer_id, render_layer in render_settings.layers.items():
+        active_layer = active.layers[layer_id]
+        if active_layer.eq == render_layer.eq:
+            next_render_layers[layer_id] = render_layer
+            continue
+        eq_changed = True
+        next_render_layers[layer_id] = render_layer.model_copy(update={"eq": active_layer.eq})
+
+    if not eq_changed:
+        return render_settings
+
+    next_render_settings = render_settings.model_copy(
+        update={"layers": next_render_layers},
+        deep=True,
+    )
+    for layer_id, render_layer in next_render_layers.items():
+        if render_settings.layers[layer_id].eq == render_layer.eq:
+            continue
+        runtime.player.set_layer_buffer(
+            layer_id,
+            runtime.renderer.render_layer_buffer(layer_id, next_render_settings),
+        )
+    runtime.playback_render_settings = next_render_settings
+    return next_render_settings

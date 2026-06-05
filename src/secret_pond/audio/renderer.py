@@ -87,6 +87,17 @@ class LayerRenderer:
         finally:
             staged.cleanup()
 
+    def render_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        normalized_layer_id = _validate_layer_id(layer_id)
+        rendered_audio = self._render_audio(normalized_layer_id, settings)
+        _result, guarded = _guard_rendered_buffer(
+            normalized_layer_id,
+            self._output_path(normalized_layer_id),
+            rendered_audio,
+            settings.audio.peak_ceiling,
+        )
+        return guarded
+
     def stage_all(self, settings: AppSettings) -> StagedRenderSet:
         self._paths.ensure_directories()
         rendered: dict[LayerId, tuple[RenderResult, AudioBuffer]] = {}

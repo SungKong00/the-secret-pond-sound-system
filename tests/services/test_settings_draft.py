@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 
+from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.player import LayeredLoopPlayer
+from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
     DeviceSettings,
     SourceSelectionSettings,
 )
+from secret_pond.paths import ProjectPaths
 from secret_pond.services.settings_draft import (
     SettingsDraftUpdateError,
     SettingsDraftValidationError,
@@ -65,12 +73,34 @@ class PlayerSpy:
     def __init__(self) -> None:
         self.enabled_updates: list[tuple[str, bool]] = []
         self.realtime_trim_updates: list[tuple[str, float]] = []
+        self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
+        self.restart_called = False
+        self.reload_and_restart_called = False
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
         self.enabled_updates.append((layer_id, enabled))
 
     def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
         self.realtime_trim_updates.append((layer_id, realtime_trim_db))
+
+    def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
+        self.layer_buffer_updates.append((layer_id, buffer))
+
+    def restart(self) -> None:
+        self.restart_called = True
+
+    def reload_and_restart(self, paths) -> None:
+        self.reload_and_restart_called = True
+
+
+class RendererSpy:
+    def __init__(self, buffer: AudioBuffer) -> None:
+        self.buffer = buffer
+        self.layer_buffer_renders: list[tuple[str, AppSettings]] = []
+
+    def render_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.layer_buffer_renders.append((layer_id, settings))
+        return self.buffer
 
 
 def test_update_draft_settings_saves_draft_without_changing_active() -> None:
@@ -132,6 +162,101 @@ def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_
     assert result.draft.layers["low"].volume_db == -24.0
     assert runtime.controller.settings.layers["low"].volume_db == -24.0
     assert runtime.player.realtime_trim_updates == [("low", -12.0)]
+
+
+def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_restart(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                "low": AppSettings().layers["low"].model_copy(update={"volume_db": 0.0}),
+                "mid": AppSettings().layers["mid"].model_copy(update={"volume_db": 0.0}),
+                "voice": AppSettings().layers["voice"].model_copy(update={"volume_db": 0.0}),
+            },
+        },
+        deep=True,
+    )
+    t = np.arange(8_000, dtype=np.float32) / 8_000
+    low_tone = (np.sin(2 * np.pi * 100.0 * t) * 0.05).astype(np.float32)
+    low_samples = np.column_stack([low_tone, low_tone])
+    silence = np.zeros((8_000, 2), dtype=np.float32)
+    write_wav_atomic(paths.low_source, AudioBuffer(low_samples, sample_rate=8_000))
+    write_wav_atomic(paths.mid_source, AudioBuffer(silence, sample_rate=8_000))
+    write_wav_atomic(paths.voice_stack_raw, AudioBuffer(silence, sample_rate=8_000))
+    renderer = LayerRenderer(paths)
+    renderer.render_all(settings)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(
+        {"low": paths.low_playback, "mid": paths.mid_playback, "voice": paths.voice_playback}
+    )
+    player.start()
+    state = SettingsState(active=settings, draft=settings)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.paths = paths
+    runtime.renderer = renderer
+    runtime.player = player
+
+    before = _rms(player.next_block(2_048).samples[:, 0])
+    draft_layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(
+            update={
+                "eq": settings.layers["low"].eq.model_copy(update={"low_gain_db": 6.0}),
+            },
+        ),
+    }
+    draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+    after = _rms(player.next_block(2_048).samples[:, 0])
+
+    assert result.active.layers["low"].eq.low_gain_db == 6.0
+    assert after > before * 1.5
+
+
+def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_restart() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={
+                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
+            },
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.layers["mid"].eq.mid_gain_db == 5.0
+    assert result.draft.layers["mid"].eq.mid_gain_db == 5.0
+    assert runtime.controller.settings.layers["mid"].eq.mid_gain_db == 5.0
+    assert runtime.renderer.layer_buffer_renders == [("mid", result.active)]
+    assert runtime.player.layer_buffer_updates == [("mid", rendered_mid)]
+    assert runtime.player.restart_called is False
+    assert runtime.player.reload_and_restart_called is False
+
+
+def _rms(samples: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(samples))))
 
 
 def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatment(
