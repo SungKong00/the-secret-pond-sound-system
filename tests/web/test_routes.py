@@ -5791,6 +5791,11 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   assert.strictEqual(globalThis.__secretPondTest.draftEditLocked(), true);
   assert.strictEqual(elements.resetButton.disabled, true);
   assert.strictEqual(elements.resetButton.title, "설정 변경 취소가 끝날 때까지 기다리세요.");
+  assert.strictEqual(elements.resetParticipantsButton.disabled, true);
+  assert.strictEqual(
+    elements.resetParticipantsButton.title,
+    "설정 변경 취소가 끝날 때까지 기다리세요.",
+  );
   assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
   assert.strictEqual(
     latestSourceLibraryHtml().includes(

@@ -1683,10 +1683,12 @@ const deriveDashboardControlState = ({
     ? operationLockMessages.resetParticipants
     : isRecording
       ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
-      : recordingStopBusy
-        ? "녹음 처리가 끝날 때까지 기다리세요."
-        : applyInFlight
-          ? "설정 적용이 끝날 때까지 기다리세요."
+    : recordingStopBusy
+      ? "녹음 처리가 끝날 때까지 기다리세요."
+      : applyInFlight
+        ? "설정 적용이 끝날 때까지 기다리세요."
+        : resetDraftInFlight
+          ? operationLockMessages.draftReset
           : "";
   return {
     recordingStopBusy,
@@ -1701,8 +1703,8 @@ const deriveDashboardControlState = ({
     stopOutputDisabled: outputControlBusy || !outputRunning,
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
-    resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || recordingStopBusy ||
-      isRecording,
+    resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || resetDraftInFlight ||
+      recordingStopBusy || isRecording,
     resetParticipantsTitle,
   };
 };
