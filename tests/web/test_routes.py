@@ -1160,7 +1160,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "장치 오프라인" in script.text
     assert "renderDeviceApplyNotice" not in script.text
     assert "const deriveDashboardControlState = ({" in script.text
-    assert "const outputControlBusy = Boolean(applyInFlight || recordingStopBusy)" in script.text
+    assert (
+        "const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || "
+        "playbackControlBusy)"
+        in script.text
+    )
     assert (
         "restartOutputDisabled: outputControlBusy || !outputRunning"
         in script.text
@@ -1228,8 +1232,13 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "setRecordStatus(\"processing\", \"녹음 처리 중...\")" in script.text
     assert 'path !== "/api/recording/poll-auto-stop"' in script.text
     assert "recordingStopInFlight" in script.text
+    assert "playbackControlInFlight" in script.text
     assert (
         'path === "/api/recording/poll-auto-stop" && currentState.recordingStopInFlight'
+        in script.text
+    )
+    assert (
+        "playbackControlRequest && currentState.playbackControlInFlight"
         in script.text
     )
     assert 'path === "/api/recording/stop" && !snapshot?.is_recording' in script.text
@@ -2105,6 +2114,7 @@ assert.deepStrictEqual(
   }}),
   {{
     startsStartRequest: true,
+    playbackControlRequest: false,
     allowStaleRecordingStop: false,
     expectsRecordingOutcome: false,
     pollAutoStopRequest: false,
@@ -2121,6 +2131,13 @@ assert.strictEqual(
   }}).skip,
   true,
 );
+assert.strictEqual(
+  deriveControl("/api/playback/start", {{}}, {{
+    snapshot: {{ playback: {{ output_running: false }} }},
+    playbackControlInFlight: true,
+  }}).skip,
+  true,
+);
 
 assert.deepStrictEqual(
   deriveControl("/api/recording/stop", {{ allowStaleRecordingStop: true }}, {{
@@ -2130,6 +2147,7 @@ assert.deepStrictEqual(
   }}),
   {{
     startsStartRequest: false,
+    playbackControlRequest: false,
     allowStaleRecordingStop: true,
     expectsRecordingOutcome: true,
     pollAutoStopRequest: false,
@@ -2146,6 +2164,7 @@ assert.deepStrictEqual(
   }}),
   {{
     startsStartRequest: false,
+    playbackControlRequest: false,
     allowStaleRecordingStop: false,
     expectsRecordingOutcome: true,
     pollAutoStopRequest: true,
@@ -2352,6 +2371,19 @@ assert.strictEqual(
 );
 assert.strictEqual(recordingStopBusy.startOutputDisabled, true);
 
+const playbackControlBusy = derive({{
+  snapshot,
+  playbackControlInFlight: true,
+  applyInFlight: false,
+  recordingStopInFlight: false,
+  pendingChanges: true,
+  runtimeConfigChanged: false,
+}});
+assert.strictEqual(playbackControlBusy.outputControlBusy, true);
+assert.strictEqual(playbackControlBusy.startOutputDisabled, true);
+assert.strictEqual(playbackControlBusy.stopOutputDisabled, true);
+assert.strictEqual(playbackControlBusy.restartOutputDisabled, true);
+
 const activeRecording = derive({{
   snapshot: {{ ...snapshot, is_recording: true, playback: {{ output_running: true }} }},
   applyInFlight: false,
@@ -2404,6 +2436,158 @@ assert.strictEqual(
   outputRunning.applyTitle,
   "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
 );
+""",
+    )
+
+
+def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, control, renderState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {{
+  const activeSettings = {{
+    voice_stack: {{ mode: "live_ephemeral", loop_seconds: 60 }},
+    input_control: {{
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    }},
+    recording: {{
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    }},
+    audio: {{ sample_rate: 48000, channels: 2 }},
+    devices: {{ input_device_id: null, output_device_id: null }},
+    sources: {{
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    }},
+    layers: {{
+      low: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+      mid: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+      voice: {{
+        enabled: true,
+        volume_db: 0,
+        eq: {{
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        }},
+      }},
+    }},
+  }};
+  const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+  const snapshot = {{
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 0,
+    playback: {{ output_running: false, layers: {{}} }},
+    settings: {{
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {{
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: [],
+      }},
+    }},
+  }};
+  globalThis.__secretPondTest.state.snapshot = snapshot;
+  globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.renderState();
+  assert.strictEqual(elements.startOutputButton.disabled, false);
+
+  const playbackFetches = [];
+  let resolvePlaybackStart = null;
+  globalThis.fetch = (path) => {{
+    playbackFetches.push(path);
+    if (path === "/api/playback/start") {{
+      return new Promise((resolve) => {{
+        resolvePlaybackStart = () =>
+          resolve({{
+            ok: true,
+            json: async () => ({{
+              state: {{
+                ...snapshot,
+                playback: {{ ...snapshot.playback, output_running: true }},
+              }},
+            }}),
+          }});
+      }});
+    }}
+    if (path === "/api/diagnostics") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ sources: [], events: {{ recent: [] }} }}),
+      }});
+    }}
+    if (path === "/api/sources") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    throw new Error(`unexpected fetch ${{path}}`);
+  }};
+
+  const playbackStart = globalThis.__secretPondTest.control("/api/playback/start");
+  assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);
+  assert.strictEqual(globalThis.__secretPondTest.state.playbackControlInFlight, true);
+  assert.strictEqual(elements.startOutputButton.disabled, true);
+  assert.strictEqual(elements.stopOutputButton.disabled, true);
+  assert.strictEqual(elements.restartOutputButton.disabled, true);
+
+  await globalThis.__secretPondTest.control("/api/playback/start");
+  assert.deepStrictEqual(playbackFetches, ["/api/playback/start"]);
+
+  resolvePlaybackStart();
+  await playbackStart;
+  assert.strictEqual(globalThis.__secretPondTest.state.playbackControlInFlight, false);
+  assert.deepStrictEqual(playbackFetches, [
+    "/api/playback/start",
+    "/api/diagnostics",
+    "/api/sources",
+  ]);
+})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
 """,
     )
 

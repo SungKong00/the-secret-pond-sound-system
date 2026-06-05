@@ -61,6 +61,7 @@ const state = {
   recordingStartInFlight: false,
   recordingStopRequestedAfterStart: false,
   recordingStopInFlight: false,
+  playbackControlInFlight: false,
   applyInFlight: false,
   resetDraftInFlight: false,
   deviceChangeInFlight: false,
@@ -1590,11 +1591,13 @@ const deriveDashboardControlState = ({
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
   recordingStopInFlight = false,
+  playbackControlInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
   const recordingStopBusy = Boolean(recordingStopInFlight);
-  const outputControlBusy = Boolean(applyInFlight || recordingStopBusy);
+  const playbackControlBusy = Boolean(playbackControlInFlight);
+  const outputControlBusy = Boolean(applyInFlight || recordingStopBusy || playbackControlBusy);
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
@@ -1664,6 +1667,7 @@ const renderState = () => {
     resetDraftInFlight: state.resetDraftInFlight,
     sourceMutationInFlight: state.sourceMutationInFlight,
     recordingStopInFlight: state.recordingStopInFlight,
+    playbackControlInFlight: state.playbackControlInFlight,
     pendingChanges: pendingChangeState.pendingChanges,
     runtimeConfigChanged: pendingChangeState.runtimeConfigChanged,
   });
@@ -3395,6 +3399,7 @@ const saveDraft = async () => {
 const deriveControlRequestState = (path, options = {}, currentState = state) => {
   const snapshot = currentState.snapshot;
   const startsStartRequest = path === "/api/recording/start";
+  const playbackControlRequest = path.startsWith("/api/playback/");
   const allowStaleRecordingStop = options.allowStaleRecordingStop === true;
   const expectsRecordingOutcome =
     path === "/api/recording/stop" ||
@@ -3413,9 +3418,11 @@ const deriveControlRequestState = (path, options = {}, currentState = state) => 
     (path === "/api/recording/stop" && !snapshot?.is_recording && !allowStaleRecordingStop) ||
     (path === "/api/input/disarm" && !snapshot?.is_recording && !snapshot?.armed) ||
     (path === "/api/recording/poll-auto-stop" && currentState.recordingStopInFlight) ||
-    (startsStopRequest && currentState.recordingStopInFlight);
+    (startsStopRequest && currentState.recordingStopInFlight) ||
+    (playbackControlRequest && currentState.playbackControlInFlight);
   return {
     startsStartRequest,
+    playbackControlRequest,
     allowStaleRecordingStop,
     expectsRecordingOutcome,
     pollAutoStopRequest,
@@ -3428,12 +3435,21 @@ const control = async (path, options = {}) => {
   let controlError = null;
   const controlRequest = deriveControlRequestState(path, options);
   if (controlRequest.skip) return;
-  const { startsStartRequest, expectsRecordingOutcome, startsStopRequest } = controlRequest;
+  const {
+    startsStartRequest,
+    playbackControlRequest,
+    expectsRecordingOutcome,
+    startsStopRequest,
+  } = controlRequest;
   if (startsStartRequest) {
     state.recordingStartInFlight = true;
   }
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
+    renderState();
+  }
+  if (playbackControlRequest) {
+    state.playbackControlInFlight = true;
     renderState();
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
@@ -3479,6 +3495,10 @@ const control = async (path, options = {}) => {
   } finally {
     if (startsStopRequest) {
       state.recordingStopInFlight = false;
+      renderState();
+    }
+    if (playbackControlRequest) {
+      state.playbackControlInFlight = false;
       renderState();
     }
     if (startsStartRequest) {
