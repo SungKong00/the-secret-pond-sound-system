@@ -1,0 +1,216 @@
+goal: Implement amended Seed seed_58148696dd2f for The Secret Pond by completing Voice Source / Voice Stack storage policy A and adding a narrow live_ephemeral-only post-recording voice-layer hot-swap/crossfade transition while preserving Stable fallback.
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - path: docs/ouroboros/seed_58148696dd2f_amended.yaml
+      role: amended_seed
+    - path: /Users/nohsungbeen/.ouroboros/data/interview_interview_20260605_105340.json
+      role: parent_interview
+    - path: /Users/nohsungbeen/.ouroboros/data/interview_interview_20260605_111702.json
+      role: amendment_interview
+  existing_patterns:
+    - recording_workflow.refresh_playback_after_recording currently reloads and restarts rendered layers after accepted recording
+    - LayeredLoopPlayer currently mixes rendered low/mid/voice buffers with one shared cursor
+    - Apply and Restart rendered-cache playback remains the Stable fallback path
+  existing_dependencies: []
+constraints:
+  - Implement parent storage policy A and the live_ephemeral transition amendment in one coherent brownfield change.
+  - VR files must be canonical app-format voice sources before RecordingProcessingSettings / Voice Treatment.
+  - VR is not raw microphone stream and must be normalized to app audio format.
+  - VR preview and Add to Stack must apply current Voice Treatment at operation time.
+  - live_ephemeral must not keep individual VR files.
+  - test_library must not add recordings to stack immediately.
+  - Use KST filenames VRMMDD_HHMMSS.wav and VSMMDD_HHMMSS.wav.
+  - Filename collisions in the same second must use deterministic _2, _3 suffixes.
+  - Add to Stack must mirror selected VS output to data/voice/voice_stack_raw.wav.
+  - Future realtime path must be able to use EQ-free VS source files and avoid hard dependency on voice_playback.wav.
+  - The added live transition applies only after an accepted live_ephemeral recording creates a new VS and rendered voice layer is ready.
+  - If output is running, keep low and mid layer buffers, cursors, enabled flags, and realtime trim state unchanged while crossfading only the voice layer.
+  - Equal-power crossfade duration must be configurable from 1 to 10 seconds with default 3 seconds.
+  - If output is stopped, load/select the new VS and rendered voice layer without crossfade.
+  - Hot-swap only when playback_session_id and current_stack_id still match the session/stack captured for the accepted recording.
+  - If operator changes selected/current Voice Stack or playback session, save/select according to storage policy but do not override the currently audible voice layer.
+  - Latest ready live_ephemeral result wins for the same still-active playback session; older transition targets must be marked superseded.
+  - Render or hot-swap failure must keep old voice layer unchanged and must not stop output or force restart.
+  - Transition failure must log a failure event and expose a non-fatal caution/warning with Apply and Restart fallback.
+  - Preserve Stable/legacy rendered-cache path.
+  - Do not implement full realtime playback B.
+  - Do not implement realtime EQ, seek, progress bar, general next-VS queue, manual VS transition, or test_library Add-to-Stack live transition.
+  - "Introduce or adapt concrete responsibility boundaries: voice_stack_naming owns KST VR/VS names and suffixes; VoiceSourceService or equivalent owns VR save/select/preview source handling; VoiceStackService or equivalent owns VR+VS to new VS and mirror updates; RecordingWorkflow owns post-recording policy and session guard; LayeredLoopPlayer or equivalent transition API owns voice-only crossfade."
+  - Keep changes covered by focused tests and scoped commits.
+  - Verify with uv run pytest and uv run ruff check .
+acceptance_criteria:
+  - live_ephemeral records audio, normalizes to canonical source format, applies current Voice Treatment, creates a new VS snapshot, updates data/voice/voice_stack_raw.wav, and leaves no VR file under data/sources/voice/raw for that recording.
+  - test_library records audio, normalizes it to canonical source format, saves a VR file under data/sources/voice/raw, and does not add it to the stack automatically.
+  - VR filenames use KST VRMMDD_HHMMSS.wav and collision suffixes are deterministic for same-second duplicates.
+  - VS filenames use KST VSMMDD_HHMMSS.wav and collision suffixes are deterministic for same-second duplicates.
+  - A saved VR can be listed, selected, and previewed through the Source Library API/UI path using current Voice Treatment.
+  - VR preview playback does not overlap with main playback; starting one stops or prevents the other according to the existing preview/main playback policy.
+  - Add to Stack combines selected VR with selected VS, or uses VR as the base stack when no VS exists.
+  - Add to Stack writes a new VS under data/sources/voice/stack, selects it as Voice Stack, and mirrors it to data/voice/voice_stack_raw.wav.
+  - Storage services expose selected_vr, selected_vs, current_stack_id, and playback_session_id values or equivalent state needed for the transition guard.
+  - Existing rendered-cache Apply and Restart playback path remains available and still reloads rendered playback successfully.
+  - API/UI controls expose observable selected VR, selected VS, preview state, Add to Stack result, and non-fatal transition warning state.
+  - Running output performs immediate equal-power voice-only crossfade from current_voice_layer to candidate_voice_layer when accepted live_ephemeral render is ready and playback_session_id/current_stack_id still match the captured initiating values.
+  - During voice-only crossfade, low_layer and mid_layer audio, enabled state, trim state, and cursor continuity are unchanged except for normal playback advancement.
+  - Stopped output loads/selects the new VS and rendered voice layer without starting a crossfade.
+  - Operator-moved-away guard prevents automatic replacement of the currently playing voice layer when current_stack_id or playback_session_id no longer matches.
+  - Latest-wins supersession interrupts or supersedes an in-progress voice-only transition for the same active playback session and marks older transition_target_id values superseded.
+  - Older completed transition targets cannot override newer ready VS targets.
+  - Render-ready or hot-swap failure keeps old current_voice_layer audible and unchanged.
+  - Failure emits a failure_log_event, exposes a non-fatal caution/warning, and keeps the saved VS artifact available.
+  - Crossfade duration setting validates 1 to 10 seconds and defaults to 3 seconds.
+  - Tests cover naming, mode behavior, VR canonical semantics, Add to Stack behavior, and mirror updates.
+  - Tests cover running voice-only crossfade.
+  - Tests cover stopped load/select without crossfade.
+  - Tests cover operator-moved-away guard.
+  - Tests cover latest-wins supersession.
+  - Tests cover render/hot-swap failure fallback.
+  - Tests cover 1-10s/default-3s setting validation.
+  - uv run pytest passes.
+  - uv run ruff check . passes.
+ontology_schema:
+  name: VoiceSourceStackStorageWithLiveTransition
+  description: Domain model for canonical voice source storage, Voice Stack snapshots, and bounded live_ephemeral post-recording voice-layer transitions in The Secret Pond.
+  fields:
+    - name: storage_mode
+      type: string
+      description: Either live_ephemeral or test_library.
+      required: true
+    - name: filename_policy
+      type: object
+      description: KST VR/VS naming policy using VRMMDD_HHMMSS.wav and VSMMDD_HHMMSS.wav.
+      required: true
+    - name: collision_suffix_policy
+      type: object
+      description: Deterministic _2, _3 suffix policy for same-second filename collisions.
+      required: true
+    - name: voice_recording
+      type: object
+      description: Canonical app-format VR source before Voice Treatment in test_library or transient canonical recording in live_ephemeral.
+      required: true
+    - name: voice_stack
+      type: object
+      description: EQ-free VS snapshot usable as source for rendered fallback and future realtime playback.
+      required: true
+    - name: selected_vr
+      type: string
+      description: Currently selected VR path or identifier for preview/Add to Stack.
+      required: false
+    - name: selected_vs
+      type: string
+      description: Currently selected VS path or identifier used as Add to Stack target.
+      required: false
+    - name: treatment_settings
+      type: object
+      description: Current Voice Treatment applied during preview, live recording processing, or Add to Stack.
+      required: true
+    - name: add_to_stack_operation
+      type: object
+      description: Operation that applies treatment and creates a new VS from selected VR and optional selected VS.
+      required: false
+    - name: mirror_path
+      type: string
+      description: data/voice/voice_stack_raw.wav compatibility output.
+      required: true
+    - name: playback_output_state
+      type: string
+      description: Whether output is running or stopped when a new rendered voice layer becomes ready.
+      required: true
+    - name: playback_session_id
+      type: string
+      description: Identity for the playback session used to guard live hot-swap behavior.
+      required: true
+    - name: initiating_stack_id
+      type: string
+      description: Voice Stack active when the accepted live_ephemeral recording began or was accepted.
+      required: false
+    - name: current_stack_id
+      type: string
+      description: Voice Stack active when rendered voice layer becomes ready.
+      required: false
+    - name: low_layer
+      type: object
+      description: Low layer playback buffer/state that must remain continuous during voice crossfade.
+      required: true
+    - name: mid_layer
+      type: object
+      description: Mid layer playback buffer/state that must remain continuous during voice crossfade.
+      required: true
+    - name: current_voice_layer
+      type: object
+      description: Currently audible voice layer before transition.
+      required: false
+    - name: candidate_voice_layer
+      type: object
+      description: Newly rendered voice layer candidate for hot-swap.
+      required: false
+    - name: rendered_voice_layer_ready
+      type: boolean
+      description: Whether the new rendered voice layer is ready for hot-swap or stopped-load behavior.
+      required: false
+    - name: transition_target_id
+      type: string
+      description: Version or identifier for the candidate transition target, used for latest-wins ordering.
+      required: false
+    - name: transition_duration_seconds
+      type: number
+      description: Validated equal-power voice crossfade duration from 1 to 10 seconds defaulting to 3.
+      required: false
+    - name: transition_in_progress
+      type: boolean
+      description: Whether a voice-only crossfade is already active and may be superseded.
+      required: false
+    - name: superseded_transition_ids
+      type: array
+      description: Older transition targets superseded by newer ready VS targets.
+      required: false
+    - name: failure_log_event
+      type: object
+      description: Logged non-fatal render or hot-swap failure event/error.
+      required: false
+    - name: failure_warning
+      type: string
+      description: Non-fatal warning shown for render or hot-swap failure.
+      required: false
+    - name: stable_fallback_path
+      type: string
+      description: Stable rendered-cache Apply and Restart fallback path.
+      required: true
+evaluation_principles:
+  - name: correctness
+    description: Storage modes, VR semantics, Add to Stack, mirroring, and live transition behavior match clarified requirements.
+    weight: 0.30
+  - name: scope_control
+    description: Implements only parent storage policy A plus narrow live_ephemeral post-recording voice transition without expanding into realtime playback B.
+    weight: 0.20
+  - name: playback_safety
+    description: Preserves low/mid continuity and old voice layer on failure, avoiding output stop or forced restart.
+    weight: 0.20
+  - name: maintainability
+    description: Uses concrete module/service responsibility boundaries for naming, source handling, stack updates, recording workflow policy, and player transition API.
+    weight: 0.20
+  - name: verification
+    description: Focused tests, pytest, ruff, and relevant UI/API checks provide local evidence.
+    weight: 0.10
+exit_conditions:
+  - name: requirements_met
+    description: All parent storage policy A and amended live transition acceptance criteria are implemented and verified.
+    criteria: All acceptance criteria pass through tests or explicit manual/API/UI verification.
+  - name: verification_complete
+    description: Repository verification succeeds.
+    criteria: uv run pytest and uv run ruff check . pass.
+  - name: fallback_preserved
+    description: Stable rendered-cache Apply and Restart path remains available.
+    criteria: Existing rendered playback workflow still functions and transition failure is non-fatal.
+  - name: scope_boundary_preserved
+    description: Excluded realtime and queue/manual transition features are not introduced.
+    criteria: No realtime EQ, seek, progress bar, general next-VS queue, manual VS transition, or test_library Add-to-Stack live transition added.
+metadata:
+  seed_id: seed_58148696dd2f
+  version: 1.0.1
+  created_at: '2026-06-05T11:28:38.159653Z'
+  ambiguity_score: 0.076
+  interview_id: interview_20260605_111702
+  parent_seed_id: seed_c0881ea947e6
