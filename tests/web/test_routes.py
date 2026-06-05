@@ -1612,6 +1612,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const currentOperationFlags = () => operationFlagsFrom(state)" in script.text
     assert "...currentOperationFlags()," in script.text
     assert (
+        "const sourceActionBusyTitle = (operationFlags = {}) => "
+        "deriveOperationLocks(operationFlagsFrom(operationFlags)).sourceActionTitle"
+        in normalized_script
+    )
+    assert (
         "const { pendingChangeState, controlState } = currentDashboardControlState(snapshot)"
         in render_state_body
     )

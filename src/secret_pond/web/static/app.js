@@ -2242,23 +2242,8 @@ const sourceUploadSignature = (category) => {
   ];
 };
 
-const sourceActionBusyTitle = ({
-  sourceMutationInFlight = false,
-  applyInFlight = false,
-  resetDraftInFlight = false,
-  deviceChangeInFlight = false,
-  recordingStopInFlight = false,
-  playbackControlInFlight = false,
-  resetParticipantsInFlight = false,
-} = {}) => deriveOperationLocks({
-  sourceMutationInFlight,
-  applyInFlight,
-  resetDraftInFlight,
-  deviceChangeInFlight,
-  recordingStopInFlight,
-  playbackControlInFlight,
-  resetParticipantsInFlight,
-}).sourceActionTitle;
+const sourceActionBusyTitle = (operationFlags = {}) =>
+  deriveOperationLocks(operationFlagsFrom(operationFlags)).sourceActionTitle;
 
 const currentSourceLockState = () => deriveOperationLocks(currentOperationFlags());
 
@@ -2320,7 +2305,7 @@ const syncSourceLibraryBusyControls = (container) => {
 const deriveSourceUploadActionState = (upload = {}, operationFlags = {}) => {
   const file = upload.file || null;
   const hasFile = Boolean(file);
-  const busyTitle = sourceActionBusyTitle(operationFlagsFrom(operationFlags));
+  const busyTitle = sourceActionBusyTitle(operationFlags);
   const busy = Boolean(busyTitle);
   return {
     selectAfterUpload: upload.selectAfterUpload !== false,
@@ -2338,7 +2323,7 @@ const deriveSourceUploadActionState = (upload = {}, operationFlags = {}) => {
 const deriveSourceFileActionState = (file = {}, operationFlags = {}) => {
   const active = Boolean(file.active);
   const applied = Boolean(file.applied);
-  const busyTitle = sourceActionBusyTitle(operationFlagsFrom(operationFlags));
+  const busyTitle = sourceActionBusyTitle(operationFlags);
   const busy = Boolean(busyTitle);
   return {
     active,
