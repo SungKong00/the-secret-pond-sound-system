@@ -2162,6 +2162,9 @@ const currentSourceLockState = () => deriveOperationLocks({
 const sourceCommandBlocked = () =>
   currentSourceLockState().sourceCommandBlocked;
 
+const sourceSelectFromEventTarget = (target) =>
+  target?.closest?.("[data-source-select]") || null;
+
 const sourceLibraryBusyControlSelector = [
   "[data-source-select]",
   "[data-source-file]",
@@ -4085,19 +4088,19 @@ const bindEvents = () => {
     changeDevice("output_device_id", event.target.value);
   });
   $("sourceLibraryList").addEventListener("pointerdown", (event) => {
-    const select = event.target.closest("[data-source-select]");
+    const select = sourceSelectFromEventTarget(event.target);
     if (select) trackInteractiveControl(select);
   });
   $("sourceLibraryList").addEventListener("focusin", (event) => {
-    const select = event.target.closest("[data-source-select]");
+    const select = sourceSelectFromEventTarget(event.target);
     if (select) trackInteractiveControl(select);
   });
   $("sourceLibraryList").addEventListener("focusout", (event) => {
-    const select = event.target.closest("[data-source-select]");
+    const select = sourceSelectFromEventTarget(event.target);
     if (select) releaseInteractiveControl(select);
   });
   $("sourceLibraryList").addEventListener("change", (event) => {
-    const select = event.target.closest("[data-source-select]");
+    const select = sourceSelectFromEventTarget(event.target);
     if (select) {
       releaseInteractiveControl(select);
       selectSourceFile(select.dataset.sourceSelect, select.value);

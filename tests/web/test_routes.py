@@ -3966,7 +3966,7 @@ def test_static_ui_source_file_action_states_are_derived(tmp_path: Path) -> None
         tmp_path,
         exports=(
             "{ deriveSourceUploadActionState, deriveSourceFileActionState, "
-            "deriveSourceFileStatusLabels }"
+            "deriveSourceFileStatusLabels, sourceSelectFromEventTarget }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -4092,6 +4092,27 @@ assert.deepStrictEqual(
   helpers.deriveSourceFileStatusLabels({{ active: false, applied: true }}),
   ["현재 적용됨"],
 );
+
+const sourceSelect = {{
+  dataset: {{ sourceSelect: "low" }},
+  closest(selector) {{
+    return selector === "[data-source-select]" ? this : null;
+  }},
+}};
+const sourceSelectChild = {{
+  closest(selector) {{
+    return selector === "[data-source-select]" ? sourceSelect : null;
+  }},
+}};
+const unrelatedTarget = {{
+  closest() {{
+    return null;
+  }},
+}};
+assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelect), sourceSelect);
+assert.strictEqual(helpers.sourceSelectFromEventTarget(sourceSelectChild), sourceSelect);
+assert.strictEqual(helpers.sourceSelectFromEventTarget(unrelatedTarget), null);
+assert.strictEqual(helpers.sourceSelectFromEventTarget(null), null);
 """,
     )
 
