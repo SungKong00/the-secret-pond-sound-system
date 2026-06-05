@@ -13,6 +13,7 @@ from secret_pond.services.player_settings import apply_player_layer_settings
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
 from secret_pond.services.settings_changes import SettingsChangePlan, classify_settings_change
 from secret_pond.services.settings_store import SettingsState
+from secret_pond.services.voice_raw_preview import prepare_voice_raw_preview
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
     draft = current.draft
     change_plan = classify_settings_change(current.active, draft)
     was_running = runtime.output.is_running
+    voice_raw_preview_path = runtime.voice_raw_preview_path
     if change_plan.runtime_config_changed:
         detail = (
             "audio output format changes require an app restart; " +
@@ -88,8 +90,11 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
             runtime.voice_stack.ensure_initialized(draft)
         staged = runtime.renderer.stage_all(draft)
         staged.commit()
-        runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-        apply_player_layer_settings(runtime, draft)
+        if voice_raw_preview_path is None:
+            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+            apply_player_layer_settings(runtime, draft)
+        else:
+            prepare_voice_raw_preview(runtime, voice_raw_preview_path, draft)
         if was_running:
             runtime.output.start()
 

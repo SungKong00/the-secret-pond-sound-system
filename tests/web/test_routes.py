@@ -228,6 +228,22 @@ class FakeOutput:
             raise self.fail_stop
 
 
+class PlayerLinkedFakeOutput(FakeOutput):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.player = None
+
+    def start(self) -> None:
+        super().start()
+        if self.player is not None:
+            self.player.start()
+
+    def stop(self) -> None:
+        super().stop()
+        if self.player is not None:
+            self.player.stop()
+
+
 class DeviceAwareFakeRecorder(FakeRecorder):
     def __init__(self, takes: AudioBuffer | list[AudioBuffer]) -> None:
         super().__init__(takes)
@@ -6595,6 +6611,13 @@ const stableSnapshot = {
   playback: { output_running: true },
   settings: { active: { voice_stack: { mode: "test_library", transition_seconds: 3 } } },
 };
+const voiceRawPreviewSnapshot = {
+  playback: {
+    output_running: true,
+    voice_raw_preview_path: "data/sources/voice/raw/VR0610_213112.wav",
+  },
+  settings: { active: { voice_stack: { mode: "live_ephemeral", transition_seconds: 3 } } },
+};
 
 assert.strictEqual(
   helpers.outputControlSummaryText(liveSnapshot, { pendingChanges: false }),
@@ -6603,6 +6626,10 @@ assert.strictEqual(
 assert.strictEqual(
   helpers.outputControlSummaryText(stableSnapshot, { pendingChanges: false }),
   "Stable fallback · 변경사항 적용 후 렌더링된 캐시로 재생합니다.",
+);
+assert.strictEqual(
+  helpers.outputControlSummaryText(voiceRawPreviewSnapshot, { pendingChanges: false }),
+  "녹음 원본을 재생 중입니다.",
 );
 assert.strictEqual(
   helpers.outputControlSummaryText(liveSnapshot, { pendingChanges: true }),
@@ -6615,6 +6642,103 @@ assert.strictEqual(
     { applyInFlight: true },
   ),
   "준비된 오디오 설정을 렌더링하는 중입니다.",
+);
+""",
+    )
+
+
+def test_static_ui_stop_clears_voice_raw_preview_selection(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, applyState, sourceCategoryCard }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+helpers.state.sources = {
+  categories: [
+    {
+      id: "voice_raw",
+      label: "Voice Raw",
+      directory: "data/sources/voice/raw",
+      selected_path: null,
+      active_exists: true,
+      files: [
+        {
+          name: "VR0610_213112.wav",
+          path: "data/sources/voice/raw/VR0610_213112.wav",
+          size_bytes: 4096,
+          modified_at: "2026-06-10T12:31:12Z",
+          active: true,
+          applied: false,
+        },
+      ],
+    },
+  ],
+};
+helpers.state.sourceCardSelections.voice_raw = "data/sources/voice/raw/VR0610_213112.wav";
+helpers.state.snapshot = {
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 60,
+  participant_count: 0,
+  playback: {
+    output_running: true,
+    rendered_cache_ready: true,
+    voice_raw_preview_path: "data/sources/voice/raw/VR0610_213112.wav",
+    layers: {},
+  },
+  settings: {
+    active: {
+      voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 3 },
+      input_control: { minimum_recording_seconds: 1, maximum_recording_seconds: 60 },
+      recording: { storage_mode: "ephemeral" },
+      audio: { sample_rate: 48000, channels: 2 },
+      devices: { input_device_id: null, output_device_id: null },
+      sources: {
+        low_path: null,
+        mid_path: null,
+        voice_raw_path: null,
+        voice_stack_path: null,
+      },
+      layers: {},
+    },
+    draft: {
+      voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 3 },
+      input_control: { minimum_recording_seconds: 1, maximum_recording_seconds: 60 },
+      recording: { storage_mode: "ephemeral" },
+      audio: { sample_rate: 48000, channels: 2 },
+      devices: { input_device_id: null, output_device_id: null },
+      sources: {
+        low_path: null,
+        mid_path: null,
+        voice_raw_path: null,
+        voice_stack_path: null,
+      },
+      layers: {},
+    },
+    change: { runtime_config_changed: false, changed_sections: [] },
+  },
+};
+
+helpers.applyState({
+  ...helpers.state.snapshot,
+  playback: {
+    ...helpers.state.snapshot.playback,
+    output_running: false,
+    voice_raw_preview_path: null,
+  },
+}, { renderControlsOnSync: false });
+
+assert.strictEqual(helpers.state.sourceCardSelections.voice_raw, undefined);
+const cardAfterStop = helpers.sourceCategoryCard(helpers.state.sources.categories[0]);
+assert.strictEqual(
+  cardAfterStop.innerHTML.includes("먼저 Voice Raw 파일을 선택하세요."),
+  true,
+);
+assert.strictEqual(
+  cardAfterStop.innerHTML.includes("data-voice-raw-preview-selected=\\"\\""),
+  true,
 );
 """,
     )
@@ -10141,6 +10265,7 @@ def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     assert payload["playback"]["rendered_cache_ready"] is False
     assert payload["playback"]["active_voice_transition_target_id"] is None
     assert payload["playback"]["playback_session_id"] is None
+    assert payload["playback"]["voice_raw_preview_path"] is None
     assert payload["playback"]["transition_warning"] is None
     assert payload["playback"]["output_latest_error"] is None
     assert payload["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
@@ -11385,6 +11510,106 @@ def test_api_voice_raw_preview_stops_main_playback_and_starts_preview(
     assert output.start_calls == 2
     assert response.json()["state"]["playback"]["output_running"] is True
     assert response.json()["state"]["playback"]["is_playing"] is True
+    assert response.json()["state"]["playback"]["voice_raw_preview_path"] == (
+        "data/sources/voice/raw/VR0610_213112.wav"
+    )
+
+
+def test_api_voice_raw_preview_plays_voice_even_when_main_voice_layer_is_disabled(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    layers = {
+        **settings.layers,
+        "voice": settings.layers["voice"].model_copy(update={"enabled": False}),
+    }
+    settings = settings.model_copy(update={"layers": layers}, deep=True)
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    client.post("/api/settings/apply-and-restart")
+    response = client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"]["playback"]["output_running"] is True
+    block = client.app.state.runtime.player.next_block(512)
+    assert float(np.max(np.abs(block.samples))) > 0.01
+
+
+def test_api_settings_apply_preserves_running_voice_raw_preview_with_new_treatment(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    client.post("/api/settings/apply-and-restart")
+    preview_response = client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+    before_apply = client.app.state.runtime.player.next_block(512)
+    draft = client.get("/api/settings").json()["settings"]["draft"]
+    draft["recording"]["reverb_mix"] = 0.7
+    draft["recording"]["delay_mix"] = 0.5
+    client.put("/api/settings/draft", json=draft)
+
+    apply_response = client.post("/api/settings/apply")
+
+    assert preview_response.status_code == 200
+    assert float(np.max(np.abs(before_apply.samples))) > 0.01
+    assert apply_response.status_code == 200
+    assert apply_response.json()["state"]["playback"]["output_running"] is True
+    after_apply = client.app.state.runtime.player.next_block(4096)
+    assert float(np.max(np.abs(after_apply.samples))) > 0.01
+
+
+def test_api_voice_raw_preview_stop_restores_main_playback_buffers(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library")
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    output.player = client.app.state.runtime.player
+    paths = ProjectPaths(tmp_path)
+    main_voice = AudioBuffer(
+        samples=(
+            np.ones(
+                (settings.audio.sample_rate * settings.audio.loop_seconds, 2),
+                dtype=np.float32,
+            )
+            * 0.03
+        ),
+        sample_rate=settings.audio.sample_rate,
+    )
+    write_wav_atomic(paths.voice_stack_raw, main_voice)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+    main_before_preview = client.app.state.runtime.player.next_block(512)
+    client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+    preview_block = client.app.state.runtime.player.next_block(512)
+    client.post("/api/playback/stop")
+    client.post("/api/playback/start")
+    main_after_preview = client.app.state.runtime.player.next_block(512)
+
+    assert float(np.max(np.abs(main_before_preview.samples))) < 0.05
+    assert float(np.max(np.abs(preview_block.samples))) > 0.1
+    np.testing.assert_allclose(main_after_preview.samples, main_before_preview.samples, atol=1e-4)
 
 
 def test_api_settings_apply_and_restart_restores_voice_stack_raw_after_render_failure(

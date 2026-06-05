@@ -45,6 +45,7 @@ from secret_pond.services.storage_mode import (
     apply_voice_stack_mode,
     parse_voice_stack_mode,
 )
+from secret_pond.services.voice_raw_preview import prepare_voice_raw_preview
 from secret_pond.web.state import (
     SettingsPayloadUnavailable,
     StatePayloadUnavailable,
@@ -356,17 +357,13 @@ def preview_voice_raw(request: Request, payload: dict[str, Any]) -> dict[str, An
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
-            preview_layers = runtime.voice_source.preview_layers(
-                relative_path,
-                settings_state.active,
-            )
             if runtime.output.is_running:
                 playback_control.stop_playback(runtime)
             else:
                 runtime.player.stop()
-            runtime.player.load_rendered_buffers(preview_layers)
-            runtime.player.restart()
+            prepare_voice_raw_preview(runtime, relative_path, settings_state.active)
             runtime.output.start()
+            runtime.voice_raw_preview_path = relative_path
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
         except (RuntimeError, OSError) as exc:

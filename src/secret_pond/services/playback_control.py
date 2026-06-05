@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from secret_pond.services.runtime import SecretPondRuntime
+from secret_pond.services.voice_raw_preview import restore_main_playback_after_voice_raw_preview
 
 
 class PlaybackControlError(RuntimeError):
@@ -26,6 +27,8 @@ def stop_playback(runtime: SecretPondRuntime) -> None:
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.stop_failed", error=str(exc))
         raise PlaybackControlError(str(exc)) from exc
+    if runtime.voice_raw_preview_path is not None:
+        restore_main_playback_after_voice_raw_preview(runtime, runtime.controller.settings)
     runtime.voice_stack.end_playback_session()
     runtime.transition_warning = None
     _log_playback_event(runtime, "playback.stopped")

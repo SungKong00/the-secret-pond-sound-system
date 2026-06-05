@@ -1623,6 +1623,18 @@ const applyVolatileServerStateIfChanged = (payload) => {
   return applyVolatileServerState(payload);
 };
 
+const voiceRawPreviewPath = (snapshot) => snapshot?.playback?.voice_raw_preview_path || null;
+
+const clearVoiceRawSelectionAfterPreviewStop = (previousSnapshot, nextSnapshot) => {
+  if (!voiceRawPreviewPath(previousSnapshot) || voiceRawPreviewPath(nextSnapshot)) {
+    return false;
+  }
+  if (!state.sourceCardSelections.voice_raw) return false;
+  delete state.sourceCardSelections.voice_raw;
+  renderSourceLibrary({ allowInteractiveDeferral: false });
+  return true;
+};
+
 const refreshAll = async () => {
   let stateRefreshFailed = false;
   await requestState({ syncDraft: false }).catch((error) => {
@@ -1685,6 +1697,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
 const applyState = (payload, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
   const mergeDraftSections = options.mergeDraftSections || [];
+  const renderControlsOnSync = options.renderControlsOnSync ?? true;
   if (serverPayloadRevisionIsOlder(payload)) {
     return false;
   }
@@ -1700,10 +1713,16 @@ const applyState = (payload, options = {}) => {
   const currentSnapshot = state.snapshot;
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = payload;
-  applySettingsPayload(payload.settings, { currentSnapshot, syncDraft, mergeDraftSections });
+  applySettingsPayload(payload.settings, {
+    currentSnapshot,
+    syncDraft,
+    mergeDraftSections,
+    renderControlsOnSync,
+  });
   state.serverStateSignature = serverStateSignature(state.snapshot, { syncDraft });
   renderState();
   renderSystemPanel();
+  clearVoiceRawSelectionAfterPreviewStop(currentSnapshot, state.snapshot);
   return true;
 };
 
@@ -2149,6 +2168,9 @@ const outputControlSummaryText = (
   const flags = operationFlagsFrom(operationFlags);
   if (flags.applyInFlight) {
     return "준비된 오디오 설정을 렌더링하는 중입니다.";
+  }
+  if (snapshot?.playback?.voice_raw_preview_path) {
+    return "녹음 원본을 재생 중입니다.";
   }
   if (pendingChangeState.pendingChanges) {
     return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
