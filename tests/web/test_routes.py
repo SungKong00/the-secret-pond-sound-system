@@ -11066,6 +11066,40 @@ def test_api_devices_update_applies_devices_immediately(tmp_path: Path) -> None:
     assert stored.draft.devices.output_device_id == "speaker-2"
 
 
+def test_api_devices_update_applies_output_device_in_live_mode_through_system_flow(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    output = FakeOutput()
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        output=output,
+        device_registry=fake_device_registry(),
+    )
+
+    response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    state_settings = payload["state"]["settings"]
+    assert state_settings["active"]["playback"]["apply_mode"] == "live"
+    assert state_settings["active"]["devices"]["output_device_id"] == "speaker-2"
+    assert state_settings["draft"]["devices"]["output_device_id"] == "speaker-2"
+    assert payload["devices"]["selected_output_device"]["id"] == "speaker-2"
+    assert output.device_id == "speaker-2"
+    runtime = client.app.state.runtime
+    assert runtime.controller.settings.playback.apply_mode == "live"
+    assert runtime.controller.settings.devices.output_device_id == "speaker-2"
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.playback.apply_mode == "live"
+    assert stored.active.devices.output_device_id == "speaker-2"
+    assert stored.draft.devices.output_device_id == "speaker-2"
+
+
 def test_api_devices_update_uses_single_settings_snapshot_for_response(tmp_path: Path) -> None:
     client = create_test_client(
         tmp_path,

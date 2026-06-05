@@ -217,6 +217,31 @@ def test_live_update_draft_settings_keeps_sample_rate_on_apply_flow() -> None:
     assert runtime.player.realtime_trim_updates == []
 
 
+def test_live_update_draft_settings_rejects_output_device_changes() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "devices": DeviceSettings(output_device_id="speaker-1"),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft = active.model_copy(
+        update={"devices": DeviceSettings(output_device_id="speaker-2")},
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+
+    with pytest.raises(SettingsDraftValidationError, match="System panel"):
+        update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert store.saved_states == []
+    assert runtime.settings_state == state
+    assert runtime.controller.settings.devices.output_device_id == "speaker-1"
+    assert runtime.player.realtime_trim_updates == []
+
+
 def test_update_draft_settings_raises_validation_error_for_device_changes() -> None:
     active = AppSettings()
     draft = active.model_copy(
