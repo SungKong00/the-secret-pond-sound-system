@@ -2440,6 +2440,13 @@ assert.strictEqual(
   true,
 );
 assert.strictEqual(
+  derive({{
+    snapshot: {{ armed: true, is_recording: false }},
+    applyInFlight: true,
+  }}).captureGateSwitchDisabled,
+  true,
+);
+assert.strictEqual(
   deriveControl("/api/recording/start", {{}}, {{
     snapshot: {{ armed: true, is_recording: false }},
     applyInFlight: true,
@@ -2459,6 +2466,27 @@ assert.strictEqual(
     sourceMutationInFlight: true,
   }}).skip,
   true,
+);
+assert.strictEqual(
+  deriveControl("/api/input/arm", {{}}, {{
+    snapshot: {{ armed: false, is_recording: false }},
+    applyInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/input/disarm", {{}}, {{
+    snapshot: {{ armed: true, is_recording: false }},
+    sourceMutationInFlight: true,
+  }}).skip,
+  true,
+);
+assert.strictEqual(
+  deriveControl("/api/input/disarm", {{}}, {{
+    snapshot: {{ armed: true, is_recording: true }},
+    sourceMutationInFlight: true,
+  }}).skip,
+  false,
 );
 assert.strictEqual(
   deriveControl("/api/playback/start", {{}}, {{

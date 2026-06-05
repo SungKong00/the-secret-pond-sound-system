@@ -1698,7 +1698,7 @@ const deriveDashboardControlState = ({
     captureReady: armed && !isRecording && !recordingStopBusy,
     captureGateOn: armed || isRecording,
     captureGateClass,
-    captureGateSwitchDisabled: recordingStopBusy || isRecording,
+    captureGateSwitchDisabled: recordingStopBusy || settingsOperationBusy || isRecording,
     startDisabled: recordingStopBusy || settingsOperationBusy || !armed || isRecording,
     stopDisabled: recordingStopBusy || !isRecording,
     startOutputDisabled: outputControlBusy || outputRunning,
@@ -3658,6 +3658,10 @@ const deriveDashboardControlStateForRequest = (currentState = state) =>
 
 const controlDisabledByDashboardState = (path, currentState = state) => {
   const controlState = deriveDashboardControlStateForRequest(currentState);
+  if (path === "/api/input/arm") return controlState.captureGateSwitchDisabled;
+  if (path === "/api/input/disarm" && !currentState.snapshot?.is_recording) {
+    return controlState.captureGateSwitchDisabled;
+  }
   if (path === "/api/recording/start") return controlState.startDisabled;
   if (path === "/api/playback/start") return controlState.startOutputDisabled;
   if (path === "/api/playback/stop") return controlState.stopOutputDisabled;
