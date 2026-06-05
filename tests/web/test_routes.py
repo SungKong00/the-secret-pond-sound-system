@@ -10293,6 +10293,31 @@ def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -
     assert response.json()["playback"]["apply_mode"] == "live"
 
 
+def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_modes(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+    paths = ProjectPaths(tmp_path)
+
+    live_response = client.put("/api/playback/apply-mode", json={"mode": "live"})
+
+    assert live_response.status_code == 200
+    assert live_response.json()["state"]["playback"]["apply_mode"] == "live"
+    stored_after_live = SettingsStore(paths).load()
+    assert stored_after_live.active.playback.apply_mode == "live"
+    assert stored_after_live.draft.playback.apply_mode == "live"
+    assert client.app.state.runtime.controller.settings.playback.apply_mode == "live"
+
+    stable_response = client.put("/api/playback/apply-mode", json={"mode": "stable"})
+
+    assert stable_response.status_code == 200
+    assert stable_response.json()["state"]["playback"]["apply_mode"] == "stable"
+    stored_after_stable = SettingsStore(paths).load()
+    assert stored_after_stable.active.playback.apply_mode == "stable"
+    assert stored_after_stable.draft.playback.apply_mode == "stable"
+    assert client.app.state.runtime.controller.settings.playback.apply_mode == "stable"
+
+
 def test_api_state_reports_rendered_cache_ready_after_apply_and_restart(
     tmp_path: Path,
 ) -> None:
@@ -11873,6 +11898,34 @@ def test_api_state_reports_playback_timeline_from_audio_loop_seconds(tmp_path: P
     assert playback["position_seconds"] == pytest.approx(30.0)
     assert playback["duration_seconds"] == pytest.approx(60.0)
     assert playback["progress"] == pytest.approx(0.5)
+
+
+def test_api_playback_seek_maps_percent_to_audio_loop_seconds(tmp_path: Path) -> None:
+    settings = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "voice_stack": VoiceStackSettings(loop_seconds=5),
+            "playback": PlaybackSettings(apply_mode="live"),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    client.post("/api/settings/apply-and-restart")
+
+    zero = client.post("/api/playback/seek", json={"progress": 0.0})
+    midpoint = client.post("/api/playback/seek", json={"progress": 0.5})
+    end = client.post("/api/playback/seek", json={"progress": 1.0})
+
+    assert zero.status_code == 200
+    assert zero.json()["state"]["playback"]["frame_cursor"] == 0
+    assert zero.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
+    assert midpoint.status_code == 200
+    assert midpoint.json()["state"]["playback"]["frame_cursor"] == 8_000 * 30
+    assert midpoint.json()["state"]["playback"]["position_seconds"] == pytest.approx(30.0)
+    assert midpoint.json()["state"]["playback"]["progress"] == pytest.approx(0.5)
+    assert end.status_code == 200
+    assert end.json()["state"]["playback"]["frame_cursor"] == 0
+    assert end.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
 
 
 def test_api_playback_restart_logs_success_event(tmp_path: Path) -> None:

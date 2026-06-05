@@ -19,6 +19,10 @@ from secret_pond.services.device_switcher import (
     device_settings_from_payload,
 )
 from secret_pond.services.diagnostics import diagnostics_payload
+from secret_pond.services.playback_apply_mode import (
+    apply_playback_apply_mode,
+    parse_playback_apply_mode,
+)
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
@@ -405,6 +409,39 @@ def restart_playback(request: Request) -> dict[str, Any]:
         return {"state": _state_payload(runtime)}
 
 
+@router.post("/playback/seek")
+def seek_playback(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        progress = _seek_progress(payload)
+        _run_playback_control(
+            runtime,
+            lambda active_runtime: playback_control.seek_playback(active_runtime, progress),
+        )
+        runtime.mark_state_changed()
+        return {"state": _state_payload(runtime)}
+
+
+@router.put("/playback/apply-mode")
+def update_playback_apply_mode(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime(request)
+    try:
+        mode = parse_playback_apply_mode(payload.get("mode"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with runtime.operation_lock:
+        try:
+            settings_state = apply_playback_apply_mode(runtime, mode)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.mark_state_changed()
+        return {
+            "settings": _settings_payload(runtime, settings_state),
+            "state": _state_payload(runtime, settings_state),
+        }
+
+
 @router.get("/settings")
 def get_settings(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -559,6 +596,16 @@ def _source_select_path(payload: dict[str, Any]) -> str | None:
     return relative_path
 
 
+def _seek_progress(payload: dict[str, Any]) -> float:
+    raw_progress = payload.get("progress")
+    if isinstance(raw_progress, bool) or raw_progress is None:
+        raise HTTPException(status_code=422, detail="progress must be a number")
+    try:
+        return float(raw_progress)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="progress must be a number") from exc
+
+
 def _source_rename_payload(payload: dict[str, Any]) -> tuple[str, str]:
     relative_path = payload.get("path")
     stem = payload.get("stem")
@@ -576,6 +623,13 @@ def _voice_raw_path_from_payload(payload: dict[str, Any], *, fallback: str | Non
     if not isinstance(relative_path, str) or not relative_path:
         raise HTTPException(status_code=422, detail="voice_raw_path must be a non-empty string")
     return relative_path
+
+
+def _seek_progress(payload: dict[str, Any]) -> float:
+    progress = payload.get("progress")
+    if not isinstance(progress, int | float):
+        raise HTTPException(status_code=422, detail="progress must be a number")
+    return float(progress)
 
 
 def _source_mutation_http_exception(exc: Exception) -> HTTPException:

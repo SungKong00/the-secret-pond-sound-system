@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from secret_pond.services.runtime import SecretPondRuntime
@@ -59,6 +60,29 @@ def restart_playback(runtime: SecretPondRuntime) -> None:
     runtime.voice_stack.begin_playback_session(runtime.controller.settings)
     runtime.transition_warning = None
     _log_playback_event(runtime, "playback.restarted")
+
+
+def seek_playback(runtime: SecretPondRuntime, progress: float) -> None:
+    if not math.isfinite(progress) or progress < 0.0 or progress > 1.0:
+        detail = "progress must be a finite number between 0 and 1"
+        _log_playback_event(runtime, "playback.seek_failed", error=detail)
+        raise PlaybackControlError(detail)
+
+    settings = runtime.controller.settings
+    loop_frames = settings.audio.sample_rate * settings.audio.loop_seconds
+    if loop_frames <= 0:
+        detail = "audio loop length must be greater than 0"
+        _log_playback_event(runtime, "playback.seek_failed", error=detail)
+        raise PlaybackControlError(detail)
+
+    frame_cursor = int(round(progress * loop_frames)) % loop_frames
+    try:
+        runtime.player.seek(frame_cursor)
+    except ValueError as exc:
+        detail = str(exc)
+        _log_playback_event(runtime, "playback.seek_failed", error=detail)
+        raise PlaybackControlError(detail) from exc
+    _log_playback_event(runtime, "playback.seeked")
 
 
 def _log_playback_event(

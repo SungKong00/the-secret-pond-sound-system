@@ -151,6 +151,14 @@ class LayeredLoopPlayer:
         self._frame_cursor = 0
         self._playing = True
 
+    def seek(self, frame_cursor: int) -> None:
+        layers = self._require_loaded()
+        first_layer = layers[LAYER_IDS[0]]
+        if not 0 <= frame_cursor < first_layer.frames:
+            msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
+            raise ValueError(msg)
+        self._frame_cursor = frame_cursor
+
     def start(self) -> None:
         self._require_loaded()
         self._playing = True
