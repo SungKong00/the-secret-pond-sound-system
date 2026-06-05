@@ -241,6 +241,8 @@ def delete_source(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"sources": _sources_payload(runtime, settings_state)}

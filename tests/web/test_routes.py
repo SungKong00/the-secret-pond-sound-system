@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+import secret_pond.web.routes as web_routes
 from secret_pond.app import create_app
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.devices import AudioDeviceInfo, FakeDeviceRegistry
@@ -7069,6 +7070,26 @@ def test_api_sources_delete_removes_inactive_file(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert inactive_path.exists() is False
+
+
+def test_api_sources_delete_maps_file_error_to_unprocessable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    def fail_delete(*args, **kwargs):
+        raise OSError("delete failed")
+
+    monkeypatch.setattr(web_routes, "delete_source_file_from_library", fail_delete)
+
+    response = client.delete(
+        "/api/sources/low/files",
+        params={"path": "data/sources/low/inactive-low.wav"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "delete failed"
 
 
 def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -> None:
