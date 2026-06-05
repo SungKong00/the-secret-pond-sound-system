@@ -309,6 +309,22 @@ class LockAwareRenderer:
         return self.delegate.stage_all(settings)
 
 
+class SpyLayerRenderer:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self.render_layer_calls = []
+
+    def render_layer(self, layer_id, settings):
+        self.render_layer_calls.append((layer_id, settings.model_copy(deep=True)))
+        return self.delegate.render_layer(layer_id, settings)
+
+    def render_all(self, settings):
+        return self.delegate.render_all(settings)
+
+    def stage_all(self, settings):
+        return self.delegate.stage_all(settings)
+
+
 class FailingStageRenderer:
     def __init__(self, delegate, error: Exception) -> None:
         self.delegate = delegate
@@ -10341,7 +10357,7 @@ def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -
     assert float(np.max(np.abs(rendered.samples))) > 0.05
 
 
-def test_api_live_voice_stack_source_select_records_pending_voice_transition(
+def test_api_live_voice_stack_source_select_prepares_pending_voice_transition(
     tmp_path: Path,
 ) -> None:
     settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
@@ -10349,6 +10365,8 @@ def test_api_live_voice_stack_source_select_records_pending_voice_transition(
         deep=True,
     )
     client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    renderer = SpyLayerRenderer(client.app.state.runtime.renderer)
+    client.app.state.runtime.renderer = renderer
     paths = ProjectPaths(tmp_path)
     selected_stack = "data/sources/voice/stack/VS0610_213112.wav"
     write_wav_atomic(
@@ -10367,6 +10385,9 @@ def test_api_live_voice_stack_source_select_records_pending_voice_transition(
     assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] == (
         selected_stack
     )
+    assert [(layer_id, call_settings.sources.voice_stack_path) for layer_id, call_settings in (
+        renderer.render_layer_calls
+    )] == [("voice", selected_stack)]
 
 
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
