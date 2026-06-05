@@ -239,6 +239,21 @@ def select_source(
     )
 
 
+def select_existing_source(
+    paths: ProjectPaths,
+    settings: AppSettings,
+    category: SourceCategory,
+    relative_path: str | None,
+) -> AppSettings:
+    next_settings = select_source(settings, category, relative_path)
+    if relative_path is not None:
+        selected = selected_source_path(paths, next_settings, category)
+        if selected is None or not selected.exists():
+            msg = f"source file does not exist: {relative_path}"
+            raise FileNotFoundError(msg)
+    return next_settings
+
+
 def resolve_category_path(
     paths: ProjectPaths,
     category: SourceCategory,

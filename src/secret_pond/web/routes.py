@@ -14,7 +14,7 @@ from secret_pond.audio.devices import AudioDeviceInfo
 from secret_pond.audio.source_library import (
     category_config,
     delete_source_file,
-    select_source,
+    select_existing_source,
     selected_source_path,
     source_library_payload,
     upload_source_file,
@@ -167,7 +167,12 @@ def select_source_file(
     with runtime.operation_lock:
         try:
             state = runtime.settings_store.patch_draft(
-                lambda draft: _select_source_draft(runtime, draft, config.id, relative_path),
+                lambda draft: select_existing_source(
+                    runtime.paths,
+                    draft,
+                    config.id,
+                    relative_path,
+                ),
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -212,7 +217,12 @@ def upload_source(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         if select:
             settings_state = runtime.settings_store.patch_draft(
-                lambda draft: select_source(draft, config.id, file_payload["path"]),
+                lambda draft: select_existing_source(
+                    runtime.paths,
+                    draft,
+                    config.id,
+                    file_payload["path"],
+                ),
             )
             runtime.settings_state = settings_state
         else:
@@ -512,20 +522,6 @@ def _validate_draft_devices(active: AppSettings, draft: AppSettings) -> None:
         status_code=422,
         detail="device changes must be applied from the System panel",
     )
-
-
-def _select_source_draft(
-    runtime: SecretPondRuntime,
-    draft: AppSettings,
-    category: str,
-    relative_path: str | None,
-) -> AppSettings:
-    next_draft = select_source(draft, category, relative_path)
-    if relative_path is not None:
-        selected = selected_source_path(runtime.paths, next_draft, category)
-        if selected is None or not selected.exists():
-            raise FileNotFoundError(f"source file does not exist: {relative_path}")
-    return next_draft
 
 
 def _device_payload(device: AudioDeviceInfo | None) -> dict[str, Any] | None:
