@@ -148,12 +148,7 @@ def get_diagnostics(request: Request) -> dict[str, Any]:
 def get_sources(request: Request) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:
-        settings = _settings_state(runtime)
-        return source_library_payload(
-            runtime.paths,
-            settings.draft,
-            active_settings=settings.active,
-        )
+        return _sources_payload(runtime, _settings_state(runtime))
 
 
 @router.put("/sources/{category}/select")
@@ -182,14 +177,7 @@ def select_source_file(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {
-            "settings": _settings_payload(runtime),
-            "sources": source_library_payload(
-                runtime.paths,
-                state.draft,
-                active_settings=state.active,
-            ),
-        }
+        return _source_settings_payload(runtime, state)
 
 
 @router.post("/sources/{category}/files", status_code=201)
@@ -223,12 +211,7 @@ def upload_source(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {
             "file": result.file,
-            "settings": _settings_payload(runtime),
-            "sources": source_library_payload(
-                runtime.paths,
-                result.settings_state.draft,
-                active_settings=result.settings_state.active,
-            ),
+            **_source_settings_payload(runtime, result.settings_state),
         }
 
 
@@ -258,13 +241,7 @@ def delete_source(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {
-            "sources": source_library_payload(
-                runtime.paths,
-                settings_state.draft,
-                active_settings=settings_state.active,
-            ),
-        }
+        return {"sources": _sources_payload(runtime, settings_state)}
 
 
 @router.post("/playback/start")
@@ -397,6 +374,24 @@ def _settings_payload(
         return settings_payload(runtime, settings_state)
     except SettingsPayloadUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _sources_payload(runtime: SecretPondRuntime, settings_state: SettingsState) -> dict[str, Any]:
+    return source_library_payload(
+        runtime.paths,
+        settings_state.draft,
+        active_settings=settings_state.active,
+    )
+
+
+def _source_settings_payload(
+    runtime: SecretPondRuntime,
+    settings_state: SettingsState,
+) -> dict[str, Any]:
+    return {
+        "settings": _settings_payload(runtime, settings_state),
+        "sources": _sources_payload(runtime, settings_state),
+    }
 
 
 def _run_control(fn):
