@@ -18,7 +18,13 @@ class VoiceStack(Protocol):
         settings: AppSettings,
         processing_settings_snapshot: Mapping[str, Any],
         offset_frames: int | None = None,
-    ) -> Any: ...
+    ) -> VoiceStackAddResult: ...
+
+
+class VoiceStackAddResult(Protocol):
+    added_chunks: int
+    voice_raw_path: str | None
+    voice_stack_path: str | None
 
 
 class VoiceLayerRenderer(Protocol):
@@ -214,6 +220,7 @@ class RecordingController:
                 self._settings,
                 processing_settings_snapshot=self._settings.recording.model_dump(mode="json"),
             )
+            _apply_voice_stack_result_paths(self._settings, stack_result)
         except Exception as exc:
             self._last_error = str(exc)
             self._log_event(
@@ -318,3 +325,15 @@ class RecordingController:
 def _added_chunks(stack_result: Any) -> int | None:
     added_chunks = getattr(stack_result, "added_chunks", None)
     return added_chunks if isinstance(added_chunks, int) else None
+
+
+def _apply_voice_stack_result_paths(
+    settings: AppSettings,
+    stack_result: VoiceStackAddResult,
+) -> None:
+    voice_raw_path = getattr(stack_result, "voice_raw_path", None)
+    voice_stack_path = getattr(stack_result, "voice_stack_path", None)
+    if voice_raw_path is not None:
+        settings.sources.voice_raw_path = voice_raw_path
+    if voice_stack_path is not None:
+        settings.sources.voice_stack_path = voice_stack_path

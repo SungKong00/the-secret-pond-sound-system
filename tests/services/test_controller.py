@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import numpy as np
@@ -56,9 +57,11 @@ class SpyVoiceStack:
         *,
         add_error: Exception | None = None,
         call_order: list[str] | None = None,
+        mutate_settings: bool = True,
     ) -> None:
         self.add_error = add_error
         self.call_order = call_order
+        self.mutate_settings = mutate_settings
         self.calls: list[dict] = []
 
     def add_processed_voice(self, buffer, settings, processing_settings_snapshot):
@@ -73,9 +76,12 @@ class SpyVoiceStack:
         )
         if self.add_error is not None:
             raise self.add_error
-        settings.sources.voice_stack_path = "data/sources/voice/stack/generated-stack.wav"
+        if self.mutate_settings:
+            settings.sources.voice_raw_path = "data/sources/voice/raw/generated-raw.wav"
+            settings.sources.voice_stack_path = "data/sources/voice/stack/generated-stack.wav"
         return SimpleNamespace(
             added_chunks=1,
+            voice_raw_path="data/sources/voice/raw/generated-raw.wav",
             voice_stack_path="data/sources/voice/stack/generated-stack.wav",
         )
 
@@ -90,11 +96,15 @@ class SpyRenderer:
         self.render_error = render_error
         self.call_order = call_order
         self.rendered_layers: list[str] = []
+        self.rendered_source_paths: list[tuple[str | None, str | None]] = []
 
     def render_layer(self, layer_id: str, settings):
         if self.call_order is not None:
             self.call_order.append("render")
         self.rendered_layers.append(layer_id)
+        self.rendered_source_paths.append(
+            (settings.sources.voice_raw_path, settings.sources.voice_stack_path),
+        )
         if self.render_error is not None:
             raise self.render_error
         return SimpleNamespace(layer_id=layer_id)
@@ -156,6 +166,7 @@ def controller_fixture(
     logger: SpyLogger | None = None,
     minimum_seconds: float = 1.0,
     maximum_seconds: float = 120.0,
+    persist_settings: Callable[[AppSettings], None] | None = None,
 ) -> tuple[
     RecordingController,
     ScriptedRecorder,
@@ -184,6 +195,7 @@ def controller_fixture(
         participants=participants,
         logger=logger,
         clock=clock,
+        persist_settings=persist_settings,
     )
     return controller, recorder, voice_stack, renderer, participants, logger, clock
 
@@ -256,6 +268,47 @@ def test_controller_processes_adds_renders_and_counts_accepted_recording() -> No
     assert controller.settings.sources.voice_stack_path == (
         "data/sources/voice/stack/generated-stack.wav"
     )
+
+
+def test_controller_applies_voice_stack_result_paths_before_rendering() -> None:
+    voice_stack = SpyVoiceStack(mutate_settings=False)
+    renderer = SpyRenderer()
+    persisted_source_paths: list[tuple[str | None, str | None]] = []
+
+    def persist_settings(settings: AppSettings) -> None:
+        persisted_source_paths.append(
+            (settings.sources.voice_raw_path, settings.sources.voice_stack_path),
+        )
+
+    controller, _, _, _, participants, _, clock = controller_fixture(
+        voice_stack=voice_stack,
+        renderer=renderer,
+        persist_settings=persist_settings,
+    )
+
+    controller.arm_input()
+    controller.start_recording()
+    clock.advance(1.2)
+    outcome = controller.stop_recording()
+
+    assert outcome.accepted is True
+    assert participants.count == 1
+    assert controller.settings.sources.voice_raw_path == "data/sources/voice/raw/generated-raw.wav"
+    assert controller.settings.sources.voice_stack_path == (
+        "data/sources/voice/stack/generated-stack.wav"
+    )
+    assert renderer.rendered_source_paths == [
+        (
+            "data/sources/voice/raw/generated-raw.wav",
+            "data/sources/voice/stack/generated-stack.wav",
+        ),
+    ]
+    assert persisted_source_paths == [
+        (
+            "data/sources/voice/raw/generated-raw.wav",
+            "data/sources/voice/stack/generated-stack.wav",
+        ),
+    ]
 
 
 def test_controller_canonicalizes_mono_device_take_before_stack() -> None:
