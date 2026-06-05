@@ -30,6 +30,47 @@ class MemoryOutput:
         self._running = False
 
 
+class ApplyRestartPlayerSpy:
+    def __init__(self) -> None:
+        self.reload_paths = []
+        self.voice_hot_swap_calls = 0
+        self.enabled_updates = []
+        self.realtime_trim_updates = []
+        self.peak_ceiling_updates = []
+
+    @property
+    def frame_cursor(self) -> int:
+        return 0
+
+    def snapshot(self):
+        return {"reload_paths": list(self.reload_paths)}
+
+    def reload_and_restart(self, paths) -> None:
+        self.reload_paths.append(paths)
+
+    def load_rendered_layers(self, paths) -> None:
+        raise AssertionError("Apply and Restart must reload the rendered cache")
+
+    def restart(self) -> None:
+        raise AssertionError("Apply and Restart must reload the rendered cache")
+
+    def restore(self, snapshot) -> None:
+        self.reload_paths = list(snapshot["reload_paths"])
+
+    def start_voice_crossfade(self, *args, **kwargs) -> None:
+        self.voice_hot_swap_calls += 1
+        raise AssertionError("Apply and Restart must not use live voice hot-swap")
+
+    def set_enabled(self, layer_id: str, enabled: bool) -> None:
+        self.enabled_updates.append((layer_id, enabled))
+
+    def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
+        self.realtime_trim_updates.append((layer_id, realtime_trim_db))
+
+    def set_peak_ceiling(self, peak_ceiling: float) -> None:
+        self.peak_ceiling_updates.append(peak_ceiling)
+
+
 def service_settings() -> AppSettings:
     return AppSettings(
         audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
@@ -70,6 +111,40 @@ def test_apply_draft_settings_service_applies_render_only_change(tmp_path) -> No
     assert result.output_running is False
     assert runtime.settings_store.load().active.layers["voice"].volume_db == -9.0
     assert runtime.controller.settings.layers["voice"].volume_db == -9.0
+    assert runtime.paths.low_playback.exists()
+    assert runtime.paths.mid_playback.exists()
+    assert runtime.paths.voice_playback.exists()
+
+
+def test_apply_draft_settings_reloads_rendered_cache_without_live_voice_hot_swap(
+    tmp_path,
+) -> None:
+    settings = service_settings().model_copy(
+        update={"voice_stack": VoiceStackSettings(mode="live_ephemeral", loop_seconds=1)},
+        deep=True,
+    )
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(ProjectPaths(tmp_path), settings)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+    runtime.output.start()
+    layers = {
+        **settings.layers,
+        "voice": settings.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    draft = settings.model_copy(update={"layers": layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    result = apply_draft_settings(runtime)
+
+    assert result.was_output_running is True
+    assert result.output_running is True
+    assert player.voice_hot_swap_calls == 0
+    assert len(player.reload_paths) == 1
+    reload_paths = player.reload_paths[0]
+    assert reload_paths["low"] == runtime.paths.low_playback
+    assert reload_paths["mid"] == runtime.paths.mid_playback
+    assert reload_paths["voice"] == runtime.paths.voice_playback
     assert runtime.paths.low_playback.exists()
     assert runtime.paths.mid_playback.exists()
     assert runtime.paths.voice_playback.exists()
