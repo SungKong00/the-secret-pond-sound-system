@@ -2018,11 +2018,29 @@ const sourceLibraryBusyControlSelector = [
   "[data-source-upload]",
   "[data-source-delete]",
 ].join(", ");
+const sourceLibraryBusyControlState = new WeakMap();
 
 const syncSourceLibraryBusyControls = (container) => {
+  if (typeof container.querySelectorAll !== "function") return;
+  const controls = container.querySelectorAll(sourceLibraryBusyControlSelector);
   const busyTitle = sourceActionBusyTitle(state.sourceMutationInFlight, state.applyInFlight);
-  if (!busyTitle || typeof container.querySelectorAll !== "function") return;
-  container.querySelectorAll(sourceLibraryBusyControlSelector).forEach((control) => {
+  if (!busyTitle) {
+    controls.forEach((control) => {
+      const previous = sourceLibraryBusyControlState.get(control);
+      if (!previous) return;
+      control.disabled = previous.disabled;
+      control.title = previous.title;
+      sourceLibraryBusyControlState.delete(control);
+    });
+    return;
+  }
+  controls.forEach((control) => {
+    if (!sourceLibraryBusyControlState.has(control)) {
+      sourceLibraryBusyControlState.set(control, {
+        disabled: control.disabled,
+        title: control.title,
+      });
+    }
     control.disabled = true;
     control.title = busyTitle;
   });

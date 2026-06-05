@@ -2906,6 +2906,48 @@ for (const control of [sourceSelect, fileInput, uploadMode, uploadButton, delete
     )
 
 
+def test_static_ui_source_library_deferred_busy_state_clears_after_unlock(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderSourceLibrary }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+const sourceSelect = makeElement();
+const uploadButton = makeElement();
+uploadButton.disabled = true;
+uploadButton.title = "추가할 WAV 파일을 먼저 선택하세요.";
+
+elements.sourceLibraryList = makeElement();
+elements.sourceLibraryList.contains = (element) => element === sourceSelect;
+elements.sourceLibraryList.querySelectorAll = (selector) => {
+  if (selector.includes("[data-source-select]")) {
+    return [sourceSelect, uploadButton];
+  }
+  return [];
+};
+
+helpers.state.activeInteractiveControl = sourceSelect;
+helpers.state.sourceMutationInFlight = true;
+helpers.renderSourceLibrary();
+assert.strictEqual(sourceSelect.disabled, true);
+assert.strictEqual(sourceSelect.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+assert.strictEqual(uploadButton.disabled, true);
+assert.strictEqual(uploadButton.title, "소스 파일 작업이 끝날 때까지 기다리세요.");
+
+helpers.state.sourceMutationInFlight = false;
+helpers.renderSourceLibrary();
+
+assert.strictEqual(sourceSelect.disabled, false);
+assert.strictEqual(sourceSelect.title, "");
+assert.strictEqual(uploadButton.disabled, true);
+assert.strictEqual(uploadButton.title, "추가할 WAV 파일을 먼저 선택하세요.");
+""",
+    )
+
+
 def test_static_ui_source_signature_uses_explicit_categories(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
