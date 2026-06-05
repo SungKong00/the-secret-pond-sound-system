@@ -1687,12 +1687,14 @@ const deriveDashboardControlState = ({
   resetDraftInFlight = false,
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
+  recordingStartInFlight = false,
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
+  const recordingStartBusy = Boolean(recordingStartInFlight);
   const recordingStopBusy = Boolean(recordingStopInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
@@ -1700,14 +1702,14 @@ const deriveDashboardControlState = ({
   const settingsOperationBusy = Boolean(
     applyInFlight || resetDraftInFlight || sourceMutationInFlight || deviceChangeBusy,
   );
-  const captureOperationBusy = recordingStopBusy || settingsOperationBusy;
+  const captureOperationBusy = recordingStartBusy || recordingStopBusy || settingsOperationBusy;
   const outputControlBusy = Boolean(
     applyInFlight || recordingStopBusy || playbackControlBusy || deviceChangeBusy,
   );
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
-  const captureGateClass = recordingStopBusy
+  const captureGateClass = recordingStartBusy || recordingStopBusy
     ? "capture-gate-processing"
     : isRecording
       ? "capture-gate-recording"
@@ -1739,6 +1741,7 @@ const deriveDashboardControlState = ({
             ? operationLockMessages.deviceChange
             : "";
   return {
+    recordingStartBusy,
     recordingStopBusy,
     outputControlBusy,
     captureReady: armed && !isRecording && !captureOperationBusy,
@@ -1746,7 +1749,7 @@ const deriveDashboardControlState = ({
     captureGateClass,
     captureGateSwitchDisabled: captureOperationBusy || isRecording,
     startDisabled: captureOperationBusy || !armed || isRecording,
-    stopDisabled: recordingStopBusy || !isRecording,
+    stopDisabled: recordingStartBusy || recordingStopBusy || !isRecording,
     startOutputDisabled: outputControlBusy || outputRunning,
     stopOutputDisabled: outputControlBusy || !outputRunning,
     restartOutputDisabled: outputControlBusy || !outputRunning,
@@ -1781,6 +1784,7 @@ const currentSettingsUiState = (snapshot = state.snapshot) => {
       resetDraftInFlight: state.resetDraftInFlight,
       sourceMutationInFlight: state.sourceMutationInFlight,
       deviceChangeInFlight: state.deviceChangeInFlight,
+      recordingStartInFlight: state.recordingStartInFlight,
       recordingStopInFlight: state.recordingStopInFlight,
       playbackControlInFlight: state.playbackControlInFlight,
       resetParticipantsInFlight: state.resetParticipantsInFlight,
@@ -1818,7 +1822,7 @@ const renderState = () => {
   $("maximumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.maximum_recording_seconds,
   );
-  $("recordCoreStatus").textContent = controlState.recordingStopBusy
+  $("recordCoreStatus").textContent = controlState.recordingStartBusy || controlState.recordingStopBusy
     ? "처리 중"
     : snapshot.is_recording
       ? "녹음 중"
@@ -1874,7 +1878,9 @@ const recordOutcomeKind = () => {
 };
 
 const renderRecordReadiness = (snapshot, controlState) => {
-  if (controlState.recordingStopBusy) {
+  if (controlState.recordingStartBusy) {
+    setRecordStatus("processing", "녹음 시작 중...", "녹음 준비를 확인하고 있습니다.");
+  } else if (controlState.recordingStopBusy) {
     setRecordStatus("processing", "녹음 처리 중...");
   } else if (snapshot.is_recording) {
     setRecordStatus("recording", "녹음 중", "스페이스바를 떼면 중지합니다.");
@@ -3783,6 +3789,7 @@ const deriveDashboardControlStateForRequest = (currentState = state) =>
     resetDraftInFlight: currentState.resetDraftInFlight,
     sourceMutationInFlight: currentState.sourceMutationInFlight,
     deviceChangeInFlight: currentState.deviceChangeInFlight,
+    recordingStartInFlight: currentState.recordingStartInFlight,
     recordingStopInFlight: currentState.recordingStopInFlight,
     playbackControlInFlight: currentState.playbackControlInFlight,
   });
@@ -3848,6 +3855,7 @@ const control = async (path, options = {}) => {
   } = controlRequest;
   if (startsStartRequest) {
     state.recordingStartInFlight = true;
+    renderState();
   }
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
@@ -3909,6 +3917,7 @@ const control = async (path, options = {}) => {
     if (startsStartRequest) {
       state.recordingStartInFlight = false;
       state.recordingStopRequestedAfterStart = false;
+      renderState();
     }
     if (controlError) showError(controlError.message);
   }

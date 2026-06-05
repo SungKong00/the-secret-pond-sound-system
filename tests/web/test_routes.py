@@ -1637,7 +1637,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         '"stopButton").disabled = controlState.stopDisabled'
         in render_state_body
     )
-    assert 'controlState.recordingStopBusy\n    ? "처리 중"' in render_state_body
+    assert (
+        "controlState.recordingStartBusy || controlState.recordingStopBusy\n"
+        '    ? "처리 중"'
+        in render_state_body
+    )
     assert "applyInFlight: false" in script.text
     assert '"applyButton").disabled = controlState.applyDisabled' in render_state_body
     bilingual_apply_label = (
@@ -2605,6 +2609,17 @@ assert.strictEqual(
   }}).skip,
   true,
 );
+const recordingStartBusyState = derive({{
+  snapshot: {{ armed: true, is_recording: false }},
+  recordingStartInFlight: true,
+}});
+assert.strictEqual(recordingStartBusyState.recordingStartBusy, true);
+assert.strictEqual(recordingStartBusyState.recordingStopBusy, false);
+assert.strictEqual(recordingStartBusyState.captureReady, false);
+assert.strictEqual(recordingStartBusyState.captureGateClass, "capture-gate-processing");
+assert.strictEqual(recordingStartBusyState.captureGateSwitchDisabled, true);
+assert.strictEqual(recordingStartBusyState.startDisabled, true);
+assert.strictEqual(recordingStartBusyState.stopDisabled, true);
 assert.strictEqual(
   deriveControl("/api/recording/start", {{}}, {{
     snapshot: {{ armed: false, is_recording: false }},
@@ -2823,6 +2838,7 @@ assert.deepStrictEqual(
     runtimeConfigChanged: false,
   }}),
   {{
+    recordingStartBusy: false,
     recordingStopBusy: false,
     outputControlBusy: false,
     captureReady: true,
@@ -3263,6 +3279,165 @@ def test_static_ui_playback_control_in_flight_blocks_duplicate_requests(
   console.error(error);
   process.exit(1);
 }});
+""",
+    )
+
+
+def test_static_ui_recording_start_in_flight_disables_capture_controls(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, control, renderState }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const activeSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: {
+        enabled: true,
+        volume_db: 0,
+        eq: {
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        },
+      },
+      mid: {
+        enabled: true,
+        volume_db: 0,
+        eq: {
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        },
+      },
+      voice: {
+        enabled: true,
+        volume_db: 0,
+        eq: {
+          low_gain_db: 0,
+          mid_gain_db: 0,
+          high_gain_db: 0,
+          highpass_hz: 20,
+          lowpass_hz: 20000,
+        },
+      },
+    },
+  };
+  const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+  const snapshot = {
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 0,
+    playback: { output_running: false, layers: {} },
+    settings: {
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(activeSettings),
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: [],
+        runtime_config_fields: [],
+      },
+    },
+  };
+  globalThis.__secretPondTest.state.snapshot = snapshot;
+  globalThis.__secretPondTest.state.draft = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.renderState();
+  assert.strictEqual(elements.startButton.disabled, false);
+  assert.strictEqual(elements.captureGateSwitch.disabled, false);
+  assert.strictEqual(elements.recordCoreStatus.textContent, "준비 완료");
+
+  const recordingFetches = [];
+  let resolveStart = null;
+  globalThis.fetch = (path) => {
+    recordingFetches.push(path);
+    if (path === "/api/recording/start") {
+      return new Promise((resolve) => {
+        resolveStart = () =>
+          resolve({
+            ok: true,
+            json: async () => ({
+              state: {
+                ...snapshot,
+                is_recording: true,
+              },
+            }),
+          });
+      });
+    }
+    if (path === "/api/diagnostics") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ sources: [], events: { recent: [] } }),
+      });
+    }
+    if (path === "/api/sources") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ categories: [] }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  const pendingStart = globalThis.__secretPondTest.control("/api/recording/start");
+  assert.deepStrictEqual(recordingFetches, ["/api/recording/start"]);
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStartInFlight, true);
+  assert.strictEqual(elements.startButton.disabled, true);
+  assert.strictEqual(elements.captureGateSwitch.disabled, true);
+  assert.strictEqual(elements.stopButton.disabled, true);
+  assert.strictEqual(elements.recordCoreStatus.textContent, "처리 중");
+  assert.strictEqual(elements.recordOutcomeStatus.textContent, "녹음 시작 중...");
+
+  await globalThis.__secretPondTest.control("/api/recording/start");
+  assert.deepStrictEqual(recordingFetches, ["/api/recording/start"]);
+
+  resolveStart();
+  await pendingStart;
+  assert.strictEqual(globalThis.__secretPondTest.state.recordingStartInFlight, false);
+  assert.strictEqual(globalThis.__secretPondTest.state.snapshot.is_recording, true);
+  assert.strictEqual(elements.startButton.disabled, true);
+  assert.strictEqual(elements.stopButton.disabled, false);
+  assert.deepStrictEqual(recordingFetches, [
+    "/api/recording/start",
+    "/api/diagnostics",
+    "/api/sources",
+  ]);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 """,
     )
 
