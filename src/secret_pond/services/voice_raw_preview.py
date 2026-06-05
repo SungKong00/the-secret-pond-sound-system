@@ -37,6 +37,15 @@ def start_voice_raw_preview(
     relative_path: str,
     settings: AppSettings,
 ) -> None:
+    if (
+        runtime.voice_raw_preview_path is not None
+        and runtime.output.is_running
+        and getattr(runtime.player, "is_playing", False)
+    ):
+        prepare_voice_raw_preview(runtime, relative_path, settings)
+        runtime.voice_raw_preview_path = relative_path
+        return
+
     was_main_playback_running = runtime.output.is_running and runtime.voice_raw_preview_path is None
     if runtime.voice_raw_preview_path is not None:
         was_main_playback_running = bool(
