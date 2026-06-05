@@ -10341,6 +10341,34 @@ def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -
     assert float(np.max(np.abs(rendered.samples))) > 0.05
 
 
+def test_api_live_voice_stack_source_select_records_pending_voice_transition(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    paths = ProjectPaths(tmp_path)
+    selected_stack = "data/sources/voice/stack/VS0610_213112.wav"
+    write_wav_atomic(
+        paths.voice_stack_sources_dir / "VS0610_213112.wav",
+        twenty_second_voice_take(),
+    )
+
+    response = client.put(
+        "/api/sources/voice_stack/select",
+        json={"path": selected_stack},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["draft"]["sources"]["voice_stack_path"] == selected_stack
+    assert response.json()["settings"]["active"]["sources"]["voice_stack_path"] is None
+    assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] == (
+        selected_stack
+    )
+
+
 def test_api_state_reports_initial_runtime_state(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 

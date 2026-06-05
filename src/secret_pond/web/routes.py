@@ -235,6 +235,11 @@ def select_source_file(
             )
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
+        _update_pending_voice_transition_after_source_select(
+            runtime,
+            config.id,
+            relative_path,
+        )
         runtime.mark_state_changed()
         return _source_settings_payload(runtime, state)
 
@@ -650,8 +655,24 @@ def _source_settings_payload(
     return {
         **state_version_payload(runtime),
         "settings": _settings_payload(runtime, settings_state),
+        "state": _state_payload(runtime, settings_state),
         "sources": _sources_payload(runtime, settings_state),
     }
+
+
+def _update_pending_voice_transition_after_source_select(
+    runtime: SecretPondRuntime,
+    category: str,
+    relative_path: str | None,
+) -> None:
+    if (
+        category == "voice_stack"
+        and relative_path is not None
+        and runtime.controller.settings.playback.apply_mode == "live"
+    ):
+        runtime.pending_voice_transition_target_id = relative_path
+        return
+    runtime.pending_voice_transition_target_id = None
 
 
 def _run_control(runtime: SecretPondRuntime, fn):

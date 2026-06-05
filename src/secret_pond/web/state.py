@@ -54,6 +54,7 @@ def state_payload(
             "is_playing": runtime.player.is_playing,
             "rendered_cache_ready": runtime.player.rendered_cache_ready,
             "active_voice_transition_target_id": runtime.player.active_voice_transition_target_id,
+            "pending_voice_transition_target_id": runtime.pending_voice_transition_target_id,
             "playback_session_id": transition_guard.playback_session_id,
             "voice_raw_preview_path": runtime.voice_raw_preview_path,
             "transition_warning": runtime.transition_warning,

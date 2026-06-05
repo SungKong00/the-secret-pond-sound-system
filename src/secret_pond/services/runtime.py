@@ -74,6 +74,7 @@ class SecretPondRuntime:
     state_epoch: int = field(default_factory=time.time_ns)
     state_revision: int = 0
     transition_warning: str | None = None
+    pending_voice_transition_target_id: str | None = None
     voice_raw_preview_path: str | None = None
     playback_render_settings: AppSettings | None = None
 
