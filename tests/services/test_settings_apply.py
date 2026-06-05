@@ -231,6 +231,41 @@ def test_stable_apply_commits_staged_volume_and_mute_to_active_state(tmp_path) -
     assert runtime.output.is_running is True
 
 
+def test_stable_apply_commits_staged_eq_through_rendered_cache_restart(tmp_path) -> None:
+    settings = service_settings()
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(ProjectPaths(tmp_path), settings)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+    runtime.output.start()
+    layers = {
+        **settings.layers,
+        "mid": settings.layers["mid"].model_copy(
+            update={"eq": settings.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0})},
+        ),
+        "voice": settings.layers["voice"].model_copy(
+            update={"eq": settings.layers["voice"].eq.model_copy(update={"high_gain_db": -4.0})},
+        ),
+    }
+    draft = settings.model_copy(update={"layers": layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    result = apply_draft_settings(runtime)
+
+    stored = runtime.settings_store.load()
+    assert result.settings_state.active.playback.apply_mode == "stable"
+    assert stored.active.layers["mid"].eq.mid_gain_db == 5.0
+    assert stored.active.layers["voice"].eq.high_gain_db == -4.0
+    assert stored.draft.layers == stored.active.layers
+    assert runtime.controller.settings.layers == stored.active.layers
+    assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 5.0
+    assert runtime.playback_render_settings.layers["voice"].eq.high_gain_db == -4.0
+    assert len(player.reload_paths) == 1
+    assert player.reload_paths[0]["mid"] == runtime.paths.mid_playback
+    assert player.reload_paths[0]["voice"] == runtime.paths.voice_playback
+    assert runtime.output.is_running is True
+
+
 def test_apply_draft_settings_service_rejects_runtime_config_change(tmp_path) -> None:
     settings = service_settings()
     runtime = build_service_runtime(tmp_path, settings)
