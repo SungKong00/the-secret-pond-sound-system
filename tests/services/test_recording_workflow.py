@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ast
+import inspect
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
+import secret_pond.services.recording_workflow as recording_workflow
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import write_wav_atomic
 from secret_pond.audio.player import LayeredLoopPlayer
@@ -134,6 +137,42 @@ def test_start_ready_voice_stack_crossfade_delegates_to_player_voice_api() -> No
         duration_frames=32_000,
         transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
     )
+
+
+def test_ready_voice_stack_crossfade_contract_keeps_player_as_only_owner() -> None:
+    assert recording_workflow.READY_VOICE_STACK_CROSSFADE_OWNER == (
+        "LayeredLoopPlayer.start_voice_crossfade"
+    )
+    tree = ast.parse(inspect.getsource(recording_workflow))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "start_ready_voice_stack_crossfade"
+    )
+    crossfade_calls = [
+        node
+        for node in ast.walk(helper)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and "crossfade" in node.func.attr
+    ]
+    assert len(crossfade_calls) == 1
+    call = crossfade_calls[0]
+    assert isinstance(call.func.value, ast.Name)
+    assert (call.func.value.id, call.func.attr) == ("player", "start_voice_crossfade")
+
+    forbidden_owner_names = {
+        "_equal_power_crossfade_gains",
+        "mix_layer_blocks_with_voice_crossfade",
+        "VoiceCrossfadeState",
+    }
+    referenced_names = {
+        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    } | {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+    assert forbidden_owner_names.isdisjoint(referenced_names)
 
 
 def test_refresh_playback_uses_voice_crossfade_when_output_running_and_guard_matches(

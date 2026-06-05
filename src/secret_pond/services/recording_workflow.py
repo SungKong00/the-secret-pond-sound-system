@@ -11,6 +11,8 @@ from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
 
 _T = TypeVar("_T")
 
+READY_VOICE_STACK_CROSSFADE_OWNER = "LayeredLoopPlayer.start_voice_crossfade"
+
 
 @dataclass(frozen=True)
 class RecordingPlaybackGuard:
