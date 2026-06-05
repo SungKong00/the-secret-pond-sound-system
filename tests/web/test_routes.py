@@ -1731,6 +1731,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst applyState",
     )
     assert "await requestState({ syncDraft: false }).catch(" in refresh_all_body
+    operation_lock_body = slice_between(
+        script.text,
+        "const renderOperationLockSurfaces = () => {",
+        "};\n\nconst renderLayerControls",
+    )
+    assert "renderState();" in operation_lock_body
+    assert "renderControls();" in operation_lock_body
+    assert "renderDevices();" in operation_lock_body
+    assert "renderSourceLibrary();" in operation_lock_body
     apply_body = slice_between(
         script.text,
         "const applyAndRestart = async () => {",
@@ -1739,7 +1748,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "if (currentSettingsActionState().applyDisabled) return" in apply_body
     assert "state.applyInFlight = true" in apply_body
     assert "state.applyInFlight = false" in apply_body
-    assert "renderDevices();" in apply_body
+    assert "renderOperationLockSurfaces();" in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
     assert "showError(applyError.message)" in apply_body
@@ -1814,14 +1823,20 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "controlError = error" in control_body
     assert "const controlRequest = deriveControlRequestState(path, options)" in control_body
     assert "if (controlRequest.skip) return" in control_body
-    assert "state.recordingStopInFlight = true;\n    renderState();" in control_body
-    assert "state.recordingStopInFlight = false;\n      renderState();" in control_body
+    assert (
+        "state.recordingStopInFlight = true;\n    renderOperationLockSurfaces();"
+        in control_body
+    )
+    assert (
+        "state.recordingStopInFlight = false;\n      renderOperationLockSurfaces();"
+        in control_body
+    )
     assert "if (controlError) showError(controlError.message);" in control_body
     assert control_body.index("state.recordingStopInFlight = true") < control_body.index(
         "setRecordStatus(\"processing\", \"녹음 처리 중...\")",
     )
     final_recording_stop_reset = control_body.rindex("state.recordingStopInFlight = false")
-    final_render = control_body.index("renderState();", final_recording_stop_reset)
+    final_render = control_body.index("renderOperationLockSurfaces();", final_recording_stop_reset)
     final_error = control_body.index("if (controlError) showError(controlError.message);")
     assert final_recording_stop_reset < final_render < final_error
     recording_error_branch = slice_between(
@@ -4429,7 +4444,15 @@ def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
     typeof helpers.state.deferredInteractiveRenders["device-inputDeviceSelect"],
     "function",
   );
-  helpers.releaseInteractiveControl(select);
+  let blockedDeviceChangePath = null;
+  globalThis.fetch = (path) => {
+    blockedDeviceChangePath = path;
+    throw new Error(`unexpected fetch ${path}`);
+  };
+  select.value = "mic-2";
+  await helpers.changeDeviceFromEvent("input_device_id", { target: select });
+  assert.strictEqual(blockedDeviceChangePath, null);
+  assert.strictEqual(select.value, "mic-1");
   assert.strictEqual(select.disabled, true);
   assert.strictEqual(select.title, "설정 적용이 끝날 때까지 기다리세요.");
   helpers.state.applyInFlight = false;
@@ -4483,6 +4506,193 @@ def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
     { input_device_id: "mic-2" },
   );
   assert.strictEqual(select.value, "mic-2");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
+def test_static_ui_device_change_in_flight_updates_related_panels_immediately(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ state, changeDevice, renderState, renderVoiceStackControls, "
+            "renderSourceLibrary }"
+        ),
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const layerSettings = (volumeDb) => ({
+    enabled: true,
+    volume_db: volumeDb,
+    eq: {
+      low_gain_db: 0,
+      mid_gain_db: 0,
+      high_gain_db: 0,
+      highpass_hz: 20,
+      lowpass_hz: 20000,
+    },
+  });
+  const activeSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: layerSettings(-12),
+      mid: layerSettings(-12),
+      voice: layerSettings(-18),
+    },
+  };
+  const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+  const draftSettings = cloneSettings(activeSettings);
+  draftSettings.voice_stack.loop_seconds = 61;
+  const snapshot = {
+    armed: true,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 0,
+    playback: { output_running: false, layers: {} },
+    settings: {
+      active: cloneSettings(activeSettings),
+      draft: cloneSettings(draftSettings),
+      change: {
+        runtime_config_changed: false,
+        changed_runtime_fields: [],
+        changed_sections: ["voice_stack"],
+        runtime_config_fields: [],
+      },
+    },
+  };
+  const devices = {
+    input_devices: [
+      { id: "mic-1", name: "Mic 1" },
+      { id: "mic-2", name: "Mic 2" },
+    ],
+    output_devices: [{ id: "speaker-1", name: "Speaker 1" }],
+    selected_input_device: { id: "mic-1", name: "Mic 1" },
+    selected_output_device: { id: "speaker-1", name: "Speaker 1" },
+    warnings: [],
+  };
+  const sourcePayload = {
+    categories: [
+      {
+        id: "low",
+        label: "Low",
+        directory: "sources/low",
+        selected_path: "sources/low/current.wav",
+        active_exists: true,
+        files: [
+          {
+            name: "current.wav",
+            path: "sources/low/current.wav",
+            size_bytes: 10,
+            modified_at: "2026-06-05T00:00:00Z",
+            active: true,
+            applied: true,
+          },
+        ],
+      },
+    ],
+  };
+  helpers.state.snapshot = snapshot;
+  helpers.state.draft = cloneSettings(draftSettings);
+  helpers.state.devices = devices;
+  helpers.state.sources = sourcePayload;
+  helpers.state.sourceUploads.low = {
+    selectAfterUpload: true,
+    file: { name: "picked-low.wav", size: 4096, lastModified: 1 },
+  };
+  const latestSourceLibraryHtml = () =>
+    elements.sourceLibraryList.children[elements.sourceLibraryList.children.length - 1].innerHTML;
+  const sourceUploadButtonHtml = () => {
+    const html = latestSourceLibraryHtml();
+    const start = html.indexOf('data-source-upload="low"');
+    const end = html.indexOf('data-source-upload-select="low"');
+    return html.slice(start, end);
+  };
+
+  helpers.renderState();
+  helpers.renderVoiceStackControls();
+  helpers.renderSourceLibrary();
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.resetButton.disabled, false);
+  assert.strictEqual(elements.storageModeLibraryButton.disabled, false);
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
+
+  let resolveDeviceChange = null;
+  globalThis.fetch = (path, options = {}) => {
+    if (path === "/api/devices" && options.method === "PUT") {
+      return new Promise((resolve) => {
+        resolveDeviceChange = () => resolve({
+          ok: true,
+          json: async () => ({
+            state: snapshot,
+            devices,
+          }),
+        });
+      });
+    }
+    if (path === "/api/diagnostics") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ sources: [], events: { recent: [] } }),
+      });
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  const pendingChange = helpers.changeDevice("input_device_id", "mic-2");
+  assert.strictEqual(helpers.state.deviceChangeInFlight, true);
+  assert.strictEqual(elements.applyButton.disabled, true);
+  assert.strictEqual(elements.applyButton.title, "장치 변경을 적용하는 중입니다.");
+  assert.strictEqual(elements.resetButton.disabled, true);
+  assert.strictEqual(elements.resetButton.title, "장치 변경을 적용하는 중입니다.");
+  assert.strictEqual(elements.storageModeLibraryButton.disabled, true);
+  assert.strictEqual(
+    elements.storageModeLibraryButton.title,
+    "장치 변경을 적용하는 중입니다.",
+  );
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), true);
+  assert.strictEqual(
+    sourceUploadButtonHtml().includes(
+      'title="장치 변경이 끝날 때까지 소스 파일을 바꿀 수 없습니다."',
+    ),
+    true,
+  );
+
+  resolveDeviceChange();
+  await pendingChange;
+  assert.strictEqual(helpers.state.deviceChangeInFlight, false);
+  assert.strictEqual(elements.applyButton.disabled, false);
+  assert.strictEqual(elements.resetButton.disabled, false);
+  assert.strictEqual(elements.storageModeLibraryButton.disabled, false);
+  assert.strictEqual(sourceUploadButtonHtml().includes("disabled"), false);
 })().catch((error) => {
   console.error(error);
   process.exit(1);

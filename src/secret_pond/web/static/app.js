@@ -2534,18 +2534,14 @@ const isCurrentSourceMutation = (requestId) => requestId === state.sourceMutatio
 const beginSourceMutation = () => {
   const requestId = nextSourceMutationRequestId();
   state.sourceMutationInFlight = true;
-  renderState();
-  renderDevices();
-  renderSourceLibrary();
+  renderOperationLockSurfaces();
   return requestId;
 };
 
 const finishSourceMutation = (requestId) => {
   if (!isCurrentSourceMutation(requestId)) return;
   state.sourceMutationInFlight = false;
-  renderState();
-  renderDevices();
-  renderSourceLibrary();
+  renderOperationLockSurfaces();
 };
 
 const applySourceMutationPayload = (payload, options = {}) => {
@@ -3084,6 +3080,13 @@ const renderControls = () => {
   renderVoiceStackControls();
   renderRecordingPresets();
   renderRecordingControls();
+};
+
+const renderOperationLockSurfaces = () => {
+  renderState();
+  renderControls();
+  renderDevices();
+  renderSourceLibrary();
 };
 
 const renderLayerControls = () => {
@@ -3848,15 +3851,11 @@ const control = async (path, options = {}) => {
   }
   if (startsStopRequest) {
     state.recordingStopInFlight = true;
-    renderState();
-    renderDevices();
-    renderSourceLibrary();
+    renderOperationLockSurfaces();
   }
   if (playbackControlRequest) {
     state.playbackControlInFlight = true;
-    renderState();
-    renderDevices();
-    renderSourceLibrary();
+    renderOperationLockSurfaces();
   }
   if (expectsRecordingOutcome && path !== "/api/recording/poll-auto-stop") {
     setRecordStatus("processing", "녹음 처리 중...");
@@ -3901,15 +3900,11 @@ const control = async (path, options = {}) => {
   } finally {
     if (startsStopRequest) {
       state.recordingStopInFlight = false;
-      renderState();
-      renderDevices();
-      renderSourceLibrary();
+      renderOperationLockSurfaces();
     }
     if (playbackControlRequest) {
       state.playbackControlInFlight = false;
-      renderState();
-      renderDevices();
-      renderSourceLibrary();
+      renderOperationLockSurfaces();
     }
     if (startsStartRequest) {
       state.recordingStartInFlight = false;
@@ -3923,10 +3918,7 @@ const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
   state.applyInFlight = true;
-  renderState();
-  renderControls();
-  renderDevices();
-  renderSourceLibrary();
+  renderOperationLockSurfaces();
   try {
     clearDraftSaveTimer();
     await saveDraft();
@@ -3941,10 +3933,7 @@ const applyAndRestart = async () => {
     await requestSources().catch(() => {});
   } finally {
     state.applyInFlight = false;
-    renderState();
-    renderControls();
-    renderDevices();
-    renderSourceLibrary();
+    renderOperationLockSurfaces();
     if (applyError) showError(applyError.message);
     else clearTransientError();
   }
@@ -3956,9 +3945,7 @@ const resetDraft = async () => {
   let resetError = null;
   state.resetDraftInFlight = true;
   invalidatePendingDraftSaves();
-  renderState();
-  renderControls();
-  renderSourceLibrary();
+  renderOperationLockSurfaces();
   try {
     const payload = await api("/api/settings/reset-draft", { method: "POST" });
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
@@ -3969,10 +3956,7 @@ const resetDraft = async () => {
     await requestState({ syncDraft: false }).catch(() => {});
   } finally {
     state.resetDraftInFlight = false;
-    renderState();
-    renderControls();
-    renderDevices();
-    renderSourceLibrary();
+    renderOperationLockSurfaces();
     if (resetError) showError(resetError.message);
     else clearTransientError();
   }
@@ -4015,7 +3999,7 @@ const changeDevice = async (key, value) => {
   if (currentDeviceChangeState(key).disabled) return;
   state.deviceChangeRequestId += 1;
   state.deviceChangeInFlight = true;
-  renderDevices();
+  renderOperationLockSurfaces();
   try {
     const payload = await api("/api/devices", {
       method: "PUT",
@@ -4031,7 +4015,7 @@ const changeDevice = async (key, value) => {
     showError(error.message);
   } finally {
     state.deviceChangeInFlight = false;
-    renderDevices();
+    renderOperationLockSurfaces();
   }
 };
 
