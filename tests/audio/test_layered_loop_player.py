@@ -8,6 +8,7 @@ import pytest
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.player import LayeredLoopPlayer
+from secret_pond.config import EqSettings
 
 
 def stereo(value: float, frames: int = 4, sample_rate: int = 8_000) -> AudioBuffer:
@@ -28,6 +29,10 @@ def write_layers(root: Path, low: float, mid: float, voice: float, frames: int =
     write_wav_atomic(paths["mid"], stereo(mid, frames=frames))
     write_wav_atomic(paths["voice"], stereo(voice, frames=frames))
     return paths
+
+
+def rms(samples: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(samples))))
 
 
 def test_player_loads_layers_into_memory_and_releases_files(tmp_path: Path) -> None:
@@ -226,6 +231,29 @@ def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_c
     assert player.frame_cursor == 4
     assert player.active_voice_transition_target_id == "vs-2"
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
+
+
+def test_player_voice_eq_update_is_audible_during_active_voice_crossfade(
+    tmp_path: Path,
+) -> None:
+    paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.1, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    player.next_block(16)
+    player.start_voice_crossfade(
+        stereo(0.1, frames=512),
+        duration_frames=128,
+        transition_target_id="vs-2",
+    )
+
+    before = rms(player.next_block(16).samples[:, 0])
+    player.set_layer_buffer("voice", stereo(0.3, frames=512))
+    player.set_live_eq_state("voice", EqSettings(mid_gain_db=6.0))
+    after = rms(player.next_block(16).samples[:, 0])
+
+    assert player.active_voice_transition_target_id == "vs-2"
+    assert after > before * 1.5
 
 
 def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(

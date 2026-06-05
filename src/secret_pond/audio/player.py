@@ -172,7 +172,14 @@ class LayeredLoopPlayer:
         normalized_layer_id = _validate_layer_id(layer_id)
         layers = self._require_loaded()
         next_layers = dict(layers)
-        next_layers[normalized_layer_id] = buffer
+        next_buffer = buffer
+        if normalized_layer_id == "voice" and self._voice_transition is not None:
+            next_buffer = _canonical_voice_candidate(buffer, layers)
+            self._voice_transition = replace(
+                self._voice_transition,
+                to_buffer=next_buffer,
+            )
+        next_layers[normalized_layer_id] = next_buffer
         _validate_loaded_layers(next_layers)
         self._layers = next_layers
 
