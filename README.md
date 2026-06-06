@@ -2,6 +2,28 @@
 
 〈비밀의 연못〉을 위한 Python 기반 녹음, 오디오 처리, 3레이어 루프 재생 시스템입니다.
 
+## 프로토타입 실행
+
+의뢰자에게 전달할 때는 터미널 명령 대신 OS별 실행 파일을 사용합니다.
+
+macOS:
+
+1. Python 3.11 또는 3.12가 설치되어 있는지 확인합니다.
+2. `Start Secret Pond.command`를 더블클릭합니다.
+3. 첫 실행이면 `.venv`를 만들고 필요한 패키지를 설치한 뒤 서버를 켭니다.
+4. 브라우저가 자동으로 열리지 않으면 `http://127.0.0.1:8000`을 직접 엽니다.
+
+Windows:
+
+1. Python 3.11 또는 3.12가 설치되어 있는지 확인합니다.
+2. `Start Secret Pond.bat`를 더블클릭합니다.
+3. 첫 실행이면 `.venv`를 만들고 필요한 패키지를 설치한 뒤 서버를 켭니다.
+4. 브라우저가 자동으로 열리지 않으면 `http://127.0.0.1:8000`을 직접 엽니다.
+
+두 실행 파일은 공통 bootstrapper인 `scripts/launch_secret_pond.py`를 호출합니다.
+이 창을 닫거나 `Ctrl+C`를 누르면 서버가 종료됩니다. 의존성을 다시 설치해야 할 때는
+`scripts/launch_secret_pond.py --reinstall`을 사용합니다.
+
 ## 개발 환경
 
 macOS:
@@ -60,7 +82,7 @@ secret-pond serve
 1. `data/sources/low/*.wav`, `data/sources/mid/*.wav`에 사용할 WAV를 넣거나,
    기존 호환 경로인 `data/sources/low.wav`, `data/sources/mid.wav`를 준비합니다.
 2. `secret-pond doctor`로 장치와 의존성을 확인합니다. 로그용 JSON이 필요하면 `secret-pond doctor --json`을 사용하고, 준비 음원이 배치된 뒤에는 `secret-pond doctor --strict`를 현장 준비 상태 게이트로 사용할 수 있습니다.
-3. `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
+3. 전달용 프로토타입은 `Start Secret Pond.command` 또는 `Start Secret Pond.bat`를 실행합니다. 개발 중에는 `secret-pond serve`를 실행하고 `http://127.0.0.1:8000`을 엽니다.
 4. System 패널에서 선택된 소스 상태를 확인하고, 입력/출력 장치 드롭다운과 Source Library에서 사용할 파일을 고릅니다.
 5. 시작 시 렌더 캐시가 활성 오디오 설정과 맞으면 자동으로 player에 로드됩니다. 캐시가 없거나 맞지 않으면 준비 음원에서 자동 렌더를 시도하며, 실패 원인은 System 패널의 최근 이벤트에서 확인합니다.
 6. `Start Output`을 눌러 실제 출력 스트림을 시작합니다.

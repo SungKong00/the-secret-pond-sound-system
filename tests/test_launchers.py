@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import importlib.util
+import os
+from pathlib import Path
+from types import ModuleType
+
+ROOT = Path(__file__).resolve().parents[1]
+LAUNCHER = ROOT / "scripts" / "launch_secret_pond.py"
+
+
+def load_launcher() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("launch_secret_pond", LAUNCHER)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_launcher_builds_serve_command_for_platform_venv() -> None:
+    launcher = load_launcher()
+
+    posix_command = launcher.build_serve_command(
+        Path("/show/secret-pond"),
+        "127.0.0.1",
+        8000,
+        os_name="posix",
+    )
+    windows_command = launcher.build_serve_command(
+        Path("C:/show/secret-pond"),
+        "127.0.0.1",
+        8000,
+        os_name="nt",
+    )
+
+    assert posix_command == [
+        "/show/secret-pond/.venv/bin/python",
+        "-m",
+        "secret_pond.cli",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+    ]
+    assert windows_command == [
+        "C:/show/secret-pond/.venv/Scripts/python.exe",
+        "-m",
+        "secret_pond.cli",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+    ]
+
+
+def test_launcher_reinstalls_when_project_inputs_are_newer_than_marker(tmp_path: Path) -> None:
+    launcher = load_launcher()
+    marker = tmp_path / ".venv" / ".secret_pond_install_complete"
+    pyproject = tmp_path / "pyproject.toml"
+    lock = tmp_path / "uv.lock"
+    marker.parent.mkdir()
+    pyproject.write_text("[project]\n", encoding="utf-8")
+    lock.write_text("lock", encoding="utf-8")
+    marker.write_text("ok", encoding="utf-8")
+
+    assert launcher.needs_install(tmp_path) is False
+
+    marker_mtime = marker.stat().st_mtime
+    os.utime(pyproject, (marker_mtime + 10, marker_mtime + 10))
+
+    assert launcher.needs_install(tmp_path) is True
+
+
+def test_launcher_uses_python_bootstrap_candidates_by_os() -> None:
+    launcher = load_launcher()
+
+    assert launcher.bootstrap_candidates("nt")[0] == ["py", "-3.11"]
+    assert launcher.bootstrap_candidates("posix")[0] == ["python3.11"]
+
+
+def test_clickable_launcher_wrappers_call_common_bootstrapper() -> None:
+    mac_launcher = ROOT / "Start Secret Pond.command"
+    windows_launcher = ROOT / "Start Secret Pond.bat"
+
+    assert "scripts/launch_secret_pond.py" in mac_launcher.read_text(encoding="utf-8")
+    assert "scripts\\launch_secret_pond.py" in windows_launcher.read_text(encoding="utf-8")

@@ -16,6 +16,8 @@ def test_operator_guide_covers_required_operations() -> None:
     required = [
         "macOS",
         "Windows PowerShell",
+        "Start Secret Pond.command",
+        "Start Secret Pond.bat",
         "secret-pond doctor",
         "secret-pond doctor --json",
         "secret-pond doctor --strict",
@@ -136,6 +138,9 @@ def test_readme_links_operator_docs() -> None:
 
     assert "docs/operator-guide.md" in readme
     assert "docs/audio-setup-checklist.md" in readme
+    assert "Start Secret Pond.command" in readme
+    assert "Start Secret Pond.bat" in readme
+    assert "scripts/launch_secret_pond.py" in readme
     assert "secret-pond doctor --json" in readme
     assert "secret-pond doctor --strict" in readme
     assert "secret-pond rebuild-test-library" in readme

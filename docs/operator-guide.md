@@ -4,6 +4,26 @@ This guide is for running The Secret Pond Sound System during rehearsal or exhib
 
 ## Install
 
+For prototype handoff, use the clickable launcher first:
+
+macOS:
+
+```text
+Start Secret Pond.command
+```
+
+Windows:
+
+```text
+Start Secret Pond.bat
+```
+
+The launcher creates `.venv` if needed, installs the project package, starts the local server, and opens `http://127.0.0.1:8000`. Keep the launcher window open while the app is running. Close the window or press `Ctrl+C` to stop the server.
+
+Use Python 3.11 or 3.12. The project currently declares `>=3.11,<3.13`, so do not use Python 3.13 for show setup. The app is WAV-only for the MVP and does not require ffmpeg.
+
+Manual setup for development or troubleshooting:
+
 macOS:
 
 ```bash
@@ -23,8 +43,6 @@ python -m pip install -e ".[dev]"
 secret-pond doctor
 secret-pond serve
 ```
-
-Use Python 3.11 or 3.12. The project currently declares `>=3.11,<3.13`, so do not use Python 3.13 for show setup. The app is WAV-only for the MVP and does not require ffmpeg.
 
 ## macOS Microphone Permission
 
@@ -65,9 +83,9 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
 
 ## Start And Open
 
-1. Run `secret-pond doctor`.
+1. For prototype handoff, run `Start Secret Pond.command` on macOS or `Start Secret Pond.bat` on Windows. For manual startup, run `secret-pond doctor`.
 2. Confirm write access and that input/output devices are listed.
-3. Run `secret-pond serve`.
+3. Run `secret-pond serve` when using manual startup.
 4. Open `http://127.0.0.1:8000`.
 5. Check the System panel before operation.
 6. Use Source Library to select the Low, Mid, and Voice Stack WAV files. Upload new WAV files
