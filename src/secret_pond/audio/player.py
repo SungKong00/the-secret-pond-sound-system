@@ -70,6 +70,7 @@ class LayeredLoopPlayerSnapshot:
     peak_ceiling: float
     voice_transition: VoiceCrossfadeState | None
     seek_envelope: SeekEnvelopeState | None
+    active_voice_identity: str | None = None
 
 
 class LayeredLoopPlayer:
@@ -85,6 +86,7 @@ class LayeredLoopPlayer:
         self._peak_ceiling = peak_ceiling
         self._voice_transition: VoiceCrossfadeState | None = None
         self._seek_envelope: SeekEnvelopeState | None = None
+        self._active_voice_identity: str | None = None
 
     @property
     def is_playing(self) -> bool:
@@ -115,6 +117,10 @@ class LayeredLoopPlayer:
             return None
         return self._voice_transition.transition_target_id
 
+    @property
+    def active_voice_identity(self) -> str | None:
+        return self._active_voice_identity
+
     def snapshot(self) -> LayeredLoopPlayerSnapshot:
         return LayeredLoopPlayerSnapshot(
             layers=None if self._layers is None else dict(self._layers),
@@ -125,6 +131,7 @@ class LayeredLoopPlayer:
             peak_ceiling=self._peak_ceiling,
             voice_transition=self._voice_transition,
             seek_envelope=self._seek_envelope,
+            active_voice_identity=self._active_voice_identity,
         )
 
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
@@ -139,6 +146,7 @@ class LayeredLoopPlayer:
         self._peak_ceiling = snapshot.peak_ceiling
         self._voice_transition = snapshot.voice_transition
         self._seek_envelope = snapshot.seek_envelope
+        self._active_voice_identity = snapshot.active_voice_identity
 
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
@@ -148,8 +156,14 @@ class LayeredLoopPlayer:
         self._playing = False
         self._voice_transition = None
         self._seek_envelope = None
+        self._active_voice_identity = None
 
-    def load_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
+    def load_rendered_buffers(
+        self,
+        buffers: Mapping[LayerId, AudioBuffer],
+        *,
+        active_voice_identity: str | None = None,
+    ) -> None:
         _validate_loaded_layers(buffers)
         layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
         self._layers = layers
@@ -157,6 +171,7 @@ class LayeredLoopPlayer:
         self._playing = False
         self._voice_transition = None
         self._seek_envelope = None
+        self._active_voice_identity = active_voice_identity
 
     def replace_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
         _validate_loaded_layers(buffers)
@@ -194,6 +209,7 @@ class LayeredLoopPlayer:
         self._playing = True
         self._voice_transition = None
         self._seek_envelope = None
+        self._active_voice_identity = None
 
     def start_voice_crossfade(
         self,
@@ -274,8 +290,21 @@ class LayeredLoopPlayer:
             )
             elapsed_frames = self._voice_transition.elapsed_frames + block_size
             if elapsed_frames >= self._voice_transition.duration_frames:
-                layers["voice"] = self._voice_transition.to_buffer
-                self._voice_transition = None
+                transition_target_id = self._voice_transition.transition_target_id
+                try:
+                    layers["voice"] = self._voice_transition.to_buffer
+                except Exception:
+                    self._voice_transition = None
+                    block = mix_layer_blocks(
+                        layers,
+                        self._states,
+                        frame_cursor=self._frame_cursor,
+                        block_size=block_size,
+                        peak_ceiling=self._peak_ceiling,
+                    )
+                else:
+                    self._active_voice_identity = transition_target_id
+                    self._voice_transition = None
             else:
                 self._voice_transition = replace(
                     self._voice_transition,

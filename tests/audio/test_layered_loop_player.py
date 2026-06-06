@@ -35,6 +35,13 @@ def rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
 
 
+class FailingVoiceActivationDict(dict):
+    def __setitem__(self, key, value):
+        if key == "voice":
+            raise RuntimeError("voice activation failed")
+        super().__setitem__(key, value)
+
+
 def test_equal_power_voice_crossfade_gains_preserve_midpoint_and_endpoints() -> None:
     progress = np.array([0.0, 0.5, 1.0], dtype=np.float32)
 
@@ -336,6 +343,47 @@ def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
 
+def test_player_voice_crossfade_preserves_mid_cursor_across_transition_boundary() -> None:
+    frames = 8
+    mid_samples = np.column_stack(
+        [
+            np.linspace(0.10, 0.17, num=frames, dtype=np.float32),
+            np.linspace(0.10, 0.17, num=frames, dtype=np.float32),
+        ],
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": stereo(0.0, frames=frames),
+            "mid": AudioBuffer(samples=mid_samples, sample_rate=8_000),
+            "voice": stereo(0.0, frames=frames),
+        }
+    )
+    player.start()
+    player.next_block(5)
+
+    player.start_voice_crossfade(
+        stereo(0.0, frames=frames),
+        duration_frames=4,
+        transition_target_id="vs-2",
+    )
+    during_crossfade = player.next_block(3)
+    after_crossfade = player.next_block(3)
+
+    np.testing.assert_allclose(
+        during_crossfade.samples[:, 0],
+        mid_samples[[5, 6, 7], 0],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        after_crossfade.samples[:, 0],
+        mid_samples[[0, 1, 2], 0],
+        atol=1e-6,
+    )
+    assert player.frame_cursor == 3
+    assert player.active_voice_transition_target_id is None
+
+
 def test_player_voice_crossfade_finishes_by_installing_candidate_voice(tmp_path: Path) -> None:
     paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.0, frames=8)
     player = LayeredLoopPlayer()
@@ -352,6 +400,42 @@ def test_player_voice_crossfade_finishes_by_installing_candidate_voice(tmp_path:
 
     assert player.active_voice_transition_target_id is None
     np.testing.assert_allclose(block.samples, np.ones((2, 2)) * 0.4, atol=1e-6)
+
+
+def test_player_voice_crossfade_activation_failure_continues_current_voice() -> None:
+    current_voice = stereo(0.2, frames=8)
+    next_voice = stereo(0.7, frames=8)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": stereo(0.0, frames=8),
+            "mid": stereo(0.0, frames=8),
+            "voice": current_voice,
+        },
+        active_voice_identity="current-vs",
+    )
+    player.start()
+    player.start_voice_crossfade(
+        next_voice,
+        duration_frames=2,
+        transition_target_id="next-vs",
+    )
+    player._layers = FailingVoiceActivationDict(player._layers)  # type: ignore[attr-defined]
+
+    block = player.next_block(2)
+
+    snapshot = player.snapshot()
+    assert player.active_voice_identity == "current-vs"
+    assert snapshot.active_voice_identity == "current-vs"
+    assert snapshot.layers is not None
+    assert snapshot.layers["voice"] is current_voice
+    assert player.active_voice_transition_target_id is None
+    assert player.frame_cursor == 2
+    np.testing.assert_allclose(
+        block.samples,
+        np.ones((2, 2), dtype=np.float32) * 0.2,
+        atol=1e-6,
+    )
 
 
 def test_player_load_rendered_layers_clears_pending_voice_crossfade_and_stays_stopped(
