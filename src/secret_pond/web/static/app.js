@@ -2011,6 +2011,7 @@ const deriveSettingsActionState = ({
   const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
   const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
   const liveSampleRateApplyRequired = liveSampleRateApplyRequiredChange(snapshot);
+  const liveOutputDeviceApplyRequired = liveOutputDeviceApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
@@ -2030,6 +2031,8 @@ const deriveSettingsActionState = ({
                 ? operationLockMessages.playbackControl
                 : liveSampleRateApplyRequired
                   ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
+                : liveOutputDeviceApplyRequired
+                  ? "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
                 : runtimeConfigChanged
                   ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
                   : liveLoopLengthApplyRequired
@@ -2211,6 +2214,17 @@ const liveSampleRateApplyRequiredChange = (snapshot = state.snapshot) => {
   );
 };
 
+const liveOutputDeviceApplyRequiredChange = (snapshot = state.snapshot) => {
+  const activeDevices = snapshot?.settings?.active?.devices || {};
+  const draftDevices = state.draft?.devices || snapshot?.settings?.draft?.devices || {};
+  const live = livePlaybackFeatures(snapshot);
+  return Boolean(
+    live.enabled &&
+      draftDevices.output_device_id !== undefined &&
+      activeDevices.output_device_id !== draftDevices.output_device_id,
+  );
+};
+
 const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   if (!snapshot?.settings?.active || !state.draft) return false;
   if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
@@ -2377,6 +2391,9 @@ const outputControlSummaryText = (
   }
   if (liveSampleRateApplyRequiredChange(snapshot)) {
     return "Live mode · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
+  }
+  if (liveOutputDeviceApplyRequiredChange(snapshot)) {
+    return "Live mode · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
   }
   if (liveLoopLengthApplyRequiredChange(snapshot)) {
     return "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";

@@ -1071,6 +1071,115 @@ assert.strictEqual(
     )
 
 
+def test_live_output_device_change_shows_apply_required_message() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  renderState,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, renderState, state } = globalThis.__secretPond;
+
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: {
+      changed_sections: [],
+      requires_restart: false,
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+    },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1200,
+    apply_mode: "live",
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+    live: {
+      enabled: true,
+      excluded_apply_flow: [
+        "audio.loop_seconds",
+        "audio.sample_rate",
+        "devices.output_device_id",
+        "sources",
+      ],
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+state.draft.devices.output_device_id = "speaker-2";
+renderState();
+
+assert.strictEqual(document.getElementById("pendingBadge").hidden, false);
+assert.strictEqual(document.getElementById("applyButton").disabled, true);
+assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), false);
+assert.strictEqual(
+  document.getElementById("applyButton").title,
+  "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다.",
+);
+assert.strictEqual(
+  document.getElementById("outputControlSummary").textContent,
+  "Live mode · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_live_eq_drafts_do_not_show_apply_restart_required_message() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
