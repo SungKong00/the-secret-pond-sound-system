@@ -4456,6 +4456,11 @@ const feedbackSurfaceHasDraftChange = (activeSettings, draftSettings, surfaceId)
   ));
 };
 
+const coveredFeedbackStateUsesPendingVisual = (feedbackState) => (
+  feedbackState?.visual_state === "pending" ||
+    feedbackState?.visual_state === "restart_pending"
+);
+
 const deriveCoveredSurfaceFeedbackState = ({
   snapshot = state.snapshot,
   draft = state.draft || snapshot?.settings?.draft || null,
@@ -4475,11 +4480,13 @@ const deriveCoveredSurfaceFeedbackState = ({
   }
   const hasUnappliedChange = feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId);
   const applyMode = currentPlaybackApplyMode(snapshot);
-  const applyInFlight = stableApplyAndRestartInFlight(operationFlags);
   if (applyMode === "stable") {
+    const applyInFlight = stableApplyAndRestartInFlight(operationFlags);
     return {
-      visual_state: hasUnappliedChange ? "pending" : "idle",
-      show_spinner: hasUnappliedChange && applyInFlight,
+      visual_state: hasUnappliedChange
+        ? (applyInFlight ? "restart_pending" : "pending")
+        : "idle",
+      show_spinner: false,
     };
   }
   const plan = localSettingsChangePlan(
@@ -4509,7 +4516,7 @@ const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => 
     surfaceId,
   });
   container.className = `${baseClassName}${
-    feedbackState.visual_state === "pending" ? " feedback-pending" : ""
+    coveredFeedbackStateUsesPendingVisual(feedbackState) ? " feedback-pending" : ""
   }`;
   container.innerHTML = `
     <span class="feedback-spinner" aria-hidden="true" ${feedbackState.show_spinner ? "" : "hidden"}></span>
@@ -4701,7 +4708,7 @@ const renderLayerCard = (layerId) => {
   const draftLockTitle = draftLock.title;
   const card = document.createElement("section");
   card.className = `layer-card${
-    feedbackState.visual_state === "pending" ? " feedback-pending" : ""
+    coveredFeedbackStateUsesPendingVisual(feedbackState) ? " feedback-pending" : ""
   }`;
   const layerLabel = layerLabels[layerId];
   const pendingEnabled = hasLayerInclusionDraftChange(layerId);
