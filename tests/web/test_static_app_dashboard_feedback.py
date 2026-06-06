@@ -125,7 +125,8 @@ def test_feedback_spinner_is_decorative_top_right_translucent_overlay() -> None:
     assert re.search(r"pointer-events:\s*none;", spinner_body)
     assert re.search(r"z-index:\s*[1-9][0-9]*;", spinner_body)
     assert re.search(r"display:\s*none;", hidden_rule.group("body"))
-    assert app_script.count('class="feedback-spinner" aria-hidden="true"') == 2
+    assert "feedbackSpinnerMarkup" in app_script
+    assert app_script.count('class="feedback-spinner" aria-hidden="true"') == 3
 
 
 def test_playback_apply_mode_panel_does_not_receive_feedback_pending_class() -> None:
@@ -1015,6 +1016,7 @@ def test_stable_apply_captures_covered_surface_diffs_after_draft_save() -> None:
     app_script += """
 globalThis.__secretPond = {
   applyAndRestart,
+  serverStateSignature,
   state,
 };
 """
@@ -1188,7 +1190,7 @@ globalThis.__secretPond = {
         script=app_script,
         body="""
 (async () => {
-const { applyAndRestart, state } = globalThis.__secretPond;
+const { applyAndRestart, serverStateSignature, state } = globalThis.__secretPond;
 
 const activeSettings = {
   audio: { sample_rate: 48000, channels: 2 },
@@ -2628,6 +2630,144 @@ assert.match(recordingControls.innerHTML, /feedback-spinner/);
     )
 
 
+def test_live_failure_rollback_clears_highlight_even_when_control_render_is_deferred() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitDraftChange,
+  renderLayerControls,
+  saveDraft,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  commitDraftChange,
+  renderLayerControls,
+  saveDraft,
+  state,
+  trackInteractiveControl,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: 0,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const changePayload = {
+  changed_sections: [],
+  runtime_config_changed: false,
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_field_names: [],
+};
+
+state.snapshot = {
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+    },
+  },
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: clone(changePayload),
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = clone(activeSettings);
+
+commitDraftChange(() => {
+  state.draft.layers.low.volume_db = -6;
+}, { feedbackControlId: "layers.low.volume_db", scheduleSave: false });
+
+let releaseFetch;
+const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
+globalThis.fetch = async () => {
+  await fetchGate;
+  return {
+    ok: false,
+    status: 500,
+    json: async () => ({ detail: "backend hot swap failed" }),
+  };
+};
+
+const savePromise = saveDraft();
+const lowCard = document.getElementById("layerControls").children[1];
+assert.match(lowCard.className, /\\bfeedback-pending\\b/);
+assert.doesNotMatch(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/);
+
+trackInteractiveControl(lowCard);
+releaseFetch();
+
+await assert.rejects(savePromise, /backend hot swap failed/);
+
+assert.strictEqual(state.draft.layers.low.volume_db, 0);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.volume_db, 0);
+assert.doesNotMatch(lowCard.className, /\\bfeedback-pending\\b/);
+assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/);
+})();
+""",
+    )
+
+
 def test_stable_successful_apply_clears_covered_card_highlights() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -3849,6 +3989,7 @@ def test_stable_apply_failure_does_not_rollback_new_post_restart_diffs() -> None
     app_script += """
 globalThis.__secretPond = {
   applyAndRestart,
+  serverStateSignature,
   state,
 };
 """
@@ -3859,7 +4000,7 @@ globalThis.__secretPond = {
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
         body="""
 (async () => {
-const { applyAndRestart, state } = globalThis.__secretPond;
+const { applyAndRestart, serverStateSignature, state } = globalThis.__secretPond;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const activeSettings = {
   audio: { sample_rate: 48000, channels: 2 },

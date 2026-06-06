@@ -4472,6 +4472,46 @@ const renderControls = () => {
   renderRecordingControls();
 };
 
+const refreshLayerFeedbackVisualState = (containerId, layerIds) => {
+  const container = $(containerId);
+  layerIds.forEach((layerId, index) => {
+    const card = container?.children?.[index];
+    if (!card) return;
+    const feedbackState = deriveCoveredSurfaceFeedbackState({
+      snapshot: state.snapshot,
+      draft: state.draft,
+      operationFlags: currentOperationFlags(),
+      surfaceId: `layer:${layerId}`,
+    });
+    applyCoveredFeedbackVisualState(card, "layer-card", feedbackState);
+  });
+};
+
+const refreshCoveredFeedbackVisualStates = () => {
+  refreshLayerFeedbackVisualState("layerControls", ["mid", "low"]);
+  refreshLayerFeedbackVisualState("voiceLayerControls", ["voice"]);
+  applyCoveredFeedbackVisualState(
+    $("voiceStackControls"),
+    "control-stack compact voice-stack-controls feedback-surface",
+    deriveCoveredSurfaceFeedbackState({
+      snapshot: state.snapshot,
+      draft: state.draft,
+      operationFlags: currentOperationFlags(),
+      surfaceId: "voice_stack",
+    }),
+  );
+  applyCoveredFeedbackVisualState(
+    $("recordingControls"),
+    "control-stack compact feedback-surface",
+    deriveCoveredSurfaceFeedbackState({
+      snapshot: state.snapshot,
+      draft: state.draft,
+      operationFlags: currentOperationFlags(),
+      surfaceId: "recording",
+    }),
+  );
+};
+
 const renderOperationLockSurfaces = () => {
   renderState();
   renderControls();
@@ -4491,6 +4531,7 @@ const renderDraftSaveFeedbackSurfaces = () => {
     return;
   }
   renderOperationLockSurfaces();
+  refreshCoveredFeedbackVisualStates();
 };
 
 const renderLayerControls = () => {
@@ -4610,6 +4651,36 @@ const coveredFeedbackStateUsesPendingVisual = (feedbackState) => (
     feedbackState?.visual_state === "restart_pending"
 );
 
+const feedbackSpinnerMarkup = (showSpinner = false) => (
+  `<span class="feedback-spinner" aria-hidden="true" ${showSpinner ? "" : "hidden"}></span>`
+);
+
+const updateFeedbackSpinnerVisibility = (container, showSpinner = false) => {
+  if (!container) return;
+  const spinner = container.querySelector?.(".feedback-spinner");
+  if (spinner?.parentElement === container) {
+    spinner.hidden = !showSpinner;
+    if (showSpinner) spinner.removeAttribute?.("hidden");
+    else spinner.setAttribute?.("hidden", "");
+    return;
+  }
+  const markup = feedbackSpinnerMarkup(showSpinner);
+  if (typeof container.innerHTML === "string" && container.innerHTML.includes("feedback-spinner")) {
+    container.innerHTML = container.innerHTML.replace(
+      /<span class="feedback-spinner" aria-hidden="true"[^>]*><\/span>/,
+      markup,
+    );
+  }
+};
+
+const applyCoveredFeedbackVisualState = (container, baseClassName, feedbackState) => {
+  if (!container) return;
+  container.className = `${baseClassName}${
+    coveredFeedbackStateUsesPendingVisual(feedbackState) ? " feedback-pending" : ""
+  }`;
+  updateFeedbackSpinnerVisibility(container, feedbackState?.show_spinner);
+};
+
 const deriveCoveredSurfaceFeedbackState = ({
   snapshot = state.snapshot,
   draft = state.draft || snapshot?.settings?.draft || null,
@@ -4664,12 +4735,9 @@ const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => 
     operationFlags: currentOperationFlags(),
     surfaceId,
   });
-  container.className = `${baseClassName}${
-    coveredFeedbackStateUsesPendingVisual(feedbackState) ? " feedback-pending" : ""
-  }`;
-  container.innerHTML = `
-    <span class="feedback-spinner" aria-hidden="true" ${feedbackState.show_spinner ? "" : "hidden"}></span>
-  `;
+  container.className = baseClassName;
+  container.innerHTML = feedbackSpinnerMarkup(feedbackState.show_spinner);
+  applyCoveredFeedbackVisualState(container, baseClassName, feedbackState);
   const spinner = container.querySelector(".feedback-spinner");
   if (spinner) spinner.hidden = !feedbackState.show_spinner;
   return feedbackState;
@@ -5498,6 +5566,7 @@ const rollbackDraftCoveredControlsFromActive = (controlIds = []) => {
     }
   });
   syncDraftSnapshot();
+  refreshCoveredFeedbackVisualStates();
   return true;
 };
 
@@ -5510,6 +5579,7 @@ const rollbackDraftCoveredControlSnapshots = (controlSnapshots = []) => {
     }
   });
   syncDraftSnapshot();
+  refreshCoveredFeedbackVisualStates();
   return true;
 };
 
@@ -5746,6 +5816,9 @@ const applyAndRestart = async () => {
     setOperationLockFlag("applyAndRestartInFlight", false);
     if (applyError) showSettingsApplyFailureCaution(applyError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
+    if (applyError && state.snapshot) {
+      state.serverStateSignature = serverStateSignature(state.snapshot, { syncDraft: false });
+    }
     state.stableApplyCoveredFeedbackSurfaceIds = [];
     state.stableApplyCoveredFeedbackControlSnapshots = [];
   }
