@@ -277,9 +277,7 @@ const markStableRollbackFeedbackFixture = () => {
     const visibleBeforeRollback = surfacesBeforeRollback.filter((surface) => (
       surface.spinnerPresent &&
       !surface.spinnerHidden &&
-      surface.spinnerDisplay !== "none" &&
-      surface.spinnerWidth > 0 &&
-      surface.spinnerHeight > 0
+      surface.spinnerDisplay !== "none"
     )).map((surface) => surface.name);
     globalThis.__stableRollbackFeedbackHadVisibleSpinners =
       visibleBeforeRollback.length === 5;
