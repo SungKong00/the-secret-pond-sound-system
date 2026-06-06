@@ -951,7 +951,11 @@ assert.strictEqual(document.getElementById("applyButton").disabled, false);
 assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), true);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
+  "Live 모드에서도 루프 길이는 Apply and Restart 후 반영됩니다.",
+);
+assert.strictEqual(
+  document.getElementById("outputControlSummary").textContent,
+  "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,

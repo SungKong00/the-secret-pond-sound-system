@@ -2010,6 +2010,7 @@ const deriveSettingsActionState = ({
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
   const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
+  const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetParticipantsBusy
@@ -2028,6 +2029,8 @@ const deriveSettingsActionState = ({
                 ? operationLockMessages.playbackControl
                 : runtimeConfigChanged
                   ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                  : liveLoopLengthApplyRequired
+                    ? "Live 모드에서도 루프 길이는 Apply and Restart 후 반영됩니다."
                   : canApplyRenderedCache
                     ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
                   : !pendingChanges
@@ -2182,6 +2185,17 @@ const deriveDashboardControlState = ({
 const layerIds = ["low", "mid", "voice"];
 
 const livePlaybackFeatures = (snapshot) => snapshot?.playback?.live || {};
+
+const liveLoopLengthApplyRequiredChange = (snapshot = state.snapshot) => {
+  const activeVoiceStack = snapshot?.settings?.active?.voice_stack || {};
+  const draftVoiceStack = state.draft?.voice_stack || snapshot?.settings?.draft?.voice_stack || {};
+  const live = livePlaybackFeatures(snapshot);
+  return Boolean(
+    live.enabled &&
+      draftVoiceStack.loop_seconds !== undefined &&
+      activeVoiceStack.loop_seconds !== draftVoiceStack.loop_seconds,
+  );
+};
 
 const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   if (!snapshot?.settings?.active || !state.draft) return false;
@@ -2346,6 +2360,9 @@ const outputControlSummaryText = (
   }
   if (snapshot?.playback?.voice_raw_preview_path) {
     return "녹음 원본을 재생 중입니다.";
+  }
+  if (liveLoopLengthApplyRequiredChange(snapshot)) {
+    return "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (pendingChangeState.pendingChanges) {
     return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
