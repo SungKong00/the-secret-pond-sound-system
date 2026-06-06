@@ -322,6 +322,109 @@ for (const [surfaceId, mutate] of changedDrafts) {
     )
 
 
+def test_stable_covered_changes_enter_apply_spinner_state_in_shared_helper() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { deriveCoveredSurfaceFeedbackState } = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const stableSnapshot = {
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: {
+      runtime_config_changed: false,
+      changed_sections: [],
+      changed_runtime_fields: [],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_fields: [],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+const changedDrafts = [
+  ["layer:low", (draft) => { draft.layers.low.volume_db = -1; }],
+  ["layer:mid", (draft) => { draft.layers.mid.eq.low_gain_db = 2; }],
+  ["layer:voice", (draft) => { draft.layers.voice.enabled = false; }],
+  ["voice_stack", (draft) => { draft.voice_stack.transition_seconds = 7; }],
+  ["recording", (draft) => { draft.recording.reverb_mix = 0.4; }],
+];
+
+for (const [surfaceId, mutate] of changedDrafts) {
+  const draft = clone(activeSettings);
+  mutate(draft);
+
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({
+      snapshot: stableSnapshot,
+      draft,
+      operationFlags: { applyInFlight: true, applyAndRestartInFlight: true },
+      surfaceId,
+    }),
+    { visual_state: "restart_pending", show_spinner: true },
+    `${surfaceId} should show a Stable Apply and Restart spinner while in flight`,
+  );
+}
+""",
+    )
+
+
 def test_live_covered_feedback_helper_uses_rollback_control_ids_as_operation_targets() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
