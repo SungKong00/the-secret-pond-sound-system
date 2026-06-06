@@ -2216,6 +2216,29 @@ const liveVoiceStackTransitionChangeOnly = (snapshot, settingsPlan) => {
   return stableSettingsSignature(activeVoiceStack) === stableSettingsSignature(draftVoiceStack);
 };
 
+const liveVoiceRawPreviewTreatmentChangeOnly = (snapshot, settingsPlan) => {
+  if (!snapshot?.settings?.active || !state.draft) return false;
+  if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
+  if (settingsPlan.changedSections.some((section) => section !== "recording")) return false;
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled || !live.voice_raw_preview_treatment_applies_immediately) return false;
+  if (!snapshot.playback?.voice_raw_preview_path) return false;
+  const reprocessableFields = Array.isArray(settingsPlan.livePreviewReprocessableFields)
+    ? settingsPlan.livePreviewReprocessableFields
+    : [];
+  if (reprocessableFields.length === 0) return false;
+  const activeRecording = clone(snapshot.settings.active.recording || {});
+  const draftRecording = clone(state.draft.recording || {});
+  reprocessableFields.forEach((fieldName) => {
+    if (!fieldName.startsWith("recording.")) return;
+    const recordingFieldName = fieldName.slice("recording.".length);
+    if (recordingFieldName) {
+      draftRecording[recordingFieldName] = activeRecording[recordingFieldName];
+    }
+  });
+  return stableSettingsSignature(activeRecording) === stableSettingsSignature(draftRecording);
+};
+
 const derivePendingChangeState = (
   settingsPlan,
   sourceFilesChanged = false,
@@ -2224,7 +2247,8 @@ const derivePendingChangeState = (
   const runtimeConfigChanged = Boolean(settingsPlan?.runtimeConfigChanged);
   const liveAppliedSettingsChanged =
     liveLayerControlChangeOnly(snapshot, settingsPlan) ||
-    liveVoiceStackTransitionChangeOnly(snapshot, settingsPlan);
+    liveVoiceStackTransitionChangeOnly(snapshot, settingsPlan) ||
+    liveVoiceRawPreviewTreatmentChangeOnly(snapshot, settingsPlan);
   const settingsChanged =
     Boolean(settingsPlan?.changedSections?.length || runtimeConfigChanged) &&
     !liveAppliedSettingsChanged;
