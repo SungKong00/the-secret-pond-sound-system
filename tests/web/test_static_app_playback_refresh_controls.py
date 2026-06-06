@@ -1002,7 +1002,7 @@ panel.append(liveButton, stableButton);
 assert.strictEqual(panel.getAttribute("aria-label"), "재생 적용 모드");
 assert.strictEqual(
   document.getElementById("playbackApplyModeSummary").textContent,
-  "Stable · 활성 · 변경사항 적용 후 재생",
+  "안정 적용 · Stable · 적용 후 재생",
 );
 assert.strictEqual(stableButton.getAttribute("aria-pressed"), "true");
 assert.strictEqual(liveButton.getAttribute("aria-pressed"), "false");
@@ -1015,7 +1015,7 @@ assert.strictEqual(state.snapshot.playback.apply_mode, "live");
 assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "live");
 assert.strictEqual(
   document.getElementById("playbackApplyModeSummary").textContent,
-  "Live · 활성 · 즉시 반영 중",
+  "즉시 반영 · Live · 재생 중 바로 적용",
 );
 assert.strictEqual(stableButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
@@ -1143,7 +1143,7 @@ assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
 assert.strictEqual(stableButton.getAttribute("aria-pressed"), "false");
 assert.strictEqual(
   document.getElementById("playbackApplyModeSummary").textContent,
-  "Live · 활성 · 즉시 반영 중",
+  "즉시 반영 · Live · 재생 중 바로 적용",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1455,11 +1455,11 @@ def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
     assert (
-        '<span class="label-with-helper">Live<small lang="ko">라이브</small></span>'
+        '<span class="label-with-helper">즉시 반영<small>Live</small></span>'
         in index_html
     )
     assert (
-        '<span class="label-with-helper">Stable<small lang="ko">안정</small></span>'
+        '<span class="label-with-helper">안정 적용<small>Stable</small></span>'
         in index_html
     )
 
@@ -1467,13 +1467,13 @@ def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
 def test_live_playback_mode_labels_reuse_dashboard_typography_classes() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
-    assert '<span class="storage-mode-label">재생 적용</span>' in index_html
+    assert '<span class="playback-apply-mode-label">변경 적용</span>' in index_html
     assert (
-        '<span class="label-with-helper">Live<small lang="ko">라이브</small></span>'
+        '<span class="label-with-helper">즉시 반영<small>Live</small></span>'
         in index_html
     )
     assert (
-        '<span class="label-with-helper">Stable<small lang="ko">안정</small></span>'
+        '<span class="label-with-helper">안정 적용<small>Stable</small></span>'
         in index_html
     )
 
@@ -1482,15 +1482,9 @@ def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
 
-    expected_panel_class = (
-        'id="playbackApplyModePanel"\n'
-        '                class="storage-mode-panel playback-apply-mode-panel control-stack compact"'
-    )
+    assert 'class="playback-apply-mode-panel compact"' in index_html
     assert (
-        expected_panel_class in index_html
-    )
-    assert (
-        "panel.className = `storage-mode-panel playback-apply-mode-panel control-stack compact "
+        "panel.className = `playback-apply-mode-panel compact "
         "${details.className}${"
         in app_script
     )
@@ -1500,9 +1494,9 @@ def test_live_playback_controls_reuse_existing_dashboard_control_class_patterns(
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
 
-    assert 'class="storage-mode-options playback-apply-mode-options"' in index_html
-    assert 'class="storage-mode-button playback-apply-mode-button live"' in index_html
-    assert 'class="storage-mode-button playback-apply-mode-button stable"' in index_html
+    assert 'class="playback-apply-mode-options"' in index_html
+    assert 'class="playback-apply-mode-button live"' in index_html
+    assert 'class="playback-apply-mode-button stable"' in index_html
     assert '<label class="layer-toggle ${layer.enabled ? "enabled" : ""} ${' in app_script
     assert 'type="checkbox"\n            role="switch"' in app_script
 

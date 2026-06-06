@@ -969,6 +969,11 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         '<section class="operation-card playback-panel"',
         '<section class="operation-card record-panel"',
     )
+    apply_mode_panel = slice_between(
+        operation_panel,
+        '<section\n              id="playbackApplyModePanel"',
+        '<section class="operation-card playback-panel"',
+    )
     record_panel = slice_between(
         operation_panel,
         '<section class="operation-card record-panel"',
@@ -985,6 +990,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         "</section>",
     )
     assert operation_panel.index("Playback") < operation_panel.index("Voice Capture")
+    assert operation_panel.index("playbackApplyModePanel") < operation_panel.index(
+        "playbackPanelTitle"
+    )
+    assert 'aria-label="재생 적용 모드"' in apply_mode_panel
+    assert "변경 적용" in apply_mode_panel
+    assert "즉시 반영" in apply_mode_panel
+    assert "안정 적용" in apply_mode_panel
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
     assert '<small lang="ko">재생</small>' in playback_panel
@@ -1117,6 +1129,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="voiceStackControls"' in voice_panel
     assert 'id="voiceLayerControls"' in voice_panel
     assert 'id="voiceStackPanelTitle"' in voice_panel
+    assert 'id="playbackApplyModePanel"' not in voice_panel
     assert 'id="storageModePanel"' not in voice_panel
     assert "Voice Stack" in voice_panel
     assert '<small lang="ko">목소리 스택</small>' in voice_panel

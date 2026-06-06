@@ -464,13 +464,15 @@ const storageModeDetails = {
 
 const playbackApplyModeDetails = {
   live: {
-    label: "Live",
-    summary: "활성 · 즉시 반영 중",
+    label: "즉시 반영",
+    buttonId: "playbackApplyModeLiveButton",
+    summary: "Live · 재생 중 바로 적용",
     className: "live",
   },
   stable: {
-    label: "Stable",
-    summary: "활성 · 변경사항 적용 후 재생",
+    label: "안정 적용",
+    buttonId: "playbackApplyModeStableButton",
+    summary: "Stable · 적용 후 재생",
     className: "stable",
   },
 };
@@ -4148,12 +4150,12 @@ const renderPlaybackApplyModeControls = () => {
   const details = playbackApplyModeDetails[mode] || playbackApplyModeDetails.stable;
   const disabled = !state.snapshot || state.playbackApplyModeInFlight;
   panel.setAttribute("aria-label", "재생 적용 모드");
-  panel.className = `storage-mode-panel playback-apply-mode-panel control-stack compact ${details.className}${
+  panel.className = `playback-apply-mode-panel compact ${details.className}${
     state.playbackApplyModeInFlight ? " pending" : ""
   }`;
   $("playbackApplyModeSummary").textContent = `${details.label} · ${details.summary}`;
   Object.entries(playbackApplyModeDetails).forEach(([buttonMode, buttonDetails]) => {
-    const button = $(`playbackApplyMode${buttonDetails.label}Button`);
+    const button = $(buttonDetails.buttonId);
     if (!button) return;
     const active = mode === buttonMode;
     button.disabled = disabled;

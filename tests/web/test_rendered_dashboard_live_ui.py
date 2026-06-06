@@ -61,11 +61,11 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
 
     assert rendered["viewportWidth"] == 1440
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
-    assert rendered["applyModeSummary"].startswith("Live")
+    assert rendered["applyModeSummary"].startswith("즉시 반영")
     assert rendered["livePressed"] == "true"
     assert rendered["stablePressed"] == "false"
     assert rendered["liveDetailsText"] == (
-        "Live 적용 범위 즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리 "
+        "적용 범위 즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리 "
         "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
     )
     assert rendered["seekDisabled"] is False
@@ -403,7 +403,7 @@ class _CdpPage:
   const stableButton = document.getElementById("playbackApplyModeStableButton");
   const details = document.getElementById("playbackLiveDetails");
   return {
-    ready: elementText("playbackApplyModeSummary").startsWith("Live") &&
+    ready: elementText("playbackApplyModeSummary").startsWith("즉시 반영") &&
       seek &&
       seek.disabled === false &&
       elementText("playbackPositionTime") === "30.0s",

@@ -596,8 +596,7 @@ input[type="range"]:focus-visible {
   color: rgba(240, 236, 227, 0.72);
 }
 
-.storage-mode-panel,
-.playback-apply-mode-panel {
+.storage-mode-panel {
   display: grid;
   gap: 7px;
   margin-bottom: 8px;
@@ -610,7 +609,22 @@ input[type="range"]:focus-visible {
 }
 
 .playback-apply-mode-panel {
-  margin-bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 7px 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(223, 213, 191, 0.13);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(120, 179, 122, 0.065), transparent 68%),
+    rgba(255, 255, 255, 0.024);
+}
+
+.playback-apply-mode-panel .playback-live-details {
+  grid-column: 1 / -1;
+  padding-top: 0;
 }
 
 .storage-mode-panel.safe {
@@ -681,6 +695,10 @@ input[type="range"]:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
+}
+
+.playback-apply-mode-options {
+  align-self: stretch;
 }
 
 .storage-mode-button,

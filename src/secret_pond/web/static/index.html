@@ -40,6 +40,48 @@
       <section class="dashboard-grid">
         <section class="panel operation-panel" aria-label="운영 콘솔">
           <div class="operation-stack">
+            <section
+              id="playbackApplyModePanel"
+              class="playback-apply-mode-panel compact"
+              aria-label="재생 적용 모드"
+            >
+              <div class="playback-apply-mode-head">
+                <span class="playback-apply-mode-label">변경 적용</span>
+                <strong id="playbackApplyModeSummary">확인 중</strong>
+              </div>
+              <div
+                class="playback-apply-mode-options"
+                role="group"
+                aria-label="재생 적용 모드 선택"
+              >
+                <button
+                  id="playbackApplyModeLiveButton"
+                  class="playback-apply-mode-button live"
+                  type="button"
+                  data-playback-apply-mode="live"
+                  aria-pressed="false"
+                >
+                  <span class="label-with-helper">즉시 반영<small>Live</small></span>
+                </button>
+                <button
+                  id="playbackApplyModeStableButton"
+                  class="playback-apply-mode-button stable"
+                  type="button"
+                  data-playback-apply-mode="stable"
+                  aria-pressed="false"
+                >
+                  <span class="label-with-helper">안정 적용<small>Stable</small></span>
+                </button>
+              </div>
+              <details id="playbackLiveDetails" class="playback-live-details">
+                <summary id="playbackLiveDetailsSummary">적용 범위</summary>
+                <div class="playback-live-details-body">
+                  <span>즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리</span>
+                  <span>Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택</span>
+                </div>
+              </details>
+            </section>
+
             <section class="operation-card playback-panel" aria-labelledby="playbackPanelTitle">
               <div class="panel-heading inline playback-heading">
                 <div>
@@ -313,47 +355,6 @@
                 <p class="eyebrow">스택</p>
                 <h2 id="voiceStackPanelTitle">Voice Stack <small lang="ko">목소리 스택</small></h2>
               </div>
-              <section
-                id="playbackApplyModePanel"
-                class="storage-mode-panel playback-apply-mode-panel control-stack compact"
-                aria-label="재생 적용 모드"
-              >
-                <div class="playback-apply-mode-head">
-                  <span class="storage-mode-label">재생 적용</span>
-                  <strong id="playbackApplyModeSummary">확인 중</strong>
-                </div>
-                <div
-                  class="storage-mode-options playback-apply-mode-options"
-                  role="group"
-                  aria-label="재생 적용 모드 선택"
-                >
-                  <button
-                    id="playbackApplyModeLiveButton"
-                    class="storage-mode-button playback-apply-mode-button live"
-                    type="button"
-                    data-playback-apply-mode="live"
-                    aria-pressed="false"
-                  >
-                    <span class="label-with-helper">Live<small lang="ko">라이브</small></span>
-                  </button>
-                  <button
-                    id="playbackApplyModeStableButton"
-                    class="storage-mode-button playback-apply-mode-button stable"
-                    type="button"
-                    data-playback-apply-mode="stable"
-                    aria-pressed="false"
-                  >
-                    <span class="label-with-helper">Stable<small lang="ko">안정</small></span>
-                  </button>
-                </div>
-                <details id="playbackLiveDetails" class="playback-live-details">
-                  <summary id="playbackLiveDetailsSummary">Live 적용 범위</summary>
-                  <div class="playback-live-details-body">
-                    <span>즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리</span>
-                    <span>Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택</span>
-                  </div>
-                </details>
-              </section>
               <div id="voiceStackControls" class="control-stack compact voice-stack-controls"></div>
               <div id="voiceLayerControls" class="control-stack"></div>
             </section>
