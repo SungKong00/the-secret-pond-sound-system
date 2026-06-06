@@ -5583,6 +5583,23 @@ const rollbackDraftCoveredControlSnapshots = (controlSnapshots = []) => {
   return true;
 };
 
+const clearStableRestartRollbackFeedbackState = ({ refresh = false } = {}) => {
+  const controlSnapshots = [...state.stableApplyCoveredFeedbackControlSnapshots];
+  state.applyInFlight = false;
+  state.applyAndRestartInFlight = false;
+  state.stableApplyCoveredFeedbackSurfaceIds = [];
+  state.stableApplyCoveredFeedbackControlSnapshots = [];
+  state.pendingCoveredFeedbackSurfaceId = undefined;
+  state.coveredFeedbackSurfaceId = undefined;
+  state.pendingLiveFeedbackSurfaceId = undefined;
+  state.liveFeedbackSurfaceId = undefined;
+  state.pendingCoveredFeedbackControlIds = [];
+  state.coveredFeedbackControlIds = [];
+  const rolledBack = rollbackDraftCoveredControlSnapshots(controlSnapshots);
+  if (refresh && !rolledBack) refreshCoveredFeedbackVisualStates();
+  return rolledBack;
+};
+
 const scheduleDraftSave = () => {
   clearDraftSaveTimer();
   state.saveTimer = setTimeout(() => {
@@ -5808,7 +5825,7 @@ const applyAndRestart = async () => {
   } catch (error) {
     applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
-    rollbackDraftCoveredControlSnapshots(state.stableApplyCoveredFeedbackControlSnapshots);
+    clearStableRestartRollbackFeedbackState({ refresh: true });
     await requestDiagnostics().catch(() => {});
     await requestSources().catch(() => {});
   } finally {

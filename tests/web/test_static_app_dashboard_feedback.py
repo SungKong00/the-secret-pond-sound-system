@@ -1325,6 +1325,154 @@ assert.strictEqual(state.draft.playback.master_volume_db, -5);
     )
 
 
+def test_stable_restart_rollback_state_reset_clears_all_covered_apply_spinner_flags() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  clearStableRestartRollbackFeedbackState,
+  deriveCoveredSurfaceFeedbackState,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  clearStableRestartRollbackFeedbackState,
+  deriveCoveredSurfaceFeedbackState,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const draftSettings = clone(activeSettings);
+draftSettings.layers.low.volume_db = -1;
+draftSettings.layers.mid.eq.mid_gain_db = 2;
+draftSettings.layers.voice.enabled = false;
+draftSettings.voice_stack.transition_seconds = 7;
+draftSettings.recording.presence_gain_db = 1;
+
+state.snapshot = {
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: {
+      changed_sections: ["layers", "voice_stack", "recording"],
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_fields: [],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+state.draft = clone(draftSettings);
+state.applyInFlight = true;
+state.applyAndRestartInFlight = true;
+state.stableApplyCoveredFeedbackSurfaceIds = [
+  "layer:low",
+  "layer:mid",
+  "layer:voice",
+  "voice_stack",
+  "recording",
+];
+state.stableApplyCoveredFeedbackControlSnapshots = [
+  { controlId: "layers.low.volume_db", activeValue: -3, draftValue: -1 },
+  { controlId: "layers.mid.eq.mid_gain_db", activeValue: 0, draftValue: 2 },
+  { controlId: "layers.voice.enabled", activeValue: true, draftValue: false },
+  { controlId: "voice_stack.transition_seconds", activeValue: 4, draftValue: 7 },
+  { controlId: "recording.presence_gain_db", activeValue: -3, draftValue: 1 },
+];
+state.pendingCoveredFeedbackSurfaceId = "layer:low";
+state.coveredFeedbackSurfaceId = "layer:mid";
+state.pendingLiveFeedbackSurfaceId = "layer:voice";
+state.liveFeedbackSurfaceId = "recording";
+state.pendingCoveredFeedbackControlIds = ["layers.low.volume_db"];
+state.coveredFeedbackControlIds = ["layers.mid.eq.mid_gain_db"];
+
+for (const surfaceId of state.stableApplyCoveredFeedbackSurfaceIds) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({ surfaceId }),
+    { visual_state: "restart_pending", show_spinner: true },
+  );
+}
+
+clearStableRestartRollbackFeedbackState();
+
+assert.strictEqual(state.applyInFlight, false);
+assert.strictEqual(state.applyAndRestartInFlight, false);
+assert.deepStrictEqual(state.stableApplyCoveredFeedbackSurfaceIds, []);
+assert.deepStrictEqual(state.stableApplyCoveredFeedbackControlSnapshots, []);
+assert.strictEqual(state.pendingCoveredFeedbackSurfaceId, undefined);
+assert.strictEqual(state.coveredFeedbackSurfaceId, undefined);
+assert.strictEqual(state.pendingLiveFeedbackSurfaceId, undefined);
+assert.strictEqual(state.liveFeedbackSurfaceId, undefined);
+assert.deepStrictEqual(state.pendingCoveredFeedbackControlIds, []);
+assert.deepStrictEqual(state.coveredFeedbackControlIds, []);
+
+for (const surfaceId of [
+  "layer:low",
+  "layer:mid",
+  "layer:voice",
+  "voice_stack",
+  "recording",
+]) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({ surfaceId }),
+    { visual_state: "idle", show_spinner: false },
+  );
+}
+""",
+    )
+
+
 def test_stable_apply_rollback_snapshot_uses_last_confirmed_active_settings() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -2768,6 +2916,159 @@ assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>]
     )
 
 
+def test_live_failure_rollback_clears_spinner_when_same_surface_has_prior_live_diff() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitDraftChange,
+  deriveCoveredSurfaceFeedbackState,
+  renderLayerControls,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  commitDraftChange,
+  deriveCoveredSurfaceFeedbackState,
+  renderLayerControls,
+  saveDraft,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: 0,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+state.snapshot = {
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+    },
+  },
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: {
+      changed_sections: [],
+      runtime_config_changed: false,
+      changed_runtime_fields: [],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = clone(activeSettings);
+
+state.draft.layers.low.enabled = false;
+state.snapshot.settings.draft.layers.low.enabled = false;
+
+commitDraftChange(() => {
+  state.draft.layers.low.volume_db = -6;
+}, { feedbackControlId: "layers.low.volume_db", scheduleSave: false });
+
+let releaseFetch;
+const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
+globalThis.fetch = async () => {
+  await fetchGate;
+  return {
+    ok: false,
+    status: 500,
+    json: async () => ({ detail: "backend hot swap failed" }),
+  };
+};
+
+renderLayerControls();
+const savePromise = saveDraft();
+const lowCardDuringSave = document.getElementById("layerControls").children[1];
+assert.match(lowCardDuringSave.className, /\\bfeedback-pending\\b/);
+assert.doesNotMatch(
+  lowCardDuringSave.innerHTML,
+  /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+);
+
+releaseFetch();
+await assert.rejects(savePromise, /backend hot swap failed/);
+
+renderLayerControls();
+const lowCardAfterFailure = document.getElementById("layerControls").children[1];
+const feedbackStateAfterFailure = deriveCoveredSurfaceFeedbackState({ surfaceId: "layer:low" });
+
+assert.strictEqual(state.draftSaveInFlight, false);
+assert.strictEqual(state.coveredFeedbackSurfaceId, undefined);
+assert.strictEqual(state.liveFeedbackSurfaceId, undefined);
+assert.deepStrictEqual(feedbackStateAfterFailure, { visual_state: "idle", show_spinner: false });
+assert.doesNotMatch(lowCardAfterFailure.className, /\\bfeedback-pending\\b/);
+assert.match(
+  lowCardAfterFailure.innerHTML,
+  /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+);
+assert.strictEqual(state.draft.layers.low.volume_db, 0);
+assert.strictEqual(state.draft.layers.low.enabled, false);
+})();
+""",
+    )
+
+
 def test_stable_successful_apply_clears_covered_card_highlights() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -3159,6 +3460,208 @@ globalThis.fetch = async (path) => {
 
 await applyAndRestart();
 assertCoveredSpinnersHidden();
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
+def test_stable_failure_rollback_hides_restart_spinners_before_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const failedDraft = clone(activeSettings);
+failedDraft.layers.low.volume_db = -1;
+failedDraft.layers.mid.eq.mid_gain_db = 2;
+failedDraft.layers.voice.enabled = false;
+failedDraft.voice_stack.transition_seconds = 7;
+failedDraft.recording.presence_gain_db = 1;
+const cleanChange = {
+  runtime_config_changed: false,
+  changed_sections: [],
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_fields: [],
+  live_preview_reprocessable_field_names: [],
+};
+const changeFor = (active, draft) => ({
+  ...cleanChange,
+  changed_sections: Object.keys(draft).filter((section) => (
+    JSON.stringify(active[section]) !== JSON.stringify(draft[section])
+  )),
+});
+const snapshotFor = (active, draft) => ({
+  armed: true,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: { active: clone(active), draft: clone(draft), change: changeFor(active, draft) },
+  playback: {
+    apply_mode: "stable",
+    output_running: true,
+    rendered_cache_ready: true,
+    active_voice_transition_target_id: null,
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+  },
+});
+const renderCoveredSurfaces = () => {
+  renderLayerControls();
+  renderVoiceStackControls();
+  renderRecordingControls();
+};
+const coveredSurfaces = () => ({
+  low: document.getElementById("layerControls").children[1],
+  mid: document.getElementById("layerControls").children[0],
+  voice: document.getElementById("voiceLayerControls").children[0],
+  voiceStack: document.getElementById("voiceStackControls"),
+  recording: document.getElementById("recordingControls"),
+});
+const assertCoveredSpinnersVisible = () => {
+  for (const [key, surface] of Object.entries(coveredSurfaces())) {
+    assert.match(surface.className, /\\bfeedback-pending\\b/, `${key} should be pending`);
+    assert.doesNotMatch(
+      surface.innerHTML,
+      /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+      `${key} spinner should be visible`,
+    );
+  }
+};
+const assertRollbackSpinnersHidden = () => {
+  for (const [key, surface] of Object.entries(coveredSurfaces())) {
+    assert.doesNotMatch(surface.className, /\\bfeedback-pending\\b/, `${key} should be idle`);
+    assert.match(
+      surface.innerHTML,
+      /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+      `${key} spinner should be hidden after rollback`,
+    );
+  }
+};
+
+state.snapshot = snapshotFor(activeSettings, activeSettings);
+state.draft = clone(failedDraft);
+state.serverStateSignature = null;
+
+renderCoveredSurfaces();
+for (const [key, surface] of Object.entries(coveredSurfaces())) {
+  assert.match(surface.className, /\\bfeedback-pending\\b/, `${key} should start pending`);
+}
+
+globalThis.fetch = async (path) => {
+  if (path === "/api/settings/draft") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { settings: snapshotFor(activeSettings, failedDraft).settings }; },
+    };
+  }
+  if (path === "/api/settings/apply") {
+    assertCoveredSpinnersVisible();
+    return {
+      ok: false,
+      status: 500,
+      async json() { return { detail: "render failed" }; },
+    };
+  }
+  if (path === "/api/state") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return snapshotFor(activeSettings, failedDraft);
+      },
+    };
+  }
+  if (path === "/api/diagnostics") {
+    assertRollbackSpinnersHidden();
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { sources: [], events: { recent: [] } }; },
+    };
+  }
+  if (path === "/api/sources") {
+    assertRollbackSpinnersHidden();
+    return { ok: true, status: 200, async json() { return { categories: [] }; } };
+  }
+  throw new Error(`unexpected ${path}`);
+};
+
+await applyAndRestart();
+assertRollbackSpinnersHidden();
 })().catch((error) => {
   console.error(error);
   process.exit(1);
