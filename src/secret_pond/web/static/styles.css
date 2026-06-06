@@ -1168,6 +1168,47 @@ input[type="range"]:focus-visible {
   white-space: nowrap;
 }
 
+.playback-live-details {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.playback-live-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 760;
+  list-style: none;
+}
+
+.playback-live-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.playback-live-details summary::before {
+  display: inline-block;
+  width: 1em;
+  color: var(--amber);
+  content: "›";
+}
+
+.playback-live-details[open] summary::before {
+  content: "";
+}
+
+.playback-live-details-body {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(223, 213, 191, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
 .playback-heading {
   align-items: flex-start;
 }

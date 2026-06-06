@@ -1023,6 +1023,7 @@ const deferredInteractiveRenderTargets = new WeakSet();
 const deferredInteractiveRenderControls = {};
 const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
 const deferredInteractiveControlTags = new Set([...interactiveControlTags, "BUTTON"]);
+deferredInteractiveControlTags.add("SUMMARY");
 const settingsControlContainerIds = [
   "layerControls",
   "voiceLayerControls",
@@ -1049,7 +1050,7 @@ const activeInteractiveControlFor = (container) => {
 };
 
 const deferredInteractiveControlFromTarget = (target) => {
-  const control = target?.closest?.("select,input,textarea,button") || target;
+  const control = target?.closest?.("select,input,textarea,button,summary") || target;
   if (!control || !deferredInteractiveControlTags.has(control.tagName)) return null;
   return control;
 };

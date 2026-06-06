@@ -36,6 +36,9 @@ const selectorMatches = (element, selector) => {
   if (selector === "select,input,textarea,button") {
     return ["SELECT", "INPUT", "TEXTAREA", "BUTTON"].includes(element.tagName);
   }
+  if (selector === "select,input,textarea,button,summary") {
+    return ["SELECT", "INPUT", "TEXTAREA", "BUTTON", "SUMMARY"].includes(element.tagName);
+  }
   const dataSelector = selector.match(/^\\[([^=\\]]+)(?:="([^"]+)")?\\]$/);
   if (dataSelector) {
     const attribute = dataSelector[1];

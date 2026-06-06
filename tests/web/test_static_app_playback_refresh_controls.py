@@ -870,6 +870,162 @@ assert.strictEqual(
     )
 
 
+def test_live_details_panel_open_state_survives_state_refresh_during_interaction() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    assert 'id="playbackLiveDetails"' in index_html
+    assert 'id="playbackLiveDetailsSummary"' in index_html
+
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state, trackInteractiveControl } = globalThis.__secretPond;
+
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1200,
+    apply_mode: "live",
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      seek_applies_immediately: true,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const details = document.getElementById("playbackLiveDetails");
+const summary = document.getElementById("playbackLiveDetailsSummary");
+assert.ok(details);
+assert.ok(summary);
+assert.strictEqual(details.open, false);
+document.activeElement = summary;
+trackInteractiveControl(summary);
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1800,
+    apply_mode: "live",
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      seek_applies_immediately: true,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false, fromStateRefresh: true });
+
+assert.strictEqual(document.getElementById("playbackLiveDetails"), details);
+assert.strictEqual(details.open, false);
+
+details.open = true;
+document.activeElement = summary;
+trackInteractiveControl(summary);
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 2400,
+    apply_mode: "live",
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      seek_applies_immediately: true,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false, fromStateRefresh: true });
+
+assert.strictEqual(document.getElementById("playbackLiveDetails"), details);
+assert.strictEqual(document.getElementById("playbackLiveDetailsSummary"), summary);
+assert.strictEqual(details.open, true);
+assert.strictEqual(state.activeInteractiveControl, summary);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
