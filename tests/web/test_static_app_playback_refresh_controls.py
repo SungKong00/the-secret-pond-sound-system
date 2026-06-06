@@ -381,6 +381,62 @@ assert.strictEqual(banner.hidden, false);
     )
 
 
+def test_live_draft_save_failure_shows_global_apply_caution_banner() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { saveDraft, state } = globalThis.__secretPond;
+
+state.snapshot = {
+  playback: { apply_mode: "live" },
+  settings: {
+    active: {
+      layers: {
+        low: { enabled: true, volume_db: 0 },
+      },
+    },
+    draft: {
+      layers: {
+        low: { enabled: true, volume_db: -6 },
+      },
+    },
+  },
+};
+state.draft = state.snapshot.settings.draft;
+globalThis.fetch = async () => ({
+  ok: false,
+  status: 500,
+  json: async () => ({ detail: "backend hot swap failed" }),
+});
+
+await assert.rejects(saveDraft(), /backend hot swap failed/);
+
+const banner = document.getElementById("errorBanner");
+assert.strictEqual(banner.hidden, false);
+assert.strictEqual(banner.className, "error-banner notice-banner caution");
+assert.strictEqual(banner.getAttribute("role"), "status");
+assert.strictEqual(
+  banner.children[0].children[1].textContent,
+  "변경사항을 적용하지 못했습니다. 이전 설정이 계속 사용됩니다.",
+);
+assert.strictEqual(document.getElementById("errorBadge").textContent, "주의 있음");
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_legacy_state_payload_without_live_fields_defaults_to_stable_mode() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -1518,6 +1574,92 @@ def test_live_playback_sliders_reuse_existing_dashboard_slider_class_patterns() 
     assert '<small class="range-context">${control.rangeLabel}</small>' in app_script
     assert '<div class="value-stack">' in app_script
     assert 'class="value-input"' in app_script
+
+
+def test_stable_low_layer_draft_change_renders_pending_card_highlight() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+  renderLayerControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { deriveCoveredSurfaceFeedbackState, renderLayerControls, state } = globalThis.__secretPond;
+
+const stableSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "stable", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+state.snapshot = {
+  settings: {
+    active: cloneSettings(stableSettings),
+    draft: cloneSettings(stableSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = cloneSettings(stableSettings);
+state.draft.layers.low.volume_db = -6;
+state.applyInFlight = false;
+
+const feedbackState = deriveCoveredSurfaceFeedbackState({
+  snapshot: state.snapshot,
+  draft: state.draft,
+  operationFlags: { applyInFlight: false },
+  surfaceId: "layer:low",
+});
+renderLayerControls();
+
+const lowCard = document.getElementById("layerControls").children[1];
+const midCard = document.getElementById("layerControls").children[0];
+
+assert.strictEqual(feedbackState.visual_state, "pending");
+assert.strictEqual(feedbackState.show_spinner, false);
+assert.match(lowCard.className, /feedback-pending/);
+assert.doesNotMatch(midCard.className, /feedback-pending/);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
 
 
 def test_live_playback_status_pills_reuse_dashboard_status_pill_pattern() -> None:

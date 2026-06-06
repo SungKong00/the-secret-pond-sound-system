@@ -141,6 +141,10 @@ const highestNoticeSeverity = (notices) => notices.reduce((highest, notice) => (
 ), "info");
 
 const genericNoticeDetail = "문제가 반복되면 최근 이벤트와 시스템 진단을 확인하세요.";
+const settingsApplyFailureCautionMessage =
+  "변경사항을 적용하지 못했습니다. 이전 설정이 계속 사용됩니다.";
+const settingsApplyFailureCautionDetail =
+  "실패한 변경사항은 활성 재생 설정에 반영되지 않았습니다. 상태를 확인한 뒤 다시 적용하세요.";
 
 const uiNotice = (message, summary, detail, severity = "error") => ({
   summary,
@@ -1417,6 +1421,19 @@ const showError = (message) => {
   renderNoticeBanner(notice ? [notice] : []);
 };
 
+const showSettingsApplyFailureCaution = (message = "") => {
+  state.transientError = null;
+  state.transientErrorShownAt = 0;
+  renderNoticeBanner([
+    uiNotice(
+      message,
+      settingsApplyFailureCautionMessage,
+      settingsApplyFailureCautionDetail,
+      "caution",
+    ),
+  ]);
+};
+
 const transientErrorVisibleLongEnough = () => (
   !state.transientError ||
   Date.now() - state.transientErrorShownAt >= transientNoticeMinimumVisibleMs
@@ -2346,6 +2363,102 @@ const liveVoiceRawPreviewTreatmentChangeOnly = (snapshot, settingsPlan) => {
     }
   });
   return stableSettingsSignature(activeRecording) === stableSettingsSignature(draftRecording);
+};
+
+const idleCoveredSurfaceFeedbackState = () => ({
+  visual_state: "idle",
+  show_spinner: false,
+});
+
+const feedbackOperationInFlight = (operationFlags = {}) => Boolean(
+  operationFlags.draftSaveInFlight ||
+    operationFlags.settingsSaveInFlight ||
+    operationFlags.applyInFlight ||
+    operationFlags.liveApplyInFlight,
+);
+
+const settingsApplyMode = (snapshot, draft) => (
+  snapshot?.playback?.apply_mode ||
+    draft?.playback?.apply_mode ||
+    snapshot?.settings?.active?.playback?.apply_mode ||
+    "stable"
+);
+
+const layerIdForFeedbackSurface = (surfaceId) => {
+  const match = String(surfaceId || "").match(/^layer[:.](low|mid|voice)$/);
+  return match ? match[1] : null;
+};
+
+const surfaceSettingsChanged = (active, draft, surfaceId) => {
+  const layerId = layerIdForFeedbackSurface(surfaceId);
+  if (layerId) {
+    return stableSettingsSignature(active?.layers?.[layerId]) !==
+      stableSettingsSignature(draft?.layers?.[layerId]);
+  }
+  if (surfaceId === "voice_stack") {
+    return stableSettingsSignature(active?.voice_stack) !== stableSettingsSignature(draft?.voice_stack);
+  }
+  if (surfaceId === "recording") {
+    return stableSettingsSignature(active?.recording) !== stableSettingsSignature(draft?.recording);
+  }
+  return false;
+};
+
+const liveApplicableLayerSurfaceChange = (snapshot, active, draft, surfaceId) => {
+  const layerId = layerIdForFeedbackSurface(surfaceId);
+  if (!layerId || !active?.layers?.[layerId] || !draft?.layers?.[layerId]) return false;
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled) return false;
+  const activeLayer = clone(active.layers[layerId]);
+  const draftLayer = clone(draft.layers[layerId]);
+  if (live.volume_applies_immediately) draftLayer.volume_db = activeLayer.volume_db;
+  if (live.mute_applies_immediately) draftLayer.enabled = activeLayer.enabled;
+  if (live.eq_applies_immediately) draftLayer.eq = activeLayer.eq;
+  return stableSettingsSignature(activeLayer) === stableSettingsSignature(draftLayer);
+};
+
+const liveApplicableVoiceStackSurfaceChange = (snapshot, active, draft) => {
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled || !live.voice_stack_transition_applies_immediately) return false;
+  const activeVoiceStack = clone(active?.voice_stack || {});
+  const draftVoiceStack = clone(draft?.voice_stack || {});
+  draftVoiceStack.transition_seconds = activeVoiceStack.transition_seconds;
+  return stableSettingsSignature(activeVoiceStack) === stableSettingsSignature(draftVoiceStack);
+};
+
+const liveApplicableRecordingSurfaceChange = (snapshot, active, draft, settingsPlan) => {
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled || !live.voice_raw_preview_treatment_applies_immediately) return false;
+  if (!snapshot?.playback?.voice_raw_preview_path) return false;
+  const reprocessableFields = Array.isArray(settingsPlan?.livePreviewReprocessableFields)
+    ? settingsPlan.livePreviewReprocessableFields
+    : [];
+  if (reprocessableFields.length === 0) return false;
+  const activeRecording = clone(active?.recording || {});
+  const draftRecording = clone(draft?.recording || {});
+  reprocessableFields.forEach((fieldName) => {
+    if (!fieldName.startsWith("recording.")) return;
+    const recordingFieldName = fieldName.slice("recording.".length);
+    if (recordingFieldName) {
+      draftRecording[recordingFieldName] = activeRecording[recordingFieldName];
+    }
+  });
+  return stableSettingsSignature(activeRecording) === stableSettingsSignature(draftRecording);
+};
+
+const liveApplicableCoveredSurfaceChange = ({ snapshot, draft, surfaceId, settingsPlan }) => {
+  const active = snapshot?.settings?.active;
+  if (!active || !draft || !surfaceSettingsChanged(active, draft, surfaceId)) return false;
+  if (layerIdForFeedbackSurface(surfaceId)) {
+    return liveApplicableLayerSurfaceChange(snapshot, active, draft, surfaceId);
+  }
+  if (surfaceId === "voice_stack") {
+    return liveApplicableVoiceStackSurfaceChange(snapshot, active, draft);
+  }
+  if (surfaceId === "recording") {
+    return liveApplicableRecordingSurfaceChange(snapshot, active, draft, settingsPlan);
+  }
+  return false;
 };
 
 const derivePendingChangeState = (
@@ -4156,6 +4269,70 @@ const currentPlaybackApplyMode = (snapshot = state.snapshot) => {
   return "stable";
 };
 
+const coveredFeedbackSurfacePaths = {
+  "layer:low": ["layers.low"],
+  "layer.low": ["layers.low"],
+  "layer:mid": ["layers.mid"],
+  "layer.mid": ["layers.mid"],
+  "layer:voice": ["layers.voice"],
+  "layer.voice": ["layers.voice"],
+  voice_stack: ["voice_stack"],
+  recording: ["recording", "input_control"],
+};
+
+const feedbackSurfaceHasDraftChange = (activeSettings, draftSettings, surfaceId) => {
+  const paths = coveredFeedbackSurfacePaths[surfaceId] || [];
+  return paths.some((path) => (
+    stableSettingsSignature(readSettingsPath(activeSettings, path)) !==
+      stableSettingsSignature(readSettingsPath(draftSettings, path))
+  ));
+};
+
+const deriveCoveredSurfaceFeedbackState = ({
+  snapshot = state.snapshot,
+  draft = state.draft || snapshot?.settings?.draft || null,
+  operationFlags = currentOperationFlags(),
+  surfaceId,
+  backendState = null,
+} = {}) => {
+  const activeSettings = snapshot?.settings?.active || null;
+  if (!coveredFeedbackSurfacePaths[surfaceId] || !activeSettings || !draft) {
+    return idleCoveredSurfaceFeedbackState();
+  }
+  if (backendState?.visual_state || backendState?.show_spinner !== undefined) {
+    return {
+      visual_state: backendState.visual_state || "idle",
+      show_spinner: Boolean(backendState.show_spinner),
+    };
+  }
+  const hasUnappliedChange = feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId);
+  const applyMode = currentPlaybackApplyMode(snapshot);
+  const applyInFlight = Boolean(operationFlags.applyInFlight);
+  if (applyMode === "stable") {
+    return {
+      visual_state: hasUnappliedChange && !applyInFlight ? "pending" : "idle",
+      show_spinner: hasUnappliedChange && applyInFlight,
+    };
+  }
+  const plan = localSettingsChangePlan(
+    activeSettings,
+    draft,
+    normalizeSettingsChangePlan(snapshot?.settings?.change).runtimeConfigFields,
+    normalizeSettingsChangePlan(snapshot?.settings?.change).livePreviewReprocessableFieldNames,
+  );
+  const liveApplicableChange = liveApplicableCoveredSurfaceChange({
+    snapshot,
+    draft,
+    surfaceId,
+    settingsPlan: plan,
+  });
+  const liveFeedbackInFlight = feedbackOperationInFlight(operationFlags);
+  return {
+    visual_state: liveApplicableChange && liveFeedbackInFlight ? "pending" : "idle",
+    show_spinner: liveApplicableChange && liveFeedbackInFlight,
+  };
+};
+
 const renderPlaybackApplyModeControls = () => {
   const panel = $("playbackApplyModePanel");
   if (!panel) return;
@@ -4304,7 +4481,7 @@ const setStorageMode = async (mode) => {
   } finally {
     if (isCurrentStorageModeChange(requestId)) {
       setOperationLockFlag("applyInFlight", false);
-      if (modeError) showError(modeError.message);
+      if (modeError) showSettingsApplyFailureCaution(modeError.message);
       else clearTransientError({ respectMinimumVisibleDuration: true });
     }
   }
@@ -4321,14 +4498,23 @@ const renderLayerGroup = (containerId, layerIds) => {
 const renderLayerCard = (layerId) => {
   const layer = state.draft.layers[layerId];
   const activeLayer = state.snapshot?.settings.active.layers[layerId] || layer;
+  const feedbackState = deriveCoveredSurfaceFeedbackState({
+    snapshot: state.snapshot,
+    draft: state.draft,
+    operationFlags: currentOperationFlags(),
+    surfaceId: `layer:${layerId}`,
+  });
   const draftLock = deriveDraftControlLockState(state);
   const draftLocked = draftLock.disabled;
   const draftLockTitle = draftLock.title;
   const card = document.createElement("section");
-  card.className = "layer-card";
+  card.className = `layer-card${
+    feedbackState.visual_state === "pending" ? " feedback-pending" : ""
+  }`;
   const layerLabel = layerLabels[layerId];
   const pendingEnabled = hasLayerInclusionDraftChange(layerId);
   card.innerHTML = `
+    <span class="feedback-spinner" ${feedbackState.show_spinner ? "" : "hidden"}></span>
     <div class="layer-head">
       <div>
         <h3 class="layer-title">${labelMarkup(layerLabel)}</h3>
@@ -4942,7 +5128,7 @@ const saveDraft = async () => {
     return payload;
   } catch (error) {
     if (isCurrentDraftSave(request)) {
-      showError(error.message);
+      showSettingsApplyFailureCaution(error.message);
       throw error;
     }
     return null;
