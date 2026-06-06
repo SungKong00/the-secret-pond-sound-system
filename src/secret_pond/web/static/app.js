@@ -73,6 +73,10 @@ const state = {
   diagnosticsRefreshRequestId: 0,
   deviceChangeRequestId: 0,
   deviceRefreshRequestId: 0,
+  playbackSeekRequestId: 0,
+  playbackSeekPointerId: null,
+  playbackTimelineReceivedAtMs: 0,
+  playbackTimelineAnimationPending: false,
   spaceRecording: false,
   stateSocket: null,
   websocketConnected: false,
@@ -744,24 +748,25 @@ const voiceStackControlDefs = [
       { value: 105, label: "105s" },
     ],
   },
-  {
-    path: "transition_seconds",
-    label: { ko: "전환 시간", en: "Transition" },
-    min: 1,
-    max: 10,
-    step: 1,
-    suffix: " s",
-    kind: "space",
-    rangeLabel: "1s · 3s default · 10s",
-    defaultValue: 3,
-    description: "새 목소리 스택으로 넘어갈 때 겹쳐 전환되는 시간입니다.",
-    marks: [
-      { value: 1, label: "1s" },
-      { value: 3, label: "3s" },
-      { value: 10, label: "10s" },
-    ],
-  },
 ];
+
+const playbackTransitionControlDef = {
+  path: "transition_seconds",
+  label: { ko: "전환 시간", en: "Transition" },
+  min: 1,
+  max: 10,
+  step: 1,
+  suffix: " s",
+  kind: "space",
+  rangeLabel: "1s · 3s default · 10s",
+  defaultValue: 3,
+  description: "Stack, Mid, Low가 새 루프로 넘어갈 때 겹쳐 전환되는 시간입니다.",
+  marks: [
+    { value: 1, label: "1s" },
+    { value: 3, label: "3s" },
+    { value: 10, label: "10s" },
+  ],
+};
 
 const layerPresetLabels = {
   "Warm Bed": { ko: "따뜻한 바닥", en: "Warm Bed" },
@@ -1063,6 +1068,7 @@ const settingsControlContainerIds = [
   "layerControls",
   "voiceLayerControls",
   "voiceStackControls",
+  "playbackTransitionControls",
   "recordingControls",
   "playbackApplyModePanel",
 ];
@@ -1966,6 +1972,7 @@ const applyState = (payload, options = {}) => {
   const currentSnapshot = state.snapshot;
   state.serverStateSignature = nextServerStateSignature;
   state.snapshot = normalizedPayload;
+  markPlaybackTimelineServerUpdate();
   applySettingsPayload(normalizedPayload.settings, {
     currentSnapshot,
     syncDraft,
@@ -2760,7 +2767,20 @@ const renderRecordingTimes = (snapshot = state.snapshot) => {
     `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
 };
 
-const activePlaybackTimeline = (snapshot = state.snapshot) => {
+const playbackTimelineNowMs = () => {
+  const performanceNow = globalThis.performance?.now?.();
+  return Number.isFinite(performanceNow) ? performanceNow : Date.now();
+};
+
+const markPlaybackTimelineServerUpdate = () => {
+  state.playbackTimelineReceivedAtMs = playbackTimelineNowMs();
+};
+
+const playbackTimelineRunning = (snapshot = state.snapshot) => (
+  Boolean(snapshot?.playback?.output_running || snapshot?.playback?.is_playing)
+);
+
+const activePlaybackTimeline = (snapshot = state.snapshot, options = {}) => {
   const playback = snapshot?.playback || {};
   const audio = snapshot?.settings?.active?.audio || {};
   const voiceStack = snapshot?.settings?.active?.voice_stack || {};
@@ -2777,10 +2797,14 @@ const activePlaybackTimeline = (snapshot = state.snapshot) => {
       : Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(frameCursor)
         ? frameCursor / sampleRate
         : 0;
+  const elapsedSeconds = options.interpolate && playbackTimelineRunning(snapshot)
+    ? Math.max(0, (Number(options.nowMs ?? playbackTimelineNowMs()) -
+      state.playbackTimelineReceivedAtMs) / 1000)
+    : 0;
   const boundedPosition =
     Number.isFinite(durationSeconds) && durationSeconds > 0
-      ? Math.max(0, positionSeconds) % durationSeconds
-      : Math.max(0, Number.isFinite(positionSeconds) ? positionSeconds : 0);
+      ? Math.max(0, positionSeconds + elapsedSeconds) % durationSeconds
+      : Math.max(0, Number.isFinite(positionSeconds) ? positionSeconds + elapsedSeconds : 0);
   const progress =
     Number.isFinite(durationSeconds) && durationSeconds > 0
       ? boundedPosition / durationSeconds
@@ -2792,22 +2816,11 @@ const activePlaybackTimeline = (snapshot = state.snapshot) => {
   };
 };
 
-const renderPlaybackTimeline = (snapshot = state.snapshot) => {
-  if (
-    deferPlaybackTimelineRender() ||
-    deferInteractiveRender("playback-timeline", $("playbackTimeline"), renderPlaybackTimeline)
-  ) {
-    return;
-  }
-  const playback = snapshot?.playback || {};
-  const { positionSeconds, durationSeconds, progress } = activePlaybackTimeline(snapshot);
-  const progressPercent = (progress * 100).toFixed(3).replace(/\.?0+$/, "");
+const renderPlaybackTimelinePosition = ({ positionSeconds, durationSeconds, progress }) => {
+  const boundedProgress = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  const progressPercent = (boundedProgress * 100).toFixed(3).replace(/\.?0+$/, "");
   const progressBar = $("playbackProgressBar");
   const seekSlider = $("playbackSeekSlider");
-  const seekReady = Boolean(
-    playback.output_running || playback.is_playing || playback.rendered_cache_ready,
-  );
-  const seekEnabled = Boolean(seekReady && durationSeconds > 0);
   $("playbackPositionTime").textContent = formatSeconds(positionSeconds);
   $("playbackDurationTime").textContent = formatSeconds(durationSeconds);
   if (progressBar.style) {
@@ -2815,6 +2828,24 @@ const renderPlaybackTimeline = (snapshot = state.snapshot) => {
   } else {
     progressBar.setAttribute("style", `width: ${progressPercent}%`);
   }
+  seekSlider.style?.setProperty("--control-percent", `${progressPercent}%`);
+};
+
+const renderPlaybackTimeline = (snapshot = state.snapshot, options = {}) => {
+  if (
+    deferPlaybackTimelineRender() ||
+    deferInteractiveRender("playback-timeline", $("playbackTimeline"), renderPlaybackTimeline)
+  ) {
+    return;
+  }
+  const playback = snapshot?.playback || {};
+  const { positionSeconds, durationSeconds, progress } = activePlaybackTimeline(snapshot, options);
+  const seekSlider = $("playbackSeekSlider");
+  const seekReady = Boolean(
+    playback.output_running || playback.is_playing || playback.rendered_cache_ready,
+  );
+  const seekEnabled = Boolean(seekReady && durationSeconds > 0);
+  renderPlaybackTimelinePosition({ positionSeconds, durationSeconds, progress });
   seekSlider.max = String(durationSeconds);
   seekSlider.disabled = !seekEnabled || state.playbackControlInFlight;
   seekSlider.title = seekEnabled
@@ -2823,6 +2854,26 @@ const renderPlaybackTimeline = (snapshot = state.snapshot) => {
   if (!playbackSeekSliderActive()) {
     seekSlider.value = String(positionSeconds);
   }
+};
+
+const playbackTimelineShouldAnimate = (snapshot = state.snapshot) => {
+  const { durationSeconds } = activePlaybackTimeline(snapshot);
+  return playbackTimelineRunning(snapshot) && durationSeconds > 0;
+};
+
+const schedulePlaybackTimelineAnimation = () => {
+  if (state.playbackTimelineAnimationPending) return;
+  if (!playbackTimelineShouldAnimate()) return;
+  if (typeof requestAnimationFrame !== "function") return;
+  state.playbackTimelineAnimationPending = true;
+  requestAnimationFrame(renderPlaybackTimelineAnimationFrame);
+};
+
+const renderPlaybackTimelineAnimationFrame = (nowMs = playbackTimelineNowMs()) => {
+  state.playbackTimelineAnimationPending = false;
+  if (!playbackTimelineShouldAnimate()) return;
+  renderPlaybackTimeline(state.snapshot, { interpolate: true, nowMs });
+  schedulePlaybackTimelineAnimation();
 };
 
 const renderTransitionModeBadge = (snapshot) => {
@@ -2880,7 +2931,7 @@ const outputControlSummaryText = (
   }
   if (snapshot?.playback?.output_running) {
     if (snapshot.settings?.active?.voice_stack?.mode === "live_ephemeral") {
-      return "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.";
+      return "Live 전환 · 새 녹음은 준비되면 Low/Mid/Voice가 함께 부드럽게 전환됩니다.";
     }
     return "Stable fallback · 변경사항 적용 후 렌더링된 캐시로 재생합니다.";
   }
@@ -2904,6 +2955,7 @@ const renderState = () => {
   $("participantCount").textContent = snapshot.participant_count;
   renderRecordingTimes(snapshot);
   renderPlaybackTimeline(snapshot);
+  schedulePlaybackTimelineAnimation();
   $("minimumRecordingTime").textContent = formatSeconds(
     snapshot.settings.active.input_control.minimum_recording_seconds,
   );
@@ -4525,6 +4577,7 @@ const renderControls = () => {
     return;
   }
   renderPlaybackApplyModeControls();
+  renderPlaybackTransitionControls();
   renderLayerControls();
   renderVoiceStackControls();
   renderRecordingPresets();
@@ -4552,6 +4605,16 @@ const refreshCoveredFeedbackVisualStates = () => {
   applyCoveredFeedbackVisualState(
     $("voiceStackControls"),
     "control-stack compact voice-stack-controls feedback-surface",
+    deriveCoveredSurfaceFeedbackState({
+      snapshot: state.snapshot,
+      draft: state.draft,
+      operationFlags: currentOperationFlags(),
+      surfaceId: "voice_stack",
+    }),
+  );
+  applyCoveredFeedbackVisualState(
+    $("playbackTransitionControls"),
+    "control-stack compact playback-transition-controls feedback-surface",
     deriveCoveredSurfaceFeedbackState({
       snapshot: state.snapshot,
       draft: state.draft,
@@ -4884,6 +4947,38 @@ const setPlaybackApplyMode = async (mode) => {
   }
 };
 
+const appendVoiceStackRangeControl = (container, control) => {
+  const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
+  const draftValue = getPath(state.draft.voice_stack, control.path) ?? control.defaultValue;
+  const activeValue = getPath(activeVoiceStack, control.path) ?? control.defaultValue;
+  container.appendChild(
+    rangeControl(
+      control,
+      draftValue,
+      (value) => {
+        commitDraftChange(
+          () => {
+            setPath(state.draft.voice_stack, control.path, value);
+          },
+          { feedbackControlId: `voice_stack.${control.path}` },
+        );
+      },
+      activeValue,
+    ),
+  );
+};
+
+const renderPlaybackTransitionControls = () => {
+  const container = $("playbackTransitionControls");
+  if (!container) return;
+  renderCoveredFeedbackContainer(
+    container,
+    "control-stack compact playback-transition-controls feedback-surface",
+    "voice_stack",
+  );
+  appendVoiceStackRangeControl(container, playbackTransitionControlDef);
+};
+
 const renderVoiceStackControls = () => {
   const container = $("voiceStackControls");
   renderCoveredFeedbackContainer(
@@ -4892,25 +4987,8 @@ const renderVoiceStackControls = () => {
     "voice_stack",
   );
   renderStorageModeControls();
-  const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
   voiceStackControlDefs.forEach((control) => {
-    const draftValue = getPath(state.draft.voice_stack, control.path) ?? control.defaultValue;
-    const activeValue = getPath(activeVoiceStack, control.path) ?? control.defaultValue;
-    container.appendChild(
-      rangeControl(
-        control,
-        draftValue,
-        (value) => {
-          commitDraftChange(
-            () => {
-              setPath(state.draft.voice_stack, control.path, value);
-            },
-            { feedbackControlId: `voice_stack.${control.path}` },
-          );
-        },
-        activeValue,
-      ),
-    );
+    appendVoiceStackRangeControl(container, control);
   });
 };
 
@@ -5893,19 +5971,67 @@ const seekPlayback = async (event) => {
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
   if (!Number.isFinite(positionSeconds)) return;
   const progress = Math.max(0, Math.min(1, positionSeconds / durationSeconds));
-  setOperationLockFlag("playbackControlInFlight", true);
+  const requestId = state.playbackSeekRequestId + 1;
+  state.playbackSeekRequestId = requestId;
+  renderPlaybackTimelinePosition({ positionSeconds, durationSeconds, progress });
   try {
     const payload = await api("/api/playback/seek", {
       method: "POST",
       body: JSON.stringify({ progress }),
     });
+    if (requestId !== state.playbackSeekRequestId) return;
     await applyResponseState(payload, { syncDraft: false });
   } catch (error) {
+    if (requestId !== state.playbackSeekRequestId) return;
     await requestState({ syncDraft: false }).catch(() => {});
     showError(error.message);
-  } finally {
-    setOperationLockFlag("playbackControlInFlight", false);
   }
+};
+
+const playbackSeekPositionFromPointer = (slider, event) => {
+  const durationSeconds = Number(slider.max || 0);
+  const rect = slider.getBoundingClientRect?.();
+  const clientX = Number(event.clientX);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
+  if (!rect || !Number.isFinite(rect.width) || rect.width <= 0) return null;
+  if (!Number.isFinite(clientX)) return null;
+  const progress = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  return progress * durationSeconds;
+};
+
+const seekPlaybackFromPointer = (event) => {
+  const slider = $("playbackSeekSlider");
+  if (slider.disabled) return;
+  const positionSeconds = playbackSeekPositionFromPointer(slider, event);
+  if (positionSeconds === null) return;
+  slider.value = String(positionSeconds);
+  seekPlayback({ target: slider });
+};
+
+const startPlaybackSeekDrag = (event) => {
+  const slider = $("playbackSeekSlider");
+  if (slider.disabled) return;
+  trackInteractiveControl(slider);
+  state.playbackSeekPointerId = event.pointerId ?? null;
+  if (event.pointerId !== undefined) {
+    slider.setPointerCapture?.(event.pointerId);
+  }
+  event.preventDefault?.();
+  seekPlaybackFromPointer(event);
+};
+
+const updatePlaybackSeekDrag = (event) => {
+  if (state.playbackSeekPointerId === null) return;
+  if (event.pointerId !== state.playbackSeekPointerId) return;
+  event.preventDefault?.();
+  seekPlaybackFromPointer(event);
+};
+
+const finishPlaybackSeekDrag = (event) => {
+  if (state.playbackSeekPointerId === null) return;
+  if (event.pointerId !== state.playbackSeekPointerId) return;
+  $("playbackSeekSlider").releasePointerCapture?.(state.playbackSeekPointerId);
+  state.playbackSeekPointerId = null;
 };
 
 const applyAndRestart = async () => {
@@ -6203,7 +6329,10 @@ const bindEvents = () => {
   $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
   $("stopOutputButton").addEventListener("click", () => control("/api/playback/stop"));
   $("restartOutputButton").addEventListener("click", () => control("/api/playback/restart"));
-  $("playbackSeekSlider").addEventListener("pointerdown", () => trackInteractiveControl($("playbackSeekSlider")));
+  $("playbackSeekSlider").addEventListener("pointerdown", startPlaybackSeekDrag);
+  $("playbackSeekSlider").addEventListener("pointermove", updatePlaybackSeekDrag);
+  $("playbackSeekSlider").addEventListener("pointerup", finishPlaybackSeekDrag);
+  $("playbackSeekSlider").addEventListener("pointercancel", finishPlaybackSeekDrag);
   $("playbackSeekSlider").addEventListener("focus", () => trackInteractiveControl($("playbackSeekSlider")));
   $("playbackSeekSlider").addEventListener("blur", () => releaseInteractiveControl($("playbackSeekSlider")));
   $("playbackSeekSlider").addEventListener("input", seekPlayback);

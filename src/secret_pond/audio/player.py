@@ -47,11 +47,20 @@ class MixerBlock:
 
 @dataclass(frozen=True)
 class VoiceCrossfadeState:
-    from_buffer: AudioBuffer
-    to_buffer: AudioBuffer
+    from_layers: dict[LayerId, AudioBuffer]
+    to_layers: dict[LayerId, AudioBuffer]
+    transition_layer_ids: frozenset[LayerId]
     duration_frames: int
     elapsed_frames: int
     transition_target_id: str
+
+    @property
+    def from_buffer(self) -> AudioBuffer:
+        return self.from_layers["voice"]
+
+    @property
+    def to_buffer(self) -> AudioBuffer:
+        return self.to_layers["voice"]
 
 
 @dataclass(frozen=True)
@@ -186,11 +195,17 @@ class LayeredLoopPlayer:
         layers = self._require_loaded()
         next_layers = dict(layers)
         next_buffer = buffer
-        if normalized_layer_id == "voice" and self._voice_transition is not None:
-            next_buffer = _canonical_voice_candidate(buffer, layers)
+        if (
+            self._voice_transition is not None
+            and normalized_layer_id in self._voice_transition.transition_layer_ids
+        ):
+            next_buffer = _canonical_layer_candidate(normalized_layer_id, buffer, layers)
+            next_transition_layers = dict(self._voice_transition.to_layers)
+            next_transition_layers[normalized_layer_id] = next_buffer
+            _validate_loaded_layers(next_transition_layers)
             self._voice_transition = replace(
                 self._voice_transition,
-                to_buffer=next_buffer,
+                to_layers=next_transition_layers,
             )
         next_layers[normalized_layer_id] = next_buffer
         _validate_loaded_layers(next_layers)
@@ -217,6 +232,7 @@ class LayeredLoopPlayer:
         *,
         duration_frames: int,
         transition_target_id: str,
+        next_layers: Mapping[LayerId, AudioBuffer] | None = None,
     ) -> str | None:
         layers = self._require_loaded()
         if duration_frames <= 0:
@@ -226,11 +242,19 @@ class LayeredLoopPlayer:
             msg = "transition_target_id must be a non-empty string"
             raise ValueError(msg)
 
-        candidate = _canonical_voice_candidate(next_voice, layers)
+        candidate_layers = (
+            _canonical_transition_layers(next_layers, layers)
+            if next_layers is not None
+            else dict(layers)
+        )
+        candidate_layers["voice"] = _canonical_voice_candidate(next_voice, layers)
+        _validate_loaded_layers(candidate_layers)
+        transition_layer_ids = frozenset(LAYER_IDS if next_layers is not None else ("voice",))
         superseded = self.active_voice_transition_target_id
         self._voice_transition = VoiceCrossfadeState(
-            from_buffer=layers["voice"],
-            to_buffer=candidate,
+            from_layers={layer_id: layers[layer_id] for layer_id in LAYER_IDS},
+            to_layers={layer_id: candidate_layers[layer_id] for layer_id in LAYER_IDS},
+            transition_layer_ids=transition_layer_ids,
             duration_frames=duration_frames,
             elapsed_frames=0,
             transition_target_id=transition_target_id,
@@ -289,13 +313,24 @@ class LayeredLoopPlayer:
                 block_size=block_size,
                 peak_ceiling=self._peak_ceiling,
             )
-            preserve_realtime_ramp_layers = frozenset({"mid"})
+            preserve_realtime_ramp_layers = (
+                self._voice_transition.transition_layer_ids | frozenset({"mid"})
+            )
             elapsed_frames = self._voice_transition.elapsed_frames + block_size
             if elapsed_frames >= self._voice_transition.duration_frames:
                 transition_target_id = self._voice_transition.transition_target_id
+                current_layers = dict(layers)
                 try:
-                    layers["voice"] = self._voice_transition.to_buffer
+                    for layer_id in LAYER_IDS:
+                        if layer_id not in self._voice_transition.transition_layer_ids:
+                            continue
+                        layers[layer_id] = self._voice_transition.to_layers[layer_id]
                 except Exception:
+                    for layer_id, buffer in current_layers.items():
+                        try:
+                            layers[layer_id] = buffer
+                        except Exception:
+                            pass
                     self._voice_transition = None
                     block = mix_layer_blocks(
                         layers,
@@ -511,39 +546,41 @@ def mix_layer_blocks_with_voice_crossfade(
     peak_ceiling: float = 0.98,
 ) -> MixerBlock:
     _validate_mix_inputs(layers, frame_cursor, block_size, peak_ceiling)
+    _validate_mix_inputs(voice_transition.from_layers, frame_cursor, block_size, peak_ceiling)
+    _validate_mix_inputs(voice_transition.to_layers, frame_cursor, block_size, peak_ceiling)
     first_layer = layers[LAYER_IDS[0]]
     mixed = np.zeros((block_size, first_layer.channels), dtype=np.float32)
 
-    for layer_id in ("low", "mid"):
+    progress = np.clip(
+        (voice_transition.elapsed_frames + np.arange(block_size, dtype=np.float32))
+        / voice_transition.duration_frames,
+        0.0,
+        1.0,
+    )
+    from_gain, to_gain = _equal_power_crossfade_gains(progress)
+    from_gain = from_gain[:, np.newaxis]
+    to_gain = to_gain[:, np.newaxis]
+
+    for layer_id in LAYER_IDS:
         state = states.get(layer_id, LayerPlaybackState())
         if not state.enabled:
             continue
-        layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
-        mixed += _apply_realtime_gain(layer_block, state)
-
-    voice_state = states.get("voice", LayerPlaybackState())
-    if voice_state.enabled:
+        if layer_id not in voice_transition.transition_layer_ids:
+            layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
+            mixed += _apply_realtime_gain(layer_block, state)
+            continue
         from_block = _read_wrapped(
-            voice_transition.from_buffer.samples,
+            voice_transition.from_layers[layer_id].samples,
             frame_cursor,
             block_size,
         )
         to_block = _read_wrapped(
-            voice_transition.to_buffer.samples,
+            voice_transition.to_layers[layer_id].samples,
             frame_cursor,
             block_size,
         )
-        progress = np.clip(
-            (voice_transition.elapsed_frames + np.arange(block_size, dtype=np.float32))
-            / voice_transition.duration_frames,
-            0.0,
-            1.0,
-        )
-        from_gain, to_gain = _equal_power_crossfade_gains(progress)
-        from_gain = from_gain[:, np.newaxis]
-        to_gain = to_gain[:, np.newaxis]
-        voice_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
-        mixed += _apply_realtime_gain(voice_block, voice_state)
+        layer_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
+        mixed += _apply_realtime_gain(layer_block, state)
 
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
@@ -561,13 +598,37 @@ def _canonical_voice_candidate(
     next_voice: AudioBuffer,
     layers: Mapping[LayerId, AudioBuffer],
 ) -> AudioBuffer:
-    current_voice = layers["voice"]
-    candidate = next_voice.to_canonical(
-        sample_rate=current_voice.sample_rate,
-        channels=current_voice.channels,
-    ).to_frame_count(current_voice.frames)
+    return _canonical_layer_candidate("voice", next_voice, layers)
+
+
+def _canonical_transition_layers(
+    next_layers: Mapping[LayerId, AudioBuffer],
+    layers: Mapping[LayerId, AudioBuffer],
+) -> dict[LayerId, AudioBuffer]:
+    missing = [layer_id for layer_id in LAYER_IDS if layer_id not in next_layers]
+    if missing:
+        msg = f"missing transition layer buffers: {', '.join(missing)}"
+        raise ValueError(msg)
+    candidates = {
+        layer_id: _canonical_layer_candidate(layer_id, next_layers[layer_id], layers)
+        for layer_id in LAYER_IDS
+    }
+    _validate_loaded_layers(candidates)
+    return candidates
+
+
+def _canonical_layer_candidate(
+    layer_id: LayerId,
+    next_buffer: AudioBuffer,
+    layers: Mapping[LayerId, AudioBuffer],
+) -> AudioBuffer:
+    current_layer = layers[layer_id]
+    candidate = next_buffer.to_canonical(
+        sample_rate=current_layer.sample_rate,
+        channels=current_layer.channels,
+    ).to_frame_count(current_layer.frames)
     candidate_layers = dict(layers)
-    candidate_layers["voice"] = candidate
+    candidate_layers[layer_id] = candidate
     _validate_loaded_layers(candidate_layers)
     return candidate
 

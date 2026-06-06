@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from secret_pond.audio.file_io import read_wav
+from secret_pond.audio.layers import LayerId
 from secret_pond.services.player_settings import apply_player_layer_settings
 from secret_pond.services.recording_transaction import run_recording_transaction
 from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
@@ -59,7 +60,8 @@ def refresh_playback_after_recording(
                     _transition_skip_evidence(runtime, settings, outcome, guard),
                 )
                 return
-            voice = read_wav(runtime.paths.voice_playback)
+            next_layers = read_rendered_layer_buffers(runtime.paths)
+            voice = next_layers["voice"]
             duration_frames = int(
                 settings.voice_stack.transition_seconds * settings.audio.sample_rate
             )
@@ -68,6 +70,7 @@ def refresh_playback_after_recording(
             superseded = start_ready_voice_stack_crossfade(
                 runtime.player,
                 voice,
+                next_layers=next_layers,
                 transition_seconds=settings.voice_stack.transition_seconds,
                 sample_rate=settings.audio.sample_rate,
                 transition_target_id=transition_target_id,
@@ -117,6 +120,7 @@ def start_ready_voice_stack_crossfade(
     player: Any,
     next_voice: Any,
     *,
+    next_layers: Mapping[LayerId, Any] | None = None,
     transition_seconds: float,
     sample_rate: int,
     transition_target_id: str,
@@ -126,7 +130,15 @@ def start_ready_voice_stack_crossfade(
         next_voice,
         duration_frames=duration_frames,
         transition_target_id=transition_target_id,
+        next_layers=next_layers,
     )
+
+
+def read_rendered_layer_buffers(paths: Any) -> dict[LayerId, Any]:
+    return {
+        layer_id: read_wav(path)
+        for layer_id, path in rendered_layer_paths(paths).items()
+    }
 
 
 def _capture_recording_playback_guard(runtime: SecretPondRuntime) -> RecordingPlaybackGuard | None:

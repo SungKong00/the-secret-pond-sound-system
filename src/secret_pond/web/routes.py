@@ -5,7 +5,6 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
-from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.source_library import (
     SourceCategoryConfig,
     category_config,
@@ -28,7 +27,10 @@ from secret_pond.services.playback_apply_mode import (
 from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
-from secret_pond.services.recording_workflow import run_recording_workflow
+from secret_pond.services.recording_workflow import (
+    read_rendered_layer_buffers,
+    run_recording_workflow,
+)
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_apply import SettingsApplyError, apply_draft_settings
 from secret_pond.services.settings_draft import (
@@ -689,11 +691,13 @@ def _start_ready_voice_stack_transition(
 ) -> None:
     settings = runtime.controller.settings
     duration_frames = int(settings.voice_stack.transition_seconds * settings.audio.sample_rate)
-    next_voice = read_wav(runtime.paths.voice_playback)
+    next_layers = read_rendered_layer_buffers(runtime.paths)
+    next_voice = next_layers["voice"]
     runtime.player.start_voice_crossfade(
         next_voice,
         duration_frames=duration_frames,
         transition_target_id=transition_target_id,
+        next_layers=next_layers,
     )
     runtime.transition_warning = None
 

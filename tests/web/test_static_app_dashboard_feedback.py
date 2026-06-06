@@ -2388,6 +2388,7 @@ def test_stable_successful_apply_response_renders_server_confirmed_control_value
     app_script += """
 globalThis.__secretPond = {
   applyState,
+  renderPlaybackTransitionControls,
   renderVoiceStackControls,
   state,
 };
@@ -2397,7 +2398,7 @@ globalThis.__secretPond = {
     run_node_harness(
         script=app_script,
         body="""
-const { applyState, renderVoiceStackControls, state } = globalThis.__secretPond;
+const { applyState, renderPlaybackTransitionControls, state } = globalThis.__secretPond;
 
 const activeSettings = {
   audio: { sample_rate: 48000, channels: 2 },
@@ -2470,11 +2471,11 @@ const serverState = {
 };
 
 assert.strictEqual(applyState(serverState), true);
-renderVoiceStackControls();
+renderPlaybackTransitionControls();
 
 assert.strictEqual(state.draft.voice_stack.transition_seconds, 6);
-const voiceStackControls = document.getElementById("voiceStackControls");
-const renderedMarkup = voiceStackControls.children
+const playbackTransitionControls = document.getElementById("playbackTransitionControls");
+const renderedMarkup = playbackTransitionControls.children
   .map((child) => `${child.className} ${child.innerHTML} ${child.children
     .map((grandchild) => `${grandchild.className} ${grandchild.innerHTML} ${grandchild.children
       .map((row) => `${row.className} ${row.innerHTML}`)
@@ -4009,6 +4010,7 @@ def test_stable_successful_apply_clears_covered_card_highlights() -> None:
 globalThis.__secretPond = {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4024,6 +4026,7 @@ globalThis.__secretPond = {
 const {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4223,6 +4226,7 @@ def test_stable_successful_apply_clears_restart_spinners_before_refresh_requests
 globalThis.__secretPond = {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4238,6 +4242,7 @@ globalThis.__secretPond = {
 const {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4757,6 +4762,7 @@ def test_stable_successful_apply_renders_latest_confirmed_control_values() -> No
 globalThis.__secretPond = {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4772,6 +4778,7 @@ globalThis.__secretPond = {
 const {
   applyAndRestart,
   renderLayerControls,
+  renderPlaybackTransitionControls,
   renderRecordingControls,
   renderVoiceStackControls,
   state,
@@ -4868,9 +4875,10 @@ state.draft = clone(draftSettings);
 state.serverStateSignature = null;
 
 renderLayerControls();
+renderPlaybackTransitionControls();
 renderVoiceStackControls();
 renderRecordingControls();
-assert.match(renderedMarkupFor("voiceStackControls"), /value="7"/);
+assert.match(renderedMarkupFor("playbackTransitionControls"), /value="7"/);
 assert.match(renderedMarkupFor("recordingControls"), /value="3"/);
 
 globalThis.fetch = async (path) => {
@@ -4907,11 +4915,11 @@ await applyAndRestart();
 
 assert.strictEqual(state.snapshot.settings.active.layers.low.volume_db, -1);
 assert.strictEqual(state.draft.layers.low.volume_db, -1);
-assert.match(renderedMarkupFor("voiceStackControls"), /value="7"/);
+assert.match(renderedMarkupFor("playbackTransitionControls"), /value="7"/);
 assert.match(renderedMarkupFor("recordingControls"), /value="3"/);
-assert.match(renderedMarkupFor("voiceStackControls"), /현재값 7 s/);
+assert.match(renderedMarkupFor("playbackTransitionControls"), /현재값 7 s/);
 assert.match(renderedMarkupFor("recordingControls"), /현재값 3 dB/);
-assert.doesNotMatch(renderedMarkupFor("voiceStackControls"), /현재 적용 4 s/);
+assert.doesNotMatch(renderedMarkupFor("playbackTransitionControls"), /현재 적용 4 s/);
 assert.doesNotMatch(renderedMarkupFor("recordingControls"), /현재 적용 0 dB/);
 })().catch((error) => {
   console.error(error);

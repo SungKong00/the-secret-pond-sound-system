@@ -214,6 +214,98 @@ applyState({
 assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
 assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "60.0s");
 assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "50%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").style["--control-percent"], "50%");
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_running_playback_timeline_animates_between_state_pushes() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state } = globalThis.__secretPond;
+
+let rafCallback = null;
+globalThis.requestAnimationFrame = (callback) => {
+  rafCallback = callback;
+  return 7;
+};
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+state.draft = cloneSettings(activeSettings);
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 48000 * 30,
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+assert.strictEqual(typeof rafCallback, "function");
+rafCallback(state.playbackTimelineReceivedAtMs + 2000);
+
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "32.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "53.333%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").value, "32");
+assert.strictEqual(
+  document.getElementById("playbackSeekSlider").style["--control-percent"],
+  "53.333%",
+);
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
@@ -403,6 +495,240 @@ await Promise.resolve();
 assert.ok(seekRequest);
 assert.strictEqual(seekRequest.url, "/api/playback/seek");
 assert.deepStrictEqual(JSON.parse(seekRequest.options.body), { progress: 0.75 });
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_playback_seek_input_keeps_slider_interactive_while_request_is_pending() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  seekPlayback,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { applyState, seekPlayback, state } = globalThis.__secretPond;
+
+let resolveSeek = null;
+globalThis.fetch = async (url, options = {}) => {
+  if (url !== "/api/playback/seek") throw new Error(`unexpected url: ${url}`);
+  return await new Promise((resolve) => {
+    resolveSeek = () => resolve({
+      ok: true,
+      json: async () => ({
+        state: {
+          ...state.snapshot,
+          playback: {
+            ...state.snapshot.playback,
+            frame_cursor: 48000 * 45,
+            position_seconds: 45,
+            progress: 0.75,
+          },
+        },
+      }),
+    });
+  });
+};
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    rendered_cache_ready: true,
+    frame_cursor: 48000 * 30,
+    apply_mode: "live",
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const seekSlider = document.getElementById("playbackSeekSlider");
+seekSlider.value = "45";
+const seekPromise = seekPlayback({ target: seekSlider });
+await Promise.resolve();
+
+assert.strictEqual(seekSlider.disabled, false);
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "45.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "75%");
+assert.strictEqual(seekSlider.style["--control-percent"], "75%");
+
+resolveSeek();
+await seekPromise;
+assert.strictEqual(state.snapshot.playback.position_seconds, 45);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_playback_seek_pointer_drag_updates_slider_position() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  bindEvents,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { applyState, bindEvents, state } = globalThis.__secretPond;
+
+let seekRequest = null;
+globalThis.fetch = async (url, options = {}) => {
+  seekRequest = { url, options };
+  return {
+    ok: true,
+    json: async () => ({
+      state: {
+        ...state.snapshot,
+        playback: {
+          ...state.snapshot.playback,
+          frame_cursor: 48000 * 30,
+          position_seconds: 30,
+          progress: 0.5,
+        },
+      },
+    }),
+  };
+};
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    rendered_cache_ready: true,
+    frame_cursor: 0,
+    apply_mode: "live",
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+bindEvents();
+
+const seekSlider = document.getElementById("playbackSeekSlider");
+seekSlider.getBoundingClientRect = () => ({ left: 10, width: 200 });
+seekSlider.setPointerCapture = () => {};
+seekSlider.releasePointerCapture = () => {};
+seekSlider.dispatchEvent({
+  type: "pointerdown",
+  target: seekSlider,
+  clientX: 110,
+  pointerId: 7,
+  preventDefault() {},
+});
+
+await Promise.resolve();
+await Promise.resolve();
+
+assert.strictEqual(seekSlider.value, "30");
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "50%");
+assert.ok(seekRequest);
+assert.deepStrictEqual(JSON.parse(seekRequest.options.body), { progress: 0.5 });
 })();
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -2841,6 +3167,36 @@ def test_live_playback_status_pills_reuse_dashboard_status_pill_pattern() -> Non
     assert "transition-mode-pill" not in styles
 
 
+def test_playback_seek_slider_overlays_visible_progress_track() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    styles = Path("src/secret_pond/web/static/styles.css").read_text(encoding="utf-8")
+
+    assert '<div class="playback-scrub-control">' in index_html
+    assert ".playback-scrub-control" in styles
+    assert ".playback-progress-track" in styles
+    assert "pointer-events: none;" in styles
+    assert ".playback-seek-slider" in styles
+    assert "cursor: pointer;" in styles
+    assert "cursor: grab;" in styles
+    assert "cursor: grabbing;" in styles
+
+
+def test_transition_slider_renders_below_loop_position_in_playback_panel() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+
+    assert 'id="playbackTransitionControls"' in index_html
+    assert index_html.index('id="playbackSeekSlider"') < index_html.index(
+        'id="playbackTransitionControls"'
+    )
+    assert index_html.index('id="playbackTransitionControls"') < index_html.index(
+        'class="button-row playback-actions"'
+    )
+    assert "renderPlaybackTransitionControls" in app_script
+    assert '"playbackTransitionControls"' in app_script
+    assert 'path: "transition_seconds"' in app_script
+
+
 def test_live_status_text_uses_korean_facing_wording() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
 
@@ -2853,7 +3209,7 @@ def test_live_status_text_uses_korean_facing_wording() -> None:
     )
     assert "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다." in app_script
     assert "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다." in app_script
-    assert "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다." in app_script
+    assert "Live 전환 · 새 녹음은 준비되면 Low/Mid/Voice가 함께 부드럽게 전환됩니다." in app_script
 
 
 def test_live_volume_and_mute_drafts_do_not_show_apply_restart_required_message() -> None:
@@ -2946,7 +3302,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
+  "Live 전환 · 새 녹음은 준비되면 Low/Mid/Voice가 함께 부드럽게 전환됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,

@@ -1310,12 +1310,33 @@ input[type="range"]:focus-visible {
   white-space: nowrap;
 }
 
+.playback-scrub-control {
+  position: relative;
+  display: grid;
+  align-items: center;
+  min-height: 24px;
+}
+
+.playback-transition-controls {
+  margin-top: 2px;
+}
+
+.playback-transition-controls .control-row {
+  grid-template-columns: minmax(86px, 0.5fr) minmax(120px, 1fr) minmax(96px, auto);
+  padding: 8px;
+}
+
 .playback-progress-track {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
   width: 100%;
-  height: 7px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.26);
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .playback-progress-bar {
@@ -1327,9 +1348,63 @@ input[type="range"]:focus-visible {
   transition: width 160ms ease;
 }
 
-.playback-seek-slider {
+input[type="range"].playback-seek-slider {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  margin-top: 2px;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  cursor: pointer;
+}
+
+input[type="range"].playback-seek-slider:disabled {
+  cursor: not-allowed;
+}
+
+input[type="range"].playback-seek-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+input[type="range"].playback-seek-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 999px;
+  cursor: grab;
+}
+
+input[type="range"].playback-seek-slider:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+input[type="range"].playback-seek-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+input[type="range"].playback-seek-slider::-moz-range-track {
+  height: 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+input[type="range"].playback-seek-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  cursor: grab;
+}
+
+input[type="range"].playback-seek-slider:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+input[type="range"].playback-seek-slider:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .playback-actions {

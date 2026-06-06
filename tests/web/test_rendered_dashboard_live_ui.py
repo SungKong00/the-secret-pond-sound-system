@@ -70,12 +70,15 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     )
     assert rendered["seekDisabled"] is False
     assert rendered["seekMax"] == "60"
-    assert rendered["seekValue"] == "30"
-    assert rendered["positionText"] == "30.0s"
+    assert 30 <= rendered["positionSeconds"] < 60
+    assert float(rendered["seekValue"]) == pytest.approx(rendered["positionSeconds"], abs=0.2)
     assert rendered["durationText"] == "60.0s"
-    assert rendered["progressWidth"] == "50%"
+    assert rendered["progressPercent"] == pytest.approx(
+        rendered["positionSeconds"] / 60 * 100,
+        abs=0.2,
+    )
     assert rendered["outputSummary"] == (
-        "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다."
+        "Live 전환 · 새 녹음은 준비되면 Low/Mid/Voice가 함께 부드럽게 전환됩니다."
     )
     assert rendered["transitionBadge"].startswith("Live Transition")
     assert rendered["timelineRect"]["width"] > 260
@@ -84,7 +87,7 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
         "timeline and seek controls remain wide enough for compact desktop operation",
-        "loop progress renders at 50% for the 30.0s / 60.0s fixture",
+        "loop progress advances within the 60.0s fixture",
     ]
 
 
@@ -97,7 +100,7 @@ def test_rendered_dashboard_verification_output_records_desktop_behavior_notes()
             "seekRect": {"width": 710},
             "livePressed": "true",
             "seekDisabled": False,
-            "progressWidth": "50%",
+            "progressPercent": 50,
         }
     )
 
@@ -105,7 +108,7 @@ def test_rendered_dashboard_verification_output_records_desktop_behavior_notes()
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
         "timeline and seek controls remain wide enough for compact desktop operation",
-        "loop progress renders at 50% for the 30.0s / 60.0s fixture",
+        "loop progress advances within the 60.0s fixture",
     ]
 
 
@@ -337,8 +340,8 @@ def _record_desktop_behavior_notes(output: dict[str, Any]) -> dict[str, Any]:
         notes.append("Live mode segment is selected and the seek control is enabled")
     if timeline_width > 260 and seek_width > 260:
         notes.append("timeline and seek controls remain wide enough for compact desktop operation")
-    if output.get("progressWidth") == "50%":
-        notes.append("loop progress renders at 50% for the 30.0s / 60.0s fixture")
+    if float(output.get("progressPercent") or 0) >= 50:
+        notes.append("loop progress advances within the 60.0s fixture")
 
     return {**output, "desktopBehaviorNotes": notes}
 
@@ -393,11 +396,11 @@ window.fetch = async (url) => {{
 </script>
 """
     rendered = html.replace(
-        '<link rel="stylesheet" href="/static/styles.css" />',
+        '<link rel="stylesheet" href="/static/styles.css?v=20260607-layer-transition" />',
         f"<style>\n{styles}\n</style>",
     )
     rendered = rendered.replace(
-        '<script src="/static/app.js" defer></script>',
+        '<script src="/static/app.js?v=20260607-layer-transition" defer></script>',
         f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
     )
     path = temp_dir / "rendered-live-dashboard.html"
@@ -617,11 +620,15 @@ class _CdpPage:
   const liveButton = document.getElementById("playbackApplyModeLiveButton");
   const stableButton = document.getElementById("playbackApplyModeStableButton");
   const details = document.getElementById("playbackLiveDetails");
+  const positionSeconds = Number(elementText("playbackPositionTime").replace("s", ""));
+  const progressPercent = Number((progress?.style.width || "").replace("%", ""));
   return {
     ready: elementText("playbackApplyModeSummary").startsWith("즉시 반영") &&
       seek &&
       seek.disabled === false &&
-      elementText("playbackPositionTime") === "30.0s",
+      Number.isFinite(positionSeconds) &&
+      positionSeconds >= 30 &&
+      positionSeconds < 60,
     viewportWidth: window.innerWidth,
     bodyWidth: document.body.scrollWidth,
     applyModeSummary: elementText("playbackApplyModeSummary"),
@@ -632,8 +639,10 @@ class _CdpPage:
     seekMax: seek?.max,
     seekValue: seek?.value,
     positionText: elementText("playbackPositionTime"),
+    positionSeconds,
     durationText: elementText("playbackDurationTime"),
     progressWidth: progress?.style.width || "",
+    progressPercent,
     outputSummary: elementText("outputControlSummary"),
     transitionBadge: elementText("transitionModeBadge"),
     timelineRect: timeline ? rect(timeline) : null,

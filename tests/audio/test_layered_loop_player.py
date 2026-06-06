@@ -268,6 +268,40 @@ def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_c
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
 
+def test_player_voice_crossfade_can_transition_low_mid_and_voice_together(
+    tmp_path: Path,
+) -> None:
+    paths = write_layers(tmp_path / "first", low=0.01, mid=0.02, voice=0.03, frames=8)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    player.next_block(2)
+
+    next_layers = {
+        "low": stereo(0.04, frames=8),
+        "mid": stereo(0.05, frames=8),
+        "voice": stereo(0.06, frames=8),
+    }
+    player.start_voice_crossfade(
+        next_layers["voice"],
+        duration_frames=4,
+        transition_target_id="vs-2",
+        next_layers=next_layers,
+    )
+    block = player.next_block(2)
+
+    progress = np.array([0.0, 0.25], dtype=np.float32)
+    from_gain, to_gain = _equal_power_crossfade_gains(progress)
+    expected_layer_sum = (
+        (0.01 + 0.02 + 0.03) * from_gain
+        + (0.04 + 0.05 + 0.06) * to_gain
+    )
+    expected = np.column_stack([expected_layer_sum, expected_layer_sum])
+    assert player.frame_cursor == 4
+    assert player.active_voice_transition_target_id == "vs-2"
+    np.testing.assert_allclose(block.samples, expected, atol=1e-6)
+
+
 def test_player_voice_eq_update_is_audible_during_active_voice_crossfade(
     tmp_path: Path,
 ) -> None:

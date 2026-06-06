@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>비밀의 연못 사운드 시스템</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260607-layer-transition" />
   </head>
   <body>
     <canvas id="pondCanvas" aria-hidden="true"></canvas>
@@ -109,20 +109,27 @@
                     <span id="playbackDurationTime">0.0s</span>
                   </strong>
                 </div>
-                <div class="playback-progress-track" aria-hidden="true">
-                  <span id="playbackProgressBar" class="playback-progress-bar"></span>
+                <div class="playback-scrub-control">
+                  <div class="playback-progress-track" aria-hidden="true">
+                    <span id="playbackProgressBar" class="playback-progress-bar"></span>
+                  </div>
+                  <input
+                    id="playbackSeekSlider"
+                    class="playback-seek-slider"
+                    type="range"
+                    min="0"
+                    max="0"
+                    step="0.1"
+                    value="0"
+                    aria-label="재생 위치 이동"
+                    disabled
+                  />
                 </div>
-                <input
-                  id="playbackSeekSlider"
-                  class="playback-seek-slider"
-                  type="range"
-                  min="0"
-                  max="0"
-                  step="0.1"
-                  value="0"
-                  aria-label="재생 위치 이동"
-                  disabled
-                />
+                <div
+                  id="playbackTransitionControls"
+                  class="control-stack compact playback-transition-controls feedback-surface"
+                  aria-label="전환 시간"
+                ></div>
               </div>
               <div class="button-row playback-actions">
                 <button id="startOutputButton" class="button playback-button playback-start" type="button">
@@ -466,6 +473,6 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=20260607-layer-transition" defer></script>
   </body>
 </html>

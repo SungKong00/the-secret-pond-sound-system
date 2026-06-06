@@ -27,10 +27,18 @@ class WorkflowPlayerSpy:
         self.reload_paths = []
         self.load_paths = []
 
-    def start_voice_crossfade(self, next_voice, *, duration_frames, transition_target_id):
+    def start_voice_crossfade(
+        self,
+        next_voice,
+        *,
+        duration_frames,
+        transition_target_id,
+        next_layers=None,
+    ):
         self.crossfade_calls.append(
             {
                 "next_voice": next_voice,
+                "next_layers": next_layers,
                 "duration_frames": duration_frames,
                 "transition_target_id": transition_target_id,
             }
@@ -85,13 +93,48 @@ def workflow_settings() -> AppSettings:
     )
 
 
-def write_rendered_layers(paths: ProjectPaths, value: float = 0.1) -> None:
+def write_rendered_layers(
+    paths: ProjectPaths,
+    value: float = 0.1,
+    *,
+    low: float | None = None,
+    mid: float | None = None,
+    voice: float | None = None,
+) -> None:
     paths.ensure_directories()
-    samples = np.ones((8_000, 2), dtype=np.float32) * value
-    buffer = AudioBuffer(samples=samples, sample_rate=8_000)
-    write_wav_atomic(paths.low_playback, buffer)
-    write_wav_atomic(paths.mid_playback, buffer)
-    write_wav_atomic(paths.voice_playback, buffer)
+    values = {
+        "low": value if low is None else low,
+        "mid": value if mid is None else mid,
+        "voice": value if voice is None else voice,
+    }
+    for layer_id, layer_value in values.items():
+        samples = np.ones((8_000, 2), dtype=np.float32) * layer_value
+        buffer = AudioBuffer(samples=samples, sample_rate=8_000)
+        write_wav_atomic(getattr(paths, f"{layer_id}_playback"), buffer)
+
+
+def write_ready_transition_cache(
+    paths: ProjectPaths,
+    next_voice: AudioBuffer,
+    *,
+    low: float = 0.1,
+    mid: float = 0.2,
+) -> None:
+    write_wav_atomic(
+        paths.low_playback,
+        AudioBuffer(
+            samples=np.ones((next_voice.frames, 2), dtype=np.float32) * low,
+            sample_rate=8_000,
+        ),
+    )
+    write_wav_atomic(
+        paths.mid_playback,
+        AudioBuffer(
+            samples=np.ones((next_voice.frames, 2), dtype=np.float32) * mid,
+            sample_rate=8_000,
+        ),
+    )
+    write_wav_atomic(paths.voice_playback, next_voice)
 
 
 def workflow_runtime(tmp_path, *, output_running: bool):
@@ -120,12 +163,18 @@ def accepted_outcome():
 
 def test_start_ready_voice_stack_crossfade_delegates_to_player_voice_api() -> None:
     next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32), sample_rate=8_000)
+    next_layers = {
+        "low": AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.1, sample_rate=8_000),
+        "mid": AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+        "voice": next_voice,
+    }
     player = Mock()
     player.start_voice_crossfade.return_value = "old-target"
 
     superseded = start_ready_voice_stack_crossfade(
         player,
         next_voice,
+        next_layers=next_layers,
         transition_seconds=4,
         sample_rate=8_000,
         transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
@@ -136,6 +185,7 @@ def test_start_ready_voice_stack_crossfade_delegates_to_player_voice_api() -> No
         next_voice,
         duration_frames=32_000,
         transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
+        next_layers=next_layers,
     )
 
 
@@ -193,6 +243,10 @@ def test_refresh_playback_uses_voice_crossfade_when_output_running_and_guard_mat
     assert call["duration_frames"] == 32_000
     assert call["transition_target_id"] == "data/sources/voice/stack/VS0610_213112.wav"
     assert call["next_voice"].frames == 8_000
+    assert set(call["next_layers"]) == {"low", "mid", "voice"}
+    assert call["next_layers"]["low"].frames == 8_000
+    assert call["next_layers"]["mid"].frames == 8_000
+    assert call["next_layers"]["voice"].frames == 8_000
     assert runtime.logger.events == [
         {
             "event_type": "recording.voice_transition_started",
@@ -227,6 +281,8 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
     old_low = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.1, sample_rate=8_000)
     old_mid = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.2, sample_rate=8_000)
     old_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.3, sample_rate=8_000)
+    next_low = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.4, sample_rate=8_000)
+    next_mid = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.5, sample_rate=8_000)
     next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.7, sample_rate=8_000)
     player = LayeredLoopPlayer()
     player.load_rendered_buffers({"low": old_low, "mid": old_mid, "voice": old_voice})
@@ -246,6 +302,8 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
     )
 
     before_ready = player.snapshot()
+    write_wav_atomic(paths.low_playback, next_low)
+    write_wav_atomic(paths.mid_playback, next_mid)
     write_wav_atomic(paths.voice_playback, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
 
@@ -262,6 +320,26 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
         after_ready.voice_transition.from_buffer.samples,
         old_voice.samples,
         atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        after_ready.voice_transition.from_layers["low"].samples,
+        old_low.samples,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        after_ready.voice_transition.from_layers["mid"].samples,
+        old_mid.samples,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        after_ready.voice_transition.to_layers["low"].samples,
+        next_low.samples,
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        after_ready.voice_transition.to_layers["mid"].samples,
+        next_mid.samples,
+        atol=1e-4,
     )
     np.testing.assert_allclose(
         after_ready.voice_transition.to_buffer.samples,
@@ -324,7 +402,7 @@ def test_refresh_playback_voice_crossfade_preserves_low_layer_enabled_state(
         voice_stack=WorkflowVoiceStack(),
     )
 
-    write_wav_atomic(paths.voice_playback, next_voice)
+    write_ready_transition_cache(paths, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome())
 
     assert player.layer_states["low"].enabled is initial_low_enabled
@@ -375,7 +453,7 @@ def test_refresh_playback_voice_crossfade_preserves_exact_low_runtime_trim_state
         voice_stack=WorkflowVoiceStack(),
     )
 
-    write_wav_atomic(paths.voice_playback, next_voice)
+    write_ready_transition_cache(paths, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome())
 
     assert player.layer_states["low"] == low_state_before_crossfade
@@ -433,7 +511,7 @@ def test_refresh_playback_voice_crossfade_preserves_mid_layer_enabled_state(
         voice_stack=WorkflowVoiceStack(),
     )
 
-    write_wav_atomic(paths.voice_playback, next_voice)
+    write_ready_transition_cache(paths, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome())
 
     assert player.layer_states["mid"].enabled is initial_mid_enabled
@@ -480,7 +558,7 @@ def test_live_ephemeral_ready_diagnostic_captures_audible_voice_layer(tmp_path) 
     assert ready_moment_snapshot.layers is not None
     ready_moment_voice = ready_moment_snapshot.layers["voice"]
     ready_moment_cursor = ready_moment_snapshot.frame_cursor
-    write_wav_atomic(paths.voice_playback, next_voice)
+    write_ready_transition_cache(paths, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
 
     transition = player.snapshot().voice_transition
@@ -531,7 +609,7 @@ def test_live_ephemeral_transition_log_emits_exact_crossfade_runtime_evidence(tm
         current_stack_id="data/voice/voice_stack_raw.wav",
     )
 
-    write_wav_atomic(paths.voice_playback, next_voice)
+    write_ready_transition_cache(paths, next_voice)
     refresh_playback_after_recording(runtime, accepted_outcome(), guard=guard)
 
     assert runtime.logger.events[-1] == {
