@@ -60,6 +60,9 @@ const state = {
   coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
+  stableApplyCoveredFeedbackSurfaceIds: [],
+  pendingCoveredFeedbackControlIds: [],
+  coveredFeedbackControlIds: [],
   confirmedDraftSignature: null,
   sourceMutationRequestId: 0,
   storageModeRequestId: 0,
@@ -2133,6 +2136,23 @@ const draftFeedbackSurfaceIdFromOptions = (options = {}) => {
   return undefined;
 };
 
+const coveredFeedbackControlIdsFromOptions = (options = {}) => {
+  if (Object.hasOwn(options, "feedbackControlId")) {
+    const controlId = String(options.feedbackControlId || "");
+    return feedbackSurfaceIdForControlId(controlId) ? [controlId] : [];
+  }
+  const surfaceId = draftFeedbackSurfaceIdFromOptions(options);
+  return coveredFeedbackSurfacePaths[surfaceId] || [];
+};
+
+const appendPendingCoveredFeedbackControlIds = (controlIds = []) => {
+  const ids = controlIds.filter(Boolean);
+  if (ids.length === 0) return;
+  state.pendingCoveredFeedbackControlIds = [
+    ...new Set([...state.pendingCoveredFeedbackControlIds, ...ids]),
+  ];
+};
+
 const commitDraftChange = (mutator, options = {}) => {
   if (!state.draft || draftEditLocked()) return false;
   mutator?.();
@@ -2145,6 +2165,7 @@ const commitDraftChange = (mutator, options = {}) => {
     state.pendingCoveredFeedbackSurfaceId = undefined;
     state.pendingLiveFeedbackSurfaceId = undefined;
   }
+  appendPendingCoveredFeedbackControlIds(coveredFeedbackControlIdsFromOptions(options));
   syncDraftSnapshot();
   options.afterSync?.();
   renderState();
@@ -4517,6 +4538,19 @@ const feedbackSurfaceHasDraftChange = (activeSettings, draftSettings, surfaceId)
   ));
 };
 
+const stableCoveredFeedbackSurfaceIds = ["layer:low", "layer:mid", "layer:voice", "voice_stack", "recording"];
+
+const captureStableCoveredFeedbackSurfaceDiffs = ({
+  snapshot = state.snapshot,
+  draft = state.draft || snapshot?.settings?.draft || null,
+} = {}) => {
+  const activeSettings = snapshot?.settings?.active || null;
+  if (!activeSettings || !draft) return [];
+  return stableCoveredFeedbackSurfaceIds.filter((surfaceId) => (
+    feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId)
+  ));
+};
+
 const coveredFeedbackStateUsesPendingVisual = (feedbackState) => (
   feedbackState?.visual_state === "pending" ||
     feedbackState?.visual_state === "restart_pending"
@@ -5369,18 +5403,38 @@ const invalidatePendingDraftSaves = () => {
   state.coveredFeedbackSurfaceId = undefined;
   state.pendingLiveFeedbackSurfaceId = undefined;
   state.liveFeedbackSurfaceId = undefined;
+  state.pendingCoveredFeedbackControlIds = [];
+  state.coveredFeedbackControlIds = [];
   state.draftSaveInFlight = false;
 };
 
 const beginDraftSave = () => {
   const requestId = state.draftSaveRequestId + 1;
   state.draftSaveRequestId = requestId;
-  return { requestId, draftEditRevision: state.draftEditRevision };
+  return {
+    requestId,
+    draftEditRevision: state.draftEditRevision,
+    coveredFeedbackControlIds: [...state.pendingCoveredFeedbackControlIds],
+  };
 };
 
 const isCurrentDraftSave = (request) =>
   request.requestId === state.draftSaveRequestId &&
   request.draftEditRevision === state.draftEditRevision;
+
+const rollbackDraftCoveredControlsFromActive = (controlIds = []) => {
+  const activeSettings = state.snapshot?.settings?.active;
+  if (!state.draft || !activeSettings || controlIds.length === 0) return false;
+  controlIds.forEach((controlId) => {
+    const activeValue = getPath(activeSettings, controlId);
+    setPath(state.draft, controlId, clone(activeValue));
+    if (state.snapshot?.settings?.draft) {
+      setPath(state.snapshot.settings.draft, controlId, clone(activeValue));
+    }
+  });
+  syncDraftSnapshot();
+  return true;
+};
 
 const scheduleDraftSave = () => {
   clearDraftSaveTimer();
@@ -5397,6 +5451,7 @@ const saveDraft = async () => {
   const draftPayload = clone(state.draft);
   state.coveredFeedbackSurfaceId = state.pendingCoveredFeedbackSurfaceId;
   state.liveFeedbackSurfaceId = state.pendingLiveFeedbackSurfaceId;
+  state.coveredFeedbackControlIds = [...state.pendingCoveredFeedbackControlIds];
   state.draftSaveInFlight = true;
   renderDraftSaveFeedbackSurfaces();
   try {
@@ -5413,6 +5468,7 @@ const saveDraft = async () => {
     return payload;
   } catch (error) {
     if (isCurrentDraftSave(request)) {
+      rollbackDraftCoveredControlsFromActive(request.coveredFeedbackControlIds);
       showSettingsApplyFailureCaution(error.message);
       throw error;
     }
@@ -5424,6 +5480,8 @@ const saveDraft = async () => {
       state.coveredFeedbackSurfaceId = undefined;
       state.pendingLiveFeedbackSurfaceId = undefined;
       state.liveFeedbackSurfaceId = undefined;
+      state.pendingCoveredFeedbackControlIds = [];
+      state.coveredFeedbackControlIds = [];
       renderDraftSaveFeedbackSurfaces();
     }
   }
@@ -5586,11 +5644,13 @@ const seekPlayback = async (event) => {
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
+  state.stableApplyCoveredFeedbackSurfaceIds = [];
   setOperationLockFlag("applyAndRestartInFlight", true);
   setOperationLockFlag("applyInFlight", true);
   try {
     clearDraftSaveTimer();
     await saveDraft();
+    state.stableApplyCoveredFeedbackSurfaceIds = captureStableCoveredFeedbackSurfaceDiffs();
     const payload = await api("/api/settings/apply", { method: "POST" });
     await applyResponseState(payload, { confirmActiveAsDraft: true });
     await requestDiagnostics();
@@ -5605,6 +5665,7 @@ const applyAndRestart = async () => {
     setOperationLockFlag("applyAndRestartInFlight", false);
     if (applyError) showSettingsApplyFailureCaution(applyError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
+    state.stableApplyCoveredFeedbackSurfaceIds = [];
   }
 };
 

@@ -437,6 +437,251 @@ assert.strictEqual(document.getElementById("errorBadge").textContent, "주의 �
     )
 
 
+def test_live_draft_save_failure_rolls_back_touched_covered_control_only() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitDraftChange,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { commitDraftChange, saveDraft, state } = globalThis.__secretPond;
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: 0,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+state.snapshot = {
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+    },
+  },
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: {
+      changed_sections: [],
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = cloneSettings(activeSettings);
+state.draft.layers.low.enabled = false;
+
+const committed = commitDraftChange(
+  () => {
+    state.draft.layers.low.volume_db = -6;
+  },
+  { feedbackControlId: "layers.low.volume_db", scheduleSave: false },
+);
+assert.strictEqual(committed, true);
+assert.strictEqual(state.draft.layers.low.enabled, false);
+assert.strictEqual(state.draft.layers.low.volume_db, -6);
+
+globalThis.fetch = async () => ({
+  ok: false,
+  status: 500,
+  json: async () => ({ detail: "backend hot swap failed" }),
+});
+
+await assert.rejects(saveDraft(), /backend hot swap failed/);
+
+assert.strictEqual(state.draft.layers.low.enabled, false);
+assert.strictEqual(state.draft.layers.low.volume_db, 0);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.enabled, false);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.volume_db, 0);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_live_filter_reset_failure_preserves_untouched_layer_controls() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  resetLayerFilter,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { resetLayerFilter, saveDraft, state } = globalThis.__secretPond;
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: 0,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 80, lowpass_hz: 9000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+state.snapshot = {
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+    },
+  },
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: {
+      changed_sections: [],
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = cloneSettings(activeSettings);
+state.draft.layers.low.volume_db = -6;
+state.snapshot.settings.draft.layers.low.volume_db = -6;
+
+resetLayerFilter("low");
+
+assert.strictEqual(state.draft.layers.low.volume_db, -6);
+assert.strictEqual(state.draft.layers.low.eq.highpass_hz, 20);
+assert.strictEqual(state.draft.layers.low.eq.lowpass_hz, 20000);
+
+globalThis.fetch = async () => ({
+  ok: false,
+  status: 500,
+  json: async () => ({ detail: "backend hot swap failed" }),
+});
+
+await assert.rejects(saveDraft(), /backend hot swap failed/);
+
+assert.strictEqual(state.draft.layers.low.volume_db, -6);
+assert.strictEqual(state.draft.layers.low.eq.highpass_hz, 80);
+assert.strictEqual(state.draft.layers.low.eq.lowpass_hz, 9000);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.volume_db, -6);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.eq.highpass_hz, 80);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.eq.lowpass_hz, 9000);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_legacy_state_payload_without_live_fields_defaults_to_stable_mode() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
