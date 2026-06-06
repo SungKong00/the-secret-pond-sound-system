@@ -1810,6 +1810,170 @@ assert.strictEqual(
     )
 
 
+def test_storage_mode_click_shows_requested_mode_while_request_is_pending() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  setStorageMode,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const {
+  applyState,
+  setStorageMode,
+  state,
+  trackInteractiveControl,
+} = globalThis.__secretPond;
+
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+state.draft = cloneSettings(activeSettings);
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "live" },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const panel = document.getElementById("storageModePanel");
+const liveButton = document.getElementById("storageModeLiveButton");
+const libraryButton = document.getElementById("storageModeLibraryButton");
+document.activeElement = libraryButton;
+trackInteractiveControl(libraryButton);
+
+let resolveDraftSave;
+globalThis.fetch = async (path, options = {}) => {
+  if (path === "/api/settings/draft") {
+    assert.strictEqual(options.method, "PUT");
+    assert.strictEqual(JSON.parse(options.body).voice_stack.mode, "test_library");
+    return new Promise((resolve) => {
+      resolveDraftSave = () => resolve({
+        ok: true,
+        json: async () => ({
+          settings: {
+            active: cloneSettings(activeSettings),
+            draft: {
+              ...cloneSettings(activeSettings),
+              voice_stack: { ...activeSettings.voice_stack, mode: "test_library" },
+            },
+            change: {
+              changed_sections: ["voice_stack"],
+              requires_restart: false,
+              runtime_config_changed: false,
+            },
+          },
+        }),
+      });
+    });
+  }
+  if (path === "/api/voice-stack/mode") {
+    const nextSettings = cloneSettings(activeSettings);
+    nextSettings.voice_stack.mode = "test_library";
+    return {
+      ok: true,
+      json: async () => ({
+        state: {
+          settings: {
+            active: cloneSettings(nextSettings),
+            draft: cloneSettings(nextSettings),
+            change: {
+              changed_sections: [],
+              requires_restart: false,
+              runtime_config_changed: false,
+            },
+          },
+          playback: { output_running: true, frame_cursor: 1200, apply_mode: "live" },
+          armed: false,
+          is_recording: false,
+          recording_elapsed_seconds: 0,
+          recording_remaining_seconds: 120,
+          participant_count: 0,
+        },
+      }),
+    };
+  }
+  throw new Error(`unexpected fetch ${path}`);
+};
+
+const pendingSwitch = setStorageMode("test_library");
+
+assert.strictEqual(state.storageModeInFlight, true);
+assert.match(panel.className, /\\blibrary\\b/);
+assert.match(panel.className, /\\bpending\\b/);
+assert.strictEqual(panel.getAttribute("aria-busy"), "true");
+assert.strictEqual(
+  document.getElementById("storageModeSummary").textContent,
+  "테스트 저장으로 전환 중",
+);
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(libraryButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(libraryButton.classList.contains("active"), true);
+assert.strictEqual(libraryButton.classList.contains("pending"), true);
+assert.strictEqual(liveButton.disabled, true);
+assert.strictEqual(libraryButton.disabled, true);
+assert.strictEqual(state.deferredInteractiveRenders["storage-mode"], undefined);
+
+resolveDraftSave();
+await pendingSwitch;
+assert.strictEqual(state.storageModeInFlight, false);
+assert.strictEqual(state.pendingStorageMode, null);
+assert.strictEqual(panel.getAttribute("aria-busy"), "false");
+assert.strictEqual(
+  document.getElementById("storageModeSummary").textContent,
+  "테스트 모드 · 파일 저장",
+);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_playback_apply_mode_control_switches_live_and_survives_state_refresh() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

@@ -83,6 +83,8 @@ const state = {
   playbackControlInFlight: false,
   playbackApplyModeInFlight: false,
   pendingPlaybackApplyMode: null,
+  storageModeInFlight: false,
+  pendingStorageMode: null,
   applyInFlight: false,
   applyAndRestartInFlight: false,
   resetDraftInFlight: false,
@@ -3836,6 +3838,8 @@ const isCurrentStorageModeChange = (requestId) => requestId === state.storageMod
 
 const invalidatePendingStorageModeChanges = () => {
   state.storageModeRequestId += 1;
+  state.storageModeInFlight = false;
+  state.pendingStorageMode = null;
 };
 
 const beginSourceMutation = () => {
@@ -4110,43 +4114,45 @@ const deriveStorageModeControlState = ({
   sourceMutationInFlight = false,
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
-  playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  storageModeInFlight = false,
+  pendingMode = null,
 } = {}) => {
   const modeDetails = storageModeDetails[mode];
   const ready = Boolean(snapshot && draft && modeDetails);
   const activeMode = snapshot?.settings?.active?.voice_stack?.mode;
   const draftMode = draft?.voice_stack?.mode;
-  const active = draftMode === mode;
+  const pendingTarget = Boolean(storageModeInFlight && pendingMode === mode);
+  const active = pendingTarget || draftMode === mode;
   const pending = Boolean(activeMode && draftMode && activeMode !== draftMode);
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
-  const playbackControlBusy = Boolean(playbackControlInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
+  const storageModeBusy = Boolean(storageModeInFlight);
   const disabled =
     !ready ||
+    storageModeBusy ||
     applyInFlight ||
     resetDraftInFlight ||
     sourceMutationBusy ||
     deviceChangeBusy ||
     recordingStopInFlight ||
-    playbackControlBusy ||
     resetParticipantsBusy ||
     Boolean(snapshot?.is_recording);
   return {
     active,
     ariaPressed: active ? "true" : "false",
-    pendingActive: pending && active,
+    pendingActive: pendingTarget || (pending && active),
     disabled,
     title: disabled
-      ? resetDraftInFlight
-        ? "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다."
-        : sourceMutationBusy
-          ? operationLockMessages.sourceMutation
-          : deviceChangeBusy
-            ? operationLockMessages.deviceChange
-            : playbackControlBusy
-              ? operationLockMessages.playbackControl
+      ? storageModeBusy
+        ? (pendingTarget ? `${modeDetails.optionLabel}으로 전환 중입니다.` : "보관 모드 변경 중입니다.")
+        : resetDraftInFlight
+          ? "설정 작업이 끝날 때까지 보관 모드를 바꿀 수 없습니다."
+          : sourceMutationBusy
+            ? operationLockMessages.sourceMutation
+            : deviceChangeBusy
+              ? operationLockMessages.deviceChange
               : resetParticipantsBusy
                 ? operationLockMessages.resetParticipants
                 : storageModeBusyTitle
@@ -4605,6 +4611,11 @@ const currentPendingPlaybackApplyMode = () => {
   return state.playbackApplyModeInFlight && playbackApplyModeDetails[mode] ? mode : null;
 };
 
+const currentPendingStorageMode = () => {
+  const mode = state.pendingStorageMode;
+  return state.storageModeInFlight && storageModeDetails[mode] ? mode : null;
+};
+
 const coveredFeedbackSurfacePaths = {
   "layer:low": ["layers.low"],
   "layer.low": ["layers.low"],
@@ -4903,23 +4914,30 @@ const renderVoiceStackControls = () => {
   });
 };
 
-const renderStorageModeControls = () => {
+const renderStorageModeControls = ({ force = false } = {}) => {
   if (!state.snapshot || !state.draft) return;
-  if (deferInteractiveRender("storage-mode", $("storageModePanel"), renderStorageModeControls)) {
+  if (!force && deferInteractiveRender("storage-mode", $("storageModePanel"), renderStorageModeControls)) {
     return;
   }
   const activeMode = state.snapshot.settings?.active?.voice_stack?.mode;
-  const draftMode = state.draft.voice_stack?.mode;
+  const pendingMode = currentPendingStorageMode();
+  const draftMode = pendingMode || state.draft.voice_stack?.mode;
   if (!activeMode || !draftMode) return;
   const activeDetails = storageModeDetails[activeMode] || storageModeDetails.live_ephemeral;
   const draftDetails = storageModeDetails[draftMode] || activeDetails;
   const pending = activeMode !== draftMode;
-  $("storageModeSummary").textContent = pending
-    ? `${activeDetails.label} · 적용 중: ${draftDetails.optionLabel}`
-    : `${activeDetails.label} · ${activeDetails.summary}`;
+  const summary = $("storageModeSummary");
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  summary.textContent = pendingMode
+    ? `${draftDetails.optionLabel}으로 전환 중`
+    : pending
+      ? `${activeDetails.label} · 적용 중: ${draftDetails.optionLabel}`
+      : `${activeDetails.label} · ${activeDetails.summary}`;
   $("storageModePanel").className = `storage-mode-panel ${draftDetails.className}${
     pending ? " pending" : ""
   }`;
+  $("storageModePanel").setAttribute("aria-busy", state.storageModeInFlight ? "true" : "false");
   [
     ["storageModeLiveButton", "live_ephemeral"],
     ["storageModeLibraryButton", "test_library"],
@@ -4930,6 +4948,8 @@ const renderStorageModeControls = () => {
       draft: state.draft,
       mode,
       ...currentOperationFlags(),
+      storageModeInFlight: state.storageModeInFlight,
+      pendingMode,
     });
     button.disabled = controlState.disabled;
     button.setAttribute("aria-pressed", controlState.ariaPressed);
@@ -4948,9 +4968,12 @@ const setStorageMode = async (mode) => {
   });
   if (!controlState.canCommit) return null;
   const requestId = beginStorageModeChange();
+  state.storageModeInFlight = true;
+  state.pendingStorageMode = mode;
   state.draft.voice_stack.mode = mode;
   markDraftEdited();
   syncDraftSnapshot();
+  renderStorageModeControls({ force: true });
   renderState();
   let modeError = null;
   setOperationLockFlag("applyInFlight", true);
@@ -4975,7 +4998,10 @@ const setStorageMode = async (mode) => {
     return null;
   } finally {
     if (isCurrentStorageModeChange(requestId)) {
+      state.storageModeInFlight = false;
+      state.pendingStorageMode = null;
       setOperationLockFlag("applyInFlight", false);
+      renderStorageModeControls({ force: true });
       if (modeError) showSettingsApplyFailureCaution(modeError.message);
       else clearTransientError({ respectMinimumVisibleDuration: true });
     }

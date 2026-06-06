@@ -2856,9 +2856,9 @@ assert.deepStrictEqual(
     active: true,
     ariaPressed: "true",
     pendingActive: false,
-    disabled: true,
-    title: "출력 제어가 끝날 때까지 기다리세요.",
-    canCommit: false,
+    disabled: false,
+    title: "개별 accepted clip 파일을 남기지 않습니다.",
+    canCommit: true,
   }},
 );
 
@@ -4365,11 +4365,6 @@ def test_static_ui_ignores_stale_state_refresh_response(tmp_path: Path) -> None:
   assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
   assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
   helpers.state.sourceMutationInFlight = false;
-  helpers.state.playbackControlInFlight = true;
-  helpers.setStorageMode("test_library");
-  assert.strictEqual(helpers.state.draft.voice_stack.mode, "live_ephemeral");
-  assert.strictEqual(helpers.state.snapshot.settings.draft.voice_stack.mode, "live_ephemeral");
-  helpers.state.playbackControlInFlight = false;
 
   helpers.applyState(snapshotWithDraftLoop(11, 75), { syncDraft: false });
   assert.strictEqual(helpers.state.draft.voice_stack.loop_seconds, 75);
@@ -8451,11 +8446,11 @@ globalThis.__secretPondTest.state.sourceMutationInFlight = false;
 
 globalThis.__secretPondTest.state.playbackControlInFlight = true;
 globalThis.__secretPondTest.renderVoiceStackControls();
-assert.strictEqual(elements.storageModeLiveButton.disabled, true);
-assert.strictEqual(elements.storageModeLibraryButton.disabled, true);
+assert.strictEqual(elements.storageModeLiveButton.disabled, false);
+assert.strictEqual(elements.storageModeLibraryButton.disabled, false);
 assert.strictEqual(
   elements.storageModeLibraryButton.title,
-  "출력 제어가 끝날 때까지 기다리세요.",
+  "accepted clip을 data/processed/accepted에 저장합니다.",
 );
 globalThis.__secretPondTest.state.playbackControlInFlight = false;
 
