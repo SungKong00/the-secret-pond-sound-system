@@ -784,6 +784,21 @@ def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
     )
 
 
+def test_live_playback_status_pills_reuse_dashboard_status_pill_pattern() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    styles = Path("src/secret_pond/web/static/styles.css").read_text(encoding="utf-8")
+
+    assert '<span id="transitionModeBadge" class="status-pill muted">' in index_html
+    assert 'badge.className = "status-pill hot";' in app_script
+    assert 'badge.className = "status-pill safe";' in app_script
+    assert 'badge.className = "status-pill muted";' in app_script
+    assert ".playback-status-stack .status-pill" in styles
+    assert "transition-mode-pill" not in index_html
+    assert "transition-mode-pill" not in app_script
+    assert "transition-mode-pill" not in styles
+
+
 def test_live_status_text_uses_korean_facing_wording() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
 
