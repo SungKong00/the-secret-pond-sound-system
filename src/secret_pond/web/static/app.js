@@ -2037,6 +2037,9 @@ const operationFlagsFrom = (stateLike = {}) => {
     flags.coveredSurfaceId = stateLike.liveFeedbackSurfaceId;
     flags.liveFeedbackSurfaceId = stateLike.liveFeedbackSurfaceId;
   }
+  if (Array.isArray(stateLike.coveredFeedbackControlIds) && stateLike.coveredFeedbackControlIds.length > 0) {
+    flags.coveredFeedbackControlIds = [...stateLike.coveredFeedbackControlIds];
+  }
   return flags;
 };
 
@@ -2568,8 +2571,22 @@ const feedbackSurfaceIdFromOperationFlags = (operationFlags = {}) => {
 
 const operationTargetsFeedbackSurface = (operationFlags = {}, surfaceId) => {
   const targetSurfaceId = feedbackSurfaceIdFromOperationFlags(operationFlags);
-  if (targetSurfaceId === undefined) return false;
-  return targetSurfaceId !== null && targetSurfaceId === normalizeFeedbackSurfaceId(surfaceId);
+  const normalizedSurfaceId = normalizeFeedbackSurfaceId(surfaceId);
+  if (targetSurfaceId !== undefined) {
+    return targetSurfaceId !== null && targetSurfaceId === normalizedSurfaceId;
+  }
+  const controlIds = [
+    ...(Array.isArray(operationFlags.coveredFeedbackControlIds)
+      ? operationFlags.coveredFeedbackControlIds
+      : []),
+    ...(Array.isArray(operationFlags.feedbackControlIds)
+      ? operationFlags.feedbackControlIds
+      : []),
+  ];
+  if (controlIds.length === 0) return false;
+  return controlIds.some((controlId) => (
+    feedbackSurfaceIdForControlId(controlId) === normalizedSurfaceId
+  ));
 };
 
 const feedbackOperationInFlight = (operationFlags = {}, surfaceId = null) => {
