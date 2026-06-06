@@ -271,6 +271,7 @@ class LayeredLoopPlayer:
                 peak_after_guard=0.0,
             )
 
+        preserve_realtime_ramp_layers: frozenset[LayerId] = frozenset()
         if self._voice_transition is None:
             block = mix_layer_blocks(
                 layers,
@@ -288,6 +289,7 @@ class LayeredLoopPlayer:
                 block_size=block_size,
                 peak_ceiling=self._peak_ceiling,
             )
+            preserve_realtime_ramp_layers = frozenset({"mid"})
             elapsed_frames = self._voice_transition.elapsed_frames + block_size
             if elapsed_frames >= self._voice_transition.duration_frames:
                 transition_target_id = self._voice_transition.transition_target_id
@@ -321,7 +323,10 @@ class LayeredLoopPlayer:
                     self._seek_envelope,
                     elapsed_frames=elapsed_frames,
                 )
-        self._advance_realtime_gain_ramps(block_size)
+        self._advance_realtime_gain_ramps(
+            block_size,
+            preserve_layer_ids=preserve_realtime_ramp_layers,
+        )
         return block
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
@@ -416,10 +421,18 @@ class LayeredLoopPlayer:
             final_enabled=enabled,
         )
 
-    def _advance_realtime_gain_ramps(self, block_size: int) -> None:
+    def _advance_realtime_gain_ramps(
+        self,
+        block_size: int,
+        *,
+        preserve_layer_ids: frozenset[LayerId] = frozenset(),
+    ) -> None:
         next_states: dict[LayerId, LayerPlaybackState] = {}
         changed = False
         for layer_id, state in self._states.items():
+            if layer_id in preserve_layer_ids:
+                next_states[layer_id] = state
+                continue
             gain_ramp = state.realtime_gain_ramp
             mute_ramp = state.realtime_mute_ramp
             if gain_ramp is None and mute_ramp is None:

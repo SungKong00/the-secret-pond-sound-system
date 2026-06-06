@@ -384,6 +384,24 @@ def test_player_voice_crossfade_preserves_mid_cursor_across_transition_boundary(
     assert player.active_voice_transition_target_id is None
 
 
+def test_player_voice_crossfade_preserves_mid_runtime_trim_state(tmp_path: Path) -> None:
+    paths = write_layers(tmp_path / "first", low=0.0, mid=0.2, voice=0.0, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    player.set_realtime_trim("mid", -6.0)
+    mid_state_before_crossfade = player.layer_states["mid"]
+
+    player.start_voice_crossfade(
+        stereo(0.2, frames=512),
+        duration_frames=128,
+        transition_target_id="vs-2",
+    )
+    player.next_block(16)
+
+    assert player.layer_states["mid"] == mid_state_before_crossfade
+
+
 def test_player_voice_crossfade_finishes_by_installing_candidate_voice(tmp_path: Path) -> None:
     paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.0, frames=8)
     player = LayeredLoopPlayer()
