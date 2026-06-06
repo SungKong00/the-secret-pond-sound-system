@@ -94,7 +94,13 @@ class MemorySettingsStore:
 
 
 class RuntimeHarness:
-    def __init__(self, state: SettingsState, settings_store) -> None:
+    def __init__(
+        self,
+        state: SettingsState,
+        settings_store,
+        *,
+        devices: list[AudioDeviceInfo] | None = None,
+    ) -> None:
         self.settings_store = settings_store
         self.settings_state = state
         self.recorder = FakeRecorderDevice(state.active.devices.input_device_id)
@@ -104,7 +110,8 @@ class RuntimeHarness:
         )
         self.controller = FakeController(state.active)
         self.device_registry = FakeDeviceRegistry(
-            [
+            devices
+            or [
                 AudioDeviceInfo(
                     id="mic-1",
                     name="Stereo Mic",
@@ -291,3 +298,64 @@ def test_apply_runtime_devices_updates_recorder_stream_format_for_new_input() ->
     assert runtime.recorder.device_id == "mic-2"
     assert runtime.recorder.stream_sample_rate == 44_100
     assert runtime.recorder.stream_channels == 1
+
+
+def test_apply_runtime_devices_saves_stable_ids_but_uses_portaudio_stream_indices() -> None:
+    active = AppSettings(
+        audio=AudioFormatSettings(sample_rate=48_000, channels=2),
+        devices=DeviceSettings(input_device_id="input:old", output_device_id="output:old"),
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(
+        state,
+        store,
+        devices=[
+            AudioDeviceInfo(
+                id="input:old",
+                name="Old Mic",
+                kind="input",
+                max_input_channels=1,
+                max_output_channels=0,
+                default_sample_rate=48_000,
+                portaudio_index=4,
+            ),
+            AudioDeviceInfo(
+                id="input:usb-mic",
+                name="USB Mic",
+                kind="input",
+                max_input_channels=1,
+                max_output_channels=0,
+                default_sample_rate=48_000,
+                portaudio_index=7,
+            ),
+            AudioDeviceInfo(
+                id="output:old",
+                name="Old Speakers",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=2,
+                default_sample_rate=48_000,
+                portaudio_index=5,
+            ),
+            AudioDeviceInfo(
+                id="output:usb-speakers",
+                name="USB Speakers",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=2,
+                default_sample_rate=48_000,
+                portaudio_index=8,
+            ),
+        ],
+    )
+
+    next_state = apply_runtime_devices(  # type: ignore[arg-type]
+        runtime,
+        DeviceSettings(input_device_id="input:usb-mic", output_device_id="output:usb-speakers"),
+    )
+
+    assert next_state.active.devices.input_device_id == "input:usb-mic"
+    assert next_state.active.devices.output_device_id == "output:usb-speakers"
+    assert runtime.recorder.device_id == "7"
+    assert runtime.output.device_id == "8"

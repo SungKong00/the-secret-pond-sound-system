@@ -5606,6 +5606,68 @@ assert.strictEqual(elements.systemStatus.textContent, "소스 준비됨");
     )
 
 
+def test_static_ui_device_select_prefers_effective_selected_device_over_stale_saved_id(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, renderDevices }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPondTest;
+helpers.state.snapshot = {{
+  is_recording: false,
+  settings: {{
+    active: {{
+      devices: {{
+        input_device_id: "3",
+        output_device_id: "2",
+      }},
+    }},
+  }},
+}};
+helpers.state.devices = {{
+  input_devices: [
+    {{
+      id: "input:core-audio:usb-mic:abc123",
+      name: "USB Mic",
+      kind: "input",
+      max_input_channels: 1,
+      max_output_channels: 0,
+      default_sample_rate: 48000,
+    }},
+  ],
+  output_devices: [
+    {{
+      id: "output:core-audio:usb-speakers:def456",
+      name: "USB Speakers",
+      kind: "output",
+      max_input_channels: 0,
+      max_output_channels: 2,
+      default_sample_rate: 48000,
+    }},
+  ],
+  selected_input_device: {{ id: "input:core-audio:usb-mic:abc123", name: "USB Mic" }},
+  selected_output_device: {{ id: "output:core-audio:usb-speakers:def456", name: "USB Speakers" }},
+  warnings: [],
+}};
+
+helpers.renderDevices();
+
+assert.strictEqual(elements.inputDeviceSelect.value, "input:core-audio:usb-mic:abc123");
+assert.strictEqual(elements.outputDeviceSelect.value, "output:core-audio:usb-speakers:def456");
+assert.deepStrictEqual(
+  elements.inputDeviceSelect.children.map((child) => child.textContent),
+  ["시스템 기본값", "USB Mic · 1ch · 48 kHz"],
+);
+assert.deepStrictEqual(
+  elements.outputDeviceSelect.children.map((child) => child.textContent),
+  ["시스템 기본값", "USB Speakers · 2ch · 48 kHz"],
+);
+""",
+    )
+
+
 def test_static_ui_device_change_preserves_selected_value_after_deferred_render(
     tmp_path: Path,
 ) -> None:

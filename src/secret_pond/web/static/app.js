@@ -2756,18 +2756,31 @@ const renderSystemDevices = () => {
     renderDeviceWarnings([]);
     return;
   }
+  const inputSelectedId = effectiveSystemDeviceSelectedId(
+    activeDevices.input_device_id,
+    devices.selected_input_device,
+  );
+  const outputSelectedId = effectiveSystemDeviceSelectedId(
+    activeDevices.output_device_id,
+    devices.selected_output_device,
+  );
   renderSystemDeviceSelect(
     "inputDeviceSelect",
     devices.input_devices || [],
-    activeDevices.input_device_id ?? null,
+    inputSelectedId,
     deviceChangeForceDisabled("input_device_id"),
   );
   renderSystemDeviceSelect(
     "outputDeviceSelect",
     devices.output_devices || [],
-    activeDevices.output_device_id ?? null,
+    outputSelectedId,
   );
   renderDeviceWarnings(devices.warnings || []);
+};
+
+const effectiveSystemDeviceSelectedId = (configuredId, selectedDevice) => {
+  if (!configuredId) return null;
+  return selectedDevice?.id || configuredId;
 };
 
 const renderDeviceWarnings = (warnings) => {

@@ -10,10 +10,14 @@ from typing import Any, Protocol
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.device_readiness import (
-    RecordingInputFormat,
     resolve_recording_input_format,
 )
-from secret_pond.audio.devices import AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.devices import (
+    AudioDeviceInfo,
+    AudioDeviceRegistry,
+    SoundDeviceRegistry,
+    stream_device_id,
+)
 from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LayerId
 from secret_pond.audio.output import SoundDeviceOutput
@@ -112,20 +116,31 @@ def build_runtime(
     voice_stack_snapshot = voice_stack.ensure_initialized(active_settings)
 
     resolved_device_registry = device_registry or SoundDeviceRegistry()
-    recording_input_format = _recording_input_format_best_effort(
+    selected_input_device = _startup_input_device_best_effort(
         active_settings,
         resolved_device_registry,
     )
+    selected_output_device = _startup_output_device_best_effort(
+        active_settings,
+        resolved_device_registry,
+    )
+    recording_input_format = resolve_recording_input_format(active_settings, selected_input_device)
     resolved_recorder = recorder or SoundDeviceRecorder(
         sample_rate=recording_input_format.sample_rate,
         channels=recording_input_format.channels,
-        device_id=active_settings.devices.input_device_id,
+        device_id=stream_device_id(
+            selected_input_device,
+            active_settings.devices.input_device_id,
+        ),
     )
     resolved_player = player or LayeredLoopPlayer(peak_ceiling=active_settings.audio.peak_ceiling)
     resolved_output = output or SoundDeviceOutput(
         sample_rate=active_settings.audio.sample_rate,
         channels=active_settings.audio.channels,
-        device_id=active_settings.devices.output_device_id,
+        device_id=stream_device_id(
+            selected_output_device,
+            active_settings.devices.output_device_id,
+        ),
         player=resolved_player,
     )
     renderer = LayerRenderer(paths)
@@ -293,15 +308,24 @@ def _prepare_startup_playback_best_effort(
     )
 
 
-def _recording_input_format_best_effort(
+def _startup_input_device_best_effort(
     settings: Any,
     device_registry: AudioDeviceRegistry,
-) -> RecordingInputFormat:
+) -> AudioDeviceInfo | None:
     try:
-        input_device = device_registry.validate_input(settings.devices.input_device_id)
+        return device_registry.validate_input(settings.devices.input_device_id)
     except Exception:
-        input_device = None
-    return resolve_recording_input_format(settings, input_device)
+        return None
+
+
+def _startup_output_device_best_effort(
+    settings: Any,
+    device_registry: AudioDeviceRegistry,
+) -> AudioDeviceInfo | None:
+    try:
+        return device_registry.validate_output(settings.devices.output_device_id)
+    except Exception:
+        return None
 
 
 def _apply_startup_player_settings(player: LayeredLoopPlayer, settings: Any) -> None:

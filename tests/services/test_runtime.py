@@ -210,6 +210,55 @@ def test_build_runtime_configures_recording_for_selected_mono_input_device(
     assert runtime.recorder.stream_channels == 1
 
 
+def test_build_runtime_uses_portaudio_indices_for_stable_saved_device_ids(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = small_settings().model_copy(
+        update={
+            "devices": DeviceSettings(
+                input_device_id="input:core-audio:usb-mic:stable",
+                output_device_id="output:core-audio:usb-speakers:stable",
+            ),
+        },
+        deep=True,
+    )
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    registry = FakeDeviceRegistry(
+        [
+            AudioDeviceInfo(
+                id="input:core-audio:usb-mic:stable",
+                name="USB Mic",
+                kind="input",
+                max_input_channels=1,
+                max_output_channels=0,
+                default_sample_rate=48_000,
+                portaudio_index=6,
+            ),
+            AudioDeviceInfo(
+                id="output:core-audio:usb-speakers:stable",
+                name="USB Speakers",
+                kind="output",
+                max_input_channels=0,
+                max_output_channels=2,
+                default_sample_rate=48_000,
+                portaudio_index=7,
+            ),
+        ]
+    )
+
+    runtime = build_runtime(tmp_path, device_registry=registry)
+
+    assert runtime.settings_state.active.devices.input_device_id == (
+        "input:core-audio:usb-mic:stable"
+    )
+    assert runtime.settings_state.active.devices.output_device_id == (
+        "output:core-audio:usb-speakers:stable"
+    )
+    assert runtime.recorder._device_id == "6"  # noqa: SLF001
+    assert runtime.output._device_id == "7"  # noqa: SLF001
+
+
 def test_build_runtime_logs_startup_device_error_without_failing(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
 
