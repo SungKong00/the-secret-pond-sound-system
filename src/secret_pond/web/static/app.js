@@ -2126,6 +2126,7 @@ const deriveSettingsActionState = ({
   const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
   const liveSampleRateApplyRequired = liveSampleRateApplyRequiredChange(snapshot);
   const liveChannelCountApplyRequired = liveChannelCountApplyRequiredChange(snapshot);
+  const liveInputDeviceApplyRequired = liveInputDeviceApplyRequiredChange(snapshot);
   const liveOutputDeviceApplyRequired = liveOutputDeviceApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const liveSourceFileSelectionApplyRequired = liveSourceFileSelectionApplyRequiredChange(snapshot);
@@ -2149,6 +2150,8 @@ const deriveSettingsActionState = ({
                   ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
                 : liveChannelCountApplyRequired
                   ? "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다."
+                : liveInputDeviceApplyRequired
+                  ? "Live 모드에서도 입력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
                 : liveOutputDeviceApplyRequired
                   ? "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
                 : runtimeConfigChanged
@@ -2342,6 +2345,17 @@ const liveChannelCountApplyRequiredChange = (snapshot = state.snapshot) => {
     live.enabled &&
       draftAudio.channels !== undefined &&
       activeAudio.channels !== draftAudio.channels,
+  );
+};
+
+const liveInputDeviceApplyRequiredChange = (snapshot = state.snapshot) => {
+  const activeDevices = snapshot?.settings?.active?.devices || {};
+  const draftDevices = state.draft?.devices || snapshot?.settings?.draft?.devices || {};
+  const live = livePlaybackFeatures(snapshot);
+  return Boolean(
+    live.enabled &&
+      draftDevices.input_device_id !== undefined &&
+      activeDevices.input_device_id !== draftDevices.input_device_id,
   );
 };
 
@@ -2678,6 +2692,9 @@ const outputControlSummaryText = (
   }
   if (liveChannelCountApplyRequiredChange(snapshot)) {
     return "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.";
+  }
+  if (liveInputDeviceApplyRequiredChange(snapshot)) {
+    return "Live 모드 · 입력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
   }
   if (liveOutputDeviceApplyRequiredChange(snapshot)) {
     return "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
@@ -4377,7 +4394,7 @@ const coveredFeedbackSurfacePaths = {
   "layer:voice": ["layers.voice"],
   "layer.voice": ["layers.voice"],
   voice_stack: ["voice_stack"],
-  recording: ["recording", "input_control"],
+  recording: ["recording"],
 };
 
 const coveredLayerFeedbackControlPaths = [

@@ -285,6 +285,122 @@ assert.doesNotMatch(playbackApplyModePanel.innerHTML, /feedback-spinner/);
     )
 
 
+def test_source_library_does_not_receive_feedback_card_class_or_spinner() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  renderLayerControls,
+  renderSourceLibrary,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { renderLayerControls, renderSourceLibrary, state } = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low/current.wav",
+    mid_path: "sources/mid/current.wav",
+    voice_raw_path: "sources/voice/raw.wav",
+    voice_stack_path: "sources/voice/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+state.snapshot = {
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+state.draft = clone(activeSettings);
+state.draft.layers.low.volume_db = -1;
+state.applyInFlight = true;
+state.coveredFeedbackSurfaceId = "layer:low";
+state.sources = {
+  categories: [
+    {
+      id: "low",
+      label: "Low",
+      settings_field: "low_path",
+      required: true,
+      directory: "data/sources/low",
+      active_exists: true,
+      selected_path: "sources/low/current.wav",
+      files: [
+        {
+          name: "current.wav",
+          path: "sources/low/current.wav",
+          size_bytes: 1024,
+          modified_at: "2026-06-06T10:00:00Z",
+          active: true,
+          applied: true,
+        },
+      ],
+    },
+  ],
+};
+
+renderLayerControls();
+renderSourceLibrary();
+
+const lowCard = document.getElementById("layerControls").children[1];
+assert.match(lowCard.innerHTML, /feedback-spinner/);
+
+const sourceLibraryList = document.getElementById("sourceLibraryList");
+const sourceLibraryMarkup = sourceLibraryList.children
+  .map((child) => `${child.className} ${child.innerHTML}`)
+  .join("\\n");
+assert.doesNotMatch(sourceLibraryMarkup, /\\bfeedback-pending\\b/);
+assert.doesNotMatch(sourceLibraryMarkup, /feedback-spinner/);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_live_feedback_highlight_requires_covered_and_live_applicable_change() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -410,6 +526,236 @@ assert.deepStrictEqual(
   }),
   { visual_state: "idle", show_spinner: false },
 );
+""",
+    )
+
+
+def test_live_input_and_output_device_changes_remain_runtime_gated_outside_feedback_path() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+  deriveSettingsUiState,
+  localSettingsChangePlan,
+  outputControlSummaryText,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  deriveCoveredSurfaceFeedbackState,
+  deriveSettingsUiState,
+  localSettingsChangePlan,
+  outputControlSummaryText,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const runtimeConfigFields = [
+  "audio.sample_rate",
+  "audio.channels",
+  "devices.input_device_id",
+  "devices.output_device_id",
+];
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+for (const [fieldName, nextDeviceId, expectedSummary] of [
+  [
+    "input_device_id",
+    "mic-2",
+    "Live 모드 · 입력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+  ],
+  [
+    "output_device_id",
+    "speaker-2",
+    "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+  ],
+]) {
+  const draft = clone(activeSettings);
+  draft.devices[fieldName] = nextDeviceId;
+  const snapshot = {
+    settings: {
+      active: activeSettings,
+      draft,
+      change: {
+        runtime_config_changed: false,
+        changed_sections: [],
+        runtime_config_fields: runtimeConfigFields,
+        live_preview_reprocessable_field_names: [],
+      },
+    },
+    playback: {
+      apply_mode: "live",
+      output_running: true,
+      live: { enabled: true, volume_applies_immediately: true },
+    },
+  };
+  const plan = localSettingsChangePlan(activeSettings, draft, runtimeConfigFields);
+  const uiState = deriveSettingsUiState({ snapshot, settingsPlan: plan });
+
+  assert.strictEqual(plan.runtimeConfigChanged, true);
+  assert.deepStrictEqual(plan.changedRuntimeFields, [`devices.${fieldName}`]);
+  assert.strictEqual(uiState.pendingChangeState.runtimeConfigChanged, true);
+  assert.strictEqual(uiState.controlState.applyDisabled, true);
+  assert.strictEqual(
+    outputControlSummaryText(snapshot, uiState.pendingChangeState),
+    expectedSummary,
+  );
+
+  for (const surfaceId of ["layer:low", "layer:mid", "layer:voice", "voice_stack", "recording"]) {
+    assert.deepStrictEqual(
+      deriveCoveredSurfaceFeedbackState({
+        snapshot,
+        draft,
+        operationFlags: {
+          draftSaveInFlight: true,
+          feedbackControlId: `devices.${fieldName}`,
+        },
+        surfaceId,
+      }),
+      { visual_state: "idle", show_spinner: false },
+    );
+  }
+}
+""",
+    )
+
+
+def test_stable_runtime_gated_fields_do_not_highlight_covered_surfaces() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { deriveCoveredSurfaceFeedbackState } = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const draft = clone(activeSettings);
+draft.audio.sample_rate = 44100;
+draft.audio.channels = 1;
+draft.devices.input_device_id = "mic-2";
+draft.devices.output_device_id = "speaker-2";
+draft.input_control.minimum_recording_seconds = 5;
+
+const snapshot = {
+  settings: {
+    active: activeSettings,
+    draft,
+    change: {
+      runtime_config_changed: true,
+      changed_sections: ["audio", "devices", "input_control"],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+
+for (const surfaceId of ["layer:low", "layer:mid", "layer:voice", "voice_stack", "recording"]) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({
+      snapshot,
+      draft,
+      operationFlags: { applyInFlight: true },
+      surfaceId,
+    }),
+    { visual_state: "idle", show_spinner: false },
+  );
+}
 """,
     )
 
@@ -640,7 +986,7 @@ assert.deepStrictEqual(
     )
 
 
-def test_frontend_state_drives_per_card_feedback_operation_transitions_without_backend_metadata() -> None:
+def test_frontend_state_drives_per_card_feedback_without_backend_metadata() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -861,12 +1207,14 @@ const backendSnapshot = {
     change: {
       runtime_config_changed: false,
       changed_sections: ["layers", "voice_stack", "recording"],
+      changed_runtime_fields: [],
       runtime_config_fields: [
         "audio.sample_rate",
         "audio.channels",
         "devices.input_device_id",
         "devices.output_device_id",
       ],
+      live_preview_reprocessable_fields: [],
       live_preview_reprocessable_field_names: [],
     },
   },
@@ -890,6 +1238,17 @@ state.applyInFlight = true;
 assert.strictEqual(JSON.stringify(backendSnapshot).includes("operation_state"), false);
 assert.strictEqual(JSON.stringify(backendSnapshot).includes("visual_state"), false);
 assert.strictEqual(JSON.stringify(backendSnapshot).includes("show_spinner"), false);
+assert.deepStrictEqual(
+  Object.keys(backendSnapshot.settings.change).sort(),
+  [
+    "changed_runtime_fields",
+    "changed_sections",
+    "live_preview_reprocessable_field_names",
+    "live_preview_reprocessable_fields",
+    "runtime_config_changed",
+    "runtime_config_fields",
+  ].sort(),
+);
 
 renderLayerControls();
 renderVoiceStackControls();
