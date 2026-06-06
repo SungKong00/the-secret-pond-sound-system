@@ -1890,7 +1890,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert 'setOperationLockFlag("applyInFlight", false)' in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
-    assert "showError(applyError.message)" in apply_body
+    assert "showSettingsApplyFailureCaution(applyError.message)" in apply_body
     assert '"/api/settings/apply"' in apply_body
     assert '"/api/settings/apply-and-restart"' not in apply_body
     assert (

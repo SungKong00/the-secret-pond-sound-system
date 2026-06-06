@@ -53,8 +53,11 @@ const state = {
   sourceRenameEditing: {},
   sourceMutationInFlight: false,
   saveTimer: null,
+  draftSaveInFlight: false,
   draftSaveRequestId: 0,
   draftEditRevision: 0,
+  pendingLiveFeedbackSurfaceId: undefined,
+  liveFeedbackSurfaceId: undefined,
   confirmedDraftSignature: null,
   sourceMutationRequestId: 0,
   storageModeRequestId: 0,
@@ -2370,12 +2373,43 @@ const idleCoveredSurfaceFeedbackState = () => ({
   show_spinner: false,
 });
 
-const feedbackOperationInFlight = (operationFlags = {}) => Boolean(
-  operationFlags.draftSaveInFlight ||
-    operationFlags.settingsSaveInFlight ||
-    operationFlags.applyInFlight ||
-    operationFlags.liveApplyInFlight,
-);
+const normalizeFeedbackSurfaceId = (surfaceId) => {
+  const layerId = layerIdForFeedbackSurface(surfaceId);
+  if (layerId) return `layer:${layerId}`;
+  if (surfaceId === "voice_stack" || surfaceId === "recording") return surfaceId;
+  return null;
+};
+
+const feedbackSurfaceIdFromOperationFlags = (operationFlags = {}) => {
+  if (Object.hasOwn(operationFlags, "liveFeedbackSurfaceId")) {
+    return normalizeFeedbackSurfaceId(operationFlags.liveFeedbackSurfaceId);
+  }
+  if (Object.hasOwn(operationFlags, "feedbackSurfaceId")) {
+    return normalizeFeedbackSurfaceId(operationFlags.feedbackSurfaceId);
+  }
+  if (Object.hasOwn(operationFlags, "coveredSurfaceId")) {
+    return normalizeFeedbackSurfaceId(operationFlags.coveredSurfaceId);
+  }
+  const controlId = operationFlags.feedbackControlId || operationFlags.controlId || null;
+  if (controlId) return feedbackSurfaceIdForControlId(controlId);
+  return undefined;
+};
+
+const operationTargetsFeedbackSurface = (operationFlags = {}, surfaceId) => {
+  const targetSurfaceId = feedbackSurfaceIdFromOperationFlags(operationFlags);
+  if (targetSurfaceId === undefined) return true;
+  return targetSurfaceId !== null && targetSurfaceId === normalizeFeedbackSurfaceId(surfaceId);
+};
+
+const feedbackOperationInFlight = (operationFlags = {}, surfaceId = null) => {
+  if (!operationTargetsFeedbackSurface(operationFlags, surfaceId)) return false;
+  return Boolean(
+    operationFlags.draftSaveInFlight ||
+      operationFlags.settingsSaveInFlight ||
+      operationFlags.applyInFlight ||
+      operationFlags.liveApplyInFlight,
+  );
+};
 
 const settingsApplyMode = (snapshot, draft) => (
   snapshot?.playback?.apply_mode ||
@@ -4365,7 +4399,7 @@ const deriveCoveredSurfaceFeedbackState = ({
     surfaceId,
     settingsPlan: plan,
   });
-  const liveFeedbackInFlight = feedbackOperationInFlight(operationFlags);
+  const liveFeedbackInFlight = feedbackOperationInFlight(operationFlags, surfaceId);
   return {
     visual_state: liveApplicableChange && liveFeedbackInFlight ? "pending" : "idle",
     show_spinner: liveApplicableChange && liveFeedbackInFlight,
@@ -5346,7 +5380,7 @@ const applyAndRestart = async () => {
     await requestSources().catch(() => {});
   } finally {
     setOperationLockFlag("applyInFlight", false);
-    if (applyError) showError(applyError.message);
+    if (applyError) showSettingsApplyFailureCaution(applyError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
   }
 };
