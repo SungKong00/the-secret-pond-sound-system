@@ -4070,7 +4070,7 @@ const renderPlaybackApplyModeControls = () => {
   const details = playbackApplyModeDetails[mode] || playbackApplyModeDetails.stable;
   const disabled = !state.snapshot || state.playbackApplyModeInFlight;
   panel.setAttribute("aria-label", "재생 적용 모드");
-  panel.className = `storage-mode-panel playback-apply-mode-panel ${details.className}${
+  panel.className = `storage-mode-panel playback-apply-mode-panel control-stack compact ${details.className}${
     state.playbackApplyModeInFlight ? " pending" : ""
   }`;
   $("playbackApplyModeSummary").textContent = `${details.label} · ${details.summary}`;

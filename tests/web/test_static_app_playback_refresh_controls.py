@@ -883,13 +883,14 @@ def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
 
     expected_panel_class = (
         'id="playbackApplyModePanel"\n'
-        '                class="storage-mode-panel playback-apply-mode-panel"'
+        '                class="storage-mode-panel playback-apply-mode-panel control-stack compact"'
     )
     assert (
         expected_panel_class in index_html
     )
     assert (
-        "panel.className = `storage-mode-panel playback-apply-mode-panel ${details.className}${"
+        "panel.className = `storage-mode-panel playback-apply-mode-panel control-stack compact "
+        "${details.className}${"
         in app_script
     )
 
