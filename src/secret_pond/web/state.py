@@ -83,7 +83,15 @@ def _operator_notices_payload(runtime: SecretPondRuntime) -> list[dict[str, str]
         return notices
 
     for event in reversed(events):
-        if event.get("event_type") != "system.startup_playback_unavailable":
+        event_type = event.get("event_type")
+        if event_type in {
+            "system.startup",
+            "settings.applied",
+            "playback.started",
+            "playback.restarted",
+        }:
+            break
+        if event_type != "system.startup_playback_unavailable":
             continue
         error = str(event.get("payload", {}).get("error") or "").strip()
         notices.append(

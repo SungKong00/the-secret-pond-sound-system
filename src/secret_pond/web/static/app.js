@@ -129,6 +129,7 @@ const noticeSeverityDisplay = {
 const transientNoticeMinimumVisibleMs = 6000;
 
 const openNoticeDetailKeys = new Set();
+const dismissedNoticeKeys = new Set();
 
 const normalizeNoticeSeverity = (severity = "error") => {
   if (severity === "warning") return "caution";
@@ -1227,6 +1228,29 @@ const noticeDetailElement = (notice) => {
 };
 
 const noticeDetailKey = (notice) => [notice.severity, notice.summary, notice.technical || ""].join("::");
+const noticeDismissKey = noticeDetailKey;
+const noticeCanDismiss = (notice) => notice?.severity === "caution";
+const noticeIsDismissed = (notice) => (
+  noticeCanDismiss(notice) && dismissedNoticeKeys.has(noticeDismissKey(notice))
+);
+
+const pruneDismissedNoticeKeys = (notices) => {
+  const currentKeys = new Set(
+    notices
+      .filter(noticeCanDismiss)
+      .map((notice) => noticeDismissKey(notice)),
+  );
+  Array.from(dismissedNoticeKeys).forEach((key) => {
+    if (!currentKeys.has(key)) dismissedNoticeKeys.delete(key);
+  });
+};
+
+const dismissNotices = (notices) => {
+  notices.filter(noticeCanDismiss).forEach((notice) => {
+    dismissedNoticeKeys.add(noticeDismissKey(notice));
+  });
+  renderErrors();
+};
 
 const collectNoticeDetailElements = (element, result = []) => {
   if (!element?.children) return result;
@@ -1282,9 +1306,26 @@ const noticeTechnicalElement = (notice) => {
   return details;
 };
 
-const appendNoticeContent = (container, notice) => {
+const noticeDismissButton = (notices) => {
+  const dismissibleNotices = notices.filter(noticeCanDismiss);
+  if (!dismissibleNotices.length) return null;
+  const severity = highestNoticeSeverity(dismissibleNotices);
+  const display = noticeSeverityDisplay[severity];
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "notice-dismiss-button";
+  button.setAttribute("aria-label", `${display.label} 메시지 닫기`);
+  button.textContent = "×";
+  button.addEventListener("click", () => dismissNotices(dismissibleNotices));
+  return button;
+};
+
+const appendNoticeContent = (container, notice, options = {}) => {
+  const heading = noticeHeadingElement(notice);
+  const dismissButton = options.dismissible ? noticeDismissButton([notice]) : null;
+  if (dismissButton) heading.appendChild(dismissButton);
   container.append(
-    noticeHeadingElement(notice),
+    heading,
     noticeDetailElement(notice),
     noticeTechnicalElement(notice),
   );
@@ -1299,7 +1340,9 @@ const noticeItemElement = (notice, elementName = "li", extraClass = "") => {
 
 const renderNoticeBanner = (notices) => {
   const banner = $("errorBanner");
-  const activeNotices = notices.filter(Boolean);
+  const normalizedNotices = notices.filter(Boolean);
+  pruneDismissedNoticeKeys(normalizedNotices);
+  const activeNotices = normalizedNotices.filter((notice) => !noticeIsDismissed(notice));
   renderErrorBadge(activeNotices);
   rememberNoticeDetailState(banner);
   clearElement(banner);
@@ -1317,7 +1360,7 @@ const renderNoticeBanner = (notices) => {
   banner.setAttribute("aria-live", display.live);
 
   if (activeNotices.length === 1) {
-    appendNoticeContent(banner, activeNotices[0]);
+    appendNoticeContent(banner, activeNotices[0], { dismissible: true });
     return;
   }
 
@@ -1327,7 +1370,10 @@ const renderNoticeBanner = (notices) => {
     "아래 항목을 하나씩 확인하세요.",
     severity,
   );
-  banner.append(noticeHeadingElement(groupNotice), noticeDetailElement(groupNotice));
+  const heading = noticeHeadingElement(groupNotice);
+  const dismissButton = noticeDismissButton(activeNotices);
+  if (dismissButton) heading.appendChild(dismissButton);
+  banner.append(heading, noticeDetailElement(groupNotice));
   const list = document.createElement("ul");
   list.className = "notice-list";
   activeNotices.forEach((notice) => {

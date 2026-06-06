@@ -10091,6 +10091,28 @@ def test_api_state_maps_startup_prepare_failure_to_operator_caution(
     ]
 
 
+def test_api_state_clears_stale_startup_prepare_failure_after_successful_recovery(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = api_settings()
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    runtime = client.app.state.runtime
+
+    runtime.logger.log_event(
+        "system.startup_playback_unavailable",
+        {"error": "low source file does not exist: data/sources/low.wav"},
+        timestamp="2026-06-06T00:00:00+00:00",
+    )
+    runtime.logger.log_event("settings.applied", {}, timestamp="2026-06-06T00:00:01+00:00")
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    assert response.json()["operator_notices"] == []
+    assert paths.event_log_file.exists()
+
+
 def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     paths.ensure_directories()

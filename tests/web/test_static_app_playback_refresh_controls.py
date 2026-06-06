@@ -333,6 +333,54 @@ assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "
     )
 
 
+def test_caution_notice_banner_can_be_dismissed_during_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  renderErrors,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { renderErrors, state } = globalThis.__secretPond;
+
+state.devices = {
+  warnings: ["Selected output default sample rate is 44100, but settings request 48000."],
+};
+
+renderErrors();
+
+const banner = document.getElementById("errorBanner");
+assert.strictEqual(banner.hidden, false);
+const dismissButton = banner.children[0].children[2];
+assert.strictEqual(dismissButton.tagName, "BUTTON");
+assert.strictEqual(dismissButton.getAttribute("aria-label"), "주의 메시지 닫기");
+assert.strictEqual(dismissButton.textContent, "×");
+
+dismissButton.dispatchEvent({ type: "click" });
+assert.strictEqual(banner.hidden, true);
+assert.strictEqual(document.getElementById("errorBadge").textContent, "오류 없음");
+
+renderErrors();
+assert.strictEqual(banner.hidden, true);
+
+state.devices = { warnings: [] };
+renderErrors();
+state.devices = {
+  warnings: ["Configured input device is unavailable."],
+};
+renderErrors();
+assert.strictEqual(banner.hidden, false);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_legacy_state_payload_without_live_fields_defaults_to_stable_mode() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

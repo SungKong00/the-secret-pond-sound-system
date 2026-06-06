@@ -398,6 +398,32 @@ input[type="range"]:focus-visible {
   line-height: 1.32;
 }
 
+.notice-dismiss-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(248, 231, 191, 0.32);
+  border-radius: 5px;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.18);
+  color: currentColor;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 820;
+  line-height: 1;
+}
+
+.notice-dismiss-button:hover {
+  background: rgba(248, 231, 191, 0.12);
+}
+
+.notice-dismiss-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(214, 168, 77, 0.18);
+}
+
 .notice-detail,
 .notice-technical p {
   margin: 0;
