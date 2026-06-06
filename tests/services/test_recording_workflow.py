@@ -276,6 +276,121 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
     )
 
 
+@pytest.mark.parametrize(
+    ("initial_low_enabled", "settings_low_enabled"),
+    [(False, True), (True, False)],
+)
+def test_refresh_playback_voice_crossfade_preserves_low_layer_enabled_state(
+    tmp_path,
+    initial_low_enabled,
+    settings_low_enabled,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    settings.layers["low"] = settings.layers["low"].model_copy(
+        update={"enabled": settings_low_enabled}
+    )
+    next_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.7,
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.1,
+                sample_rate=8_000,
+            ),
+            "mid": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+            "voice": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.3,
+                sample_rate=8_000,
+            ),
+        }
+    )
+    player.set_enabled_immediate("low", initial_low_enabled)
+    player.start()
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome())
+
+    assert player.layer_states["low"].enabled is initial_low_enabled
+    assert player.active_voice_transition_target_id == (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+
+
+@pytest.mark.parametrize(
+    ("initial_mid_enabled", "settings_mid_enabled"),
+    [(False, True), (True, False)],
+)
+def test_refresh_playback_voice_crossfade_preserves_mid_layer_enabled_state(
+    tmp_path,
+    initial_mid_enabled,
+    settings_mid_enabled,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    settings.layers["mid"] = settings.layers["mid"].model_copy(
+        update={"enabled": settings_mid_enabled}
+    )
+    next_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.7,
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.1,
+                sample_rate=8_000,
+            ),
+            "mid": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+            "voice": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.3,
+                sample_rate=8_000,
+            ),
+        },
+        active_voice_identity="data/sources/voice/stack/VS0610_200000.wav",
+    )
+    player.set_enabled_immediate("mid", initial_mid_enabled)
+    player.start()
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome())
+
+    assert player.layer_states["mid"].enabled is initial_mid_enabled
+    assert player.active_voice_transition_target_id == (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+
+
 def test_live_ephemeral_ready_diagnostic_captures_audible_voice_layer(tmp_path) -> None:
     paths = ProjectPaths(tmp_path)
     paths.ensure_directories()
@@ -464,3 +579,88 @@ def test_refresh_playback_keeps_running_output_on_crossfade_failure(tmp_path) ->
     )
     assert runtime.player.reload_paths == []
     assert runtime.logger.events[-1]["event_type"] == "recording.playback_refresh_failed"
+
+
+def test_refresh_playback_restores_audible_voice_when_transition_prepare_fails(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.1,
+                sample_rate=8_000,
+            ),
+            "mid": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+            "voice": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.3,
+                sample_rate=8_000,
+            ),
+        },
+        active_voice_identity="data/sources/voice/stack/VS0610_200000.wav",
+    )
+    player.start()
+    before_failure_block = player.next_block(3)
+    restore_snapshot = player.snapshot()
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(
+            samples=np.ones((8, 2), dtype=np.float32) * 0.7,
+            sample_rate=8_000,
+        ),
+    )
+    original_start_voice_crossfade = player.start_voice_crossfade
+
+    def corrupt_state_then_fail(*args, **kwargs):
+        player.reload_and_restart(
+            {
+                "low": paths.voice_playback,
+                "mid": paths.voice_playback,
+                "voice": paths.voice_playback,
+            }
+        )
+        raise RuntimeError("voice preparation failed")
+
+    player.start_voice_crossfade = corrupt_state_then_fail  # type: ignore[method-assign]
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    refresh_playback_after_recording(runtime, accepted_outcome())
+
+    player.start_voice_crossfade = original_start_voice_crossfade  # type: ignore[method-assign]
+    after_failure_snapshot = player.snapshot()
+    after_failure_block = player.next_block(2)
+    assert runtime.transition_warning == (
+        "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다."
+    )
+    assert runtime.logger.events[-1]["event_type"] == "recording.playback_refresh_failed"
+    assert after_failure_snapshot.playing is True
+    assert after_failure_snapshot.frame_cursor == restore_snapshot.frame_cursor
+    assert after_failure_snapshot.voice_transition is None
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "data/sources/voice/stack/VS0610_200000.wav"
+    assert after_failure_snapshot.active_voice_identity == (
+        "data/sources/voice/stack/VS0610_200000.wav"
+    )
+    assert after_failure_snapshot.active_voice_identity != (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+    assert before_failure_block.next_frame_cursor == 3
+    np.testing.assert_allclose(
+        after_failure_block.samples,
+        np.ones((2, 2), dtype=np.float32) * 0.6,
+        atol=1e-6,
+    )

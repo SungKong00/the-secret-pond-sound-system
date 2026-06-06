@@ -40,6 +40,12 @@ def refresh_playback_after_recording(
     if settings.voice_stack.mode != "live_ephemeral":
         return
 
+    rollback_snapshot = _player_snapshot_best_effort(runtime)
+    preserved_layer_enabled = {
+        layer_id: _player_layer_enabled_best_effort(runtime, layer_id)
+        for layer_id in ("low", "mid")
+    }
+    crossfade_scheduled = False
     try:
         if runtime.output.is_running:
             if not _playback_guard_matches(runtime, settings, guard):
@@ -66,6 +72,7 @@ def refresh_playback_after_recording(
                 sample_rate=settings.audio.sample_rate,
                 transition_target_id=transition_target_id,
             )
+            crossfade_scheduled = True
             _log_event_best_effort(
                 runtime,
                 "recording.voice_transition_started",
@@ -88,7 +95,11 @@ def refresh_playback_after_recording(
             runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
             runtime.transition_warning = None
         apply_player_layer_settings(runtime, settings)
+        if crossfade_scheduled:
+            for layer_id, enabled in preserved_layer_enabled.items():
+                _restore_player_layer_enabled_best_effort(runtime, layer_id, enabled)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        _restore_player_snapshot_best_effort(runtime, rollback_snapshot)
         runtime.transition_warning = (
             "목소리 전환을 적용하지 못했습니다. 기존 목소리를 유지합니다."
         )
@@ -211,6 +222,51 @@ def _player_snapshot_best_effort(runtime: SecretPondRuntime) -> Any | None:
         return snapshot()
     except Exception:
         return None
+
+
+def _restore_player_snapshot_best_effort(runtime: SecretPondRuntime, snapshot: Any | None) -> None:
+    if snapshot is None:
+        return
+    try:
+        restore = runtime.player.restore
+    except AttributeError:
+        return
+    try:
+        restore(snapshot)
+    except Exception:
+        return
+
+
+def _player_layer_enabled_best_effort(runtime: SecretPondRuntime, layer_id: str) -> bool | None:
+    try:
+        states = runtime.player.layer_states
+    except AttributeError:
+        return None
+    try:
+        return bool(states[layer_id].enabled)
+    except (KeyError, AttributeError, TypeError):
+        return None
+
+
+def _restore_player_layer_enabled_best_effort(
+    runtime: SecretPondRuntime,
+    layer_id: str,
+    enabled: bool | None,
+) -> None:
+    if enabled is None:
+        return
+    try:
+        set_enabled_immediate = runtime.player.set_enabled_immediate
+    except AttributeError:
+        try:
+            runtime.player.set_enabled(layer_id, enabled)
+        except Exception:
+            return
+        return
+    try:
+        set_enabled_immediate(layer_id, enabled)
+    except Exception:
+        return
 
 
 def _log_event_best_effort(
