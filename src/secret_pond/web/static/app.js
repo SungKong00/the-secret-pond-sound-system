@@ -979,6 +979,19 @@ const mergePresetValues = (draft, preset) => {
   return next;
 };
 
+const presetFeedbackControlIds = (prefix, preset) => {
+  const paths = [];
+  const appendPaths = (basePath, values) => {
+    Object.entries(values || {}).forEach(([key, value]) => {
+      const path = `${basePath}.${key}`;
+      if (isPlainObject(value)) appendPaths(path, value);
+      else paths.push(path);
+    });
+  };
+  appendPaths(prefix, preset);
+  return paths;
+};
+
 const presetSelectionMatches = (draft, presetDefs, selection) => {
   if (!selection?.name) return false;
   const preset = presetDefs[selection.name];
@@ -4977,7 +4990,8 @@ const updateLayerPresetButtons = (card, layerId) => {
 
 const applyLayerPreset = (layerId, presetName) => {
   const current = state.draft?.layers?.[layerId];
-  if (!current || !layerPresetDefs[presetName]) return;
+  const preset = layerPresetDefs[presetName];
+  if (!current || !preset) return;
   const next = reversiblePresetDraft(
     current,
     layerPresetDefs,
@@ -4990,7 +5004,11 @@ const applyLayerPreset = (layerId, presetName) => {
       if (next.selection) state.presetSelections.layers[layerId] = next.selection;
       else clearLayerPresetSelection(layerId);
     },
-    { feedbackSurfaceId: `layer:${layerId}`, afterSync: renderLayerControls },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: presetFeedbackControlIds(`layers.${layerId}`, preset),
+      afterSync: renderLayerControls,
+    },
   );
 };
 
@@ -5057,7 +5075,8 @@ const renderRecordingPresets = () => {
 const recordingPresetMatches = (name) => recordingPresetIsSelected(name);
 
 const applyRecordingPreset = (name) => {
-  if (!recordingPresetDefs[name] || !state.draft) return;
+  const preset = recordingPresetDefs[name];
+  if (!preset || !state.draft) return;
   const next = reversiblePresetDraft(
     state.draft.recording,
     recordingPresetDefs,
@@ -5071,6 +5090,7 @@ const applyRecordingPreset = (name) => {
     },
     {
       feedbackSurfaceId: "recording",
+      feedbackControlIds: presetFeedbackControlIds("recording", preset),
       afterSync: () => {
         renderRecordingPresets();
         renderRecordingControls();
