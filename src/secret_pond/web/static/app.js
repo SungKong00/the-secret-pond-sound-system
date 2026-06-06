@@ -4486,7 +4486,7 @@ const deriveCoveredSurfaceFeedbackState = ({
       visual_state: hasUnappliedChange
         ? (applyInFlight ? "restart_pending" : "pending")
         : "idle",
-      show_spinner: false,
+      show_spinner: hasUnappliedChange && applyInFlight,
     };
   }
   const plan = localSettingsChangePlan(

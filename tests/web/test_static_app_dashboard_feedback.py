@@ -220,7 +220,7 @@ assert.doesNotMatch(playbackApplyModePanel.className, /\\bfeedback-pending\\b/);
     )
 
 
-def test_playback_apply_mode_panel_does_not_show_spinner_during_covered_apply() -> None:
+def test_stable_restart_pending_card_spinner_excludes_playback_mode() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -309,7 +309,7 @@ const playbackApplyModePanel = document.getElementById("playbackApplyModePanel")
 const lowCard = document.getElementById("layerControls").children[1];
 
 assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*>/);
-assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/);
+assert.doesNotMatch(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/);
 assert.doesNotMatch(playbackApplyModePanel.className, /\\bfeedback-pending\\b/);
 assert.doesNotMatch(playbackApplyModePanel.className, /\\bpending\\b/);
 assert.doesNotMatch(playbackApplyModePanel.innerHTML, /feedback-spinner/);
@@ -799,7 +799,7 @@ for (const surfaceId of ["layer:low", "layer:mid", "layer:voice", "voice_stack",
     )
 
 
-def test_stable_apply_keeps_changed_surface_pending_without_spinner() -> None:
+def test_stable_apply_shows_spinner_only_for_restart_pending_changed_surface() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -894,7 +894,7 @@ assert.deepStrictEqual(
     operationFlags: { applyInFlight: true, applyAndRestartInFlight: true },
     surfaceId: "layer:low",
   }),
-  { visual_state: "restart_pending", show_spinner: false },
+  { visual_state: "restart_pending", show_spinner: true },
 );
 assert.deepStrictEqual(
   deriveCoveredSurfaceFeedbackState({
@@ -903,7 +903,7 @@ assert.deepStrictEqual(
     operationFlags: { applyInFlight: true, applyAndRestartInFlight: true },
     surfaceId: "recording",
   }),
-  { visual_state: "restart_pending", show_spinner: false },
+  { visual_state: "restart_pending", show_spinner: true },
 );
 assert.deepStrictEqual(
   deriveCoveredSurfaceFeedbackState({
@@ -918,7 +918,7 @@ assert.deepStrictEqual(
     )
 
 
-def test_feedback_spinner_is_live_mode_gated_for_same_in_flight_covered_change() -> None:
+def test_feedback_spinner_uses_apply_mode_semantics_for_same_in_flight_covered_change() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -1018,7 +1018,7 @@ assert.deepStrictEqual(
     operationFlags,
     surfaceId: "layer:low",
   }),
-  { visual_state: "restart_pending", show_spinner: false },
+  { visual_state: "restart_pending", show_spinner: true },
 );
 """,
     )
