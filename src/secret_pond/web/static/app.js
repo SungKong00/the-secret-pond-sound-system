@@ -64,6 +64,7 @@ const state = {
   pendingCoveredFeedbackControlIds: [],
   coveredFeedbackControlIds: [],
   confirmedDraftSignature: null,
+  confirmedActiveSettingsSnapshot: null,
   sourceMutationRequestId: 0,
   storageModeRequestId: 0,
   stateRefreshRequestId: 0,
@@ -1920,6 +1921,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
   }
   if (shouldSyncDraft) {
     rememberConfirmedSettingsDraft(nextSettings, state.draft);
+    rememberConfirmedActiveSettings(nextSettings);
     if (renderControlsOnSync) renderControls();
   } else {
     syncDraftSnapshot();
@@ -2137,6 +2139,11 @@ const draftFeedbackSurfaceIdFromOptions = (options = {}) => {
 };
 
 const coveredFeedbackControlIdsFromOptions = (options = {}) => {
+  if (Array.isArray(options.feedbackControlIds)) {
+    return options.feedbackControlIds
+      .map((controlId) => String(controlId || ""))
+      .filter((controlId) => feedbackSurfaceIdForControlId(controlId));
+  }
   if (Object.hasOwn(options, "feedbackControlId")) {
     const controlId = String(options.feedbackControlId || "");
     return feedbackSurfaceIdForControlId(controlId) ? [controlId] : [];
@@ -4197,6 +4204,11 @@ const rememberConfirmedSettingsDraft = (settingsPayload, confirmedDraft = settin
   state.confirmedDraftSignature = stableSettingsSignature(confirmedDraft);
 };
 
+const rememberConfirmedActiveSettings = (settingsPayload) => {
+  if (!settingsPayload?.active) return;
+  state.confirmedActiveSettingsSnapshot = clone(settingsPayload.active);
+};
+
 const confirmedSettingsDraftMatches = (draft) => (
   Boolean(draft && state.confirmedDraftSignature === stableSettingsSignature(draft))
 );
@@ -4549,6 +4561,27 @@ const captureStableCoveredFeedbackSurfaceDiffs = ({
   return stableCoveredFeedbackSurfaceIds.filter((surfaceId) => (
     feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId)
   ));
+};
+
+const stableCoveredFeedbackControlIds = Object.freeze(
+  Object.keys(coveredLiveFeedbackControlSurfaceTargets),
+);
+
+const captureStableCoveredFeedbackControlDiffs = ({
+  snapshot = state.snapshot,
+  draft = state.draft || snapshot?.settings?.draft || null,
+} = {}) => {
+  const activeSettings = snapshot?.settings?.active || null;
+  if (!activeSettings || !draft) return [];
+  return stableCoveredFeedbackControlIds
+    .filter((controlId) => (
+      stableSettingsSignature(readSettingsPath(activeSettings, controlId)) !==
+        stableSettingsSignature(readSettingsPath(draft, controlId))
+    ))
+    .map((controlId) => ({
+      controlId,
+      activeValue: clone(readSettingsPath(activeSettings, controlId)),
+    }));
 };
 
 const coveredFeedbackStateUsesPendingVisual = (feedbackState) => (
@@ -4966,7 +4999,11 @@ const resetLayerFilter = (layerId) => {
         setPath(layer, control.path, resetValue);
       });
     },
-    { feedbackSurfaceId: `layer:${layerId}`, afterSync: renderLayerControls },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: filterGroup.controls.map((control) => `layers.${layerId}.${control.path}`),
+      afterSync: renderLayerControls,
+    },
   );
 };
 
@@ -5423,10 +5460,22 @@ const isCurrentDraftSave = (request) =>
   request.draftEditRevision === state.draftEditRevision;
 
 const rollbackDraftCoveredControlsFromActive = (controlIds = []) => {
-  const activeSettings = state.snapshot?.settings?.active;
+  const activeSettings = state.confirmedActiveSettingsSnapshot || state.snapshot?.settings?.active;
   if (!state.draft || !activeSettings || controlIds.length === 0) return false;
   controlIds.forEach((controlId) => {
     const activeValue = getPath(activeSettings, controlId);
+    setPath(state.draft, controlId, clone(activeValue));
+    if (state.snapshot?.settings?.draft) {
+      setPath(state.snapshot.settings.draft, controlId, clone(activeValue));
+    }
+  });
+  syncDraftSnapshot();
+  return true;
+};
+
+const rollbackDraftCoveredControlSnapshots = (controlSnapshots = []) => {
+  if (!state.draft || controlSnapshots.length === 0) return false;
+  controlSnapshots.forEach(({ controlId, activeValue }) => {
     setPath(state.draft, controlId, clone(activeValue));
     if (state.snapshot?.settings?.draft) {
       setPath(state.snapshot.settings.draft, controlId, clone(activeValue));
@@ -5644,6 +5693,7 @@ const seekPlayback = async (event) => {
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
+  let stableApplyCoveredFeedbackControlDiffs = [];
   state.stableApplyCoveredFeedbackSurfaceIds = [];
   setOperationLockFlag("applyAndRestartInFlight", true);
   setOperationLockFlag("applyInFlight", true);
@@ -5651,6 +5701,7 @@ const applyAndRestart = async () => {
     clearDraftSaveTimer();
     await saveDraft();
     state.stableApplyCoveredFeedbackSurfaceIds = captureStableCoveredFeedbackSurfaceDiffs();
+    stableApplyCoveredFeedbackControlDiffs = captureStableCoveredFeedbackControlDiffs();
     const payload = await api("/api/settings/apply", { method: "POST" });
     await applyResponseState(payload, { confirmActiveAsDraft: true });
     await requestDiagnostics();
@@ -5658,6 +5709,7 @@ const applyAndRestart = async () => {
   } catch (error) {
     applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
+    rollbackDraftCoveredControlSnapshots(stableApplyCoveredFeedbackControlDiffs);
     await requestDiagnostics().catch(() => {});
     await requestSources().catch(() => {});
   } finally {

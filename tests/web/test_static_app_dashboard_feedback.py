@@ -3230,3 +3230,175 @@ assert.strictEqual(document.getElementById("errorBadge").textContent, "주의 �
 });
 """,
     )
+
+
+def test_stable_apply_failure_rolls_back_only_captured_differing_covered_controls() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyAndRestart,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const { applyAndRestart, state } = globalThis.__secretPond;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const draftSettings = clone(activeSettings);
+draftSettings.layers.low.volume_db = -1;
+draftSettings.layers.low.eq.low_gain_db = 4;
+draftSettings.voice_stack.transition_seconds = 7;
+draftSettings.recording.gain_db = 3;
+draftSettings.playback.master_volume_db = -6;
+
+const changeFor = (active, draft) => ({
+  runtime_config_changed: false,
+  changed_sections: Object.keys(draft).filter((section) => (
+    JSON.stringify(active[section]) !== JSON.stringify(draft[section])
+  )),
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_fields: [],
+  live_preview_reprocessable_field_names: [],
+});
+const snapshotFor = (active, draft) => ({
+  armed: true,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(active),
+    draft: clone(draft),
+    change: changeFor(active, draft),
+  },
+  playback: {
+    apply_mode: "stable",
+    output_running: true,
+    rendered_cache_ready: true,
+    active_voice_transition_target_id: null,
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+  },
+});
+
+state.snapshot = snapshotFor(activeSettings, activeSettings);
+state.draft = clone(draftSettings);
+state.serverStateSignature = null;
+
+const requests = [];
+globalThis.fetch = async (path) => {
+  requests.push(path);
+  if (path === "/api/settings/draft") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { settings: snapshotFor(activeSettings, draftSettings).settings }; },
+    };
+  }
+  if (path === "/api/settings/apply") {
+    return {
+      ok: false,
+      status: 500,
+      async json() { return { detail: "render failed" }; },
+    };
+  }
+  if (path === "/api/state") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return snapshotFor(activeSettings, draftSettings); },
+    };
+  }
+  if (path === "/api/diagnostics") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { sources: [], events: { recent: [] } }; },
+    };
+  }
+  if (path === "/api/sources") {
+    return { ok: true, status: 200, async json() { return { categories: [] }; } };
+  }
+  throw new Error(`unexpected ${path}`);
+};
+
+await applyAndRestart();
+
+assert.deepStrictEqual(requests, [
+  "/api/settings/draft",
+  "/api/settings/apply",
+  "/api/state",
+  "/api/diagnostics",
+  "/api/sources",
+]);
+assert.strictEqual(state.draft.layers.low.volume_db, -3);
+assert.strictEqual(state.draft.layers.low.eq.low_gain_db, 0);
+assert.strictEqual(state.draft.layers.low.eq.mid_gain_db, 0);
+assert.strictEqual(state.draft.voice_stack.transition_seconds, 4);
+assert.strictEqual(state.draft.recording.gain_db, 0);
+assert.strictEqual(state.draft.playback.master_volume_db, -6);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.volume_db, -3);
+assert.strictEqual(state.snapshot.settings.draft.layers.low.eq.low_gain_db, 0);
+assert.strictEqual(state.snapshot.settings.draft.voice_stack.transition_seconds, 4);
+assert.strictEqual(state.snapshot.settings.draft.recording.gain_db, 0);
+assert.strictEqual(state.snapshot.settings.draft.playback.master_volume_db, -6);
+assert.strictEqual(state.snapshot.settings.active.playback.master_volume_db, -9);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
