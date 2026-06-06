@@ -39,3 +39,11 @@ status-strip fix, the long `Last system.startup_playback_unavailable` badge push
 `text-overflow: ellipsis`; the same 1440px check measured the status badges on one row and showed
 the long event badge actually truncating. Overflow checks were clean at desktop and mobile:
 `bodyWidth=1440 viewportWidth=1440` and `bodyWidth=390 viewportWidth=390`.
+
+## 2026-06-06 Live playback verification notes
+
+All other Live playback acceptance checks are covered by automated tests. Remaining manual checks:
+
+- physical audio output device routing and audible speaker output
+- microphone permission prompt behavior on a fresh workstation
+- exhibition speaker gain and room-level balance

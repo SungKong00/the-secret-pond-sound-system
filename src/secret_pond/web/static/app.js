@@ -1025,12 +1025,22 @@ const interactiveControlTags = new Set(["SELECT", "INPUT", "TEXTAREA"]);
 const deferredInteractiveControlTags = new Set([...interactiveControlTags, "BUTTON"]);
 deferredInteractiveControlTags.add("SUMMARY");
 const settingsControlContainerIds = [
+  "storageModePanel",
   "layerControls",
   "voiceLayerControls",
   "voiceStackControls",
   "recordingControls",
   "playbackApplyModePanel",
 ];
+
+const playbackSeekSliderActive = () => state.activeInteractiveControl === $("playbackSeekSlider");
+
+const deferPlaybackTimelineRender = () => {
+  if (!playbackSeekSliderActive()) return false;
+  state.deferredInteractiveRenders["playback-timeline"] = renderPlaybackTimeline;
+  deferredInteractiveRenderControls["playback-timeline"] = $("playbackSeekSlider");
+  return true;
+};
 
 const activeInteractiveControlFor = (container) => {
   const tracked = state.activeInteractiveControl;
@@ -2351,18 +2361,39 @@ const renderRecordingTimes = (snapshot = state.snapshot) => {
 };
 
 const renderPlaybackTimeline = (snapshot = state.snapshot) => {
+  if (
+    deferPlaybackTimelineRender() ||
+    deferInteractiveRender("playback-timeline", $("playbackTimeline"), renderPlaybackTimeline)
+  ) {
+    return;
+  }
   const playback = snapshot?.playback || {};
   const positionSeconds = Number(playback.position_seconds || 0);
   const durationSeconds = Number(playback.duration_seconds || 0);
   const progress = Math.max(0, Math.min(1, Number(playback.progress || 0)));
   const progressPercent = (progress * 100).toFixed(3).replace(/\.?0+$/, "");
   const progressBar = $("playbackProgressBar");
+  const seekSlider = $("playbackSeekSlider");
+  const seekEnabled = Boolean(
+    playback.output_running &&
+      playback.apply_mode === "live" &&
+      playback.live?.seek_applies_immediately &&
+      durationSeconds > 0,
+  );
   $("playbackPositionTime").textContent = formatSeconds(positionSeconds);
   $("playbackDurationTime").textContent = formatSeconds(durationSeconds);
   if (progressBar.style) {
     progressBar.style.width = `${progressPercent}%`;
   } else {
     progressBar.setAttribute("style", `width: ${progressPercent}%`);
+  }
+  seekSlider.max = String(durationSeconds);
+  seekSlider.disabled = !seekEnabled || state.playbackControlInFlight;
+  seekSlider.title = seekEnabled
+    ? "Live 모드에서는 재생 위치가 즉시 이동합니다."
+    : "Live 재생 중에 사용할 수 있습니다.";
+  if (!playbackSeekSliderActive()) {
+    seekSlider.value = String(positionSeconds);
   }
 };
 
@@ -4142,6 +4173,9 @@ const renderVoiceStackControls = () => {
 
 const renderStorageModeControls = () => {
   if (!state.snapshot || !state.draft) return;
+  if (deferInteractiveRender("storage-mode", $("storageModePanel"), renderStorageModeControls)) {
+    return;
+  }
   const activeMode = state.snapshot.settings.active.voice_stack.mode;
   const draftMode = state.draft.voice_stack.mode;
   const activeDetails = storageModeDetails[activeMode] || storageModeDetails.live_ephemeral;
@@ -4985,6 +5019,29 @@ const control = async (path, options = {}) => {
   }
 };
 
+const seekPlayback = async (event) => {
+  const slider = event.target;
+  if (slider.disabled) return;
+  const durationSeconds = Number(slider.max || 0);
+  const positionSeconds = Number(slider.value || 0);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
+  if (!Number.isFinite(positionSeconds)) return;
+  const progress = Math.max(0, Math.min(1, positionSeconds / durationSeconds));
+  setOperationLockFlag("playbackControlInFlight", true);
+  try {
+    const payload = await api("/api/playback/seek", {
+      method: "POST",
+      body: JSON.stringify({ progress }),
+    });
+    await applyResponseState(payload, { syncDraft: false });
+  } catch (error) {
+    await requestState({ syncDraft: false }).catch(() => {});
+    showError(error.message);
+  } finally {
+    setOperationLockFlag("playbackControlInFlight", false);
+  }
+};
+
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
@@ -5267,6 +5324,10 @@ const bindEvents = () => {
   $("startOutputButton").addEventListener("click", () => control("/api/playback/start"));
   $("stopOutputButton").addEventListener("click", () => control("/api/playback/stop"));
   $("restartOutputButton").addEventListener("click", () => control("/api/playback/restart"));
+  $("playbackSeekSlider").addEventListener("pointerdown", () => trackInteractiveControl($("playbackSeekSlider")));
+  $("playbackSeekSlider").addEventListener("focus", () => trackInteractiveControl($("playbackSeekSlider")));
+  $("playbackSeekSlider").addEventListener("blur", () => releaseInteractiveControl($("playbackSeekSlider")));
+  $("playbackSeekSlider").addEventListener("change", seekPlayback);
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
   $("resetButton").addEventListener("click", resetDraft);

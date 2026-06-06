@@ -58,7 +58,7 @@
                   No Rendered Cache <small lang="ko">재생 준비 전</small>
                 </span>
               </div>
-              <div class="playback-timeline" aria-label="재생 위치">
+              <div id="playbackTimeline" class="playback-timeline" aria-label="재생 위치">
                 <div class="playback-timeline-head">
                   <span>Loop Position</span>
                   <strong>
@@ -70,6 +70,17 @@
                 <div class="playback-progress-track" aria-hidden="true">
                   <span id="playbackProgressBar" class="playback-progress-bar"></span>
                 </div>
+                <input
+                  id="playbackSeekSlider"
+                  class="playback-seek-slider"
+                  type="range"
+                  min="0"
+                  max="0"
+                  step="0.1"
+                  value="0"
+                  aria-label="Live 재생 위치 이동"
+                  disabled
+                />
               </div>
               <div class="button-row playback-actions">
                 <button id="startOutputButton" class="button playback-button playback-start" type="button">

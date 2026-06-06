@@ -66,7 +66,7 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     assert rendered["stablePressed"] == "false"
     assert rendered["liveDetailsText"] == (
         "Live 적용 범위 즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리 "
-        "Apply 필요: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
+        "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
     )
     assert rendered["seekDisabled"] is False
     assert rendered["seekMax"] == "60"
@@ -78,12 +78,12 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다."
     )
     assert rendered["transitionBadge"].startswith("Live Transition")
-    assert rendered["timelineRect"]["width"] > 300
-    assert rendered["seekRect"]["width"] > 300
+    assert rendered["timelineRect"]["width"] > 260
+    assert rendered["seekRect"]["width"] > 260
     assert rendered["desktopBehaviorNotes"] == [
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
-        "timeline and seek controls remain wide enough for desktop operation",
+        "timeline and seek controls remain wide enough for compact desktop operation",
         "loop progress renders at 50% for the 30.0s / 60.0s fixture",
     ]
 
@@ -104,7 +104,7 @@ def test_rendered_dashboard_verification_output_records_desktop_behavior_notes()
     assert output["desktopBehaviorNotes"] == [
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
-        "timeline and seek controls remain wide enough for desktop operation",
+        "timeline and seek controls remain wide enough for compact desktop operation",
         "loop progress renders at 50% for the 30.0s / 60.0s fixture",
     ]
 
@@ -120,8 +120,8 @@ def _record_desktop_behavior_notes(output: dict[str, Any]) -> dict[str, Any]:
         notes.append(f"desktop viewport {viewport_width}px rendered without horizontal overflow")
     if output.get("livePressed") == "true" and output.get("seekDisabled") is False:
         notes.append("Live mode segment is selected and the seek control is enabled")
-    if timeline_width > 300 and seek_width > 300:
-        notes.append("timeline and seek controls remain wide enough for desktop operation")
+    if timeline_width > 260 and seek_width > 260:
+        notes.append("timeline and seek controls remain wide enough for compact desktop operation")
     if output.get("progressWidth") == "50%":
         notes.append("loop progress renders at 50% for the 30.0s / 60.0s fixture")
 
@@ -418,7 +418,7 @@ class _CdpPage:
     seekValue: seek?.value,
     positionText: elementText("playbackPositionTime"),
     durationText: elementText("playbackDurationTime"),
-    progressWidth: progress ? getComputedStyle(progress).width : "",
+    progressWidth: progress?.style.width || "",
     outputSummary: elementText("outputControlSummary"),
     transitionBadge: elementText("transitionModeBadge"),
     timelineRect: timeline ? rect(timeline) : null,

@@ -219,6 +219,120 @@ assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "
     )
 
 
+def test_active_live_seek_slider_survives_playback_state_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state, trackInteractiveControl } = globalThis.__secretPond;
+
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1200,
+    apply_mode: "live",
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const seekSlider = document.getElementById("playbackSeekSlider");
+assert.ok(seekSlider);
+seekSlider.value = "42";
+document.activeElement = seekSlider;
+trackInteractiveControl(seekSlider);
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1800,
+    apply_mode: "live",
+    position_seconds: 31,
+    duration_seconds: 60,
+    progress: 0.5166666667,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false });
+
+assert.strictEqual(document.getElementById("playbackSeekSlider"), seekSlider);
+assert.strictEqual(seekSlider.value, "42");
+assert.strictEqual(state.activeInteractiveControl, seekSlider);
+assert.strictEqual(
+  state.deferredInteractiveRenders["playback-timeline"].name,
+  "renderPlaybackTimeline",
+);
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "50%");
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_legacy_state_payload_without_live_fields_defaults_to_stable_mode() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -614,6 +728,122 @@ assert.strictEqual(captureGateSwitch.disabled, false);
     )
 
 
+def test_active_storage_mode_toggle_survives_state_refresh_during_interaction() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  renderStorageModeControls,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  applyState,
+  renderStorageModeControls,
+  state,
+  trackInteractiveControl,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "stable", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200 },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const panel = document.getElementById("storageModePanel");
+const liveButton = document.getElementById("storageModeLiveButton");
+const libraryButton = document.getElementById("storageModeLibraryButton");
+panel.append(liveButton, libraryButton);
+
+state.draft.voice_stack.mode = "test_library";
+state.draftEditRevision = 1;
+renderStorageModeControls();
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(libraryButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(libraryButton.classList.contains("pending"), true);
+
+document.activeElement = libraryButton;
+trackInteractiveControl(libraryButton);
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 2400 },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false, fromStateRefresh: true });
+
+assert.strictEqual(document.getElementById("storageModePanel"), panel);
+assert.strictEqual(document.getElementById("storageModeLiveButton"), liveButton);
+assert.strictEqual(document.getElementById("storageModeLibraryButton"), libraryButton);
+assert.strictEqual(document.activeElement, libraryButton);
+assert.strictEqual(state.activeInteractiveControl, libraryButton);
+assert.strictEqual(liveButton.getAttribute("aria-pressed"), "false");
+assert.strictEqual(libraryButton.getAttribute("aria-pressed"), "true");
+assert.strictEqual(libraryButton.classList.contains("pending"), true);
+assert.strictEqual(
+  state.deferredInteractiveRenders["storage-mode"].name,
+  "renderStorageModeControls",
+);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_playback_apply_mode_control_switches_live_and_survives_state_refresh() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -841,6 +1071,7 @@ assert.strictEqual(stableButton.getAttribute("aria-pressed"), "false");
 
 document.activeElement = liveButton;
 trackInteractiveControl(liveButton);
+state.playbackApplyModeInFlight = true;
 applyState({
   settings: {
     active: cloneSettings(staleStableSettings),
@@ -857,6 +1088,7 @@ applyState({
 
 assert.strictEqual(state.snapshot.playback.apply_mode, "stable");
 assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "stable");
+assert.strictEqual(state.playbackApplyModeInFlight, true);
 assert.strictEqual(state.activeInteractiveControl, liveButton);
 assert.strictEqual(document.getElementById("playbackApplyModeLiveButton"), liveButton);
 assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
@@ -1225,6 +1457,25 @@ def test_live_playback_controls_reuse_existing_dashboard_control_class_patterns(
     assert 'class="storage-mode-button playback-apply-mode-button stable"' in index_html
     assert '<label class="layer-toggle ${layer.enabled ? "enabled" : ""} ${' in app_script
     assert 'type="checkbox"\n            role="switch"' in app_script
+
+
+def test_live_playback_sliders_reuse_existing_dashboard_slider_class_patterns() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+
+    assert (
+        'const renderLayerControls = () => {\n  renderLayerGroup("layerControls", ["mid", "low"]);'
+        in app_script
+    )
+    assert 'renderLayerGroup("voiceLayerControls", ["voice"]);' in app_script
+    assert "rangeControl(" in app_script
+    assert '"control-row",' in app_script
+    assert '<div class="slider-cell">' in app_script
+    assert '<div class="range-rail">' in app_script
+    assert 'type="range"' in app_script
+    assert '<div class="range-assist">' in app_script
+    assert '<small class="range-context">${control.rangeLabel}</small>' in app_script
+    assert '<div class="value-stack">' in app_script
+    assert 'class="value-input"' in app_script
 
 
 def test_live_playback_status_pills_reuse_dashboard_status_pill_pattern() -> None:
@@ -2172,6 +2423,158 @@ assert.strictEqual(
   document.getElementById("applyButton").title,
   "적용할 변경사항이 없습니다.",
 );
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_active_live_voice_raw_preview_treatment_control_survives_state_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state, trackInteractiveControl } = globalThis.__secretPond;
+
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: "data/sources/voice/raw/VR0610_213112.wav",
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: {
+      changed_sections: [],
+      requires_restart: false,
+      runtime_config_changed: false,
+      live_preview_reprocessable_fields: [],
+      live_preview_reprocessable_field_names: [
+        "recording.gain_db",
+        "recording.normalize_peak",
+        "recording.highpass_hz",
+        "recording.lowpass_hz",
+        "recording.presence_gain_db",
+        "recording.reverb_mix",
+        "recording.delay_mix",
+        "recording.fade_ms",
+      ],
+    },
+  },
+  playback: {
+    output_running: false,
+    frame_cursor: 1200,
+    apply_mode: "live",
+    voice_raw_preview_path: "data/sources/voice/raw/VR0610_213112.wav",
+    live: {
+      enabled: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const recordingControls = document.getElementById("recordingControls");
+const treatmentSlider = document.createElement("input");
+treatmentSlider.type = "range";
+treatmentSlider.value = "0.45";
+recordingControls.appendChild(treatmentSlider);
+state.draft.recording.reverb_mix = 0.45;
+state.draftEditRevision = 1;
+document.activeElement = treatmentSlider;
+trackInteractiveControl(treatmentSlider);
+
+const refreshedSettings = cloneSettings(liveSettings);
+refreshedSettings.recording.reverb_mix = 0.31;
+applyState({
+  settings: {
+    active: refreshedSettings,
+    draft: refreshedSettings,
+    change: {
+      changed_sections: ["recording"],
+      requires_restart: false,
+      runtime_config_changed: false,
+      live_preview_reprocessable_fields: ["recording.reverb_mix"],
+      live_preview_reprocessable_field_names: [
+        "recording.gain_db",
+        "recording.normalize_peak",
+        "recording.highpass_hz",
+        "recording.lowpass_hz",
+        "recording.presence_gain_db",
+        "recording.reverb_mix",
+        "recording.delay_mix",
+        "recording.fade_ms",
+      ],
+    },
+  },
+  playback: {
+    output_running: false,
+    frame_cursor: 1800,
+    apply_mode: "live",
+    voice_raw_preview_path: "data/sources/voice/raw/VR0610_213112.wav",
+    live: {
+      enabled: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false });
+
+assert.strictEqual(document.getElementById("recordingControls"), recordingControls);
+assert.strictEqual(recordingControls.children.includes(treatmentSlider), true);
+assert.strictEqual(treatmentSlider.value, "0.45");
+assert.strictEqual(state.activeInteractiveControl, treatmentSlider);
+assert.strictEqual(
+  state.snapshot.playback.voice_raw_preview_path,
+  "data/sources/voice/raw/VR0610_213112.wav",
+);
+assert.strictEqual(state.draft.recording.reverb_mix, 0.45);
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )

@@ -1,0 +1,384 @@
+goal: >-
+  Implement The Secret Pond Live playback mode on main while preserving Stable
+  fallback and existing Voice Source / Voice Stack storage policy: Live mode
+  must apply volume, mute, loop-length-based seek, ready-immediate voice stack
+  crossfade, Voice Raw preview treatment changes, and Live EQ without Apply and
+  Restart, while loop length, sample rate, output device, and source-file
+  selection remain on the existing settings/apply flow.
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - path: /Users/nohsungbeen/dev/project/The Secret Pond
+      role: primary_checkout
+      summary: Main checkout and single source of truth for implementation.
+    - path: AGENTS.md
+      role: repository_guidance
+      summary: Verification commands, Ouroboros workflow, audio-runtime cautions, and Korean Conventional Commit style.
+    - path: docs/ouroboros/seed_c6a4fc987d12_amended.yaml
+      role: current_seed
+      summary: Amended implementation Seed for Live playback mode.
+    - path: docs/ouroboros/seed_cfad41388f29.yaml
+      role: prior_seed
+      summary: Prior live_ephemeral immediate-ready crossfade and UI refresh-stability follow-up.
+    - path: docs/ouroboros/seed_58148696dd2f_amended.yaml
+      role: prior_seed
+      summary: Prior Voice Source / Voice Stack storage policy and live transition implementation scope.
+    - path: docs/superpowers/plans/2026-06-05-voice-source-stack-live-transition.md
+      role: prior_plan
+      summary: Existing VR/VS storage policy, recording workflow, player crossfade, and Stable fallback boundaries.
+  current_state:
+    - Execution must begin by recording current git status and adapting to any dirty files present at that time.
+    - The generated interview Seed seed_c6a4fc987d12 was planning-oriented and is amended here into an implementation Seed.
+    - Voice Raw preview already applies recording treatment when preview starts and when Stable Apply is used.
+    - LayeredLoopPlayer already exposes frame_cursor, layer enabled state, realtime_trim_db, and voice-only equal-power crossfade.
+    - State payload already exposes playback frame_cursor, active_voice_transition_target_id, voice_raw_preview_path, output status, and layer runtime state.
+  existing_patterns:
+    - Keep backend/runtime state as the source of truth.
+    - Add optional state fields instead of changing existing state field meaning.
+    - Keep routes thin and move behavior into service modules.
+    - Keep audio callback work lightweight.
+    - Keep Stable Apply and Restart as the safe fallback.
+    - Preserve unrelated user/worktree changes.
+    - Use focused tests before or alongside implementation.
+  existing_dependencies:
+    - Python project managed with uv.
+    - FastAPI routes and static dashboard assets.
+    - sounddevice / PortAudio callback-driven audio output.
+    - scipy signal utilities for filter design/state when needed.
+    - Existing pytest and ruff verification workflow.
+constraints:
+  - Work from /Users/nohsungbeen/dev/project/The Secret Pond on main unless the user explicitly changes the branch strategy.
+  - Before editing, verify git status and account for any dirty files; do not revert unrelated user changes.
+  - Use the existing UI context and style. New UI must feel native to the current dashboard, not like a separate redesign.
+  - Lazyweb MCP may be used for UI references only if needed; implementation must still follow local component and CSS conventions.
+  - Preserve existing Voice Source / Voice Stack storage policy for live_ephemeral and test_library.
+  - Preserve existing VR/VS KST naming, collision suffixes, selected source state, Add to Stack behavior, and voice_stack_raw mirror behavior.
+  - Preserve Stable mode as the safe fallback with existing Apply and Restart behavior.
+  - Live mode must be switchable on/off.
+  - Live mode must not make loop length, sample rate, output device, or source-file selection live-applied.
+  - Source-file selection stays on the existing settings/apply flow.
+  - Output device changes stay in the System panel device flow.
+  - Live mode applies volume, mute, seek, ready-immediate voice stack crossfade, Voice Raw preview treatment, and playback EQ without Apply and Restart.
+  - Live seek is based on the configured full playback loop length. If loop_seconds is 60, progress end is 60s and midpoint is 30s.
+  - Manual next-loop VS reservation is out of scope.
+  - If a VS is selected for live transition or a new VS is created by Add to Stack/live_ephemeral, transition as soon as the next voice audio is ready using the existing voice-only crossfade behavior.
+  - Crossfade must use the configured 1-10 second transition duration and overlap old voice fade-out with new voice fade-in for that duration.
+  - Low and mid layers must continue without cursor reset during voice-only crossfade.
+  - Live EQ must avoid double-applying playback EQ. Live mode must use an EQ-free base buffer/cache or equivalent clear contract before applying live EQ.
+  - Live EQ source hierarchy is EQ-free source buffers/cache first, voice_stack_raw or selected VS for Voice Stack, selected low/mid source files for low/mid, and never voice_playback.wav unless it is explicitly regenerated without playback EQ.
+  - Voice Stack source for Live EQ must be EQ-free VS/voice_stack_raw or another explicitly EQ-free source, not an already EQ-rendered voice_playback.wav.
+  - Audio callback must avoid file I/O, slow locks, expensive rendering, and large allocations.
+  - Live EQ filter coefficients/state must be prepared outside the callback and swapped or applied at safe block boundaries.
+  - Voice Raw preview must not overlap with main playback.
+  - Voice Raw preview must apply current recording treatment when preview starts.
+  - In Live mode, while Voice Raw preview is playing, changes to recording treatment controls must be heard without Apply and Restart.
+  - In Stable mode, Voice Raw treatment changes may continue to require Apply and Restart.
+  - Existing state fields and event timing must not be redefined; add optional fields or new event types instead.
+  - New controls must not be closed by websocket/state refresh while the operator is interacting with them.
+  - Each implementation slice must be independently testable.
+  - After each divided task unit is complete, run relevant tests, then commit before moving to the next unit.
+  - 'Commit messages must use Korean Conventional Commit style, for example "feat: Live 볼륨 제어 추가", "fix: Live seek 상태 갱신 수정", or another appropriate "type: 내용" form.'
+  - Completed subagents must be closed immediately. Subagent tasks must have disjoint ownership and must not revert others' work.
+acceptance_criteria:
+  - "ModeContract: Settings/state/API expose a clear Stable vs Live playback-apply mode without changing existing Stable Apply and Restart semantics."
+  - "LiveScopeBoundary: loop length, sample rate, output device, and source-file selection remain excluded from Live apply and still use existing settings/apply or device flows."
+  - "StateCompatibility: existing state payload fields keep their existing meaning; any new Live fields are optional/additive and covered by tests."
+  - "LiveVolumeMute: in Live mode, low/mid/voice volume and mute changes are audible while playback continues, without Apply and Restart, using short gain ramps or equivalent click prevention."
+  - "StableVolumeMuteFallback: in Stable mode, existing staged settings and Apply and Restart behavior remain available and verified."
+  - "LoopBasedSeek: progress and seek use configured audio.loop_seconds as the timeline; seeking to 0%, 50%, and 100% maps to 0s, loop_seconds/2, and loop_seconds."
+  - "SeekPlaybackSafety: seek does not stop output, does not reload files, and uses a short fade/ramp or equivalent strategy to reduce clicks."
+  - "ImmediateReadyVoiceTransition: selecting or creating a new VS for live transition starts voice-only crossfade as soon as the next voice audio is ready, without waiting for the next loop."
+  - "CrossfadeReuse: the ready-immediate VS transition reuses or cleanly wraps the existing LayeredLoopPlayer voice-only equal-power crossfade API."
+  - "CrossfadeContinuity: low and mid layers keep cursor continuity, enabled state, and runtime trim state during voice-only crossfade."
+  - "CrossfadeFailurePolicy: if preparing or hot-swapping the next voice fails, current playback continues, the existing voice remains audible, and the operator sees a non-fatal Korean caution/error state."
+  - "VoiceRawPreviewTreatmentStart: Voice Raw preview starts with current recording treatment applied to the selected VR source."
+  - "VoiceRawPreviewLiveTreatment: in Live mode, while Voice Raw preview is playing, changing recording treatment controls reprocesses the preview and updates audible preview without Apply and Restart."
+  - "VoiceRawPreviewIsolation: Voice Raw preview and main playback do not overlap; starting one stops/restores the other according to the existing policy."
+  - "LiveEQ: in Live mode, playback EQ changes for low/mid/voice are audible without Apply and Restart."
+  - "LiveEQNoDoubleApply: Live EQ never applies on top of an already EQ-rendered source in a way that doubles the same EQ curve."
+  - "LiveEQStability: rapid EQ changes are handled without callback exceptions, output stop, or state corruption in automated tests."
+  - "StableEQFallback: Stable mode EQ still uses the existing Apply and Restart/rendered-cache path."
+  - "UIClarity: UI includes a Live/Stable playback-apply mode control, shows a clear Korean-facing Live active status, suppresses Apply and Restart required messaging for Live-applied volume/mute/seek/crossfade/EQ/Voice Raw preview treatment controls, and keeps apply-required messaging for loop length, sample rate, output device, and source-file selection."
+  - "UIStyleFit: new UI follows the current dashboard spacing, typography, panel, status-pill, segmented/toggle, slider, and Korean-facing wording conventions; static asset tests assert the Live/Stable labels, Live status text, and existing panel/control class patterns are present."
+  - "UIRefreshStability: newly added Live controls, dropdowns, toggles, details panels, and active inputs remain stable across state refresh while the operator is interacting; static app tests cover at least the Live/Stable control, seek slider, EQ control group, and Voice Raw preview treatment control during a refresh."
+  - "TaskCommitPolicy: each completed implementation slice has passing relevant tests and a focused Korean Conventional Commit before the next slice proceeds."
+  - "FullVerification: final verification includes uv run pytest and uv run ruff check ."
+  - "RenderedUIVerification: UI-visible changes are verified in the rendered dashboard, with notes on desktop behavior and any remaining manual checks."
+implementation_slices:
+  - id: slice_0_baseline
+    title: Baseline audit and protection tests
+    ownership: main_agent
+    scope:
+      - Confirm clean/dirty git state.
+      - Add or update tests that protect existing Stable Apply and Restart, VR/VS storage policy, Voice Raw preview treatment start behavior, and current live_ephemeral crossfade.
+      - Do not change runtime behavior except for test fixtures if needed.
+    verification:
+      - uv run pytest with targeted tests.
+      - uv run ruff check . if files are touched broadly.
+    commit_message: "test: Live 모드 보호 테스트 추가"
+  - id: slice_1_live_mode_contract
+    title: Live/Stable mode contract
+    ownership: backend_state_and_routes
+    scope:
+      - Add settings/state/API contract for Stable vs Live mode.
+      - Add optional playback state fields for live mode, loop timeline, transition status, and preview state as needed.
+      - Keep existing state fields unchanged.
+    verification:
+      - Targeted config/state/routes tests.
+    commit_message: "feat: Live 재생 모드 계약 추가"
+  - id: slice_2_live_volume_mute
+    title: Live volume and mute
+    ownership: audio_player_services
+    scope:
+      - Extend existing LayerPlaybackState/realtime trim flow or a small service wrapper for Live volume/mute.
+      - Add gain ramp/click prevention.
+      - Keep Stable settings flow intact.
+    verification:
+      - Player mixer tests.
+      - Route/state tests.
+    commit_message: "feat: Live 볼륨과 뮤트 적용 추가"
+  - id: slice_3_loop_seek_progress
+    title: Loop-based progress and seek
+    ownership: audio_player_playback_control
+    scope:
+      - Expose loop-length-based progress.
+      - Add seek API based on configured audio.loop_seconds.
+      - Implement seek with output continuity and click reduction.
+    verification:
+      - Player cursor tests.
+      - Playback control route tests.
+      - Static app tests for progress/seek UI state.
+    commit_message: "feat: 루프 기준 seek 제어 추가"
+  - id: slice_4_ready_immediate_vs_crossfade
+    title: Ready-immediate VS transition
+    ownership: voice_stack_transition_services
+    scope:
+      - Reuse existing voice-only crossfade for user-selected/new VS ready transition.
+      - Remove/avoid manual next-loop reservation semantics.
+      - Preserve live_ephemeral recording crossfade behavior.
+      - Add failure caution state and latest-ready behavior if needed.
+    verification:
+      - Recording workflow and playback transition tests.
+      - Route tests for selected/new VS transition path.
+    commit_message: "feat: 준비 즉시 Voice Stack 전환 추가"
+  - id: slice_5_voice_raw_preview_live_treatment
+    title: Voice Raw preview live treatment
+    ownership: voice_raw_preview_services
+    scope:
+      - In Live mode, reprocess currently playing Voice Raw preview when recording treatment values change.
+      - Avoid overlapping preview/main playback.
+      - Keep Stable mode Apply behavior.
+    verification:
+      - Voice Raw preview route/service tests.
+      - Static app tests for treatment slider behavior while preview is active.
+    commit_message: "feat: Voice Raw 미리듣기 Live 처리 추가"
+  - id: slice_6_live_eq
+    title: Live EQ
+    ownership: audio_eq_runtime
+    scope:
+      - Add Live EQ path for low/mid/voice playback EQ.
+      - Prepare EQ coefficients/state outside callback.
+      - Avoid double EQ by using EQ-free base buffers/cache or an equivalent explicit source contract.
+      - Preserve Stable rendered-cache EQ path.
+    verification:
+      - Audio processing tests for EQ effect and no double-apply behavior.
+      - Stress-style unit test for rapid EQ updates.
+      - Stable fallback tests.
+    commit_message: "feat: Live EQ 적용 추가"
+  - id: slice_7_ui_binding_and_style
+    title: UI binding and rendered verification
+    ownership: static_dashboard
+    scope:
+      - Add Live/Stable UI controls and labels in current dashboard style.
+      - Ensure Live-applied controls do not show misleading Apply and Restart messaging.
+      - Keep non-Live controls in existing settings/apply flow.
+      - Use Lazyweb only as optional reference if local style decisions are unclear.
+    verification:
+      - Static app harness tests.
+      - Rendered dashboard verification.
+    commit_message: "feat: Live 모드 UI 추가"
+  - id: slice_8_final_verification
+    title: Final verification and report
+    ownership: main_agent
+    scope:
+      - Run full test suite and ruff.
+      - Verify rendered dashboard.
+      - Report implemented requirements, remaining risks, and any manual checks.
+    verification:
+      - uv run pytest
+      - uv run ruff check .
+    commit_message: "test: Live 모드 검증 정리"
+subagent_policy:
+  enabled: true
+  orchestration:
+    - Main agent owns final architecture decisions, integration, and commits.
+    - Use subagents only for bounded, independent tasks with disjoint write scopes.
+    - Do not duplicate the same investigation across multiple subagents.
+    - Completed subagents must be closed immediately with close_agent.
+  recommended_parallel_tasks:
+    - name: audio_runtime_explorer
+      role: explorer
+      scope: Inspect player/output/renderer paths for safest Live EQ and seek architecture.
+      write_scope: read_only
+    - name: ui_style_explorer
+      role: explorer
+      scope: Inspect current static dashboard controls and identify local UI patterns for Live/Stable controls.
+      write_scope: read_only
+    - name: test_surface_explorer
+      role: explorer
+      scope: Identify existing tests to extend for playback state, Voice Raw preview, and static app harness.
+      write_scope: read_only
+commit_policy:
+  required: true
+  rule: >-
+    After each divided task unit is complete, run relevant tests, commit the
+    focused changes, and only then proceed to the next unit.
+  format: Korean Conventional Commit
+  examples:
+    - "test: Live 모드 보호 테스트 추가"
+    - "feat: Live 재생 모드 계약 추가"
+    - "feat: Live 볼륨과 뮤트 적용 추가"
+    - "feat: 루프 기준 seek 제어 추가"
+    - "feat: 준비 즉시 Voice Stack 전환 추가"
+    - "feat: Voice Raw 미리듣기 Live 처리 추가"
+    - "feat: Live EQ 적용 추가"
+    - "feat: Live 모드 UI 추가"
+verification_requirements:
+  targeted:
+    - Audio player/mixer tests for gain ramp, seek, crossfade, and Live EQ.
+    - Service and route tests for Live/Stable mode contract and Voice Raw preview treatment.
+    - Web/static app tests for UI messaging, refresh stability, and controls.
+  full:
+    - uv run pytest
+    - uv run ruff check .
+  rendered_ui:
+    - Verify the dashboard renders new controls in the existing style.
+    - Verify active dropdowns/toggles/details do not close during state refresh.
+    - Verify Live mode messaging is clear in Korean for ordinary operator actions.
+ontology_schema:
+  name: SecretPondLivePlaybackMode
+  description: Domain model for Live playback application while preserving Stable fallback and existing Voice Source / Voice Stack storage policy.
+  fields:
+    - name: playback_apply_mode
+      type: string
+      description: Stable or Live mode.
+      required: true
+    - name: stable_fallback
+      type: object
+      description: Existing Apply and Restart rendered-cache behavior.
+      required: true
+    - name: live_controls
+      type: array
+      description: Controls that apply without Apply and Restart in Live mode.
+      required: true
+    - name: excluded_live_controls
+      type: array
+      description: Settings that remain on existing apply/device/source flow.
+      required: true
+    - name: loop_timeline
+      type: object
+      description: Progress and seek mapping based on configured audio.loop_seconds.
+      required: true
+    - name: voice_stack_transition
+      type: object
+      description: Ready-immediate voice-only crossfade policy for new/selected VS.
+      required: true
+    - name: voice_raw_preview
+      type: object
+      description: Preview playback state and recording treatment application policy.
+      required: true
+    - name: live_eq_runtime
+      type: object
+      description: Live EQ coefficient/state handling and no-double-EQ source contract.
+      required: true
+    - name: state_contract
+      type: object
+      description: Additive playback state/API fields.
+      required: true
+    - name: ui_contract
+      type: object
+      description: Dashboard controls, labels, and refresh-stability behavior.
+      required: true
+    - name: task_commits
+      type: array
+      description: Slice-level test and commit records.
+      required: true
+    - name: voice_source_storage_policy
+      type: object
+      description: Existing Voice Raw / Voice Source persistence and preview behavior that must be preserved.
+      required: true
+    - name: voice_stack_storage_policy
+      type: object
+      description: Existing VS snapshot, selected VS, Add to Stack, and live_ephemeral/test_library behavior that must be preserved.
+      required: true
+    - name: voice_stack_raw_mirror
+      type: object
+      description: data/voice/voice_stack_raw.wav mirror update contract.
+      required: true
+    - name: output_device_flow
+      type: object
+      description: Existing System panel output device change flow excluded from Live apply.
+      required: true
+    - name: source_file_selection_flow
+      type: object
+      description: Existing source-file selection/apply flow excluded from Live apply.
+      required: true
+    - name: eq_free_source_contract
+      type: object
+      description: Source hierarchy for Live EQ to prevent double EQ application.
+      required: true
+    - name: subagent_lifecycle
+      type: object
+      description: Subagent ownership and immediate close policy.
+      required: true
+    - name: slice_commit_policy
+      type: object
+      description: Per-slice test and Korean Conventional Commit requirements.
+      required: true
+evaluation_principles:
+  - name: RuntimeSafety
+    description: Playback continues without callback instability, unintended output stop, or file I/O in callback paths.
+    weight: 0.25
+  - name: StableFallbackPreservation
+    description: Existing Stable Apply and Restart behavior remains available and reliable.
+    weight: 0.20
+  - name: LiveBehaviorCorrectness
+    description: Live mode applies the agreed volume, mute, seek, crossfade, Voice Raw treatment preview, and EQ behavior immediately.
+    weight: 0.25
+  - name: BrownfieldMaintainability
+    description: Implementation follows existing module boundaries and additive contracts.
+    weight: 0.15
+  - name: OperatorUXFit
+    description: UI communicates Live vs Stable behavior clearly and fits the current dashboard style.
+    weight: 0.10
+  - name: CommitAndVerificationDiscipline
+    description: Work is sliced, tested, committed, and verified as requested.
+    weight: 0.05
+exit_conditions:
+  - name: LiveModeImplemented
+    description: Live mode applies all in-scope controls without Apply and Restart.
+    criteria: Volume, mute, seek, ready-immediate VS crossfade, Voice Raw preview treatment, and Live EQ acceptance criteria pass.
+  - name: StableModePreserved
+    description: Stable fallback still works.
+    criteria: Existing Apply and Restart/rendered-cache tests pass and UI still distinguishes non-Live settings.
+  - name: UIIntegrated
+    description: Dashboard reflects Live/Stable behavior in the existing style.
+    criteria: Static app tests and rendered UI verification pass.
+  - name: SliceCommitPolicySatisfied
+    description: Work was committed after each divided task unit.
+    criteria: Git history contains focused Korean Conventional Commit messages for completed slices.
+  - name: FullVerificationComplete
+    description: Repository verification succeeds.
+    criteria: uv run pytest and uv run ruff check . pass.
+metadata:
+  seed_id: seed_c6a4fc987d12_amended
+  version: 1.0.0
+  created_at: "2026-06-05T20:20:00Z"
+  ambiguity_score: 0.15
+  interview_id: interview_20260605_191117
+  parent_seed_id: seed_c6a4fc987d12
+  generation_mode: amended_manual
+  config_fix:
+    file: /Users/nohsungbeen/.codex/config.toml
+    change: service_tier default -> fast

@@ -1281,6 +1281,11 @@ input[type="range"]:focus-visible {
   transition: width 160ms ease;
 }
 
+.playback-seek-slider {
+  width: 100%;
+  margin-top: 2px;
+}
+
 .playback-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

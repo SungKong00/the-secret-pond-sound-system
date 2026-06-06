@@ -225,6 +225,17 @@ def test_lazyweb_notes_record_phase_10_verification_evidence() -> None:
     assert "bodyWidth=390 viewportWidth=390" in notes
 
 
+def test_live_playback_verification_notes_record_remaining_manual_checks() -> None:
+    notes = read_text(ROOT / "docs" / "design" / "lazyweb-ui-notes.md")
+
+    assert "2026-06-06 Live playback verification notes" in notes
+    assert "Remaining manual checks" in notes
+    assert "physical audio output device" in notes
+    assert "microphone permission prompt" in notes
+    assert "exhibition speaker gain" in notes
+    assert "All other Live playback acceptance checks are covered by automated tests" in notes
+
+
 def test_implementation_plan_records_current_phase_10_status() -> None:
     plan = read_text(
         ROOT / "docs" / "superpowers" / "plans" / "2026-06-03-secret-pond-implementation-plan.md"
