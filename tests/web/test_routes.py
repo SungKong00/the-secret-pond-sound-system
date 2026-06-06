@@ -1888,8 +1888,10 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
         "};\n\nconst resetDraft",
     )
     assert "if (currentSettingsActionState().applyDisabled) return" in apply_body
+    assert 'setOperationLockFlag("applyAndRestartInFlight", true)' in apply_body
     assert 'setOperationLockFlag("applyInFlight", true)' in apply_body
     assert 'setOperationLockFlag("applyInFlight", false)' in apply_body
+    assert 'setOperationLockFlag("applyAndRestartInFlight", false)' in apply_body
     assert "let applyError = null" in apply_body
     assert "applyError = error" in apply_body
     assert "showSettingsApplyFailureCaution(applyError.message)" in apply_body
@@ -2355,6 +2357,7 @@ const expectedOperationFlagKeys = [
   "recordingStopInFlight",
   "playbackControlInFlight",
   "applyInFlight",
+  "applyAndRestartInFlight",
   "resetDraftInFlight",
   "resetParticipantsInFlight",
   "deviceChangeInFlight",
@@ -2369,6 +2372,7 @@ assert.deepStrictEqual(
     recordingStopInFlight: false,
     playbackControlInFlight: true,
     applyInFlight: false,
+    applyAndRestartInFlight: false,
     resetDraftInFlight: true,
     resetParticipantsInFlight: false,
     deviceChangeInFlight: true,
@@ -2381,6 +2385,7 @@ assert.deepStrictEqual(
     recordingStopInFlight: false,
     playbackControlInFlight: true,
     applyInFlight: false,
+    applyAndRestartInFlight: false,
     resetDraftInFlight: true,
     resetParticipantsInFlight: false,
     deviceChangeInFlight: true,
@@ -2390,6 +2395,7 @@ expectedOperationFlagKeys.forEach((key) => {{
   helpers.state[key] = false;
 }});
 helpers.state.applyInFlight = true;
+helpers.state.applyAndRestartInFlight = true;
 helpers.state.resetParticipantsInFlight = true;
 assert.deepStrictEqual(helpers.currentOperationFlags(), {{
   sourceMutationInFlight: false,
@@ -2398,11 +2404,13 @@ assert.deepStrictEqual(helpers.currentOperationFlags(), {{
   recordingStopInFlight: false,
   playbackControlInFlight: false,
   applyInFlight: true,
+  applyAndRestartInFlight: true,
   resetDraftInFlight: false,
   resetParticipantsInFlight: true,
   deviceChangeInFlight: false,
 }});
 helpers.state.applyInFlight = false;
+helpers.state.applyAndRestartInFlight = false;
 helpers.state.resetParticipantsInFlight = false;
 
 assert.strictEqual(

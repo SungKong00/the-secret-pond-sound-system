@@ -78,6 +78,7 @@ const state = {
   playbackControlInFlight: false,
   playbackApplyModeInFlight: false,
   applyInFlight: false,
+  applyAndRestartInFlight: false,
   resetDraftInFlight: false,
   resetParticipantsInFlight: false,
   deviceChangeInFlight: false,
@@ -1933,6 +1934,7 @@ const operationFlagKeys = [
   "recordingStopInFlight",
   "playbackControlInFlight",
   "applyInFlight",
+  "applyAndRestartInFlight",
   "resetDraftInFlight",
   "resetParticipantsInFlight",
   "deviceChangeInFlight",
@@ -2078,6 +2080,9 @@ const commitDraftChange = (mutator, options = {}) => {
   if (feedbackSurfaceId !== undefined) {
     state.pendingCoveredFeedbackSurfaceId = feedbackSurfaceId;
     state.pendingLiveFeedbackSurfaceId = feedbackSurfaceId;
+  } else {
+    state.pendingCoveredFeedbackSurfaceId = undefined;
+    state.pendingLiveFeedbackSurfaceId = undefined;
   }
   syncDraftSnapshot();
   options.afterSync?.();
@@ -2472,6 +2477,13 @@ const feedbackOperationInFlight = (operationFlags = {}, surfaceId = null) => {
       operationFlags.applyInFlight ||
       operationFlags.liveApplyInFlight,
   );
+};
+
+const stableApplyAndRestartInFlight = (operationFlags = {}) => {
+  if (Object.hasOwn(operationFlags, "applyAndRestartInFlight")) {
+    return Boolean(operationFlags.applyInFlight && operationFlags.applyAndRestartInFlight);
+  }
+  return Boolean(operationFlags.applyInFlight);
 };
 
 const settingsApplyMode = (snapshot, draft) => (
@@ -4463,7 +4475,7 @@ const deriveCoveredSurfaceFeedbackState = ({
   }
   const hasUnappliedChange = feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId);
   const applyMode = currentPlaybackApplyMode(snapshot);
-  const applyInFlight = Boolean(operationFlags.applyInFlight);
+  const applyInFlight = stableApplyAndRestartInFlight(operationFlags);
   if (applyMode === "stable") {
     return {
       visual_state: hasUnappliedChange ? "pending" : "idle",
@@ -5502,6 +5514,7 @@ const seekPlayback = async (event) => {
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
+  setOperationLockFlag("applyAndRestartInFlight", true);
   setOperationLockFlag("applyInFlight", true);
   try {
     clearDraftSaveTimer();
@@ -5517,6 +5530,7 @@ const applyAndRestart = async () => {
     await requestSources().catch(() => {});
   } finally {
     setOperationLockFlag("applyInFlight", false);
+    setOperationLockFlag("applyAndRestartInFlight", false);
     if (applyError) showSettingsApplyFailureCaution(applyError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
   }
