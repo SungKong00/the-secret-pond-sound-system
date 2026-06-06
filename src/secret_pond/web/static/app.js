@@ -1900,6 +1900,13 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
     { syncDraft },
   );
   const nextSettings = clone(settingsPayload);
+  if (options.confirmActiveAsDraft && nextSettings.active) {
+    nextSettings.draft = clone(nextSettings.active);
+    const runtimeConfigFields = normalizeSettingsChangePlan(nextSettings.change).runtimeConfigFields;
+    nextSettings.change = toServerSettingsChangePayload(
+      localSettingsChangePlan(nextSettings.active, nextSettings.draft, runtimeConfigFields),
+    );
+  }
   state.snapshot.settings = nextSettings;
   state.draft = mergeSettingsPayloadDraft(state.draft, nextSettings, {
     syncDraft: shouldSyncDraft,
@@ -1942,6 +1949,7 @@ const applyState = (payload, options = {}) => {
     syncDraft,
     mergeDraftSections,
     renderControlsOnSync,
+    confirmActiveAsDraft: Boolean(options.confirmActiveAsDraft),
   });
   state.serverStateSignature = serverStateSignature(state.snapshot, { syncDraft });
   renderState();
@@ -5584,7 +5592,7 @@ const applyAndRestart = async () => {
     clearDraftSaveTimer();
     await saveDraft();
     const payload = await api("/api/settings/apply", { method: "POST" });
-    await applyResponseState(payload);
+    await applyResponseState(payload, { confirmActiveAsDraft: true });
     await requestDiagnostics();
     await requestSources({ syncAppliedSourceSignature: true });
   } catch (error) {
