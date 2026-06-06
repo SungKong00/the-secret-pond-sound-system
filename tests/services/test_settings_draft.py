@@ -68,10 +68,20 @@ class RuntimeHarness:
         self.controller = type("Controller", (), {"settings": state.active})()
         self.player = PlayerSpy()
         self.voice_raw_preview_path: str | None = None
+        self.transition_warning: str | None = None
+        self.logger = LoggerSpy()
 
     def apply_settings_state(self, settings_state: SettingsState) -> None:
         self.controller.settings = settings_state.active
         self.settings_state = settings_state
+
+
+class LoggerSpy:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def log_event(self, event_type: str, payload: dict | None = None) -> None:
+        self.events.append((event_type, payload or {}))
 
 
 class PlayerSpy:
@@ -107,6 +117,12 @@ class PlayerSpy:
 
     def reload_and_restart(self, paths) -> None:
         self.reload_and_restart_called = True
+
+
+class FailingLayerBufferPlayerSpy(PlayerSpy):
+    def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
+        super().set_layer_buffer(layer_id, buffer)
+        raise RuntimeError("hot swap failed")
 
 
 class RendererSpy:
@@ -605,6 +621,124 @@ def test_live_update_draft_settings_routes_voice_eq_to_active_playback_without_r
     assert runtime.playback_render_settings.layers["voice"].eq.mid_gain_db == 6.0
     assert runtime.player.restart_called is False
     assert runtime.player.reload_and_restart_called is False
+
+
+def test_live_eq_hot_swap_failure_sets_nonfatal_korean_operator_caution() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={
+                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
+            },
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.player = FailingLayerBufferPlayerSpy()
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.draft.layers["mid"].eq.mid_gain_db == 5.0
+    assert runtime.transition_warning == (
+        "Live EQ 전환을 적용하지 못했습니다. 기존 재생 상태를 유지합니다."
+    )
+    assert runtime.logger.events[-1] == (
+        "settings.live_eq_hot_swap_failed",
+        {
+            "layer_id": "mid",
+            "error": "hot swap failed",
+        },
+    )
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.player.restart_called is False
+    assert runtime.player.reload_and_restart_called is False
+
+
+def test_live_eq_hot_swap_failure_restores_current_stream_state() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                "low": AppSettings().layers["low"].model_copy(update={"volume_db": 0.0}),
+                "mid": AppSettings().layers["mid"].model_copy(update={"volume_db": 0.0}),
+                "voice": AppSettings().layers["voice"].model_copy(update={"volume_db": 0.0}),
+            },
+        },
+        deep=True,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.1,
+                sample_rate=8_000,
+            ),
+            "mid": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+            "voice": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.3,
+                sample_rate=8_000,
+            ),
+        },
+    )
+    player.start()
+    player.next_block(3)
+    cursor_before_update = player.frame_cursor
+
+    def corrupt_current_stream_then_fail(_layer_id: str, _buffer: AudioBuffer) -> None:
+        player.stop()
+        raise RuntimeError("hot swap failed")
+
+    player.set_layer_buffer = corrupt_current_stream_then_fail  # type: ignore[method-assign]
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={
+                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
+            },
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.player = player
+    runtime.renderer = RendererSpy(
+        AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.4, sample_rate=8_000)
+    )
+    runtime.playback_render_settings = active
+
+    update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    after_failure_snapshot = player.snapshot()
+    next_block = player.next_block(2)
+    assert runtime.transition_warning == (
+        "Live EQ 전환을 적용하지 못했습니다. 기존 재생 상태를 유지합니다."
+    )
+    assert after_failure_snapshot.playing is True
+    assert after_failure_snapshot.frame_cursor == cursor_before_update
+    assert next_block.next_frame_cursor == cursor_before_update + 2
+    np.testing.assert_allclose(
+        next_block.samples,
+        np.ones((2, 2), dtype=np.float32) * 0.6,
+        atol=1e-6,
+    )
 
 
 def test_live_same_curve_eq_update_syncs_active_state_without_stacking() -> None:

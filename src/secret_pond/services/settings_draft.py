@@ -17,6 +17,9 @@ class SettingsDraftValidationError(ValueError):
     """Raised when a draft settings update violates the web draft contract."""
 
 
+LIVE_EQ_HOT_SWAP_WARNING = "Live EQ 전환을 적용하지 못했습니다. 기존 재생 상태를 유지합니다."
+
+
 def update_draft_settings(
     runtime: SecretPondRuntime,
     draft: AppSettings,
@@ -122,16 +125,59 @@ def _apply_live_eq_buffers(
         update={"layers": next_render_layers},
         deep=True,
     )
+    player_snapshot = _capture_player_snapshot(runtime)
     for layer_id, render_layer in next_render_layers.items():
         if render_settings.layers[layer_id].eq == render_layer.eq:
             continue
-        runtime.player.set_layer_buffer(
-            layer_id,
-            runtime.renderer.render_live_eq_layer_buffer(layer_id, next_render_settings),
-        )
+        try:
+            runtime.player.set_layer_buffer(
+                layer_id,
+                runtime.renderer.render_live_eq_layer_buffer(layer_id, next_render_settings),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            _restore_player_snapshot(runtime, player_snapshot)
+            runtime.transition_warning = LIVE_EQ_HOT_SWAP_WARNING
+            _log_event_best_effort(
+                runtime,
+                "settings.live_eq_hot_swap_failed",
+                {
+                    "layer_id": layer_id,
+                    "error": str(exc),
+                },
+            )
+            return render_settings
     _sync_live_eq_states(runtime, next_render_settings)
     runtime.playback_render_settings = next_render_settings
     return next_render_settings
+
+
+def _capture_player_snapshot(runtime: SecretPondRuntime):
+    snapshot = getattr(runtime.player, "snapshot", None)
+    if not callable(snapshot):
+        return None
+    try:
+        return snapshot()
+    except Exception:
+        return None
+
+
+def _restore_player_snapshot(runtime: SecretPondRuntime, snapshot) -> None:
+    if snapshot is None:
+        return
+    restore = getattr(runtime.player, "restore", None)
+    if not callable(restore):
+        return
+    try:
+        restore(snapshot)
+    except Exception:
+        return
+
+
+def _log_event_best_effort(runtime: SecretPondRuntime, event_type: str, payload: dict) -> None:
+    try:
+        runtime.logger.log_event(event_type, payload)
+    except Exception:
+        return
 
 
 def _sync_live_eq_states(runtime: SecretPondRuntime, settings: AppSettings) -> None:
