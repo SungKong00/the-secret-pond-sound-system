@@ -62,5 +62,5 @@ def test_main_contains_voice_source_stack_live_transition_implementation() -> No
         "voiceStackControlDefs",
         "transition_seconds",
         "transitionModeBadge",
-        "Live transition",
+        "Live 전환",
     )

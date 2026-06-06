@@ -1342,7 +1342,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renderTransitionModeBadge" in script.text
     assert "Live Transition" in script.text
     assert "Stable Fallback" in script.text
-    assert "Live transition" in script.text
+    assert "Live 전환" in script.text
     assert "Stable fallback" in script.text
     assert "outputControlSummary" in script.text
     assert "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다." in script.text
@@ -6798,7 +6798,7 @@ const voiceRawPreviewSnapshot = {
 
 assert.strictEqual(
   helpers.outputControlSummaryText(liveSnapshot, { pendingChanges: false }),
-  "Live transition · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
+  "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
 );
 assert.strictEqual(
   helpers.outputControlSummaryText(stableSnapshot, { pendingChanges: false }),

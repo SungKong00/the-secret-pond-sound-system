@@ -873,8 +873,28 @@ assert.strictEqual(
 def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
-    assert '<span>Live <small lang="ko">라이브</small></span>' in index_html
-    assert '<span>Stable <small lang="ko">안정</small></span>' in index_html
+    assert (
+        '<span class="label-with-helper">Live<small lang="ko">라이브</small></span>'
+        in index_html
+    )
+    assert (
+        '<span class="label-with-helper">Stable<small lang="ko">안정</small></span>'
+        in index_html
+    )
+
+
+def test_live_playback_mode_labels_reuse_dashboard_typography_classes() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+
+    assert '<span class="storage-mode-label">재생 적용</span>' in index_html
+    assert (
+        '<span class="label-with-helper">Live<small lang="ko">라이브</small></span>'
+        in index_html
+    )
+    assert (
+        '<span class="label-with-helper">Stable<small lang="ko">안정</small></span>'
+        in index_html
+    )
 
 
 def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
