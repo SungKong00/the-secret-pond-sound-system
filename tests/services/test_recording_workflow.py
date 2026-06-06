@@ -333,6 +333,57 @@ def test_refresh_playback_voice_crossfade_preserves_low_layer_enabled_state(
     )
 
 
+def test_refresh_playback_voice_crossfade_preserves_exact_low_runtime_trim_state(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings()
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    next_voice = AudioBuffer(
+        samples=np.ones((8, 2), dtype=np.float32) * 0.7,
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.1,
+                sample_rate=8_000,
+            ),
+            "mid": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+            "voice": AudioBuffer(
+                samples=np.ones((8, 2), dtype=np.float32) * 0.3,
+                sample_rate=8_000,
+            ),
+        },
+        active_voice_identity="data/sources/voice/stack/VS0610_200000.wav",
+    )
+    player.start()
+    player.next_block(1)
+    player.set_realtime_trim("low", -6.0)
+    low_state_before_crossfade = player.layer_states["low"]
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    write_wav_atomic(paths.voice_playback, next_voice)
+    refresh_playback_after_recording(runtime, accepted_outcome())
+
+    assert player.layer_states["low"] == low_state_before_crossfade
+    assert player.active_voice_transition_target_id == (
+        "data/sources/voice/stack/VS0610_213112.wav"
+    )
+
+
 @pytest.mark.parametrize(
     ("initial_mid_enabled", "settings_mid_enabled"),
     [(False, True), (True, False)],
