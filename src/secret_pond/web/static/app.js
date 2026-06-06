@@ -2010,6 +2010,7 @@ const deriveSettingsActionState = ({
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
   const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
+  const liveSampleRateApplyRequired = liveSampleRateApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
@@ -2027,6 +2028,8 @@ const deriveSettingsActionState = ({
               ? operationLockMessages.sourceMutation
               : playbackControlBusy
                 ? operationLockMessages.playbackControl
+                : liveSampleRateApplyRequired
+                  ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
                 : runtimeConfigChanged
                   ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
                   : liveLoopLengthApplyRequired
@@ -2197,6 +2200,17 @@ const liveLoopLengthApplyRequiredChange = (snapshot = state.snapshot) => {
   );
 };
 
+const liveSampleRateApplyRequiredChange = (snapshot = state.snapshot) => {
+  const activeAudio = snapshot?.settings?.active?.audio || {};
+  const draftAudio = state.draft?.audio || snapshot?.settings?.draft?.audio || {};
+  const live = livePlaybackFeatures(snapshot);
+  return Boolean(
+    live.enabled &&
+      draftAudio.sample_rate !== undefined &&
+      activeAudio.sample_rate !== draftAudio.sample_rate,
+  );
+};
+
 const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   if (!snapshot?.settings?.active || !state.draft) return false;
   if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
@@ -2360,6 +2374,9 @@ const outputControlSummaryText = (
   }
   if (snapshot?.playback?.voice_raw_preview_path) {
     return "녹음 원본을 재생 중입니다.";
+  }
+  if (liveSampleRateApplyRequiredChange(snapshot)) {
+    return "Live mode · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveLoopLengthApplyRequiredChange(snapshot)) {
     return "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
