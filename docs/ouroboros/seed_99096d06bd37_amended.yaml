@@ -1,0 +1,258 @@
+goal: Implement v1 frontend-driven dashboard feedback for covered Live and Stable
+  playback setting changes, with covered-surface yellow card highlights, top-right
+  translucent spinners during apply operations, rollback on failure, and one reusable
+  Korean global caution banner.
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+  - path: src/secret_pond/web/static/app.js
+    role: primary
+    summary: Frontend already computes active-vs-draft settings changes through settingsChangePlan,
+      localSettingsChangePlan, and derivePendingChangeState, and exposes aggregate
+      in-flight flags such as applyInFlight and playbackApplyModeInFlight.
+  - path: src/secret_pond/web/static/styles.css
+    role: primary
+    summary: Source Library selected-file styling is defined by .source-file-row.selected
+      with border-color rgba(214, 168, 77, 0.62) and background rgba(214, 168,
+      77, 0.16); v1 pending cards should reuse this style or a shared token with
+      the same rendered values.
+  - path: src/secret_pond/services/settings_draft.py
+    role: reference
+    summary: Backend Live update path promotes eligible settings into active state,
+      renders EQ buffers, applies live player layer controls, and may prepare Voice
+      Raw preview treatment; v1 must not add a new backend per-card state contract.
+  - path: src/secret_pond/services/settings_changes.py
+    role: reference
+    summary: Classifies settings changes, including runtime fields that must still
+      require Apply/Restart.
+  - path: AGENTS.md
+    role: reference
+    summary: Repository workflow, verification commands, rendered dashboard verification
+      expectation, and Korean Conventional Commit style.
+  existing_patterns:
+  - Existing active-vs-draft frontend change planning should drive v1 feedback.
+  - Existing Source Library selected-file yellow style should guide the pending card
+    highlight.
+  - Existing aggregate operation flags should drive v1 spinner visibility.
+  - Existing Korean operator-facing notice style should be used for failure copy.
+  - Runtime-only audio/device settings remain Apply/Restart-gated.
+constraints:
+- Use lightweight frontend-derived change and in-flight state only.
+- Do not introduce a new backend per-card pending/applying/applied/failed contract
+  in v1.
+- Implement one shared frontend feedback-state helper, or an equivalently named shared
+  function, that maps snapshot, draft, operation flags, covered surface id, and optional
+  future backend state into visual_state and show_spinner.
+- Rendering code for covered layer cards, Voice Stack, and recording/voice treatment
+  controls must consume the shared feedback-state helper rather than duplicating status
+  logic in each render branch.
+- Preserve Stable mode behavior except for visual feedback and the explicitly requested
+  failure rollback.
+- In Stable mode, draft changes remain pending until Apply and Restart succeeds; v1
+  adds yellow highlights only to changed covered surfaces before Apply and Restart.
+- In Live mode, covered live-applicable changes highlight and spin only while save/apply
+  is in flight.
+- Scope v1 covered surfaces to Low layer card, Mid layer card, Voice layer card, Voice
+  Stack controls, and recording/voice treatment controls.
+- Exclude Output, Playback Apply Mode, and the whole Source Library from v1 treatment.
+- >-
+  Reuse .source-file-row.selected visual values for pending cards: border-color rgba(214,
+  168, 77, 0.62) and background rgba(214, 168, 77, 0.16), either by shared CSS tokens
+  or matching rendered values.
+- >-
+  Spinner must be positioned in the affected card/box top-right, remain translucent,
+  use pointer-events: none, and avoid changing layout dimensions.
+- Failure UX must be global/banner-level rather than per-card failure messages.
+- On failure, controls touched by the failed action must roll back to the last confirmed
+  successful active settings snapshot for those controls.
+- For Live save/apply failures, touched controls are the covered controls modified by
+  the failed user action or debounced draft save.
+- For Stable Apply and Restart failures, touched controls are covered controls whose
+  active-vs-draft diff existed immediately before the failed Apply and Restart request.
+- Runtime fields such as audio.sample_rate, audio.channels, and input/output devices
+  must still require Apply/Restart rather than appear live-applied.
+- Future backend-backed operation states must be supportable by changing the shared
+  feedback-state helper input handling, without changing covered surface render call
+  sites.
+- >-
+  Implement each task test-first: write focused failing tests before implementation,
+  make them pass, then proceed to the next task.
+- >-
+  After each task-level implementation passes its focused verification, create a small
+  Korean Conventional Commit using the format "feat: 한글 설명".
+acceptance_criteria:
+- In Live mode, changing a covered live-applicable control turns only its affected
+  covered card/box yellow.
+- In Live mode, the affected covered card/box shows a top-right translucent spinner
+  while save/apply is in flight.
+- In Live mode, highlight and spinner clear after successful save/apply and the rendered
+  control value matches the successful server-confirmed state.
+- In Live mode save/apply failure, the covered controls touched by the failed action
+  roll back to the last confirmed successful active settings values for those controls.
+- In Live mode save/apply failure, highlights and spinners clear after rollback.
+- In Live mode save/apply failure, one global Korean caution banner appears with text
+  변경사항을 적용하지 못했습니다. 이전 설정이 계속 사용됩니다.
+- In Stable mode, changed covered cards stay yellow without spinner while they have
+  unapplied active-vs-draft differences and Apply and Restart is not in flight.
+- In Stable mode, unchanged covered cards remain normal and never show the new yellow
+  highlight or spinner merely because another covered card changed.
+- In Stable mode, changed covered cards show top-right translucent spinners during
+  Apply and Restart.
+- In Stable mode, changed covered card highlights and spinners clear after successful
+  Apply and Restart and the rendered control values match the successful server-confirmed
+  state.
+- In Stable mode Apply and Restart failure, covered controls that had active-vs-draft
+  differences immediately before the failed request roll back to the last confirmed
+  successful active settings values for those controls.
+- In Stable mode Apply and Restart failure, highlights and spinners clear after rollback.
+- In Stable mode Apply and Restart failure, one global Korean caution banner appears
+  with text 변경사항을 적용하지 못했습니다. 이전 설정이 계속 사용됩니다.
+- Output, Playback Apply Mode, and the whole Source Library remain normal and do not
+  receive the new card highlight class or spinner from this v1 feature.
+- Changing runtime-gated fields such as sample rate, channels, input device, or output
+  device does not make them appear live-applied or covered by the new v1 treatment.
+- Unit or DOM tests cover the shared feedback-state helper for Live success, Live failure
+  rollback, Stable pending, Stable apply-in-flight, Stable failure rollback, and excluded
+  surfaces.
+- Rendered dashboard verification confirms spinner placement is top-right, translucent,
+  overlay-friendly, and does not shift card layout.
+- Implementation remains frontend-driven, and no new backend response field for per-card
+  operation state is required by tests or render code.
+ontology_schema:
+  name: DashboardApplyFeedback
+  description: Frontend UI feedback model for covered and excluded dashboard setting
+    surfaces across Live and Stable playback apply modes.
+  fields:
+  - name: apply_mode
+    type: enum
+    values:
+    - live
+    - stable
+    description: Current playback apply mode.
+    required: true
+  - name: surface_id
+    type: enum
+    values:
+    - layer_low
+    - layer_mid
+    - layer_voice
+    - voice_stack
+    - voice_treatment
+    - output
+    - playback_apply_mode
+    - source_library
+    description: Identifier for a covered or explicitly excluded dashboard surface.
+    required: true
+  - name: treatment_scope
+    type: enum
+    values:
+    - covered
+    - excluded
+    description: Whether the surface receives v1 pending/spinner treatment.
+    required: true
+  - name: surface_type
+    type: enum
+    values:
+    - layer_card
+    - voice_stack_controls
+    - voice_treatment_controls
+    - excluded_output
+    - excluded_playback_apply_mode
+    - excluded_source_library
+    description: Render surface category used by tests and helper logic.
+    required: true
+  - name: has_unapplied_change
+    type: boolean
+    description: Whether the covered surface contains draft changes not confirmed
+      in active runtime state.
+    required: true
+  - name: operation_in_flight
+    type: boolean
+    description: Whether save, live apply, or Apply and Restart is currently running
+      for the relevant covered action.
+    required: true
+  - name: visual_state
+    type: enum
+    values:
+    - normal
+    - pending
+    - applying
+    description: Rendered card feedback state.
+    required: true
+  - name: show_spinner
+    type: boolean
+    description: Whether the top-right translucent spinner is visible.
+    required: true
+  - name: rollback_source
+    type: enum
+    values:
+    - last_confirmed_active_settings_snapshot
+    description: State source used to restore touched controls after failure.
+    required: true
+  - name: touched_controls
+    type: array
+    description: Covered controls changed by the failed Live action or covered controls
+      with active-vs-draft differences before failed Stable Apply and Restart.
+    required: true
+  - name: failure_banner_message
+    type: string
+    description: Reusable Korean global caution message shown on failure.
+    required: true
+  - name: extensibility_boundary
+    type: string
+    description: Shared feedback-state helper boundary that can later accept backend
+      operation state without changing covered surface render call sites.
+    required: true
+evaluation_principles:
+- name: Correctness
+  description: Feedback states accurately reflect Live and Stable apply semantics
+    without misleading operators.
+  weight: 0.35
+- name: ScopeControl
+  description: Only approved v1 covered surfaces receive the new treatment and explicitly
+    excluded surfaces remain unchanged.
+  weight: 0.2
+- name: FailureSafety
+  description: Failures roll back touched controls to last confirmed active settings
+    and clearly communicate that previous settings remain active.
+  weight: 0.2
+- name: Maintainability
+  description: Covered surface feedback is derived through a shared helper boundary
+    consumed by render functions.
+  weight: 0.15
+- name: VisualConsistency
+  description: Highlight matches Source Library selected-file styling and spinner overlay
+    does not disrupt layout.
+  weight: 0.1
+exit_conditions:
+- name: AcceptanceMet
+  description: All Live and Stable acceptance criteria pass for covered and excluded
+    surfaces.
+  criteria: Automated tests and rendered UI verification confirm expected highlight,
+    spinner, success, rollback, and excluded-surface behavior.
+- name: VerificationPassed
+  description: Repository checks complete successfully.
+  criteria: uv run pytest and uv run ruff check . pass unless unrelated pre-existing
+    failures are documented.
+- name: UIReviewed
+  description: Rendered dashboard behavior is verified.
+  criteria: Dashboard is inspected for covered surfaces, excluded surfaces, spinner
+    placement, highlight color consistency, and Korean banner copy.
+- name: NoBackendContractAdded
+  description: V1 remains frontend-driven.
+  criteria: No new backend per-card pending/applying/applied/failed response contract
+    is introduced or required by frontend tests.
+metadata:
+  seed_id: seed_99096d06bd37
+  version: 1.0.1
+  created_at: '2026-06-06T04:54:58.788565Z'
+  amended_at: '2026-06-06T05:10:00+09:00'
+  ambiguity_score: 0.084
+  interview_id: interview_20260606_040417
+  qa_session_id: qa-372bfecb
+  parent_seed_id: null
+  generation_mode: qa_refined
+  degraded: false
+  unresolved_slots: []
+  recovery_reason: null
