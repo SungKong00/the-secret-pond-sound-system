@@ -81,6 +81,111 @@ for (const excludedControlId of [
     )
 
 
+def test_excluded_playback_surfaces_stay_idle_in_shared_feedback_helper() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+  excludedFeedbackSurfaceIds,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  deriveCoveredSurfaceFeedbackState,
+  excludedFeedbackSurfaceIds,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const draft = clone(activeSettings);
+draft.playback.master_volume_db = -6;
+draft.playback.apply_mode = "live";
+draft.sources.low_path = "sources/low-new.wav";
+
+const snapshot = {
+  settings: {
+    active: activeSettings,
+    draft,
+    change: {
+      changed_sections: ["playback", "sources"],
+      runtime_config_changed: false,
+      runtime_config_fields: [],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+
+assert.deepStrictEqual(
+  excludedFeedbackSurfaceIds,
+  ["output", "playback_apply_mode", "source_library"],
+);
+
+for (const surfaceId of excludedFeedbackSurfaceIds) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({
+      snapshot,
+      draft,
+      operationFlags: {
+        applyInFlight: true,
+        applyAndRestartInFlight: true,
+        feedbackSurfaceId: surfaceId,
+      },
+      surfaceId,
+      backendState: { visual_state: "pending", show_spinner: true },
+    }),
+    { visual_state: "idle", show_spinner: false },
+    `${surfaceId} should not receive covered yellow feedback`,
+  );
+}
+""",
+    )
+
+
 def test_live_covered_setting_changes_use_shared_helper_for_successful_yellow_feedback() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

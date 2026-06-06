@@ -4575,6 +4575,8 @@ const coveredFeedbackSurfacePaths = {
   recording: ["recording"],
 };
 
+const excludedFeedbackSurfaceIds = Object.freeze(["output", "playback_apply_mode", "source_library"]);
+
 const coveredLayerFeedbackControlPaths = [
   "enabled",
   "volume_db",
