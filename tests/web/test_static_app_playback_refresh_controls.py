@@ -1026,6 +1026,151 @@ assert.strictEqual(state.activeInteractiveControl, summary);
     )
 
 
+def test_active_generated_dropdown_control_group_survives_state_refresh() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  state,
+  trackInteractiveControl,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, state, trackInteractiveControl } = globalThis.__secretPond;
+
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+const liveSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: 0,
+      eq: {
+        low_gain_db: 0,
+        mid_gain_db: 0,
+        high_gain_db: 0,
+        highpass_hz: 20,
+        lowpass_hz: 20000,
+      },
+    },
+    mid: {
+      enabled: true,
+      volume_db: 0,
+      eq: {
+        low_gain_db: 0,
+        mid_gain_db: 0,
+        high_gain_db: 0,
+        highpass_hz: 20,
+        lowpass_hz: 20000,
+      },
+    },
+    voice: {
+      enabled: true,
+      volume_db: 0,
+      eq: {
+        low_gain_db: 0,
+        mid_gain_db: 0,
+        high_gain_db: 0,
+        highpass_hz: 20,
+        lowpass_hz: 20000,
+      },
+    },
+  },
+};
+
+applyState({
+  settings: {
+    active: cloneSettings(liveSettings),
+    draft: cloneSettings(liveSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1200,
+    apply_mode: "live",
+    live: { enabled: true, eq_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+const recordingControls = document.getElementById("recordingControls");
+const inputSafetyDropdown = recordingControls.children.find((child) =>
+  child.tagName === "DETAILS" && child.className.includes("input-safety-group")
+);
+const inputSafetySummary = inputSafetyDropdown.children[0];
+assert.ok(inputSafetyDropdown);
+assert.ok(inputSafetySummary);
+assert.strictEqual(inputSafetyDropdown.open, true);
+document.activeElement = inputSafetySummary;
+trackInteractiveControl(inputSafetySummary);
+
+const refreshedSettings = cloneSettings(liveSettings);
+refreshedSettings.layers.low.eq.low_gain_db = -4;
+applyState({
+  settings: {
+    active: refreshedSettings,
+    draft: refreshedSettings,
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 1800,
+    apply_mode: "live",
+    live: { enabled: true, eq_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false, fromStateRefresh: true });
+
+assert.strictEqual(document.getElementById("recordingControls"), recordingControls);
+assert.strictEqual(recordingControls.children.includes(inputSafetyDropdown), true);
+assert.strictEqual(inputSafetyDropdown.children[0], inputSafetySummary);
+assert.strictEqual(inputSafetyDropdown.open, true);
+assert.strictEqual(state.activeInteractiveControl, inputSafetySummary);
+assert.strictEqual(
+  state.deferredInteractiveRenders["settings-controls"].name,
+  "renderControls",
+);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
