@@ -239,6 +239,77 @@ for (const surfaceId of ["output", "playback_apply_mode"]) {
     )
 
 
+def test_excluded_playback_surfaces_ignore_backend_failure_and_rollback_feedback() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { deriveCoveredSurfaceFeedbackState } = globalThis.__secretPond;
+
+const activeSettings = {
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  sources: { low_path: "sources/low.wav" },
+};
+const draft = {
+  playback: { apply_mode: "live", master_volume_db: -6 },
+  sources: { low_path: "sources/low-new.wav" },
+};
+const snapshot = {
+  settings: {
+    active: activeSettings,
+    draft,
+    change: {
+      changed_sections: ["playback", "sources"],
+      runtime_config_changed: false,
+      runtime_config_fields: [],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+
+for (const surfaceId of ["output", "playback_apply_mode"]) {
+  for (const backendState of [
+    { visual_state: "failed", show_spinner: false },
+    { visual_state: "rollback_pending", show_spinner: true },
+    { visual_state: "rollback_failed", show_spinner: false },
+  ]) {
+    const feedbackState = deriveCoveredSurfaceFeedbackState({
+      snapshot,
+      draft,
+      surfaceId,
+      operationFlags: {
+        applyInFlight: true,
+        applyAndRestartInFlight: true,
+        feedbackSurfaceId: surfaceId,
+      },
+      backendState,
+    });
+
+    assert.deepStrictEqual(
+      feedbackState,
+      { visual_state: "idle", show_spinner: false },
+      `${surfaceId} should ignore ${backendState.visual_state} backend feedback`,
+    );
+    assert.strictEqual(
+      Object.hasOwn(feedbackState, "rollback_source"),
+      false,
+      `${surfaceId} should not expose rollback feedback metadata`,
+    );
+  }
+}
+""",
+    )
+
+
 def test_live_covered_setting_changes_use_shared_helper_for_successful_yellow_feedback() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
