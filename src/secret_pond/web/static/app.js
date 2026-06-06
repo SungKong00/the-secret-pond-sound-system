@@ -56,6 +56,8 @@ const state = {
   draftSaveInFlight: false,
   draftSaveRequestId: 0,
   draftEditRevision: 0,
+  pendingCoveredFeedbackSurfaceId: undefined,
+  coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
   confirmedDraftSignature: null,
@@ -1942,9 +1944,15 @@ const operationFlagsFrom = (stateLike = {}) => {
     return nextFlags;
   }, {});
   if (
+    Object.hasOwn(stateLike, "coveredFeedbackSurfaceId") &&
+    stateLike.coveredFeedbackSurfaceId !== undefined
+  ) {
+    flags.coveredSurfaceId = stateLike.coveredFeedbackSurfaceId;
+  } else if (
     Object.hasOwn(stateLike, "liveFeedbackSurfaceId") &&
     stateLike.liveFeedbackSurfaceId !== undefined
   ) {
+    flags.coveredSurfaceId = stateLike.liveFeedbackSurfaceId;
     flags.liveFeedbackSurfaceId = stateLike.liveFeedbackSurfaceId;
   }
   return flags;
@@ -2068,6 +2076,7 @@ const commitDraftChange = (mutator, options = {}) => {
   markDraftEdited();
   const feedbackSurfaceId = draftFeedbackSurfaceIdFromOptions(options);
   if (feedbackSurfaceId !== undefined) {
+    state.pendingCoveredFeedbackSurfaceId = feedbackSurfaceId;
     state.pendingLiveFeedbackSurfaceId = feedbackSurfaceId;
   }
   syncDraftSnapshot();
@@ -2116,6 +2125,7 @@ const deriveSettingsActionState = ({
   const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
   const canApplyRenderedCache = !pendingChanges && !runtimeConfigChanged && renderedCacheReady;
   const liveSampleRateApplyRequired = liveSampleRateApplyRequiredChange(snapshot);
+  const liveChannelCountApplyRequired = liveChannelCountApplyRequiredChange(snapshot);
   const liveOutputDeviceApplyRequired = liveOutputDeviceApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const liveSourceFileSelectionApplyRequired = liveSourceFileSelectionApplyRequiredChange(snapshot);
@@ -2137,6 +2147,8 @@ const deriveSettingsActionState = ({
                 ? operationLockMessages.playbackControl
                 : liveSampleRateApplyRequired
                   ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
+                : liveChannelCountApplyRequired
+                  ? "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다."
                 : liveOutputDeviceApplyRequired
                   ? "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
                 : runtimeConfigChanged
@@ -2322,6 +2334,17 @@ const liveSampleRateApplyRequiredChange = (snapshot = state.snapshot) => {
   );
 };
 
+const liveChannelCountApplyRequiredChange = (snapshot = state.snapshot) => {
+  const activeAudio = snapshot?.settings?.active?.audio || {};
+  const draftAudio = state.draft?.audio || snapshot?.settings?.draft?.audio || {};
+  const live = livePlaybackFeatures(snapshot);
+  return Boolean(
+    live.enabled &&
+      draftAudio.channels !== undefined &&
+      activeAudio.channels !== draftAudio.channels,
+  );
+};
+
 const liveOutputDeviceApplyRequiredChange = (snapshot = state.snapshot) => {
   const activeDevices = snapshot?.settings?.active?.devices || {};
   const draftDevices = state.draft?.devices || snapshot?.settings?.draft?.devices || {};
@@ -2423,7 +2446,7 @@ const feedbackSurfaceIdFromOperationFlags = (operationFlags = {}) => {
 
 const operationTargetsFeedbackSurface = (operationFlags = {}, surfaceId) => {
   const targetSurfaceId = feedbackSurfaceIdFromOperationFlags(operationFlags);
-  if (targetSurfaceId === undefined) return true;
+  if (targetSurfaceId === undefined) return false;
   return targetSurfaceId !== null && targetSurfaceId === normalizeFeedbackSurfaceId(surfaceId);
 };
 
@@ -2652,6 +2675,9 @@ const outputControlSummaryText = (
   }
   if (liveSampleRateApplyRequiredChange(snapshot)) {
     return "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
+  }
+  if (liveChannelCountApplyRequiredChange(snapshot)) {
+    return "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveOutputDeviceApplyRequiredChange(snapshot)) {
     return "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
@@ -5214,6 +5240,8 @@ const clearDraftSaveTimer = () => {
 const invalidatePendingDraftSaves = () => {
   clearDraftSaveTimer();
   state.draftSaveRequestId += 1;
+  state.pendingCoveredFeedbackSurfaceId = undefined;
+  state.coveredFeedbackSurfaceId = undefined;
   state.pendingLiveFeedbackSurfaceId = undefined;
   state.liveFeedbackSurfaceId = undefined;
   state.draftSaveInFlight = false;
@@ -5242,6 +5270,7 @@ const saveDraft = async () => {
   clearDraftSaveTimer();
   const request = beginDraftSave();
   const draftPayload = clone(state.draft);
+  state.coveredFeedbackSurfaceId = state.pendingCoveredFeedbackSurfaceId;
   state.liveFeedbackSurfaceId = state.pendingLiveFeedbackSurfaceId;
   state.draftSaveInFlight = true;
   renderDraftSaveFeedbackSurfaces();
@@ -5266,6 +5295,8 @@ const saveDraft = async () => {
   } finally {
     if (isCurrentDraftSave(request)) {
       state.draftSaveInFlight = false;
+      state.pendingCoveredFeedbackSurfaceId = undefined;
+      state.coveredFeedbackSurfaceId = undefined;
       state.pendingLiveFeedbackSurfaceId = undefined;
       state.liveFeedbackSurfaceId = undefined;
       renderDraftSaveFeedbackSurfaces();
