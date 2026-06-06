@@ -61,6 +61,7 @@ const state = {
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
   stableApplyCoveredFeedbackSurfaceIds: [],
+  stableApplyCoveredFeedbackControlSnapshots: [],
   pendingCoveredFeedbackControlIds: [],
   coveredFeedbackControlIds: [],
   confirmedDraftSignature: null,
@@ -4567,7 +4568,7 @@ const stableCoveredFeedbackControlIds = Object.freeze(
   Object.keys(coveredLiveFeedbackControlSurfaceTargets),
 );
 
-const captureStableCoveredFeedbackControlDiffs = ({
+const captureStableCoveredFeedbackControlSnapshots = ({
   snapshot = state.snapshot,
   draft = state.draft || snapshot?.settings?.draft || null,
 } = {}) => {
@@ -4581,8 +4582,11 @@ const captureStableCoveredFeedbackControlDiffs = ({
     .map((controlId) => ({
       controlId,
       activeValue: clone(readSettingsPath(activeSettings, controlId)),
+      draftValue: clone(readSettingsPath(draft, controlId)),
     }));
 };
+
+const captureStableCoveredFeedbackControlDiffs = captureStableCoveredFeedbackControlSnapshots;
 
 const coveredFeedbackStateUsesPendingVisual = (feedbackState) => (
   feedbackState?.visual_state === "pending" ||
@@ -5693,15 +5697,16 @@ const seekPlayback = async (event) => {
 const applyAndRestart = async () => {
   if (currentSettingsActionState().applyDisabled) return;
   let applyError = null;
-  let stableApplyCoveredFeedbackControlDiffs = [];
   state.stableApplyCoveredFeedbackSurfaceIds = [];
+  state.stableApplyCoveredFeedbackControlSnapshots = [];
   setOperationLockFlag("applyAndRestartInFlight", true);
   setOperationLockFlag("applyInFlight", true);
   try {
     clearDraftSaveTimer();
     await saveDraft();
     state.stableApplyCoveredFeedbackSurfaceIds = captureStableCoveredFeedbackSurfaceDiffs();
-    stableApplyCoveredFeedbackControlDiffs = captureStableCoveredFeedbackControlDiffs();
+    state.stableApplyCoveredFeedbackControlSnapshots =
+      captureStableCoveredFeedbackControlSnapshots();
     const payload = await api("/api/settings/apply", { method: "POST" });
     await applyResponseState(payload, { confirmActiveAsDraft: true });
     await requestDiagnostics();
@@ -5709,7 +5714,7 @@ const applyAndRestart = async () => {
   } catch (error) {
     applyError = error;
     await requestState({ syncDraft: false }).catch(() => {});
-    rollbackDraftCoveredControlSnapshots(stableApplyCoveredFeedbackControlDiffs);
+    rollbackDraftCoveredControlSnapshots(state.stableApplyCoveredFeedbackControlSnapshots);
     await requestDiagnostics().catch(() => {});
     await requestSources().catch(() => {});
   } finally {
@@ -5718,6 +5723,7 @@ const applyAndRestart = async () => {
     if (applyError) showSettingsApplyFailureCaution(applyError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
     state.stableApplyCoveredFeedbackSurfaceIds = [];
+    state.stableApplyCoveredFeedbackControlSnapshots = [];
   }
 };
 

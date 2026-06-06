@@ -1173,6 +1173,156 @@ applyAndRestart()
     )
 
 
+def test_stable_apply_captures_pre_restart_covered_control_snapshot_after_draft_save() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyAndRestart,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { applyAndRestart, state } = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const originalDraft = clone(activeSettings);
+originalDraft.layers.low.volume_db = -1;
+originalDraft.layers.low.eq.low_gain_db = 4;
+originalDraft.recording.reverb_mix = 0.4;
+originalDraft.playback.master_volume_db = -6;
+
+const savedDraft = clone(originalDraft);
+savedDraft.layers.low.volume_db = activeSettings.layers.low.volume_db;
+savedDraft.playback.master_volume_db = -5;
+
+const changeFor = (active, draft) => ({
+  runtime_config_changed: false,
+  changed_sections: Object.keys(draft).filter((section) => (
+    JSON.stringify(active[section]) !== JSON.stringify(draft[section])
+  )),
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_fields: [],
+  live_preview_reprocessable_field_names: [],
+});
+const snapshotFor = (active, draft) => ({
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(active),
+    draft: clone(draft),
+    change: changeFor(active, draft),
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+});
+
+state.snapshot = snapshotFor(activeSettings, activeSettings);
+state.draft = clone(originalDraft);
+state.appliedSourceSignature = "";
+state.serverStateSignature = null;
+
+let capturedAtRestart = null;
+globalThis.fetch = async (path) => {
+  if (path === "/api/settings/draft") {
+    return {
+      ok: true,
+      json: async () => ({ settings: snapshotFor(activeSettings, savedDraft).settings }),
+    };
+  }
+  if (path === "/api/settings/apply") {
+    capturedAtRestart = clone(state.stableApplyCoveredFeedbackControlSnapshots);
+    return {
+      ok: false,
+      status: 500,
+      json: async () => ({ detail: "render failed" }),
+    };
+  }
+  if (path === "/api/state") {
+    return { ok: true, json: async () => snapshotFor(activeSettings, savedDraft) };
+  }
+  if (path === "/api/diagnostics") {
+    return { ok: true, json: async () => ({ sources: [], events: { recent: [] } }) };
+  }
+  if (path === "/api/sources") {
+    return { ok: true, json: async () => ({ categories: [] }) };
+  }
+  throw new Error(`unexpected request: ${path}`);
+};
+
+await applyAndRestart();
+
+assert.deepStrictEqual(capturedAtRestart, [
+  { controlId: "layers.low.eq.low_gain_db", activeValue: 0, draftValue: 4 },
+  { controlId: "recording.reverb_mix", activeValue: 0.25, draftValue: 0.4 },
+]);
+assert.deepStrictEqual(state.stableApplyCoveredFeedbackControlSnapshots, []);
+assert.strictEqual(state.draft.layers.low.volume_db, -3);
+assert.strictEqual(state.draft.layers.low.eq.low_gain_db, 0);
+assert.strictEqual(state.draft.recording.reverb_mix, 0.25);
+assert.strictEqual(state.draft.playback.master_volume_db, -5);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_stable_successful_apply_response_renders_server_confirmed_control_value() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
