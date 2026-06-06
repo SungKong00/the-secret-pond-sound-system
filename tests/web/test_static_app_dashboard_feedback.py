@@ -3457,6 +3457,122 @@ assert.strictEqual(
     )
 
 
+def test_live_pending_draft_save_highlights_touched_covered_card_before_request_starts() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitDraftChange,
+  renderLayerControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const {
+  commitDraftChange,
+  renderLayerControls,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: {
+      runtime_config_changed: false,
+      changed_sections: [],
+      changed_runtime_fields: [],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+    },
+  },
+};
+state.draft = clone(activeSettings);
+
+commitDraftChange(() => {
+  state.draft.layers.low.volume_db = -1;
+}, { feedbackControlId: "layers.low.volume_db", scheduleSave: false });
+
+renderLayerControls();
+
+const midCard = document.getElementById("layerControls").children[0];
+const lowCard = document.getElementById("layerControls").children[1];
+assert.doesNotMatch(midCard.className, /\\bfeedback-pending\\b/);
+assert.match(lowCard.className, /\\bfeedback-pending\\b/);
+assert.match(
+  lowCard.innerHTML,
+  /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+);
+""",
+    )
+
+
 def test_dashboard_render_consumes_backend_snapshot_without_per_card_operation_state() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

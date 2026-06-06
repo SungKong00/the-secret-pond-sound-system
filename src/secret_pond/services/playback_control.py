@@ -79,7 +79,7 @@ def seek_playback(runtime: SecretPondRuntime, progress: float) -> None:
         raise PlaybackControlError(detail)
 
     settings = runtime.controller.settings
-    loop_frames = settings.audio.sample_rate * settings.audio.loop_seconds
+    loop_frames = settings.audio.sample_rate * settings.voice_stack.loop_seconds
     if loop_frames <= 0:
         detail = "audio loop length must be greater than 0"
         _log_playback_event(runtime, "playback.seek_failed", error=detail)

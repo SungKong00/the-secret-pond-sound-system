@@ -37,7 +37,7 @@ def state_payload(
     playback_timeline = _playback_timeline_payload(
         frame_cursor=runtime.player.frame_cursor,
         sample_rate=active_settings.audio.sample_rate,
-        loop_seconds=active_settings.audio.loop_seconds,
+        loop_seconds=active_settings.voice_stack.loop_seconds,
     )
     transition_guard = runtime.voice_stack.transition_guard_state(runtime.controller.settings)
     return {

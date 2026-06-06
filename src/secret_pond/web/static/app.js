@@ -82,6 +82,7 @@ const state = {
   recordingStopInFlight: false,
   playbackControlInFlight: false,
   playbackApplyModeInFlight: false,
+  pendingPlaybackApplyMode: null,
   applyInFlight: false,
   applyAndRestartInFlight: false,
   resetDraftInFlight: false,
@@ -2036,6 +2037,13 @@ const operationFlagsFrom = (stateLike = {}) => {
   ) {
     flags.coveredSurfaceId = stateLike.liveFeedbackSurfaceId;
     flags.liveFeedbackSurfaceId = stateLike.liveFeedbackSurfaceId;
+  } else if (
+    Object.hasOwn(stateLike, "pendingLiveFeedbackSurfaceId") &&
+    stateLike.pendingLiveFeedbackSurfaceId !== undefined
+  ) {
+    flags.coveredSurfaceId = stateLike.pendingLiveFeedbackSurfaceId;
+    flags.liveFeedbackSurfaceId = stateLike.pendingLiveFeedbackSurfaceId;
+    flags.liveFeedbackPending = true;
   }
   if (Array.isArray(stateLike.coveredFeedbackControlIds) && stateLike.coveredFeedbackControlIds.length > 0) {
     flags.coveredFeedbackControlIds = [...stateLike.coveredFeedbackControlIds];
@@ -2750,6 +2758,38 @@ const renderRecordingTimes = (snapshot = state.snapshot) => {
     `${snapshot.recording_remaining_seconds.toFixed(1)}s 남음`;
 };
 
+const activePlaybackTimeline = (snapshot = state.snapshot) => {
+  const playback = snapshot?.playback || {};
+  const audio = snapshot?.settings?.active?.audio || {};
+  const voiceStack = snapshot?.settings?.active?.voice_stack || {};
+  const sampleRate = Number(audio.sample_rate || 0);
+  const settingsDuration = Number(voiceStack.loop_seconds || audio.loop_seconds || 0);
+  const payloadDuration = Number(playback.duration_seconds || 0);
+  const durationSeconds =
+    Number.isFinite(settingsDuration) && settingsDuration > 0 ? settingsDuration : payloadDuration;
+  const payloadPosition = Number(playback.position_seconds || 0);
+  const frameCursor = Number(playback.frame_cursor || 0);
+  const positionSeconds =
+    Number.isFinite(payloadPosition) && payloadPosition >= 0
+      ? payloadPosition
+      : Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(frameCursor)
+        ? frameCursor / sampleRate
+        : 0;
+  const boundedPosition =
+    Number.isFinite(durationSeconds) && durationSeconds > 0
+      ? Math.max(0, positionSeconds) % durationSeconds
+      : Math.max(0, Number.isFinite(positionSeconds) ? positionSeconds : 0);
+  const progress =
+    Number.isFinite(durationSeconds) && durationSeconds > 0
+      ? boundedPosition / durationSeconds
+      : Number(playback.progress || 0);
+  return {
+    positionSeconds: boundedPosition,
+    durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0,
+    progress: Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0)),
+  };
+};
+
 const renderPlaybackTimeline = (snapshot = state.snapshot) => {
   if (
     deferPlaybackTimelineRender() ||
@@ -2758,18 +2798,14 @@ const renderPlaybackTimeline = (snapshot = state.snapshot) => {
     return;
   }
   const playback = snapshot?.playback || {};
-  const positionSeconds = Number(playback.position_seconds || 0);
-  const durationSeconds = Number(playback.duration_seconds || 0);
-  const progress = Math.max(0, Math.min(1, Number(playback.progress || 0)));
+  const { positionSeconds, durationSeconds, progress } = activePlaybackTimeline(snapshot);
   const progressPercent = (progress * 100).toFixed(3).replace(/\.?0+$/, "");
   const progressBar = $("playbackProgressBar");
   const seekSlider = $("playbackSeekSlider");
-  const seekEnabled = Boolean(
-    playback.output_running &&
-      playback.apply_mode === "live" &&
-      playback.live?.seek_applies_immediately &&
-      durationSeconds > 0,
+  const seekReady = Boolean(
+    playback.output_running || playback.is_playing || playback.rendered_cache_ready,
   );
+  const seekEnabled = Boolean(seekReady && durationSeconds > 0);
   $("playbackPositionTime").textContent = formatSeconds(positionSeconds);
   $("playbackDurationTime").textContent = formatSeconds(durationSeconds);
   if (progressBar.style) {
@@ -2780,8 +2816,8 @@ const renderPlaybackTimeline = (snapshot = state.snapshot) => {
   seekSlider.max = String(durationSeconds);
   seekSlider.disabled = !seekEnabled || state.playbackControlInFlight;
   seekSlider.title = seekEnabled
-    ? "Live 모드에서는 재생 위치가 즉시 이동합니다."
-    : "Live 재생 중에 사용할 수 있습니다.";
+    ? "재생 위치가 즉시 이동합니다."
+    : "재생 준비가 끝나면 사용할 수 있습니다.";
   if (!playbackSeekSliderActive()) {
     seekSlider.value = String(positionSeconds);
   }
@@ -4564,6 +4600,11 @@ const currentPlaybackApplyMode = (snapshot = state.snapshot) => {
   return "stable";
 };
 
+const currentPendingPlaybackApplyMode = () => {
+  const mode = state.pendingPlaybackApplyMode;
+  return state.playbackApplyModeInFlight && playbackApplyModeDetails[mode] ? mode : null;
+};
+
 const coveredFeedbackSurfacePaths = {
   "layer:low": ["layers.low"],
   "layer.low": ["layers.low"],
@@ -4740,9 +4781,13 @@ const deriveCoveredSurfaceFeedbackState = ({
     surfaceId,
     settingsPlan: plan,
   });
+  const liveFeedbackTargeted = operationTargetsFeedbackSurface(operationFlags, surfaceId);
   const liveFeedbackInFlight = feedbackOperationInFlight(operationFlags, surfaceId);
+  const liveFeedbackPending = Boolean(operationFlags.liveFeedbackPending && liveFeedbackTargeted);
   return {
-    visual_state: liveApplicableChange && liveFeedbackInFlight ? "pending" : "idle",
+    visual_state: liveApplicableChange && (liveFeedbackPending || liveFeedbackInFlight)
+      ? "pending"
+      : "idle",
     show_spinner: liveApplicableChange && liveFeedbackInFlight,
   };
 };
@@ -4765,14 +4810,21 @@ const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => 
 const renderPlaybackApplyModeControls = () => {
   const panel = $("playbackApplyModePanel");
   if (!panel) return;
-  const mode = currentPlaybackApplyMode();
+  const pendingMode = currentPendingPlaybackApplyMode();
+  const mode = pendingMode || currentPlaybackApplyMode();
   const details = playbackApplyModeDetails[mode] || playbackApplyModeDetails.stable;
   const disabled = !state.snapshot || state.playbackApplyModeInFlight;
   panel.setAttribute("aria-label", "재생 적용 모드");
+  panel.setAttribute("aria-busy", state.playbackApplyModeInFlight ? "true" : "false");
   panel.className = `playback-apply-mode-panel compact ${details.className}${
     state.playbackApplyModeInFlight ? " pending" : ""
   }`;
-  $("playbackApplyModeSummary").textContent = `${details.label} · ${details.summary}`;
+  const summary = $("playbackApplyModeSummary");
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  summary.textContent = pendingMode
+    ? `${details.label}으로 전환 중`
+    : `${details.label} · ${details.summary}`;
   Object.entries(playbackApplyModeDetails).forEach(([buttonMode, buttonDetails]) => {
     const button = $(buttonDetails.buttonId);
     if (!button) return;
@@ -4780,9 +4832,11 @@ const renderPlaybackApplyModeControls = () => {
     button.disabled = disabled;
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.classList.toggle("active", active);
-    button.classList.toggle("pending", state.playbackApplyModeInFlight && active);
+    button.classList.toggle("pending", pendingMode === buttonMode);
     button.title = disabled && state.playbackApplyModeInFlight
-      ? "재생 적용 모드 변경 중입니다."
+      ? (pendingMode === buttonMode
+        ? `${buttonDetails.label}으로 전환 중입니다.`
+        : "재생 적용 모드 변경 중입니다.")
       : "";
   });
 };
@@ -4795,6 +4849,8 @@ const setPlaybackApplyMode = async (mode) => {
   }
   let modeError = null;
   state.playbackApplyModeInFlight = true;
+  state.pendingPlaybackApplyMode = mode;
+  renderPlaybackApplyModeControls();
   renderControls();
   try {
     const payload = await api("/api/playback/apply-mode", {
@@ -4809,6 +4865,8 @@ const setPlaybackApplyMode = async (mode) => {
     return null;
   } finally {
     state.playbackApplyModeInFlight = false;
+    state.pendingPlaybackApplyMode = null;
+    renderPlaybackApplyModeControls();
     renderControls();
     if (modeError) showError(modeError.message);
     else clearTransientError({ respectMinimumVisibleDuration: true });
@@ -6122,6 +6180,7 @@ const bindEvents = () => {
   $("playbackSeekSlider").addEventListener("pointerdown", () => trackInteractiveControl($("playbackSeekSlider")));
   $("playbackSeekSlider").addEventListener("focus", () => trackInteractiveControl($("playbackSeekSlider")));
   $("playbackSeekSlider").addEventListener("blur", () => releaseInteractiveControl($("playbackSeekSlider")));
+  $("playbackSeekSlider").addEventListener("input", seekPlayback);
   $("playbackSeekSlider").addEventListener("change", seekPlayback);
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
