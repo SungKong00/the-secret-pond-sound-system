@@ -107,6 +107,27 @@ def test_output_playback_panel_does_not_render_feedback_spinner() -> None:
     assert "feedback-spinner" not in playback_panel.group(1)
 
 
+def test_feedback_spinner_is_decorative_top_right_translucent_overlay() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    styles = Path("src/secret_pond/web/static/styles.css").read_text(encoding="utf-8")
+
+    spinner_rule = re.search(r"\.feedback-spinner\s*\{(?P<body>.*?)\}", styles, re.DOTALL)
+    hidden_rule = re.search(r"\.feedback-spinner\[hidden\]\s*\{(?P<body>.*?)\}", styles, re.DOTALL)
+
+    assert spinner_rule is not None
+    assert hidden_rule is not None
+
+    spinner_body = spinner_rule.group("body")
+    assert re.search(r"position:\s*absolute;", spinner_body)
+    assert re.search(r"top:\s*10px;", spinner_body)
+    assert re.search(r"right:\s*10px;", spinner_body)
+    assert re.search(r"opacity:\s*0\.[0-9]+;", spinner_body)
+    assert re.search(r"pointer-events:\s*none;", spinner_body)
+    assert re.search(r"z-index:\s*[1-9][0-9]*;", spinner_body)
+    assert re.search(r"display:\s*none;", hidden_rule.group("body"))
+    assert app_script.count('class="feedback-spinner" aria-hidden="true"') == 2
+
+
 def test_playback_apply_mode_panel_does_not_receive_feedback_pending_class() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -287,7 +308,8 @@ renderLayerControls();
 const playbackApplyModePanel = document.getElementById("playbackApplyModePanel");
 const lowCard = document.getElementById("layerControls").children[1];
 
-assert.match(lowCard.innerHTML, /class="feedback-spinner" /);
+assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*>/);
+assert.doesNotMatch(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/);
 assert.doesNotMatch(playbackApplyModePanel.className, /\\bfeedback-pending\\b/);
 assert.doesNotMatch(playbackApplyModePanel.className, /\\bpending\\b/);
 assert.doesNotMatch(playbackApplyModePanel.innerHTML, /feedback-spinner/);
@@ -1245,10 +1267,19 @@ const assertPendingSurface = (surfaces, pendingKey) => {
   for (const [key, surface] of Object.entries(surfaces)) {
     if (key === pendingKey) {
       assert.match(surface.className, /\\bfeedback-pending\\b/, `${key} should be pending`);
-      assert.match(surface.innerHTML, /class="feedback-spinner" >/, `${key} should spin`);
+      assert.match(surface.innerHTML, /class="feedback-spinner"[^>]*>/, `${key} should spin`);
+      assert.doesNotMatch(
+        surface.innerHTML,
+        /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+        `${key} should spin`,
+      );
     } else {
       assert.doesNotMatch(surface.className, /\\bfeedback-pending\\b/, `${key} should stay idle`);
-      assert.match(surface.innerHTML, /class="feedback-spinner" hidden/, `${key} should not spin`);
+      assert.match(
+        surface.innerHTML,
+        /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+        `${key} should not spin`,
+      );
     }
   }
 };

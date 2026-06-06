@@ -4512,7 +4512,7 @@ const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => 
     feedbackState.visual_state === "pending" ? " feedback-pending" : ""
   }`;
   container.innerHTML = `
-    <span class="feedback-spinner" ${feedbackState.show_spinner ? "" : "hidden"}></span>
+    <span class="feedback-spinner" aria-hidden="true" ${feedbackState.show_spinner ? "" : "hidden"}></span>
   `;
   return feedbackState;
 };
@@ -4706,7 +4706,7 @@ const renderLayerCard = (layerId) => {
   const layerLabel = layerLabels[layerId];
   const pendingEnabled = hasLayerInclusionDraftChange(layerId);
   card.innerHTML = `
-    <span class="feedback-spinner" ${feedbackState.show_spinner ? "" : "hidden"}></span>
+    <span class="feedback-spinner" aria-hidden="true" ${feedbackState.show_spinner ? "" : "hidden"}></span>
     <div class="layer-head">
       <div>
         <h3 class="layer-title">${labelMarkup(layerLabel)}</h3>

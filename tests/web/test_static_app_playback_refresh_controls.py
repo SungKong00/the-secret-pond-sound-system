@@ -1656,7 +1656,7 @@ const midCard = document.getElementById("layerControls").children[0];
 assert.strictEqual(feedbackState.visual_state, "pending");
 assert.strictEqual(feedbackState.show_spinner, false);
 assert.match(lowCard.className, /feedback-pending/);
-assert.match(lowCard.innerHTML, /class="feedback-spinner" hidden/);
+assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*hidden/);
 assert.doesNotMatch(midCard.className, /feedback-pending/);
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
