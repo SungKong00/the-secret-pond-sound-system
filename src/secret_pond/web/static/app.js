@@ -4280,6 +4280,45 @@ const coveredFeedbackSurfacePaths = {
   recording: ["recording", "input_control"],
 };
 
+const coveredLayerFeedbackControlPaths = [
+  "enabled",
+  "volume_db",
+  "eq.low_gain_db",
+  "eq.mid_gain_db",
+  "eq.high_gain_db",
+  "eq.highpass_hz",
+  "eq.lowpass_hz",
+];
+
+const coveredRecordingFeedbackControlPaths = [
+  "gain_db",
+  "normalize_peak",
+  "highpass_hz",
+  "lowpass_hz",
+  "presence_gain_db",
+  "reverb_mix",
+  "delay_mix",
+  "fade_ms",
+];
+
+const coveredLiveFeedbackControlSurfaceTargets = (() => {
+  const entries = [];
+  layerIds.forEach((layerId) => {
+    coveredLayerFeedbackControlPaths.forEach((controlPath) => {
+      entries.push([`layers.${layerId}.${controlPath}`, `layer:${layerId}`]);
+    });
+  });
+  entries.push(["voice_stack.transition_seconds", "voice_stack"]);
+  coveredRecordingFeedbackControlPaths.forEach((controlPath) => {
+    entries.push([`recording.${controlPath}`, "recording"]);
+  });
+  return Object.freeze(Object.fromEntries(entries));
+})();
+
+const feedbackSurfaceIdForControlId = (controlId) => (
+  coveredLiveFeedbackControlSurfaceTargets[String(controlId || "")] || null
+);
+
 const feedbackSurfaceHasDraftChange = (activeSettings, draftSettings, surfaceId) => {
   const paths = coveredFeedbackSurfacePaths[surfaceId] || [];
   return paths.some((path) => (

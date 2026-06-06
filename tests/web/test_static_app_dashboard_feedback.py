@@ -5,6 +5,77 @@ from pathlib import Path
 from static_app_harness import STATIC_APP_BOOTSTRAP, run_node_harness
 
 
+def test_covered_live_control_identifiers_map_to_feedback_surfaces() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  feedbackSurfaceIdForControlId,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { feedbackSurfaceIdForControlId } = globalThis.__secretPond;
+
+const layerControls = [
+  "enabled",
+  "volume_db",
+  "eq.low_gain_db",
+  "eq.mid_gain_db",
+  "eq.high_gain_db",
+  "eq.highpass_hz",
+  "eq.lowpass_hz",
+];
+for (const layerId of ["low", "mid", "voice"]) {
+  for (const controlPath of layerControls) {
+    assert.strictEqual(
+      feedbackSurfaceIdForControlId(`layers.${layerId}.${controlPath}`),
+      `layer:${layerId}`,
+    );
+  }
+}
+
+assert.strictEqual(
+  feedbackSurfaceIdForControlId("voice_stack.transition_seconds"),
+  "voice_stack",
+);
+
+for (const controlPath of [
+  "gain_db",
+  "normalize_peak",
+  "highpass_hz",
+  "lowpass_hz",
+  "presence_gain_db",
+  "reverb_mix",
+  "delay_mix",
+  "fade_ms",
+]) {
+  assert.strictEqual(
+    feedbackSurfaceIdForControlId(`recording.${controlPath}`),
+    "recording",
+  );
+}
+
+for (const excludedControlId of [
+  "playback.master_volume_db",
+  "playback.apply_mode",
+  "audio.sample_rate",
+  "audio.channels",
+  "devices.input_device_id",
+  "devices.output_device_id",
+  "sources.low_path",
+  "voice_stack.loop_seconds",
+  "input_control.minimum_recording_seconds",
+]) {
+  assert.strictEqual(feedbackSurfaceIdForControlId(excludedControlId), null);
+}
+""",
+    )
+
+
 def test_live_feedback_highlight_requires_covered_and_live_applicable_change() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
