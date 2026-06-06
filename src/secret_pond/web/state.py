@@ -47,6 +47,7 @@ def state_payload(
         "recording_elapsed_seconds": runtime.controller.recording_elapsed_seconds,
         "recording_remaining_seconds": runtime.controller.recording_remaining_seconds,
         "last_error": runtime.controller.last_error,
+        "operator_notices": _operator_notices_payload(runtime),
         "participant_count": participant_count,
         "playback": {
             "frame_cursor": runtime.player.frame_cursor,
@@ -72,6 +73,40 @@ def state_payload(
         },
         "settings": settings,
     }
+
+
+def _operator_notices_payload(runtime: SecretPondRuntime) -> list[dict[str, str]]:
+    notices: list[dict[str, str]] = []
+    try:
+        events = runtime.logger.read_events()
+    except (OSError, ValueError):
+        return notices
+
+    for event in reversed(events):
+        if event.get("event_type") != "system.startup_playback_unavailable":
+            continue
+        error = str(event.get("payload", {}).get("error") or "").strip()
+        notices.append(
+            {
+                "code": "startup_playback_unavailable",
+                "severity": "caution",
+                "summary": "시작 재생 준비 실패",
+                "detail": (
+                    "시작 시 재생 캐시를 준비하지 못했습니다. 출력은 꺼진 상태로 유지되며 "
+                    "Source Library와 System 패널을 확인한 뒤 적용하세요."
+                ),
+                "technical": _relative_operator_message(runtime, error),
+            }
+        )
+        break
+    return notices
+
+
+def _relative_operator_message(runtime: SecretPondRuntime, message: str) -> str:
+    if not message:
+        return message
+    root = runtime.paths.root.as_posix()
+    return message.replace(f"{root}/", "")
 
 
 def state_version_payload(runtime: SecretPondRuntime) -> dict[str, int]:

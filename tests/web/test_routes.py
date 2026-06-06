@@ -7742,6 +7742,29 @@ assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
 globalThis.__secretPondTest.state.snapshot = null;
 globalThis.__secretPondTest.renderErrors();
 
+globalThis.__secretPondTest.state.snapshot = {{
+  operator_notices: [
+    {{
+      code: "startup_playback_unavailable",
+      severity: "caution",
+      summary: "시작 재생 준비 실패",
+      detail: "시작 시 재생 캐시를 준비하지 못했습니다.",
+      technical: "low source file does not exist: data/sources/low.wav",
+    }},
+  ],
+}};
+globalThis.__secretPondTest.renderErrors();
+assert.strictEqual(elements.errorBanner.hidden, false);
+assert.strictEqual(elements.errorBanner.className, "error-banner notice-banner caution");
+assert.strictEqual(elements.errorBanner.children[0].children[0].textContent, "주의");
+assert.strictEqual(
+  elements.errorBanner.children[0].children[1].textContent,
+  "시작 재생 준비 실패",
+);
+assert.strictEqual(elements.errorBadge.textContent, "주의 있음");
+globalThis.__secretPondTest.state.snapshot = null;
+globalThis.__secretPondTest.renderErrors();
+
 delete window.WebSocket;
 delete globalThis.WebSocket;
 globalThis.__secretPondTest.renderSyncBadge();
@@ -10043,6 +10066,29 @@ def test_api_diagnostics_marks_missing_prepared_sources(tmp_path: Path) -> None:
     assert sources["low"]["modified_at"] is None
     assert sources["mid"]["exists"] is False
     assert sources["voice"]["exists"] is True
+
+
+def test_api_state_maps_startup_prepare_failure_to_operator_caution(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    notices = response.json()["operator_notices"]
+    assert notices == [
+        {
+            "code": "startup_playback_unavailable",
+            "severity": "caution",
+            "summary": "시작 재생 준비 실패",
+            "detail": (
+                "시작 시 재생 캐시를 준비하지 못했습니다. 출력은 꺼진 상태로 유지되며 "
+                "Source Library와 System 패널을 확인한 뒤 적용하세요."
+            ),
+            "technical": "low source file does not exist: data/sources/low.wav",
+        }
+    ]
 
 
 def test_api_sources_lists_categories_and_selected_files(tmp_path: Path) -> None:

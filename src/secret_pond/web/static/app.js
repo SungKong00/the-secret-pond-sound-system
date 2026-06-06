@@ -2587,6 +2587,7 @@ const currentWarningMessages = () => {
 
 const currentWarningNotices = () => {
   return [
+    ...(state.snapshot?.operator_notices || []),
     ...(state.devices?.warnings || []),
     state.snapshot?.playback?.transition_warning || null,
   ]
