@@ -2052,6 +2052,61 @@ def test_static_ui_open_control_group_marker_does_not_offset_title(tmp_path: Pat
     assert "display: none;" in open_marker
 
 
+def test_static_ui_non_eq_db_sliders_use_wide_zero_centered_ranges(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, recordingControlGroups, voiceStackControlDefs, "
+            "coveredLiveFeedbackControlSurfaceTargets, rangeSliderValueFromActual, "
+            "rangeActualValueFromSlider, rangeMarkPercent }"
+        ),
+        body="""
+const helpers = globalThis.__secretPondTest;
+const byPath = (controls, path) => controls.find((control) => control.path === path);
+const expectZeroCenteredDb = (control, min, max) => {
+  assert.strictEqual(control.min, min);
+  assert.strictEqual(control.max, max);
+  assert.strictEqual(control.scale, "zero-centered-db");
+  assert.deepStrictEqual(control.marks, [
+    { value: min, label: `${min} dB` },
+    { value: 0, label: "0 dB" },
+    { value: max, label: `+${max} dB` },
+  ]);
+  assert.strictEqual(helpers.rangeSliderValueFromActual(control, min, min, max), -100);
+  assert.strictEqual(helpers.rangeSliderValueFromActual(control, 0, min, max), 0);
+  assert.strictEqual(helpers.rangeSliderValueFromActual(control, max, min, max), 100);
+  assert.strictEqual(helpers.rangeActualValueFromSlider(control, -100, min, max), min);
+  assert.strictEqual(helpers.rangeActualValueFromSlider(control, 0, min, max), 0);
+  assert.strictEqual(helpers.rangeActualValueFromSlider(control, 100, min, max), max);
+  assert.strictEqual(helpers.rangeMarkPercent(control, 0, min, max), 50);
+};
+
+const layerLevel = helpers.layerControlGroups[0];
+expectZeroCenteredDb(byPath(layerLevel.controls, "volume_db"), -60, 12);
+
+const recordingControls = helpers.recordingControlGroups.flatMap((group) => group.controls);
+expectZeroCenteredDb(byPath(recordingControls, "gain_db"), -60, 24);
+expectZeroCenteredDb(byPath(recordingControls, "presence_gain_db"), -18, 12);
+
+expectZeroCenteredDb(byPath(helpers.voiceStackControlDefs, "insert_gain_db"), -60, 12);
+assert.strictEqual(
+  helpers.coveredLiveFeedbackControlSurfaceTargets["voice_stack.insert_gain_db"],
+  "voice_stack",
+);
+
+const eqGroup = helpers.layerControlGroups.find((group) => group.className === "eq-group");
+for (const path of ["eq.low_gain_db", "eq.mid_gain_db", "eq.high_gain_db"]) {
+  const control = byPath(eqGroup.controls, path);
+  assert.strictEqual(control.min, -12);
+  assert.strictEqual(control.max, 12);
+  assert.strictEqual(control.scale, undefined);
+}
+""",
+    )
+
+
 def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
     tmp_path: Path,
 ) -> None:

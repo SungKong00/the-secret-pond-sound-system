@@ -23,7 +23,7 @@ class EqSettings(BaseModel):
 
 class LayerSettings(BaseModel):
     enabled: bool = True
-    volume_db: float = Field(default=-12.0, ge=-60.0, le=6.0)
+    volume_db: float = Field(default=-12.0, ge=-60.0, le=12.0)
     eq: EqSettings = Field(default_factory=EqSettings)
 
 
@@ -103,7 +103,7 @@ class VoiceStackSettings(BaseModel):
     loop_seconds: int = Field(default=60, ge=1, le=600)
     transition_seconds: int = Field(default=3, ge=1, le=10)
     placement: Literal["random"] = "random"
-    insert_gain_db: float = Field(default=-12.0, ge=-60.0, le=6.0)
+    insert_gain_db: float = Field(default=-12.0, ge=-60.0, le=12.0)
 
 
 def default_layers() -> dict[str, LayerSettings]:

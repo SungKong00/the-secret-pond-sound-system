@@ -523,6 +523,14 @@ const eventTypeLabels = {
 
 const formatEventType = (eventType) => eventTypeLabels[eventType] || "시스템 이벤트";
 
+const dbMarkLabel = (value) => `${value > 0 ? "+" : ""}${value} dB`;
+
+const zeroCenteredDbMarks = (min, max) => [
+  { value: min, label: dbMarkLabel(min) },
+  { value: 0, label: "0 dB" },
+  { value: max, label: dbMarkLabel(max) },
+];
+
 const layerControlGroups = [
   {
     title: { ko: "레벨", en: "Level" },
@@ -532,11 +540,13 @@ const layerControlGroups = [
       {
         path: "volume_db",
         label: { ko: "레이어 음량", en: "Layer Level" },
-        min: -36,
-        max: 6,
+        min: -60,
+        max: 12,
         step: 0.5,
         suffix: " dB",
         kind: "level",
+        scale: "zero-centered-db",
+        marks: zeroCenteredDbMarks(-60, 12),
         description: "공간 안에서 이 레이어가 차지하는 전체 크기입니다.",
       },
     ],
@@ -650,12 +660,14 @@ const recordingControlGroups = [
       {
         path: "presence_gain_db",
         label: { ko: "존재감", en: "Presence" },
-        min: -12,
-        max: 9,
+        min: -18,
+        max: 12,
         step: 0.5,
         suffix: " dB",
         kind: "eq",
         band: "high",
+        scale: "zero-centered-db",
+        marks: zeroCenteredDbMarks(-18, 12),
         rangeLabel: "2 kHz+",
         description: "목소리가 앞으로 나오거나 뒤로 물러나는 느낌입니다.",
       },
@@ -671,11 +683,13 @@ const recordingControlGroups = [
       {
         path: "gain_db",
         label: { ko: "입력 게인", en: "Input Gain" },
-        min: -24,
-        max: 12,
+        min: -60,
+        max: 24,
         step: 0.5,
         suffix: " dB",
         kind: "level",
+        scale: "zero-centered-db",
+        marks: zeroCenteredDbMarks(-60, 24),
         description: "녹음이 너무 작거나 클 때만 조정합니다.",
       },
       {
@@ -747,6 +761,19 @@ const voiceStackControlDefs = [
       { value: 60, label: "1m" },
       { value: 105, label: "105s" },
     ],
+  },
+  {
+    path: "insert_gain_db",
+    label: { ko: "스택 추가 게인", en: "Insert Gain" },
+    min: -60,
+    max: 12,
+    step: 0.5,
+    suffix: " dB",
+    kind: "level",
+    scale: "zero-centered-db",
+    defaultValue: -12,
+    marks: zeroCenteredDbMarks(-60, 12),
+    description: "새 목소리가 Voice Stack에 섞일 때의 기본 크기입니다.",
   },
 ];
 
@@ -4720,6 +4747,7 @@ const coveredLiveFeedbackControlSurfaceTargets = (() => {
       entries.push([`layers.${layerId}.${controlPath}`, `layer:${layerId}`]);
     });
   });
+  entries.push(["voice_stack.insert_gain_db", "voice_stack"]);
   entries.push(["voice_stack.transition_seconds", "voice_stack"]);
   coveredRecordingFeedbackControlPaths.forEach((controlPath) => {
     entries.push([`recording.${controlPath}`, "recording"]);
@@ -5574,8 +5602,39 @@ const rangePercent = (value, min, max) => {
   return Math.max(0, Math.min(100, ((Number(value) - Number(min)) / span) * 100));
 };
 
-const setRangeProgress = (row, value, min, max) => {
-  row.style?.setProperty("--control-percent", `${rangePercent(value, min, max)}%`);
+const useZeroCenteredRange = (control, min, max) =>
+  control.scale === "zero-centered-db" && Number(min) < 0 && Number(max) > 0;
+
+const rangeSliderValueFromActual = (control, value, min, max) => {
+  const numericValue = Number(value);
+  if (!useZeroCenteredRange(control, min, max)) return numericValue;
+  if (numericValue < 0) return -(Math.abs(numericValue) / Math.abs(Number(min))) * 100;
+  if (numericValue > 0) return (numericValue / Number(max)) * 100;
+  return 0;
+};
+
+const rangeActualValueFromSlider = (control, sliderValue, min, max) => {
+  const numericValue = Number(sliderValue);
+  if (!useZeroCenteredRange(control, min, max)) return numericValue;
+  if (numericValue < 0) return (Math.abs(numericValue) / 100) * Number(min);
+  if (numericValue > 0) return (numericValue / 100) * Number(max);
+  return 0;
+};
+
+const rangeInputBounds = (control, min, max) => {
+  if (!useZeroCenteredRange(control, min, max)) {
+    return { min, max, step: control.step };
+  }
+  return { min: -100, max: 100, step: "any" };
+};
+
+const rangeMarkPercent = (control, value, min, max) => {
+  if (!useZeroCenteredRange(control, min, max)) return rangePercent(value, min, max);
+  return rangePercent(rangeSliderValueFromActual(control, value, min, max), -100, 100);
+};
+
+const setRangeProgress = (row, value, min, max, control = {}) => {
+  row.style?.setProperty("--control-percent", `${rangeMarkPercent(control, value, min, max)}%`);
 };
 
 const boundedRange = (control, value, activeValue) => {
@@ -5593,7 +5652,7 @@ const rangeMarksMarkup = (control, min, max) => {
       ${control.marks
         .map(
           (mark) => `
-            <span style="--mark-position: ${rangePercent(mark.value, min, max)}%">
+            <span style="--mark-position: ${rangeMarkPercent(control, mark.value, min, max)}%">
               ${mark.label}
             </span>
           `,
@@ -5634,7 +5693,8 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     .filter(Boolean)
     .join(" ");
   const { min, max } = boundedRange(control, value, activeValue);
-  setRangeProgress(row, value, min, max);
+  const rangeBounds = rangeInputBounds(control, min, max);
+  setRangeProgress(row, value, min, max, control);
   const safeLabel = `${labelText(control.label)}-${control.path}`
     .toLowerCase()
     .replaceAll(".", "-")
@@ -5652,10 +5712,10 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
         <input
           id="${safeId}"
           type="range"
-          min="${min}"
-          max="${max}"
-          step="${control.step}"
-          value="${value}"
+          min="${rangeBounds.min}"
+          max="${rangeBounds.max}"
+          step="${rangeBounds.step}"
+          value="${rangeSliderValueFromActual(control, value, min, max)}"
         />
       </div>
       <div class="range-assist">
@@ -5678,30 +5738,33 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     controlElement.disabled = draftEditLocked();
   });
   const setDisplayedValue = (nextValue) => {
-    input.value = String(nextValue);
+    input.value = String(rangeSliderValueFromActual(control, nextValue, min, max));
     if (valueInput) valueInput.value = String(nextValue);
-    setRangeProgress(row, nextValue, min, max);
+    setRangeProgress(row, nextValue, min, max, control);
     output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
   };
-  const updateValue = (nextValue) => {
+  const updateValue = (nextValue, { fromSlider = false } = {}) => {
     if (draftEditLocked()) {
       setDisplayedValue(currentValue);
       return;
     }
-    const numericValue = snappedValue(nextValue, control.step, min, max);
+    const actualValue = fromSlider
+      ? rangeActualValueFromSlider(control, nextValue, min, max)
+      : nextValue;
+    const numericValue = snappedValue(actualValue, control.step, min, max);
     currentValue = numericValue;
     setDisplayedValue(numericValue);
     onInput(numericValue);
   };
   input.addEventListener("input", () => {
-    updateValue(input.value);
+    updateValue(input.value, { fromSlider: true });
   });
   valueInput?.addEventListener("change", () => updateValue(valueInput.value));
   valueInput?.addEventListener("input", () => {
     if (Number.isFinite(Number(valueInput.value))) updateValue(valueInput.value);
   });
-  nudgeDown?.addEventListener("click", () => updateValue(Number(input.value) - Number(control.step)));
-  nudgeUp?.addEventListener("click", () => updateValue(Number(input.value) + Number(control.step)));
+  nudgeDown?.addEventListener("click", () => updateValue(Number(currentValue) - Number(control.step)));
+  nudgeUp?.addEventListener("click", () => updateValue(Number(currentValue) + Number(control.step)));
   return row;
 };
 

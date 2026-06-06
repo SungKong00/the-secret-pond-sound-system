@@ -8,6 +8,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     EqSettings,
     InputControlSettings,
+    LayerSettings,
     PlaybackSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
@@ -70,6 +71,17 @@ def test_voice_stack_loop_seconds_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         VoiceStackSettings(loop_seconds=601)
+
+
+def test_non_eq_db_boost_ranges_accept_operator_headroom() -> None:
+    assert LayerSettings(volume_db=12.0).volume_db == 12.0
+    assert VoiceStackSettings(insert_gain_db=12.0).insert_gain_db == 12.0
+
+    with pytest.raises(ValidationError):
+        LayerSettings(volume_db=12.5)
+
+    with pytest.raises(ValidationError):
+        VoiceStackSettings(insert_gain_db=12.5)
 
 
 def test_voice_stack_transition_seconds_defaults_to_three_seconds() -> None:
