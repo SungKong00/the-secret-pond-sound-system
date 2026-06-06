@@ -4449,7 +4449,7 @@ const deriveCoveredSurfaceFeedbackState = ({
   const applyInFlight = Boolean(operationFlags.applyInFlight);
   if (applyMode === "stable") {
     return {
-      visual_state: hasUnappliedChange && !applyInFlight ? "pending" : "idle",
+      visual_state: hasUnappliedChange ? "pending" : "idle",
       show_spinner: hasUnappliedChange && applyInFlight,
     };
   }
@@ -4470,6 +4470,22 @@ const deriveCoveredSurfaceFeedbackState = ({
     visual_state: liveApplicableChange && liveFeedbackInFlight ? "pending" : "idle",
     show_spinner: liveApplicableChange && liveFeedbackInFlight,
   };
+};
+
+const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => {
+  const feedbackState = deriveCoveredSurfaceFeedbackState({
+    snapshot: state.snapshot,
+    draft: state.draft,
+    operationFlags: currentOperationFlags(),
+    surfaceId,
+  });
+  container.className = `${baseClassName}${
+    feedbackState.visual_state === "pending" ? " feedback-pending" : ""
+  }`;
+  container.innerHTML = `
+    <span class="feedback-spinner" ${feedbackState.show_spinner ? "" : "hidden"}></span>
+  `;
+  return feedbackState;
 };
 
 const renderPlaybackApplyModeControls = () => {
@@ -4527,7 +4543,11 @@ const setPlaybackApplyMode = async (mode) => {
 
 const renderVoiceStackControls = () => {
   const container = $("voiceStackControls");
-  container.innerHTML = "";
+  renderCoveredFeedbackContainer(
+    container,
+    "control-stack compact voice-stack-controls feedback-surface",
+    "voice_stack",
+  );
   renderStorageModeControls();
   const activeVoiceStack = state.snapshot?.settings.active.voice_stack || state.draft.voice_stack;
   voiceStackControlDefs.forEach((control) => {
@@ -4817,7 +4837,11 @@ const resetLayerFilter = (layerId) => {
 
 const renderRecordingControls = () => {
   const container = $("recordingControls");
-  container.innerHTML = "";
+  renderCoveredFeedbackContainer(
+    container,
+    "control-stack compact feedback-surface",
+    "recording",
+  );
   const activeRecording = state.snapshot?.settings.active.recording || state.draft.recording;
   recordingControlGroups.forEach((group) => {
     container.appendChild(

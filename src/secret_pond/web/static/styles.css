@@ -2049,6 +2049,17 @@ select:disabled {
   margin-bottom: 10px;
 }
 
+.feedback-surface {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.feedback-surface.feedback-pending {
+  border-color: var(--feedback-pending-border);
+  background: var(--feedback-pending-bg);
+}
+
 .control-row {
   --control-percent: 50%;
   --track-accent: rgba(214, 168, 77, 0.84);
