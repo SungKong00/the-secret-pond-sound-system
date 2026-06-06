@@ -81,6 +81,146 @@ for (const excludedControlId of [
     )
 
 
+def test_live_covered_setting_changes_use_shared_helper_for_successful_yellow_feedback() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyCoveredFeedbackVisualState,
+  deriveCoveredSurfaceFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  applyCoveredFeedbackVisualState,
+  deriveCoveredSurfaceFeedbackState,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const liveSnapshot = (active) => ({
+  settings: {
+    active,
+    draft: clone(active),
+    change: {
+      runtime_config_changed: false,
+      changed_sections: [],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [
+        "recording.gain_db",
+        "recording.reverb_mix",
+      ],
+    },
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    voice_raw_preview_path: "sources/voice.wav",
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+});
+const changedDrafts = [
+  ["layer:low", "layers.low.volume_db", (draft) => { draft.layers.low.volume_db = -1; }],
+  ["layer:mid", "layers.mid.eq.low_gain_db", (draft) => { draft.layers.mid.eq.low_gain_db = 2; }],
+  ["layer:voice", "layers.voice.enabled", (draft) => { draft.layers.voice.enabled = false; }],
+  [
+    "voice_stack",
+    "voice_stack.transition_seconds",
+    (draft) => { draft.voice_stack.transition_seconds = 7; },
+  ],
+  ["recording", "recording.reverb_mix", (draft) => { draft.recording.reverb_mix = 0.4; }],
+];
+
+for (const [surfaceId, feedbackControlId, mutate] of changedDrafts) {
+  const draft = clone(activeSettings);
+  mutate(draft);
+  const pendingState = deriveCoveredSurfaceFeedbackState({
+    snapshot: liveSnapshot(activeSettings),
+    draft,
+    operationFlags: { draftSaveInFlight: true, feedbackControlId },
+    surfaceId,
+  });
+  assert.deepStrictEqual(pendingState, { visual_state: "pending", show_spinner: true });
+
+  const card = {
+    className: "",
+    innerHTML: '<span class="feedback-spinner" aria-hidden="true" hidden></span>',
+    querySelector() { return null; },
+  };
+  applyCoveredFeedbackVisualState(card, "layer-card", pendingState);
+  assert.match(card.className, /\\bfeedback-pending\\b/);
+
+  const confirmedActiveSettings = clone(activeSettings);
+  mutate(confirmedActiveSettings);
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({
+      snapshot: liveSnapshot(confirmedActiveSettings),
+      draft: clone(confirmedActiveSettings),
+      operationFlags: {},
+      surfaceId,
+    }),
+    { visual_state: "idle", show_spinner: false },
+  );
+}
+""",
+    )
+
+
 def test_output_playback_panel_does_not_receive_feedback_pending_card_class() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
