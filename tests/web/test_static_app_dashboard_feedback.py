@@ -3646,6 +3646,203 @@ assert.strictEqual(state.snapshot.settings.active.playback.master_volume_db, -9)
     )
 
 
+def test_stable_apply_failure_rollbacks_clear_all_covered_surface_highlights() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+} = globalThis.__secretPond;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const failedDraft = clone(activeSettings);
+failedDraft.layers.low.volume_db = -1;
+failedDraft.layers.mid.eq.mid_gain_db = 2;
+failedDraft.layers.voice.enabled = false;
+failedDraft.voice_stack.transition_seconds = 7;
+failedDraft.recording.presence_gain_db = 1;
+
+const changeFor = (active, draft) => ({
+  runtime_config_changed: false,
+  changed_sections: Object.keys(draft).filter((section) => (
+    JSON.stringify(active[section]) !== JSON.stringify(draft[section])
+  )),
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_fields: [],
+  live_preview_reprocessable_field_names: [],
+});
+const snapshotFor = (active, draft) => ({
+  armed: true,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(active),
+    draft: clone(draft),
+    change: changeFor(active, draft),
+  },
+  playback: {
+    apply_mode: "stable",
+    output_running: true,
+    rendered_cache_ready: true,
+    active_voice_transition_target_id: null,
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+  },
+});
+const renderCoveredSurfaces = () => {
+  renderLayerControls();
+  renderVoiceStackControls();
+  renderRecordingControls();
+};
+const coveredSurfaces = () => ({
+  low: document.getElementById("layerControls").children[1],
+  mid: document.getElementById("layerControls").children[0],
+  voice: document.getElementById("voiceLayerControls").children[0],
+  voiceStack: document.getElementById("voiceStackControls"),
+  recording: document.getElementById("recordingControls"),
+});
+const assertCoveredPending = () => {
+  for (const [key, surface] of Object.entries(coveredSurfaces())) {
+    assert.match(surface.className, /\\bfeedback-pending\\b/, `${key} should be pending`);
+  }
+};
+const assertCoveredIdle = () => {
+  for (const [key, surface] of Object.entries(coveredSurfaces())) {
+    assert.doesNotMatch(surface.className, /\\bfeedback-pending\\b/, `${key} should be idle`);
+    assert.match(
+      surface.innerHTML,
+      /class="feedback-spinner"[^>]*\\shidden(?=[\\s>])/,
+      `${key} spinner should be hidden`,
+    );
+  }
+};
+
+state.snapshot = snapshotFor(activeSettings, activeSettings);
+state.draft = clone(failedDraft);
+state.serverStateSignature = null;
+
+renderCoveredSurfaces();
+assertCoveredPending();
+
+globalThis.fetch = async (path) => {
+  if (path === "/api/settings/draft") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { settings: snapshotFor(activeSettings, failedDraft).settings }; },
+    };
+  }
+  if (path === "/api/settings/apply") {
+    assertCoveredPending();
+    return {
+      ok: false,
+      status: 500,
+      async json() { return { detail: "render failed" }; },
+    };
+  }
+  if (path === "/api/state") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return snapshotFor(activeSettings, failedDraft); },
+    };
+  }
+  if (path === "/api/diagnostics") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { sources: [], events: { recent: [] } }; },
+    };
+  }
+  if (path === "/api/sources") {
+    return { ok: true, status: 200, async json() { return { categories: [] }; } };
+  }
+  throw new Error(`unexpected ${path}`);
+};
+
+await applyAndRestart();
+
+assert.strictEqual(state.draft.layers.low.volume_db, -3);
+assert.strictEqual(state.draft.layers.mid.eq.mid_gain_db, 0);
+assert.strictEqual(state.draft.layers.voice.enabled, true);
+assert.strictEqual(state.draft.voice_stack.transition_seconds, 4);
+assert.strictEqual(state.draft.recording.presence_gain_db, -3);
+assertCoveredIdle();
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_stable_apply_failure_does_not_rollback_new_post_restart_diffs() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
