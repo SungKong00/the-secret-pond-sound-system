@@ -1839,6 +1839,160 @@ assert.strictEqual(state.pendingLiveFeedbackSurfaceId, undefined);
     )
 
 
+def test_live_successful_save_renders_server_confirmed_covered_control_value() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitDraftChange,
+  renderLayerControls,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  commitDraftChange,
+  renderLayerControls,
+  saveDraft,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: {
+      runtime_config_changed: false,
+      changed_sections: [],
+      changed_runtime_fields: [],
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    voice_raw_preview_path: "sources/voice.wav",
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: true,
+      eq_applies_immediately: true,
+      seek_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+};
+state.draft = clone(activeSettings);
+
+commitDraftChange(() => {
+  state.draft.layers.low.volume_db = -1;
+}, { feedbackControlId: "layers.low.volume_db", scheduleSave: false });
+
+globalThis.fetch = async (path) => {
+  assert.strictEqual(path, "/api/settings/draft");
+  const confirmedSettings = clone(activeSettings);
+  confirmedSettings.layers.low.volume_db = -2;
+  const savedDraft = clone(activeSettings);
+  savedDraft.layers.low.volume_db = -1;
+  return {
+    ok: true,
+    json: async () => ({
+      settings: {
+        active: clone(confirmedSettings),
+        draft: clone(savedDraft),
+        change: {
+          runtime_config_changed: false,
+          changed_sections: [],
+          changed_runtime_fields: [],
+          runtime_config_fields: [
+            "audio.sample_rate",
+            "audio.channels",
+            "devices.input_device_id",
+            "devices.output_device_id",
+          ],
+          live_preview_reprocessable_field_names: [],
+        },
+      },
+    }),
+  };
+};
+
+await saveDraft();
+renderLayerControls();
+
+const lowCard = document.getElementById("layerControls").children[1];
+assert.strictEqual(state.snapshot.settings.active.layers.low.volume_db, -2);
+assert.strictEqual(state.draft.layers.low.volume_db, -2);
+assert.doesNotMatch(lowCard.className, /\\bfeedback-pending\\b/);
+assert.strictEqual(
+  state.draft.layers.low.volume_db,
+  state.snapshot.settings.active.layers.low.volume_db,
+);
+})();
+""",
+    )
+
+
 def test_dashboard_render_consumes_backend_snapshot_without_per_card_operation_state() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

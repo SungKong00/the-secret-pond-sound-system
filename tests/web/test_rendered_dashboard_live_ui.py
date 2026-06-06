@@ -109,6 +109,87 @@ def test_rendered_dashboard_verification_output_records_desktop_behavior_notes()
     ]
 
 
+def test_feedback_spinner_renders_as_top_right_translucent_overlay() -> None:
+    chrome = _chrome_binary()
+    if chrome is None:
+        pytest.skip("Google Chrome or Chromium is required for rendered dashboard verification")
+
+    with tempfile.TemporaryDirectory(prefix="secret-pond-feedback-ui-") as temp_dir:
+        dashboard_path = _write_rendered_dashboard(
+            Path(temp_dir),
+            after_app_script="""
+const markFeedbackSpinnerFixture = () => {
+  if (!state.snapshot?.settings?.active) {
+    requestAnimationFrame(markFeedbackSpinnerFixture);
+    return;
+  }
+  if (globalThis.__feedbackSpinnerFixtureStarted) return;
+  globalThis.__feedbackSpinnerFixtureStarted = true;
+  setTimeout(() => {
+  const active = clone(state.snapshot.settings.active);
+  active.playback.apply_mode = "stable";
+  const draft = clone(active);
+  draft.layers.low.volume_db = active.layers.low.volume_db + 2;
+  state.snapshot.playback.apply_mode = "stable";
+  state.snapshot.settings.active = active;
+  state.snapshot.settings.draft = draft;
+  state.draft = clone(draft);
+  syncDraftSnapshot();
+  state.websocketConnected = true;
+  setWorkspaceTab("mixer");
+  setOperationLockFlag("applyAndRestartInFlight", true);
+  setOperationLockFlag("applyInFlight", true);
+  renderPlaybackApplyModeControls();
+  renderLayerControls();
+  }, 500);
+};
+requestAnimationFrame(markFeedbackSpinnerFixture);
+""",
+        )
+        with tempfile.TemporaryDirectory(prefix="secret-pond-chrome-") as profile_dir:
+            remote_debugging_port = _free_port()
+            process = subprocess.Popen(
+                [
+                    chrome,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={profile_dir}",
+                    f"--remote-debugging-port={remote_debugging_port}",
+                    "--window-size=1440,1000",
+                    dashboard_path.as_uri(),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                page = _connect_to_first_page(remote_debugging_port)
+                page.send("Runtime.enable")
+                rendered = page.wait_for_feedback_spinner_overlay()
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    assert rendered["spinnerDisplay"] != "none"
+    assert rendered["spinnerPosition"] == "absolute"
+    assert rendered["spinnerPointerEvents"] == "none"
+    assert rendered["spinnerOpacity"] == "0.72"
+    assert rendered["spinnerTopOffset"] <= 12
+    assert rendered["spinnerRightOffset"] <= 12
+    assert rendered["spinnerRightOffset"] >= 8
+    assert rendered["spinnerRect"]["width"] == 16
+    assert rendered["spinnerRect"]["height"] == 16
+    assert rendered["cardRectDuring"]["width"] == rendered["cardRectAfterHidden"]["width"]
+    assert rendered["cardRectDuring"]["height"] == rendered["cardRectAfterHidden"]["height"]
+    assert rendered["cardRectAfterHidden"]["width"] > 260
+    assert rendered["hiddenDisplay"] == "none"
+
+
 def _record_desktop_behavior_notes(output: dict[str, Any]) -> dict[str, Any]:
     notes: list[str] = []
     viewport_width = int(output.get("viewportWidth") or 0)
@@ -148,7 +229,7 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _write_rendered_dashboard(temp_dir: Path) -> Path:
+def _write_rendered_dashboard(temp_dir: Path, *, after_app_script: str = "") -> Path:
     html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
     styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
     app_script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
@@ -183,7 +264,7 @@ window.fetch = async (url) => {{
     )
     rendered = rendered.replace(
         '<script src="/static/app.js" defer></script>',
-        f"{bootstrap}\n<script>\n{app_script}\n</script>",
+        f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
     )
     path = temp_dir / "rendered-live-dashboard.html"
     path.write_text(rendered, encoding="utf-8")
@@ -438,6 +519,87 @@ class _CdpPage:
                 return last_value
             time.sleep(0.1)
         raise AssertionError(f"Live dashboard did not render in time: {last_value!r}")
+
+    def wait_for_feedback_spinner_overlay(self) -> dict[str, Any]:
+        expression = """
+(() => {
+  const rect = (element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+      right: Math.round(bounds.right),
+      bottom: Math.round(bounds.bottom),
+    };
+  };
+  const refreshedLayerCards = Array.from(document.querySelectorAll("#layerControls .layer-card"));
+  const refreshedLowCard = refreshedLayerCards.find((card) => card.textContent.includes("Low"));
+  const spinner = refreshedLowCard?.querySelector(".feedback-spinner");
+  const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: "layer:low" });
+  if (!refreshedLowCard || !spinner || spinner.hidden) {
+      return {
+        ready: false,
+        applyInFlight: state.applyInFlight,
+        applyAndRestartInFlight: state.applyAndRestartInFlight,
+        feedbackState,
+        layerCardCount: refreshedLayerCards.length,
+        layerCardClasses: refreshedLayerCards.map((card) => card.className),
+        layerCardText: refreshedLayerCards.map((card) => card.textContent.trim().slice(0, 40)),
+        spinnerMarkup: spinner?.outerHTML || null,
+      };
+  }
+  const cardRectDuring = rect(refreshedLowCard);
+  const spinnerRect = rect(spinner);
+  const spinnerStyle = window.getComputedStyle(spinner);
+  const spinnerDisplay = spinnerStyle.display;
+  const spinnerPosition = spinnerStyle.position;
+  const spinnerPointerEvents = spinnerStyle.pointerEvents;
+  const spinnerOpacity = spinnerStyle.opacity;
+  const ready =
+    spinnerDisplay !== "none" &&
+    spinnerRect.width > 0;
+  if (!ready) {
+    return {
+      ready: false,
+      spinnerHidden: spinner.hidden,
+      spinnerDisplay,
+      lowCardClassName: refreshedLowCard.className,
+      spinnerRect,
+      cardRectDuring,
+    };
+  }
+  spinner.hidden = true;
+  const hiddenStyle = window.getComputedStyle(spinner);
+  const cardRectAfterHidden = rect(refreshedLowCard);
+  return {
+    ready,
+    spinnerDisplay,
+    spinnerPosition,
+    spinnerPointerEvents,
+    spinnerOpacity,
+    spinnerRect,
+    cardRectDuring,
+    cardRectAfterHidden,
+    spinnerTopOffset: Math.round(spinnerRect.y - cardRectDuring.y),
+    spinnerRightOffset: Math.round(cardRectDuring.right - spinnerRect.right),
+    hiddenDisplay: hiddenStyle.display,
+  };
+})()
+"""
+        deadline = time.monotonic() + 10
+        last_value: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            result = self.send(
+                "Runtime.evaluate",
+                {"expression": expression, "returnByValue": True},
+            )
+            last_value = result["result"].get("value")
+            if last_value and last_value.get("ready"):
+                return last_value
+            time.sleep(0.1)
+        raise AssertionError(f"Feedback spinner did not render in time: {last_value!r}")
 
 
 class _WebSocket:

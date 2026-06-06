@@ -1839,6 +1839,56 @@ const mergeSettingsPayloadDraft = (currentDraft, settingsPayload, options = {}) 
   return nextDraft;
 };
 
+const syncLiveConfirmedCoveredDraftFields = (draft, settingsPayload, snapshot) => {
+  const active = settingsPayload?.active;
+  if (!draft || !active || active.playback?.apply_mode !== "live") return draft;
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled) return draft;
+  const nextDraft = clone(draft);
+  ["low", "mid", "voice"].forEach((layerId) => {
+    const activeLayer = active.layers?.[layerId];
+    const draftLayer = nextDraft.layers?.[layerId];
+    if (!activeLayer || !draftLayer) return;
+    if (live.mute_applies_immediately && hasOwnProperty(activeLayer, "enabled")) {
+      draftLayer.enabled = clone(activeLayer.enabled);
+    }
+    if (live.volume_applies_immediately && hasOwnProperty(activeLayer, "volume_db")) {
+      draftLayer.volume_db = clone(activeLayer.volume_db);
+    }
+    if (live.eq_applies_immediately && hasOwnProperty(activeLayer, "eq")) {
+      draftLayer.eq = clone(activeLayer.eq);
+    }
+  });
+  if (
+    live.voice_stack_transition_applies_immediately &&
+    hasOwnProperty(active.voice_stack, "transition_seconds") &&
+    nextDraft.voice_stack
+  ) {
+    nextDraft.voice_stack.transition_seconds = clone(active.voice_stack.transition_seconds);
+  }
+  if (
+    live.voice_raw_preview_treatment_applies_immediately &&
+    active.recording &&
+    nextDraft.recording
+  ) {
+    [
+      "gain_db",
+      "normalize_peak",
+      "highpass_hz",
+      "lowpass_hz",
+      "presence_gain_db",
+      "reverb_mix",
+      "delay_mix",
+      "fade_ms",
+    ].forEach((controlPath) => {
+      if (hasOwnProperty(active.recording, controlPath)) {
+        nextDraft.recording[controlPath] = clone(active.recording[controlPath]);
+      }
+    });
+  }
+  return nextDraft;
+};
+
 const applySettingsPayload = (settingsPayload, options = {}) => {
   if (!state.snapshot || !settingsPayload) return false;
   const syncDraft = options.syncDraft ?? true;
@@ -1856,7 +1906,10 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
     mergeDraftSections,
   });
   if (shouldSyncDraft) {
-    rememberConfirmedSettingsDraft(nextSettings);
+    state.draft = syncLiveConfirmedCoveredDraftFields(state.draft, nextSettings, state.snapshot);
+  }
+  if (shouldSyncDraft) {
+    rememberConfirmedSettingsDraft(nextSettings, state.draft);
     if (renderControlsOnSync) renderControls();
   } else {
     syncDraftSnapshot();
@@ -4110,9 +4163,9 @@ const settingsPayloadMatchesDraft = (snapshot, draft) => (
   stableSettingsSignature(snapshot.settings.draft) === stableSettingsSignature(draft)
 );
 
-const rememberConfirmedSettingsDraft = (settingsPayload) => {
-  if (!settingsPayload?.draft) return;
-  state.confirmedDraftSignature = stableSettingsSignature(settingsPayload.draft);
+const rememberConfirmedSettingsDraft = (settingsPayload, confirmedDraft = settingsPayload?.draft) => {
+  if (!confirmedDraft) return;
+  state.confirmedDraftSignature = stableSettingsSignature(confirmedDraft);
 };
 
 const confirmedSettingsDraftMatches = (draft) => (
@@ -4521,6 +4574,8 @@ const renderCoveredFeedbackContainer = (container, baseClassName, surfaceId) => 
   container.innerHTML = `
     <span class="feedback-spinner" aria-hidden="true" ${feedbackState.show_spinner ? "" : "hidden"}></span>
   `;
+  const spinner = container.querySelector(".feedback-spinner");
+  if (spinner) spinner.hidden = !feedbackState.show_spinner;
   return feedbackState;
 };
 
@@ -4743,6 +4798,8 @@ const renderLayerCard = (layerId) => {
     ${layerId === "voice" ? "" : layerPresetMarkup(layerId)}
     <div class="layer-controls"></div>
   `;
+  const spinner = card.querySelector(".feedback-spinner");
+  if (spinner) spinner.hidden = !feedbackState.show_spinner;
   const toggle = card.querySelector("input[type='checkbox']");
   toggle.disabled = draftLocked;
   toggle.title = draftLockTitle;
