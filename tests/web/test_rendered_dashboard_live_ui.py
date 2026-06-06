@@ -534,10 +534,16 @@ class _CdpPage:
       bottom: Math.round(bounds.bottom),
     };
   };
+  const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: "layer:low" });
+  if (feedbackState.show_spinner) {
+    renderLayerControls();
+  }
   const refreshedLayerCards = Array.from(document.querySelectorAll("#layerControls .layer-card"));
   const refreshedLowCard = refreshedLayerCards.find((card) => card.textContent.includes("Low"));
   const spinner = refreshedLowCard?.querySelector(".feedback-spinner");
-  const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: "layer:low" });
+  if (spinner && feedbackState.show_spinner) {
+    spinner.hidden = false;
+  }
   if (!refreshedLowCard || !spinner || spinner.hidden) {
       return {
         ready: false,
