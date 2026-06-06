@@ -1941,6 +1941,126 @@ for (const surfaceId of [
     )
 
 
+def test_stable_covered_setting_failure_rollback_is_reflected_by_shared_feedback_helper() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  deriveCoveredSurfaceFeedbackState,
+  rollbackDraftCoveredControlSnapshots,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  deriveCoveredSurfaceFeedbackState,
+  rollbackDraftCoveredControlSnapshots,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const failedDraft = clone(activeSettings);
+failedDraft.layers.low.volume_db = -1;
+failedDraft.voice_stack.transition_seconds = 7;
+failedDraft.recording.gain_db = 3;
+
+state.snapshot = {
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(failedDraft),
+    change: {
+      changed_sections: ["layers", "voice_stack", "recording"],
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_fields: [],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+  playback: { apply_mode: "stable", output_running: true },
+};
+state.draft = clone(failedDraft);
+state.applyInFlight = true;
+state.applyAndRestartInFlight = true;
+
+for (const surfaceId of ["layer:low", "voice_stack", "recording"]) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({ surfaceId }),
+    { visual_state: "restart_pending", show_spinner: true },
+  );
+}
+
+const rolledBack = rollbackDraftCoveredControlSnapshots([
+  { controlId: "layers.low.volume_db", activeValue: -3, draftValue: -1 },
+  { controlId: "voice_stack.transition_seconds", activeValue: 4, draftValue: 7 },
+  { controlId: "recording.gain_db", activeValue: 0, draftValue: 3 },
+]);
+state.applyInFlight = false;
+state.applyAndRestartInFlight = false;
+
+assert.strictEqual(rolledBack, true);
+assert.strictEqual(state.draft.layers.low.volume_db, -3);
+assert.strictEqual(state.draft.voice_stack.transition_seconds, 4);
+assert.strictEqual(state.draft.recording.gain_db, 0);
+
+for (const surfaceId of ["layer:low", "voice_stack", "recording"]) {
+  assert.deepStrictEqual(
+    deriveCoveredSurfaceFeedbackState({ surfaceId }),
+    { visual_state: "idle", show_spinner: false },
+  );
+}
+""",
+    )
+
+
 def test_stable_apply_rollback_snapshot_uses_last_confirmed_active_settings() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
