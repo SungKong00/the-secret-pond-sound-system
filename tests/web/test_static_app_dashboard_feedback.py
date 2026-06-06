@@ -2492,6 +2492,177 @@ assert.match(lowCard.innerHTML, /class="feedback-spinner"[^>]*\\shidden(?=[\\s>]
     )
 
 
+def test_stable_successful_apply_renders_latest_confirmed_control_values() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const {
+  applyAndRestart,
+  renderLayerControls,
+  renderRecordingControls,
+  renderVoiceStackControls,
+  state,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const draftSettings = clone(activeSettings);
+draftSettings.layers.low.volume_db = -1;
+draftSettings.voice_stack.transition_seconds = 7;
+draftSettings.recording.gain_db = 3;
+const appliedSettings = clone(draftSettings);
+const cleanChange = {
+  runtime_config_changed: false,
+  changed_sections: [],
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_fields: [],
+  live_preview_reprocessable_field_names: [],
+};
+const snapshotFor = (active, draft, change = cleanChange) => ({
+  armed: true,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: { active: clone(active), draft: clone(draft), change: clone(change) },
+  playback: {
+    apply_mode: "stable",
+    output_running: true,
+    rendered_cache_ready: true,
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+  },
+});
+const renderedMarkupFor = (rootId) => {
+  const root = document.getElementById(rootId);
+  const serialize = (element) => [
+    element.className,
+    element.textContent,
+    element.innerHTML,
+    ...(element.children || []).map(serialize),
+  ].join("\\n");
+  return serialize(root);
+};
+
+state.snapshot = snapshotFor(activeSettings, activeSettings);
+state.draft = clone(draftSettings);
+state.serverStateSignature = null;
+
+renderLayerControls();
+renderVoiceStackControls();
+renderRecordingControls();
+assert.match(renderedMarkupFor("voiceStackControls"), /value="7"/);
+assert.match(renderedMarkupFor("recordingControls"), /value="3"/);
+
+globalThis.fetch = async (path) => {
+  if (path === "/api/settings/draft") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { settings: snapshotFor(activeSettings, draftSettings).settings }; },
+    };
+  }
+  if (path === "/api/settings/apply") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { state: snapshotFor(appliedSettings, activeSettings, cleanChange) };
+      },
+    };
+  }
+  if (path === "/api/diagnostics") {
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { sources: [], events: { recent: [] } }; },
+    };
+  }
+  if (path === "/api/sources") {
+    return { ok: true, status: 200, async json() { return { categories: [] }; } };
+  }
+  throw new Error(`unexpected ${path}`);
+};
+
+await applyAndRestart();
+
+assert.strictEqual(state.snapshot.settings.active.layers.low.volume_db, -1);
+assert.strictEqual(state.draft.layers.low.volume_db, -1);
+assert.match(renderedMarkupFor("voiceStackControls"), /value="7"/);
+assert.match(renderedMarkupFor("recordingControls"), /value="3"/);
+assert.match(renderedMarkupFor("voiceStackControls"), /현재값 7 s/);
+assert.match(renderedMarkupFor("recordingControls"), /현재값 3 dB/);
+assert.doesNotMatch(renderedMarkupFor("voiceStackControls"), /현재 적용 4 s/);
+assert.doesNotMatch(renderedMarkupFor("recordingControls"), /현재 적용 0 dB/);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""",
+    )
+
+
 def test_stable_apply_failure_shows_single_global_korean_caution_banner() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
