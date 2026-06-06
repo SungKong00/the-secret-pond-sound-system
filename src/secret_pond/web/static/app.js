@@ -2398,23 +2398,23 @@ const outputControlSummaryText = (
     return "녹음 원본을 재생 중입니다.";
   }
   if (liveSampleRateApplyRequiredChange(snapshot)) {
-    return "Live mode · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveOutputDeviceApplyRequiredChange(snapshot)) {
-    return "Live mode · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
   }
   if (liveLoopLengthApplyRequiredChange(snapshot)) {
-    return "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveSourceFileSelectionApplyRequiredChange(snapshot)) {
-    return "Live mode · 소스 파일 선택은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다.";
   }
   if (pendingChangeState.pendingChanges) {
     return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
   }
   if (snapshot?.playback?.output_running) {
     if (snapshot.settings?.active?.voice_stack?.mode === "live_ephemeral") {
-      return "Live transition · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.";
+      return "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.";
     }
     return "Stable fallback · 변경사항 적용 후 렌더링된 캐시로 재생합니다.";
   }
@@ -4069,7 +4069,7 @@ const renderPlaybackApplyModeControls = () => {
   const details = playbackApplyModeDetails[mode] || playbackApplyModeDetails.stable;
   const disabled = !state.snapshot || state.playbackApplyModeInFlight;
   panel.setAttribute("aria-label", "재생 적용 모드");
-  panel.className = `playback-apply-mode-panel ${details.className}${
+  panel.className = `storage-mode-panel playback-apply-mode-panel ${details.className}${
     state.playbackApplyModeInFlight ? " pending" : ""
   }`;
   $("playbackApplyModeSummary").textContent = `${details.label} · ${details.summary}`;

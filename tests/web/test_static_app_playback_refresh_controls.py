@@ -760,6 +760,45 @@ assert.strictEqual(liveButton.getAttribute("aria-pressed"), "true");
     )
 
 
+def test_playback_apply_mode_segment_labels_use_korean_facing_wording() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+
+    assert '<span>Live <small lang="ko">라이브</small></span>' in index_html
+    assert '<span>Stable <small lang="ko">안정</small></span>' in index_html
+
+
+def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+
+    expected_panel_class = (
+        'id="playbackApplyModePanel"\n'
+        '                class="storage-mode-panel playback-apply-mode-panel"'
+    )
+    assert (
+        expected_panel_class in index_html
+    )
+    assert (
+        "panel.className = `storage-mode-panel playback-apply-mode-panel ${details.className}${"
+        in app_script
+    )
+
+
+def test_live_status_text_uses_korean_facing_wording() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+
+    assert "Live mode ·" not in app_script
+    assert "Live transition ·" not in app_script
+    assert "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다." in app_script
+    assert (
+        "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다."
+        in app_script
+    )
+    assert "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다." in app_script
+    assert "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다." in app_script
+    assert "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다." in app_script
+
+
 def test_live_volume_and_mute_drafts_do_not_show_apply_restart_required_message() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -850,7 +889,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live transition · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
+  "Live 전환 · 새 녹음은 준비되면 목소리 레이어만 부드럽게 전환됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -955,7 +994,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live mode · 루프 길이 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1064,7 +1103,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live mode · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1173,7 +1212,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live mode · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1294,7 +1333,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live mode · 소스 파일 선택은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
