@@ -190,6 +190,142 @@ requestAnimationFrame(markFeedbackSpinnerFixture);
     assert rendered["hiddenDisplay"] == "none"
 
 
+def test_stable_restart_failure_rollback_removes_covered_apply_spinners() -> None:
+    chrome = _chrome_binary()
+    if chrome is None:
+        pytest.skip("Google Chrome or Chromium is required for rendered dashboard verification")
+
+    with tempfile.TemporaryDirectory(prefix="secret-pond-feedback-rollback-ui-") as temp_dir:
+        dashboard_path = _write_rendered_dashboard(
+            Path(temp_dir),
+            after_app_script="""
+const feedbackFixtureSurfaceStates = () => {
+  const surfaceEntries = [
+    ["mid", Array.from(document.querySelectorAll("#layerControls .layer-card"))
+      .find((card) => card.textContent.includes("Mid"))],
+    ["low", Array.from(document.querySelectorAll("#layerControls .layer-card"))
+      .find((card) => card.textContent.includes("Low"))],
+    ["voice", document.querySelector("#voiceLayerControls .layer-card")],
+    ["voiceStack", document.getElementById("voiceStackControls")],
+    ["recording", document.getElementById("recordingControls")],
+  ];
+  return surfaceEntries.map(([name, surface]) => {
+    const spinner = surface?.querySelector(".feedback-spinner");
+    const spinnerStyle = spinner ? window.getComputedStyle(spinner) : null;
+    return {
+      name,
+      missing: !surface,
+      pending: Boolean(surface?.classList.contains("feedback-pending")),
+      spinnerPresent: Boolean(spinner),
+      spinnerHidden: Boolean(spinner?.hidden),
+      spinnerDisplay: spinnerStyle?.display || null,
+      spinnerWidth: Math.round(spinner?.getBoundingClientRect().width || 0),
+      spinnerHeight: Math.round(spinner?.getBoundingClientRect().height || 0),
+    };
+  });
+};
+const markStableRollbackFeedbackFixture = () => {
+  if (!state.snapshot?.settings?.active) {
+    requestAnimationFrame(markStableRollbackFeedbackFixture);
+    return;
+  }
+  if (globalThis.__stableRollbackFeedbackFixtureStarted) return;
+  globalThis.__stableRollbackFeedbackFixtureStarted = true;
+  setTimeout(() => {
+    const active = clone(state.snapshot.settings.active);
+    active.playback.apply_mode = "stable";
+    active.layers.low.volume_db = -3;
+    active.layers.mid.eq.mid_gain_db = 0;
+    active.layers.voice.enabled = true;
+    active.voice_stack.transition_seconds = 4;
+    active.recording.presence_gain_db = -3;
+    const draft = clone(active);
+    draft.layers.low.volume_db = 1;
+    draft.layers.mid.eq.mid_gain_db = 2;
+    draft.layers.voice.enabled = false;
+    draft.voice_stack.transition_seconds = 9;
+    draft.recording.presence_gain_db = 4;
+
+    state.snapshot.playback.apply_mode = "stable";
+    state.snapshot.settings.active = clone(active);
+    state.snapshot.settings.draft = clone(draft);
+    state.snapshot.settings.change = {
+      changed_sections: ["layers", "voice_stack", "recording"],
+      requires_restart: true,
+      runtime_config_changed: false,
+      runtime_config_fields: [
+        "audio.sample_rate",
+        "audio.channels",
+        "devices.input_device_id",
+        "devices.output_device_id",
+      ],
+      live_preview_reprocessable_fields: [],
+      live_preview_reprocessable_field_names: [],
+    };
+    state.draft = clone(draft);
+    setWorkspaceTab("mixer");
+    state.stableApplyCoveredFeedbackSurfaceIds = captureStableCoveredFeedbackSurfaceDiffs();
+    state.stableApplyCoveredFeedbackControlSnapshots =
+      captureStableCoveredFeedbackControlSnapshots();
+    setOperationLockFlag("applyAndRestartInFlight", true);
+    setOperationLockFlag("applyInFlight", true);
+    renderLayerControls();
+    renderVoiceStackControls();
+    renderRecordingControls();
+
+    const surfacesBeforeRollback = feedbackFixtureSurfaceStates();
+    const visibleBeforeRollback = surfacesBeforeRollback.filter((surface) => (
+      surface.spinnerPresent &&
+      !surface.spinnerHidden &&
+      surface.spinnerDisplay !== "none" &&
+      surface.spinnerWidth > 0 &&
+      surface.spinnerHeight > 0
+    )).map((surface) => surface.name);
+    globalThis.__stableRollbackFeedbackHadVisibleSpinners =
+      visibleBeforeRollback.length === 5;
+
+    clearStableRestartRollbackFeedbackState({ refresh: true });
+  }, 500);
+};
+requestAnimationFrame(markStableRollbackFeedbackFixture);
+""",
+        )
+        with tempfile.TemporaryDirectory(prefix="secret-pond-chrome-") as profile_dir:
+            remote_debugging_port = _free_port()
+            process = subprocess.Popen(
+                [
+                    chrome,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={profile_dir}",
+                    f"--remote-debugging-port={remote_debugging_port}",
+                    "--window-size=1440,1000",
+                    dashboard_path.as_uri(),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                page = _connect_to_first_page(remote_debugging_port)
+                page.send("Runtime.enable")
+                rendered = page.wait_for_stable_restart_failure_feedback_rollback()
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    assert rendered["surfaceCount"] == 5
+    assert rendered["hadVisibleSpinnersBeforeRollback"] is True
+    assert rendered["pendingSurfaces"] == []
+    assert rendered["visibleSpinners"] == []
+    assert rendered["hiddenSpinnerCount"] == 5
+
+
 def _record_desktop_behavior_notes(output: dict[str, Any]) -> dict[str, Any]:
     notes: list[str] = []
     viewport_width = int(output.get("viewportWidth") or 0)
@@ -606,6 +742,86 @@ class _CdpPage:
                 return last_value
             time.sleep(0.1)
         raise AssertionError(f"Feedback spinner did not render in time: {last_value!r}")
+
+    def wait_for_stable_restart_failure_feedback_rollback(self) -> dict[str, Any]:
+        expression = """
+(() => {
+  const surfaceEntries = [
+    ["mid", Array.from(document.querySelectorAll("#layerControls .layer-card"))
+      .find((card) => card.textContent.includes("Mid"))],
+    ["low", Array.from(document.querySelectorAll("#layerControls .layer-card"))
+      .find((card) => card.textContent.includes("Low"))],
+    ["voice", document.querySelector("#voiceLayerControls .layer-card")],
+    ["voiceStack", document.getElementById("voiceStackControls")],
+    ["recording", document.getElementById("recordingControls")],
+  ];
+  const missingSurfaces = surfaceEntries
+    .filter(([_name, surface]) => !surface)
+    .map(([name]) => name);
+  if (missingSurfaces.length > 0) {
+    return { ready: false, missingSurfaces };
+  }
+
+  const surfaceStates = surfaceEntries.map(([name, surface]) => {
+    const spinner = surface.querySelector(".feedback-spinner");
+    const spinnerStyle = spinner ? window.getComputedStyle(spinner) : null;
+    return {
+      name,
+      className: surface.className,
+      pending: surface.classList.contains("feedback-pending"),
+      spinnerPresent: Boolean(spinner),
+      spinnerHidden: Boolean(spinner?.hidden),
+      spinnerDisplay: spinnerStyle?.display || null,
+      spinnerWidth: Math.round(spinner?.getBoundingClientRect().width || 0),
+      spinnerHeight: Math.round(spinner?.getBoundingClientRect().height || 0),
+    };
+  });
+  const pendingSurfaces = surfaceStates
+    .filter((surface) => surface.pending)
+    .map((surface) => surface.name);
+  const visibleSpinners = surfaceStates
+    .filter((surface) => (
+      surface.spinnerPresent &&
+      !surface.spinnerHidden &&
+      surface.spinnerDisplay !== "none" &&
+      surface.spinnerWidth > 0 &&
+      surface.spinnerHeight > 0
+    ))
+    .map((surface) => surface.name);
+  const hiddenSpinnerCount = surfaceStates.filter((surface) => (
+    surface.spinnerPresent &&
+    (surface.spinnerHidden || surface.spinnerDisplay === "none")
+  )).length;
+  return {
+    ready: (
+      globalThis.__stableRollbackFeedbackHadVisibleSpinners === true &&
+      surfaceStates.length === 5 &&
+      hiddenSpinnerCount === 5
+    ),
+    surfaceCount: surfaceStates.length,
+    hadVisibleSpinnersBeforeRollback:
+      globalThis.__stableRollbackFeedbackHadVisibleSpinners === true,
+    pendingSurfaces,
+    visibleSpinners,
+    hiddenSpinnerCount,
+    surfaceStates,
+  };
+})()
+"""
+        deadline = time.monotonic() + 10
+        last_value: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            result = self.send(
+                "Runtime.evaluate",
+                {"expression": expression, "returnByValue": True},
+            )
+            last_value = result["result"].get("value")
+            if last_value and last_value.get("ready"):
+                return last_value
+            time.sleep(0.1)
+        raise AssertionError(
+            f"Stable rollback feedback state did not render idle in time: {last_value!r}"
+        )
 
 
 class _WebSocket:
