@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from static_app_harness import (
@@ -83,13 +84,27 @@ for (const excludedControlId of [
 def test_output_playback_panel_does_not_receive_feedback_pending_card_class() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
 
-    assert (
-        '<section id="playbackPanel" class="operation-card playback-panel" '
-        'aria-labelledby="playbackPanelTitle">'
-    ) in index_html
-    assert 'id="playbackPanel" class="operation-card playback-panel feedback-pending"' not in (
-        index_html
+    playback_panel = re.search(
+        r'<section(?=[^>]*\bid="playbackPanel")(?=[^>]*\bclass="([^"]+)")[^>]*>',
+        index_html,
+        re.DOTALL,
     )
+
+    assert playback_panel is not None
+    assert playback_panel.group(1) == "operation-card playback-panel"
+
+
+def test_output_playback_panel_does_not_render_feedback_spinner() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+
+    playback_panel = re.search(
+        r'<section(?=[^>]*\bid="playbackPanel")[^>]*>(.*?)</section>',
+        index_html,
+        re.DOTALL,
+    )
+
+    assert playback_panel is not None
+    assert "feedback-spinner" not in playback_panel.group(1)
 
 
 def test_live_feedback_highlight_requires_covered_and_live_applicable_change() -> None:

@@ -1808,12 +1808,14 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const commitDraftChange = (mutator, options = {}) => {" in script.text
     assert "syncDraftSnapshot();" in script.text
     assert "scheduleDraftSave();" in script.text
+    assert "draftSaveInFlight" in script.text
     voice_stack_body = slice_between(
         script.text,
         "const renderVoiceStackControls = () => {",
         "};\n\nconst renderStorageModeControls",
     )
-    assert "commitDraftChange(() => {" in voice_stack_body
+    assert "commitDraftChange(" in voice_stack_body
+    assert "feedbackControlId: `voice_stack.${control.path}`" in voice_stack_body
     storage_mode_body = slice_between(
         script.text,
         "const setStorageMode = async (mode) => {",
@@ -2348,6 +2350,7 @@ const settings = {{
 const draft = {{ voice_stack: {{ mode: "live_ephemeral" }} }};
 const expectedOperationFlagKeys = [
   "sourceMutationInFlight",
+  "draftSaveInFlight",
   "recordingStartInFlight",
   "recordingStopInFlight",
   "playbackControlInFlight",
@@ -2361,6 +2364,7 @@ assert.deepStrictEqual(helpers.operationFlagKeys, expectedOperationFlagKeys);
 assert.deepStrictEqual(
   helpers.operationFlagsFrom({{
     sourceMutationInFlight: true,
+    draftSaveInFlight: true,
     recordingStartInFlight: true,
     recordingStopInFlight: false,
     playbackControlInFlight: true,
@@ -2372,6 +2376,7 @@ assert.deepStrictEqual(
   }}),
   {{
     sourceMutationInFlight: true,
+    draftSaveInFlight: true,
     recordingStartInFlight: true,
     recordingStopInFlight: false,
     playbackControlInFlight: true,
@@ -2388,6 +2393,7 @@ helpers.state.applyInFlight = true;
 helpers.state.resetParticipantsInFlight = true;
 assert.deepStrictEqual(helpers.currentOperationFlags(), {{
   sourceMutationInFlight: false,
+  draftSaveInFlight: false,
   recordingStartInFlight: false,
   recordingStopInFlight: false,
   playbackControlInFlight: false,

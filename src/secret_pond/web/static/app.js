@@ -1926,6 +1926,7 @@ const firstOperationLockTitle = (candidates = []) => {
 
 const operationFlagKeys = [
   "sourceMutationInFlight",
+  "draftSaveInFlight",
   "recordingStartInFlight",
   "recordingStopInFlight",
   "playbackControlInFlight",
@@ -1935,11 +1936,19 @@ const operationFlagKeys = [
   "deviceChangeInFlight",
 ];
 
-const operationFlagsFrom = (stateLike = {}) =>
-  operationFlagKeys.reduce((flags, key) => {
-    flags[key] = Boolean(stateLike[key]);
-    return flags;
+const operationFlagsFrom = (stateLike = {}) => {
+  const flags = operationFlagKeys.reduce((nextFlags, key) => {
+    nextFlags[key] = Boolean(stateLike[key]);
+    return nextFlags;
   }, {});
+  if (
+    Object.hasOwn(stateLike, "liveFeedbackSurfaceId") &&
+    stateLike.liveFeedbackSurfaceId !== undefined
+  ) {
+    flags.liveFeedbackSurfaceId = stateLike.liveFeedbackSurfaceId;
+  }
+  return flags;
+};
 
 const currentOperationFlags = () => operationFlagsFrom(state);
 
@@ -2040,10 +2049,27 @@ const markDraftEdited = () => {
   state.draftEditRevision += 1;
 };
 
+const draftFeedbackSurfaceIdFromOptions = (options = {}) => {
+  if (Object.hasOwn(options, "feedbackSurfaceId")) {
+    return normalizeFeedbackSurfaceId(options.feedbackSurfaceId);
+  }
+  if (Object.hasOwn(options, "liveFeedbackSurfaceId")) {
+    return normalizeFeedbackSurfaceId(options.liveFeedbackSurfaceId);
+  }
+  if (Object.hasOwn(options, "feedbackControlId")) {
+    return feedbackSurfaceIdForControlId(options.feedbackControlId);
+  }
+  return undefined;
+};
+
 const commitDraftChange = (mutator, options = {}) => {
   if (!state.draft || draftEditLocked()) return false;
   mutator?.();
   markDraftEdited();
+  const feedbackSurfaceId = draftFeedbackSurfaceIdFromOptions(options);
+  if (feedbackSurfaceId !== undefined) {
+    state.pendingLiveFeedbackSurfaceId = feedbackSurfaceId;
+  }
   syncDraftSnapshot();
   options.afterSync?.();
   renderState();
@@ -4290,6 +4316,20 @@ const renderOperationLockSurfaces = () => {
   renderSourceLibrary();
 };
 
+const renderDraftSaveFeedbackSurfaces = () => {
+  if (
+    !state.snapshot?.settings?.active?.layers ||
+    !state.snapshot?.settings?.active?.voice_stack ||
+    !state.snapshot?.settings?.active?.recording ||
+    !state.draft?.layers ||
+    !state.draft?.voice_stack ||
+    !state.draft?.recording
+  ) {
+    return;
+  }
+  renderOperationLockSurfaces();
+};
+
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
@@ -4472,9 +4512,12 @@ const renderVoiceStackControls = () => {
         control,
         draftValue,
         (value) => {
-          commitDraftChange(() => {
-            setPath(state.draft.voice_stack, control.path, value);
-          });
+          commitDraftChange(
+            () => {
+              setPath(state.draft.voice_stack, control.path, value);
+            },
+            { feedbackControlId: `voice_stack.${control.path}` },
+          );
         },
         activeValue,
       ),
@@ -4487,8 +4530,9 @@ const renderStorageModeControls = () => {
   if (deferInteractiveRender("storage-mode", $("storageModePanel"), renderStorageModeControls)) {
     return;
   }
-  const activeMode = state.snapshot.settings.active.voice_stack.mode;
-  const draftMode = state.draft.voice_stack.mode;
+  const activeMode = state.snapshot.settings?.active?.voice_stack?.mode;
+  const draftMode = state.draft.voice_stack?.mode;
+  if (!activeMode || !draftMode) return;
   const activeDetails = storageModeDetails[activeMode] || storageModeDetails.live_ephemeral;
   const draftDetails = storageModeDetails[draftMode] || activeDetails;
   const pending = activeMode !== draftMode;
@@ -4628,6 +4672,7 @@ const renderLayerCard = (layerId) => {
         state.draft.layers[layerId].enabled = nextChecked;
       },
       {
+        feedbackControlId: `layers.${layerId}.enabled`,
         afterSync: () => {
           event.target.setAttribute("aria-checked", nextChecked ? "true" : "false");
           updateLayerEnabledControl(card, layerId, nextChecked);
@@ -4654,7 +4699,10 @@ const renderLayerCard = (layerId) => {
               setPath(state.draft.layers[layerId], control.path, value);
               clearLayerPresetSelection(layerId);
             },
-            { afterSync: () => updateLayerPresetButtons(card, layerId) },
+            {
+              feedbackControlId: `layers.${layerId}.${control.path}`,
+              afterSync: () => updateLayerPresetButtons(card, layerId),
+            },
           );
         },
         group.action === "reset-filter" ? () => resetLayerFilter(layerId) : undefined,
@@ -4720,7 +4768,7 @@ const applyLayerPreset = (layerId, presetName) => {
       if (next.selection) state.presetSelections.layers[layerId] = next.selection;
       else clearLayerPresetSelection(layerId);
     },
-    { afterSync: renderLayerControls },
+    { feedbackSurfaceId: `layer:${layerId}`, afterSync: renderLayerControls },
   );
 };
 
@@ -4737,7 +4785,7 @@ const resetLayerFilter = (layerId) => {
         setPath(layer, control.path, resetValue);
       });
     },
-    { afterSync: renderLayerControls },
+    { feedbackSurfaceId: `layer:${layerId}`, afterSync: renderLayerControls },
   );
 };
 
@@ -4753,7 +4801,10 @@ const renderRecordingControls = () => {
             setPath(state.draft.recording, control.path, value);
             clearRecordingPresetSelection();
           },
-          { afterSync: renderRecordingPresets },
+          {
+            feedbackControlId: `recording.${control.path}`,
+            afterSync: renderRecordingPresets,
+          },
         );
       }),
     );
@@ -4789,6 +4840,7 @@ const applyRecordingPreset = (name) => {
       state.presetSelections.recording = next.selection;
     },
     {
+      feedbackSurfaceId: "recording",
       afterSync: () => {
         renderRecordingPresets();
         renderRecordingControls();
@@ -5162,6 +5214,9 @@ const clearDraftSaveTimer = () => {
 const invalidatePendingDraftSaves = () => {
   clearDraftSaveTimer();
   state.draftSaveRequestId += 1;
+  state.pendingLiveFeedbackSurfaceId = undefined;
+  state.liveFeedbackSurfaceId = undefined;
+  state.draftSaveInFlight = false;
 };
 
 const beginDraftSave = () => {
@@ -5187,6 +5242,9 @@ const saveDraft = async () => {
   clearDraftSaveTimer();
   const request = beginDraftSave();
   const draftPayload = clone(state.draft);
+  state.liveFeedbackSurfaceId = state.pendingLiveFeedbackSurfaceId;
+  state.draftSaveInFlight = true;
+  renderDraftSaveFeedbackSurfaces();
   try {
     const payload = await api("/api/settings/draft", {
       method: "PUT",
@@ -5205,6 +5263,13 @@ const saveDraft = async () => {
       throw error;
     }
     return null;
+  } finally {
+    if (isCurrentDraftSave(request)) {
+      state.draftSaveInFlight = false;
+      state.pendingLiveFeedbackSurfaceId = undefined;
+      state.liveFeedbackSurfaceId = undefined;
+      renderDraftSaveFeedbackSurfaces();
+    }
   }
 };
 
