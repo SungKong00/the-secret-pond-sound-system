@@ -784,6 +784,17 @@ def test_live_playback_apply_panel_reuses_storage_mode_panel_pattern() -> None:
     )
 
 
+def test_live_playback_controls_reuse_existing_dashboard_control_class_patterns() -> None:
+    index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+
+    assert 'class="storage-mode-options playback-apply-mode-options"' in index_html
+    assert 'class="storage-mode-button playback-apply-mode-button live"' in index_html
+    assert 'class="storage-mode-button playback-apply-mode-button stable"' in index_html
+    assert '<label class="layer-toggle ${layer.enabled ? "enabled" : ""} ${' in app_script
+    assert 'type="checkbox"\n            role="switch"' in app_script
+
+
 def test_live_playback_status_pills_reuse_dashboard_status_pill_pattern() -> None:
     index_html = Path("src/secret_pond/web/static/index.html").read_text(encoding="utf-8")
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
