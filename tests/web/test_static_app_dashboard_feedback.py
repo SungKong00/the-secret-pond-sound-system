@@ -1323,6 +1323,98 @@ assert.strictEqual(state.draft.playback.master_volume_db, -5);
     )
 
 
+def test_stable_apply_rollback_snapshot_uses_last_confirmed_active_settings() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  captureStableCoveredFeedbackControlSnapshots,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { captureStableCoveredFeedbackControlSnapshots, state } = globalThis.__secretPond;
+
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "stable", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: "sources/low.wav",
+    mid_path: "sources/mid.wav",
+    voice_raw_path: "sources/voice.wav",
+    voice_stack_path: "sources/stack.wav",
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -3,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const lastConfirmedActive = clone(activeSettings);
+lastConfirmedActive.layers.low.volume_db = -3;
+lastConfirmedActive.recording.reverb_mix = 0.25;
+
+const failedRequestValues = clone(activeSettings);
+failedRequestValues.layers.low.volume_db = -9;
+failedRequestValues.recording.reverb_mix = 0.55;
+
+state.confirmedActiveSettingsSnapshot = clone(lastConfirmedActive);
+state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(failedRequestValues),
+    draft: clone(failedRequestValues),
+    change: { changed_sections: ["layers", "recording"], runtime_config_changed: false },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+};
+state.draft = clone(failedRequestValues);
+
+const snapshots = captureStableCoveredFeedbackControlSnapshots();
+
+assert.deepStrictEqual(snapshots, [
+  { controlId: "layers.low.volume_db", activeValue: -3, draftValue: -9 },
+  { controlId: "recording.reverb_mix", activeValue: 0.25, draftValue: 0.55 },
+]);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_stable_successful_apply_response_renders_server_confirmed_control_value() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

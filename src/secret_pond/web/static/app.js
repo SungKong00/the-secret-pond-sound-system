@@ -4568,11 +4568,15 @@ const stableCoveredFeedbackControlIds = Object.freeze(
   Object.keys(coveredLiveFeedbackControlSurfaceTargets),
 );
 
+const confirmedActiveSettingsForRollback = (snapshot = state.snapshot) => (
+  state.confirmedActiveSettingsSnapshot || snapshot?.settings?.active || null
+);
+
 const captureStableCoveredFeedbackControlSnapshots = ({
   snapshot = state.snapshot,
   draft = state.draft || snapshot?.settings?.draft || null,
 } = {}) => {
-  const activeSettings = snapshot?.settings?.active || null;
+  const activeSettings = confirmedActiveSettingsForRollback(snapshot);
   if (!activeSettings || !draft) return [];
   return stableCoveredFeedbackControlIds
     .filter((controlId) => (
