@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 
 from secret_pond.audio.buffers import AudioBuffer
-from secret_pond.audio.player import LayerPlaybackState, mix_layer_blocks
+from secret_pond.audio.player import (
+    LayerPlaybackState,
+    VoiceCrossfadeState,
+    mix_layer_blocks,
+    mix_layer_blocks_with_voice_crossfade,
+)
 
 
 def stereo(value: float, frames: int = 4, sample_rate: int = 8_000) -> AudioBuffer:
@@ -61,6 +66,47 @@ def test_mixer_reads_wrapped_block_and_reports_next_cursor() -> None:
         atol=1e-6,
     )
     assert block.next_frame_cursor == 2
+
+
+def test_mixer_crossfades_low_mid_and_voice_layers_together() -> None:
+    layers = {
+        "low": stereo(0.0),
+        "mid": stereo(0.0),
+        "voice": stereo(0.0),
+    }
+    transition = VoiceCrossfadeState(
+        from_layers={
+            "low": stereo(0.01),
+            "mid": stereo(0.02),
+            "voice": stereo(0.03),
+        },
+        to_layers={
+            "low": stereo(0.10),
+            "mid": stereo(0.20),
+            "voice": stereo(0.30),
+        },
+        transition_layer_ids=frozenset({"low", "mid", "voice"}),
+        duration_frames=8,
+        elapsed_frames=4,
+        transition_target_id="data/sources/voice/stack/VS0610_213112.wav",
+    )
+
+    block = mix_layer_blocks_with_voice_crossfade(
+        layers,
+        {},
+        transition,
+        frame_cursor=0,
+        block_size=1,
+    )
+
+    equal_power_midpoint = np.sqrt(0.5)
+    expected = (0.01 + 0.02 + 0.03 + 0.10 + 0.20 + 0.30) * equal_power_midpoint
+    np.testing.assert_allclose(
+        block.samples,
+        np.ones((1, 2), dtype=np.float32) * expected,
+        atol=1e-6,
+    )
+    assert block.next_frame_cursor == 1
 
 
 def test_mixer_applies_realtime_trim_only_to_matching_layer() -> None:

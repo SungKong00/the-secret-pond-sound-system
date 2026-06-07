@@ -1862,7 +1862,7 @@ const normalizePlaybackLivePayload = (live) => {
 
 const normalizePlaybackPayload = (playback) => {
   if (!playback || typeof playback !== "object" || Array.isArray(playback)) return playback;
-  return {
+  const normalized = {
     apply_mode: "stable",
     position_seconds: 0,
     duration_seconds: 0,
@@ -1877,6 +1877,11 @@ const normalizePlaybackPayload = (playback) => {
     ...playback,
     live: normalizePlaybackLivePayload(playback.live),
   };
+  Object.defineProperty(normalized, "_positionSecondsProvided", {
+    value: hasOwnProperty(playback, "position_seconds"),
+    enumerable: false,
+  });
+  return normalized;
 };
 
 const normalizeSettingsPlaybackPayload = (settings) => {
@@ -3087,6 +3092,7 @@ const activePlaybackTimeline = (snapshot = state.snapshot, options = {}) => {
   const payloadPosition = Number(playback.position_seconds || 0);
   const frameCursor = Number(playback.frame_cursor || 0);
   const positionSeconds =
+    playback._positionSecondsProvided !== false &&
     Number.isFinite(payloadPosition) && payloadPosition >= 0
       ? payloadPosition
       : Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(frameCursor)
