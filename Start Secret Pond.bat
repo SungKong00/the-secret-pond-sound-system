@@ -4,30 +4,30 @@ setlocal
 cd /d "%~dp0"
 
 set "SECRET_POND_PY="
-py -3.11 -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
+set "SECRET_POND_PROBE=import sys; raise SystemExit(0 if sys.version_info.major == 3 and 11 <= sys.version_info.minor and sys.version_info.minor < 13 else 1)"
+
+py -3.11 -c "%SECRET_POND_PROBE%" >nul 2>nul
 if not errorlevel 1 set "SECRET_POND_PY=py -3.11"
+if defined SECRET_POND_PY goto run_secret_pond
 
-if not defined SECRET_POND_PY (
-  py -3.12 -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
-  if not errorlevel 1 set "SECRET_POND_PY=py -3.12"
-)
+py -3.12 -c "%SECRET_POND_PROBE%" >nul 2>nul
+if not errorlevel 1 set "SECRET_POND_PY=py -3.12"
+if defined SECRET_POND_PY goto run_secret_pond
 
-if not defined SECRET_POND_PY (
-  python -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
-  if not errorlevel 1 set "SECRET_POND_PY=python"
-)
+python -c "%SECRET_POND_PROBE%" >nul 2>nul
+if not errorlevel 1 set "SECRET_POND_PY=python"
+if defined SECRET_POND_PY goto run_secret_pond
 
-if not defined SECRET_POND_PY (
-  echo Python 3.11 또는 3.12를 찾을 수 없습니다.
-  echo Python을 설치한 뒤 다시 실행하세요.
-  pause
-  exit /b 1
-)
+echo Python 3.11 or 3.12 was not found.
+echo Install Python 3.11 or 3.12, then run this file again.
+pause
+exit /b 1
 
+:run_secret_pond
 %SECRET_POND_PY% scripts\launch_secret_pond.py %*
-if errorlevel 1 (
-  echo.
-  echo Secret Pond 실행에 실패했습니다. 위 메시지를 확인하세요.
-  pause
-  exit /b 1
-)
+if not errorlevel 1 exit /b 0
+
+echo.
+echo Secret Pond failed to start. Check the messages above.
+pause
+exit /b 1

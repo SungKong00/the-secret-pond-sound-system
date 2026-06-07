@@ -87,3 +87,14 @@ def test_clickable_launcher_wrappers_call_common_bootstrapper() -> None:
 
     assert "scripts/launch_secret_pond.py" in mac_launcher.read_text(encoding="utf-8")
     assert "scripts\\launch_secret_pond.py" in windows_launcher.read_text(encoding="utf-8")
+
+
+def test_windows_launcher_stays_safe_for_cmd_batch_parsing() -> None:
+    windows_launcher = ROOT / "Start Secret Pond.bat"
+    launcher_bytes = windows_launcher.read_bytes()
+    launcher_text = launcher_bytes.decode("ascii")
+
+    assert "(3, 11)" not in launcher_text
+    assert "(3, 13)" not in launcher_text
+    assert "if not defined SECRET_POND_PY (" not in launcher_text
+    assert "if errorlevel 1 (" not in launcher_text
