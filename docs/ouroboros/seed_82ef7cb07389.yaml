@@ -1,0 +1,159 @@
+goal: Refactor and fix The Secret Pond Live/Stable application flow so Live feedback,
+  runtime mutation, Stable staged apply, transition/crossfade, and player timeline
+  synchronization are clearly separated, reusable, and verified
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references: []
+  existing_patterns: []
+  existing_dependencies: []
+constraints:
+  - Brownfield repository /Users/nohsungbeen/dev/project/The Secret Pond
+  - Structure refactoring is P0
+  - Reuse existing implemented features and logic where possible
+  - Do not rewrite the whole implementation from scratch
+  - Do not perform a large UI style redesign
+  - Maintain existing Stable Apply and Restart behavior
+  - Existing seek/transition uncommitted worktree changes must be preserved
+  - main is 1 commit ahead of origin/main
+  - Use uv run pytest
+  - Use uv run ruff check .
+acceptance_criteria:
+  - Live feedback state model supports pending/applying/applied/failed/stale
+  - Live covered card is highlighted and shows spinner while the latest apply request is active
+  - Live covered card highlight and spinner clear after latest request succeeds
+  - Latest Live request failure rolls back to last confirmed value and shows Korean warning
+  - Late responses from stale Live requests are ignored by UI
+  - Slider/Layer Level/volume/EQ changes debounce or coalesce for 150-250ms and apply only the latest value
+  - mute/enable toggles send Live apply requests immediately
+  - Slider thumb/value label responds immediately to draft input
+  - Slider fill/progress/applied indicator follows confirmed runtime value only
+  - Live runtime mutation path is separated from Stable Apply and Restart path
+  - Voice Stack enabled/mute/Layer Level/volume consistently use Live mutation path in Live mode
+  - Stable mode keeps restart-required/staged apply indicators until Apply and Restart
+  - Stable card highlight clears after Apply and Restart
+  - Live to Stable starts Stable draft from latest confirmed runtime value
+  - Pending Live responses after Live to Stable do not affect Stable UI/draft
+  - Stable to Live does not auto-apply unapplied staged changes
+  - Stable to Live with staged changes shows Korean warning/confirmation and starts Live from last confirmed value
+  - Low/Mid/Voice layers all receive transition/crossfade consistently
+  - seek/progress/loop position stay synchronized with actual player cursor
+  - UI progress synchronization stays within 200ms tolerance
+  - Player internal cursor is verified as accurately as possible at frame granularity
+ontology_schema:
+  name: LiveStableApplicationState
+  description: State model for separating Live runtime changes, Stable staged changes,
+    feedback surfaces, transition behavior, and player timeline synchronization in
+    The Secret Pond
+  fields:
+    - name: mode
+      type: string
+      description: Current application mode, either Live or Stable
+      required: true
+    - name: draftValue
+      type: object
+      description: Immediate user-edited input value shown during interaction
+      required: true
+    - name: confirmedValue
+      type: object
+      description: Last value confirmed by runtime/server
+      required: true
+    - name: stagedDraft
+      type: object
+      description: Stable-mode draft values waiting for Apply and Restart
+      required: true
+    - name: requestId
+      type: string
+      description: Identifier for the latest Live apply request
+      required: true
+    - name: modeEpoch
+      type: number
+      description: Version used to ignore stale responses across mode changes
+      required: true
+    - name: feedbackState
+      type: string
+      description: Feedback lifecycle state pending/applying/applied/failed/stale
+      required: true
+    - name: coveredCardId
+      type: string
+      description: Card whose changed setting is currently highlighted
+      required: true
+    - name: spinnerVisible
+      type: boolean
+      description: Whether the active card spinner is shown
+      required: true
+    - name: rollbackValue
+      type: object
+      description: Last confirmed value used when latest request fails
+      required: true
+    - name: warningMessage
+      type: string
+      description: Korean warning shown for rollback or mode-switch confirmation
+      required: true
+    - name: mutationPath
+      type: string
+      description: Apply path used for Live runtime mutation or Stable restart apply
+      required: true
+    - name: layer
+      type: string
+      description: Target layer such as Low, Mid, or Voice
+      required: true
+    - name: transitionEnabled
+      type: boolean
+      description: Whether transition/crossfade should apply
+      required: true
+    - name: playerCursor
+      type: number
+      description: Actual internal playback cursor position
+      required: true
+    - name: uiProgress
+      type: number
+      description: UI-displayed playback progress position
+      required: true
+    - name: loopPosition
+      type: number
+      description: Current loop position used for playback synchronization
+      required: true
+evaluation_principles:
+  - name: Correctness
+    description: Live and Stable behavior matches confirmed UX and runtime semantics without state mixing
+    weight: 0.3
+  - name: Maintainability
+    description: State model and apply strategies are separated, reusable, and not tangled in component conditionals
+    weight: 0.25
+  - name: Robustness
+    description: Stale responses, failures, rapid inputs, and mode switches are handled deterministically
+    weight: 0.2
+  - name: Verification
+    description: State model, UI/integration, transition, and player timeline tests cover the accepted scenarios
+    weight: 0.2
+  - name: Preservation
+    description: Existing working functionality, Stable behavior, UI context, and uncommitted work are preserved
+    weight: 0.05
+exit_conditions:
+  - name: TestsPass
+    description: Repository verification succeeds
+    criteria: uv run pytest and uv run ruff check . pass or any remaining failures are documented as pre-existing/blocking
+  - name: StateModelVerified
+    description: Core lifecycle and mode isolation are covered
+    criteria: draft/confirmed/pending/applying/applied/failed/stale/mode epoch tests pass
+  - name: LiveStableUXVerified
+    description: Live and Stable UI behavior is covered
+    criteria: UI/integration tests verify thumb/fill split, card highlight/spinner, rollback warning, toggles, and mode switching
+  - name: AudioRuntimeVerified
+    description: Runtime behavior is covered
+    criteria: Voice Stack, Layer Level, mute/volume, transition/crossfade on Low/Mid/Voice, and seek/progress/loop synchronization satisfy criteria
+  - name: BrownfieldSafe
+    description: Existing work is not overwritten
+    criteria: unrelated uncommitted changes remain preserved and no full rewrite or broad UI redesign is introduced
+metadata:
+  seed_id: seed_82ef7cb07389
+  version: 1.0.0
+  created_at: "2026-06-07T19:31:01.265106Z"
+  ambiguity_score: 0.1245
+  interview_id: interview_20260607_191450
+  parent_seed_id: null
+  generation_mode: normal
+  degraded: false
+  unresolved_slots: []
+  recovery_reason: null
