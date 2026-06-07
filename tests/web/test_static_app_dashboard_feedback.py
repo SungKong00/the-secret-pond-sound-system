@@ -81,6 +81,185 @@ for (const excludedControlId of [
     )
 
 
+def test_live_apply_feedback_state_model_tracks_latest_request_lifecycle() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  createLiveApplyFeedbackState,
+  deriveLiveApplyFeedbackVisualState,
+  liveApplyFeedbackStates,
+  reduceLiveApplyFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  createLiveApplyFeedbackState,
+  deriveLiveApplyFeedbackVisualState,
+  liveApplyFeedbackStates,
+  reduceLiveApplyFeedbackState,
+} = globalThis.__secretPond;
+
+const idle = createLiveApplyFeedbackState({ modeEpoch: 7, confirmedValue: -6 });
+assert.strictEqual(idle.feedbackState, liveApplyFeedbackStates.idle);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(idle),
+  { visual_state: "idle", show_spinner: false },
+);
+
+const pending = reduceLiveApplyFeedbackState(idle, {
+  type: "edit",
+  requestId: 1,
+  modeEpoch: 7,
+  coveredCardId: "layer:voice",
+  controlIds: ["layers.voice.volume_db"],
+  draftValue: -3,
+});
+assert.strictEqual(pending.feedbackState, liveApplyFeedbackStates.pending);
+assert.strictEqual(pending.spinnerVisible, false);
+assert.strictEqual(pending.coveredCardId, "layer:voice");
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(pending),
+  { visual_state: "pending", show_spinner: false },
+);
+
+const applying = reduceLiveApplyFeedbackState(pending, {
+  type: "request_started",
+  requestId: 2,
+  modeEpoch: 7,
+});
+assert.strictEqual(applying.feedbackState, liveApplyFeedbackStates.applying);
+assert.strictEqual(applying.requestId, 2);
+assert.strictEqual(applying.spinnerVisible, true);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(applying),
+  { visual_state: "pending", show_spinner: true },
+);
+
+const applied = reduceLiveApplyFeedbackState(applying, {
+  type: "request_succeeded",
+  requestId: 2,
+  modeEpoch: 7,
+  confirmedValue: -3,
+});
+assert.strictEqual(applied.feedbackState, liveApplyFeedbackStates.applied);
+assert.strictEqual(applied.confirmedValue, -3);
+assert.strictEqual(applied.rollbackValue, -3);
+assert.strictEqual(applied.spinnerVisible, false);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(applied),
+  { visual_state: "idle", show_spinner: false },
+);
+
+const failed = reduceLiveApplyFeedbackState(applied, {
+  type: "request_started",
+  requestId: 3,
+  modeEpoch: 7,
+  draftValue: -1,
+});
+const rolledBack = reduceLiveApplyFeedbackState(failed, {
+  type: "request_failed",
+  requestId: 3,
+  modeEpoch: 7,
+  errorMessage: "boom",
+});
+assert.strictEqual(rolledBack.feedbackState, liveApplyFeedbackStates.failed);
+assert.strictEqual(rolledBack.draftValue, -3);
+assert.strictEqual(rolledBack.rollbackValue, -3);
+assert.match(rolledBack.warningMessage, /이전 설정/);
+assert.strictEqual(rolledBack.spinnerVisible, false);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(rolledBack),
+  { visual_state: "idle", show_spinner: false },
+);
+""",
+    )
+
+
+def test_live_apply_feedback_state_model_marks_stale_without_mutating_ui_state() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  createLiveApplyFeedbackState,
+  deriveLiveApplyFeedbackVisualState,
+  liveApplyFeedbackStates,
+  liveApplyResponseIsStale,
+  reduceLiveApplyFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  createLiveApplyFeedbackState,
+  deriveLiveApplyFeedbackVisualState,
+  liveApplyFeedbackStates,
+  liveApplyResponseIsStale,
+  reduceLiveApplyFeedbackState,
+} = globalThis.__secretPond;
+
+const applying = reduceLiveApplyFeedbackState(
+  createLiveApplyFeedbackState({ modeEpoch: 4, confirmedValue: 0 }),
+  {
+    type: "request_started",
+    requestId: 10,
+    modeEpoch: 4,
+    coveredCardId: "layer:low",
+    controlIds: ["layers.low.volume_db"],
+    draftValue: 2,
+  },
+);
+const lateSuccess = {
+  type: "request_succeeded",
+  requestId: 9,
+  modeEpoch: 4,
+  confirmedValue: 9,
+};
+assert.strictEqual(liveApplyResponseIsStale(applying, lateSuccess), true);
+
+const ignored = reduceLiveApplyFeedbackState(applying, lateSuccess);
+assert.strictEqual(ignored.feedbackState, liveApplyFeedbackStates.applying);
+assert.strictEqual(ignored.confirmedValue, 0);
+assert.strictEqual(ignored.draftValue, 2);
+assert.strictEqual(ignored.staleResponse.feedbackState, liveApplyFeedbackStates.stale);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(ignored),
+  { visual_state: "pending", show_spinner: true },
+);
+
+const modeChanged = reduceLiveApplyFeedbackState(applying, {
+  type: "mode_changed",
+  modeEpoch: 5,
+});
+assert.strictEqual(modeChanged.feedbackState, liveApplyFeedbackStates.stale);
+assert.strictEqual(modeChanged.modeEpoch, 5);
+assert.strictEqual(modeChanged.spinnerVisible, false);
+assert.deepStrictEqual(
+  deriveLiveApplyFeedbackVisualState(modeChanged),
+  { visual_state: "idle", show_spinner: false },
+);
+
+const responseAfterModeChange = reduceLiveApplyFeedbackState(modeChanged, {
+  type: "request_failed",
+  requestId: 10,
+  modeEpoch: 4,
+  errorMessage: "old mode",
+});
+assert.strictEqual(responseAfterModeChange.feedbackState, liveApplyFeedbackStates.stale);
+assert.strictEqual(responseAfterModeChange.confirmedValue, 0);
+assert.strictEqual(responseAfterModeChange.warningMessage, "");
+assert.strictEqual(responseAfterModeChange.staleResponse.feedbackState, liveApplyFeedbackStates.stale);
+""",
+    )
+
+
 def test_excluded_playback_surfaces_stay_idle_in_shared_feedback_helper() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

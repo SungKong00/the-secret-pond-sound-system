@@ -967,6 +967,154 @@ const setPath = (object, path, value) => {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const liveApplyFeedbackStates = Object.freeze({
+  idle: "idle",
+  pending: "pending",
+  applying: "applying",
+  applied: "applied",
+  failed: "failed",
+  stale: "stale",
+});
+
+const liveApplyResponseEventTypes = new Set(["request_succeeded", "request_failed"]);
+
+const cloneApplyFeedbackValue = (value) => (value === undefined ? undefined : clone(value));
+
+const eventValueOrCurrent = (event, current, key) => (
+  Object.hasOwn(event, key) ? cloneApplyFeedbackValue(event[key]) : cloneApplyFeedbackValue(current[key])
+);
+
+const createLiveApplyFeedbackState = (value = {}) => {
+  const confirmedValue = cloneApplyFeedbackValue(value.confirmedValue);
+  const rollbackValue = Object.hasOwn(value, "rollbackValue")
+    ? cloneApplyFeedbackValue(value.rollbackValue)
+    : cloneApplyFeedbackValue(confirmedValue);
+  return {
+    feedbackState: value.feedbackState || liveApplyFeedbackStates.idle,
+    requestId: Number.isFinite(Number(value.requestId)) ? Number(value.requestId) : 0,
+    modeEpoch: Number.isFinite(Number(value.modeEpoch)) ? Number(value.modeEpoch) : 0,
+    coveredCardId: value.coveredCardId ?? null,
+    controlIds: Array.isArray(value.controlIds) ? [...value.controlIds] : [],
+    draftValue: cloneApplyFeedbackValue(value.draftValue),
+    confirmedValue,
+    rollbackValue,
+    warningMessage: value.warningMessage || "",
+    spinnerVisible: Boolean(value.spinnerVisible),
+    staleResponse: value.staleResponse ? { ...value.staleResponse } : null,
+  };
+};
+
+const staleLiveApplyResponse = (event = {}) => ({
+  feedbackState: liveApplyFeedbackStates.stale,
+  requestId: Number.isFinite(Number(event.requestId)) ? Number(event.requestId) : null,
+  modeEpoch: Number.isFinite(Number(event.modeEpoch)) ? Number(event.modeEpoch) : null,
+});
+
+const liveApplyResponseIsStale = (current = {}, event = {}) => {
+  if (!liveApplyResponseEventTypes.has(event.type)) return false;
+  const stateModel = createLiveApplyFeedbackState(current);
+  if (stateModel.feedbackState === liveApplyFeedbackStates.stale) return true;
+  return Number(event.requestId) !== stateModel.requestId ||
+    Number(event.modeEpoch) !== stateModel.modeEpoch;
+};
+
+const reduceLiveApplyFeedbackState = (current = {}, event = {}) => {
+  const stateModel = createLiveApplyFeedbackState(current);
+  if (liveApplyResponseIsStale(stateModel, event)) {
+    return {
+      ...stateModel,
+      staleResponse: staleLiveApplyResponse(event),
+    };
+  }
+
+  if (event.type === "edit") {
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.pending,
+      requestId: Number.isFinite(Number(event.requestId)) ? Number(event.requestId) : stateModel.requestId,
+      modeEpoch: Number.isFinite(Number(event.modeEpoch)) ? Number(event.modeEpoch) : stateModel.modeEpoch,
+      coveredCardId: event.coveredCardId ?? stateModel.coveredCardId,
+      controlIds: Array.isArray(event.controlIds) ? [...event.controlIds] : stateModel.controlIds,
+      draftValue: eventValueOrCurrent(event, stateModel, "draftValue"),
+      rollbackValue: cloneApplyFeedbackValue(stateModel.confirmedValue),
+      warningMessage: "",
+      spinnerVisible: false,
+      staleResponse: null,
+    };
+  }
+
+  if (event.type === "request_started") {
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.applying,
+      requestId: Number.isFinite(Number(event.requestId)) ? Number(event.requestId) : stateModel.requestId,
+      modeEpoch: Number.isFinite(Number(event.modeEpoch)) ? Number(event.modeEpoch) : stateModel.modeEpoch,
+      coveredCardId: event.coveredCardId ?? stateModel.coveredCardId,
+      controlIds: Array.isArray(event.controlIds) ? [...event.controlIds] : stateModel.controlIds,
+      draftValue: eventValueOrCurrent(event, stateModel, "draftValue"),
+      rollbackValue: cloneApplyFeedbackValue(stateModel.confirmedValue),
+      warningMessage: "",
+      spinnerVisible: true,
+      staleResponse: null,
+    };
+  }
+
+  if (event.type === "request_succeeded") {
+    const confirmedValue = Object.hasOwn(event, "confirmedValue")
+      ? cloneApplyFeedbackValue(event.confirmedValue)
+      : cloneApplyFeedbackValue(stateModel.draftValue);
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.applied,
+      draftValue: cloneApplyFeedbackValue(confirmedValue),
+      confirmedValue: cloneApplyFeedbackValue(confirmedValue),
+      rollbackValue: cloneApplyFeedbackValue(confirmedValue),
+      warningMessage: "",
+      spinnerVisible: false,
+      staleResponse: null,
+    };
+  }
+
+  if (event.type === "request_failed") {
+    const rollbackValue = cloneApplyFeedbackValue(stateModel.rollbackValue);
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.failed,
+      draftValue: rollbackValue,
+      rollbackValue,
+      warningMessage: event.warningMessage || settingsApplyFailureCautionMessage,
+      spinnerVisible: false,
+      staleResponse: null,
+    };
+  }
+
+  if (event.type === "mode_changed") {
+    const nextEpoch = Number.isFinite(Number(event.modeEpoch))
+      ? Number(event.modeEpoch)
+      : stateModel.modeEpoch + 1;
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.stale,
+      modeEpoch: nextEpoch,
+      warningMessage: "",
+      spinnerVisible: false,
+      staleResponse: null,
+    };
+  }
+
+  return stateModel;
+};
+
+const deriveLiveApplyFeedbackVisualState = (feedbackState = {}) => {
+  const stateModel = createLiveApplyFeedbackState(feedbackState);
+  const active = stateModel.feedbackState === liveApplyFeedbackStates.pending ||
+    stateModel.feedbackState === liveApplyFeedbackStates.applying;
+  return {
+    visual_state: active ? "pending" : "idle",
+    show_spinner: active && stateModel.spinnerVisible,
+  };
+};
+
 const isPlainObject = (value) =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
 
