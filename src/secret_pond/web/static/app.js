@@ -60,6 +60,7 @@ const state = {
   coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
+  liveApplyFeedback: null,
   stableApplyCoveredFeedbackSurfaceIds: [],
   stableApplyCoveredFeedbackControlSnapshots: [],
   pendingCoveredFeedbackControlIds: [],
@@ -985,6 +986,7 @@ const eventValueOrCurrent = (event, current, key) => (
 );
 
 const createLiveApplyFeedbackState = (value = {}) => {
+  value = value || {};
   const confirmedValue = cloneApplyFeedbackValue(value.confirmedValue);
   const rollbackValue = Object.hasOwn(value, "rollbackValue")
     ? cloneApplyFeedbackValue(value.rollbackValue)
@@ -2232,6 +2234,28 @@ const operationFlagsFrom = (stateLike = {}) => {
   if (Array.isArray(stateLike.coveredFeedbackControlIds) && stateLike.coveredFeedbackControlIds.length > 0) {
     flags.coveredFeedbackControlIds = [...stateLike.coveredFeedbackControlIds];
   }
+  if (stateLike.liveApplyFeedback) {
+    let liveFeedback = createLiveApplyFeedbackState(stateLike.liveApplyFeedback);
+    if (
+      liveFeedback.feedbackState === liveApplyFeedbackStates.pending &&
+      Boolean(stateLike.draftSaveInFlight)
+    ) {
+      liveFeedback = {
+        ...liveFeedback,
+        feedbackState: liveApplyFeedbackStates.applying,
+        spinnerVisible: true,
+      };
+    }
+    const visualState = deriveLiveApplyFeedbackVisualState(liveFeedback);
+    if (visualState.visual_state !== "idle" && liveFeedback.coveredCardId) {
+      flags.coveredSurfaceId = liveFeedback.coveredCardId;
+      flags.liveFeedbackSurfaceId = liveFeedback.coveredCardId;
+      flags.liveApplyFeedback = liveFeedback;
+      flags.coveredFeedbackControlIds = [...liveFeedback.controlIds];
+      flags.liveFeedbackPending = liveFeedback.feedbackState === liveApplyFeedbackStates.pending;
+      flags.liveApplyInFlight = liveFeedback.feedbackState === liveApplyFeedbackStates.applying;
+    }
+  }
   return flags;
 };
 
@@ -2369,19 +2393,99 @@ const appendPendingCoveredFeedbackControlIds = (controlIds = []) => {
   ];
 };
 
+const currentLiveApplyModeEpoch = () => Number(state.acceptedStateEpoch ?? 0);
+
+const feedbackControlValues = (settings, controlIds = []) => {
+  if (!settings || controlIds.length === 0) return undefined;
+  if (controlIds.length === 1) return cloneApplyFeedbackValue(getPath(settings, controlIds[0]));
+  return controlIds.reduce((values, controlId) => {
+    values[controlId] = cloneApplyFeedbackValue(getPath(settings, controlId));
+    return values;
+  }, {});
+};
+
+const liveApplyFeedbackActive = (feedback = state.liveApplyFeedback) => {
+  const model = createLiveApplyFeedbackState(feedback || {});
+  return model.feedbackState === liveApplyFeedbackStates.pending ||
+    model.feedbackState === liveApplyFeedbackStates.applying;
+};
+
+const updateLiveApplyFeedbackForDraftEdit = (feedbackSurfaceId, controlIds = []) => {
+  if (currentPlaybackApplyMode() !== "live" || feedbackSurfaceId === undefined || feedbackSurfaceId === null) {
+    return;
+  }
+  state.liveApplyFeedback = reduceLiveApplyFeedbackState(state.liveApplyFeedback, {
+    type: "edit",
+    requestId: state.draftSaveRequestId + 1,
+    modeEpoch: currentLiveApplyModeEpoch(),
+    coveredCardId: feedbackSurfaceId,
+    controlIds,
+    draftValue: feedbackControlValues(state.draft, controlIds),
+    confirmedValue: feedbackControlValues(
+      state.confirmedActiveSettingsSnapshot || state.snapshot?.settings?.active,
+      controlIds,
+    ),
+  });
+};
+
+const invalidateLiveApplyFeedbackForUncoveredDraftEdit = () => {
+  if (currentPlaybackApplyMode() !== "live" || !state.liveApplyFeedback) return;
+  state.liveApplyFeedback = reduceLiveApplyFeedbackState(state.liveApplyFeedback, {
+    type: "mode_changed",
+    modeEpoch: currentLiveApplyModeEpoch() + 1,
+  });
+};
+
+const updateLiveApplyFeedbackForRequestStart = (request) => {
+  if (currentPlaybackApplyMode() !== "live" || !liveApplyFeedbackActive()) return;
+  const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
+  state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+    type: "request_started",
+    requestId: request.requestId,
+    modeEpoch: current.modeEpoch,
+    coveredCardId: current.coveredCardId,
+    controlIds: request.coveredFeedbackControlIds,
+    draftValue: feedbackControlValues(state.draft, request.coveredFeedbackControlIds),
+  });
+};
+
+const updateLiveApplyFeedbackForRequestSuccess = (request, settingsPayload) => {
+  if (!state.liveApplyFeedback) return;
+  const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
+  state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+    type: "request_succeeded",
+    requestId: request.requestId,
+    modeEpoch: current.modeEpoch,
+    confirmedValue: feedbackControlValues(settingsPayload?.active, request.coveredFeedbackControlIds),
+  });
+};
+
+const updateLiveApplyFeedbackForRequestFailure = (request) => {
+  if (!state.liveApplyFeedback) return;
+  const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
+  state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+    type: "request_failed",
+    requestId: request.requestId,
+    modeEpoch: current.modeEpoch,
+  });
+};
+
 const commitDraftChange = (mutator, options = {}) => {
   if (!state.draft || draftEditLocked()) return false;
   mutator?.();
   markDraftEdited();
   const feedbackSurfaceId = draftFeedbackSurfaceIdFromOptions(options);
+  const feedbackControlIds = coveredFeedbackControlIdsFromOptions(options);
   if (feedbackSurfaceId !== undefined) {
     state.pendingCoveredFeedbackSurfaceId = feedbackSurfaceId;
     state.pendingLiveFeedbackSurfaceId = feedbackSurfaceId;
   } else {
     state.pendingCoveredFeedbackSurfaceId = undefined;
     state.pendingLiveFeedbackSurfaceId = undefined;
+    invalidateLiveApplyFeedbackForUncoveredDraftEdit();
   }
-  appendPendingCoveredFeedbackControlIds(coveredFeedbackControlIdsFromOptions(options));
+  appendPendingCoveredFeedbackControlIds(feedbackControlIds);
+  updateLiveApplyFeedbackForDraftEdit(feedbackSurfaceId, feedbackControlIds);
   syncDraftSnapshot();
   options.afterSync?.();
   renderState();
@@ -2779,6 +2883,22 @@ const operationTargetsFeedbackSurface = (operationFlags = {}, surfaceId) => {
   return controlIds.some((controlId) => (
     feedbackSurfaceIdForControlId(controlId) === normalizedSurfaceId
   ));
+};
+
+const liveApplyFeedbackTargetsSurface = (liveFeedback, surfaceId) => {
+  if (!liveFeedback) return false;
+  const normalizedSurfaceId = normalizeFeedbackSurfaceId(surfaceId);
+  const targetSurfaceId = normalizeFeedbackSurfaceId(liveFeedback.coveredCardId);
+  if (targetSurfaceId) return targetSurfaceId === normalizedSurfaceId;
+  return liveFeedback.controlIds.some((controlId) => (
+    feedbackSurfaceIdForControlId(controlId) === normalizedSurfaceId
+  ));
+};
+
+const deriveLiveApplyFeedbackSurfaceState = (liveFeedback, surfaceId) => {
+  if (!liveApplyFeedbackTargetsSurface(liveFeedback, surfaceId)) return null;
+  const visualState = deriveLiveApplyFeedbackVisualState(liveFeedback);
+  return visualState.visual_state === "idle" ? null : visualState;
 };
 
 const feedbackOperationInFlight = (operationFlags = {}, surfaceId = null) => {
@@ -5008,6 +5128,11 @@ const deriveCoveredSurfaceFeedbackState = ({
       show_spinner: Boolean(backendState.show_spinner),
     };
   }
+  const liveApplyFeedbackState = deriveLiveApplyFeedbackSurfaceState(
+    operationFlags.liveApplyFeedback,
+    surfaceId,
+  );
+  if (liveApplyFeedbackState) return liveApplyFeedbackState;
   const hasUnappliedChange = feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId);
   const applyMode = currentPlaybackApplyMode(snapshot);
   if (applyMode === "stable") {
@@ -5924,6 +6049,12 @@ const clearDraftSaveTimer = () => {
 const invalidatePendingDraftSaves = () => {
   clearDraftSaveTimer();
   state.draftSaveRequestId += 1;
+  if (state.liveApplyFeedback) {
+    state.liveApplyFeedback = reduceLiveApplyFeedbackState(state.liveApplyFeedback, {
+      type: "mode_changed",
+      modeEpoch: currentLiveApplyModeEpoch() + 1,
+    });
+  }
   state.pendingCoveredFeedbackSurfaceId = undefined;
   state.coveredFeedbackSurfaceId = undefined;
   state.pendingLiveFeedbackSurfaceId = undefined;
@@ -6008,6 +6139,7 @@ const saveDraft = async () => {
   state.coveredFeedbackSurfaceId = state.pendingCoveredFeedbackSurfaceId;
   state.liveFeedbackSurfaceId = state.pendingLiveFeedbackSurfaceId;
   state.coveredFeedbackControlIds = [...state.pendingCoveredFeedbackControlIds];
+  updateLiveApplyFeedbackForRequestStart(request);
   state.draftSaveInFlight = true;
   renderDraftSaveFeedbackSurfaces();
   try {
@@ -6018,12 +6150,14 @@ const saveDraft = async () => {
     if (!isCurrentDraftSave(request)) return payload;
     if (serverPayloadRevisionIsOlder(payload)) return payload;
     rememberServerPayloadRevision(payload);
+    updateLiveApplyFeedbackForRequestSuccess(request, payload.settings);
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
     renderState();
     renderDevices();
     return payload;
   } catch (error) {
     if (isCurrentDraftSave(request)) {
+      updateLiveApplyFeedbackForRequestFailure(request);
       rollbackDraftCoveredControlsFromActive(request.coveredFeedbackControlIds);
       showSettingsApplyFailureCaution(error.message);
       throw error;

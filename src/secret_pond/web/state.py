@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from secret_pond.config import AppSettings
 from secret_pond.services.controller import RecordingOutcome
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_changes import (
@@ -63,6 +64,7 @@ def state_payload(
             "output_running": runtime.output.is_running,
             "output_latest_status": runtime.output.latest_status,
             "output_latest_error": runtime.output.latest_error,
+            "live": _playback_live_payload(active_settings),
             "layers": {
                 layer_id: {
                     "enabled": layer_state.enabled,
@@ -108,6 +110,36 @@ def _operator_notices_payload(runtime: SecretPondRuntime) -> list[dict[str, str]
         )
         break
     return notices
+
+
+LIVE_EXCLUDED_APPLY_FLOW_FIELDS = [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+    "voice_stack.loop_seconds",
+    "sources.low_path",
+    "sources.mid_path",
+    "sources.voice_raw_path",
+    "sources.voice_stack_path",
+]
+
+LIVE_EQ_SOURCE_CONTRACT = "Live EQ uses source buffers without playback EQ applied twice."
+
+
+def _playback_live_payload(settings: AppSettings) -> dict[str, Any]:
+    enabled = settings.playback.apply_mode == "live"
+    return {
+        "enabled": enabled,
+        "volume_applies_immediately": enabled,
+        "mute_applies_immediately": enabled,
+        "seek_applies_immediately": enabled,
+        "voice_stack_transition_applies_immediately": enabled,
+        "voice_raw_preview_treatment_applies_immediately": enabled,
+        "eq_applies_immediately": enabled,
+        "excluded_apply_flow": LIVE_EXCLUDED_APPLY_FLOW_FIELDS,
+        "eq_source_contract": LIVE_EQ_SOURCE_CONTRACT,
+    }
 
 
 def _relative_operator_message(runtime: SecretPondRuntime, message: str) -> str:

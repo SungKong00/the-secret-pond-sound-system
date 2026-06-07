@@ -3436,6 +3436,8 @@ globalThis.fetch = (path) => {
 const savePromise = saveDraft();
 renderLayerControls();
 const lowCardDuringSave = document.getElementById("layerControls").children[1];
+assert.strictEqual(state.liveApplyFeedback.feedbackState, "applying");
+assert.strictEqual(state.liveApplyFeedback.coveredCardId, "layer:low");
 assert.match(lowCardDuringSave.className, /\\bfeedback-pending\\b/);
 assert.doesNotMatch(
   lowCardDuringSave.innerHTML,
@@ -3469,6 +3471,8 @@ await savePromise;
 
 renderLayerControls();
 const lowCardAfterSave = document.getElementById("layerControls").children[1];
+assert.strictEqual(state.liveApplyFeedback.feedbackState, "applied");
+assert.strictEqual(state.liveApplyFeedback.spinnerVisible, false);
 assert.doesNotMatch(lowCardAfterSave.className, /\\bfeedback-pending\\b/);
 assert.match(
   lowCardAfterSave.innerHTML,
@@ -3743,6 +3747,8 @@ renderLayerControls();
 
 const midCard = document.getElementById("layerControls").children[0];
 const lowCard = document.getElementById("layerControls").children[1];
+assert.strictEqual(state.liveApplyFeedback.feedbackState, "pending");
+assert.strictEqual(state.liveApplyFeedback.spinnerVisible, false);
 assert.doesNotMatch(midCard.className, /\\bfeedback-pending\\b/);
 assert.match(lowCard.className, /\\bfeedback-pending\\b/);
 assert.match(

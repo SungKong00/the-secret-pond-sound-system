@@ -10962,6 +10962,58 @@ def test_api_state_reports_configured_live_playback_apply_mode(tmp_path: Path) -
     assert response.json()["playback"]["apply_mode"] == "live"
 
 
+def test_api_state_reports_live_playback_apply_capabilities(tmp_path: Path) -> None:
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings)
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    live = response.json()["playback"]["live"]
+    assert live == {
+        "enabled": True,
+        "volume_applies_immediately": True,
+        "mute_applies_immediately": True,
+        "seek_applies_immediately": True,
+        "voice_stack_transition_applies_immediately": True,
+        "voice_raw_preview_treatment_applies_immediately": True,
+        "eq_applies_immediately": True,
+        "excluded_apply_flow": [
+            "audio.sample_rate",
+            "audio.channels",
+            "devices.input_device_id",
+            "devices.output_device_id",
+            "voice_stack.loop_seconds",
+            "sources.low_path",
+            "sources.mid_path",
+            "sources.voice_raw_path",
+            "sources.voice_stack_path",
+        ],
+        "eq_source_contract": "Live EQ uses source buffers without playback EQ applied twice.",
+    }
+
+
+def test_api_state_reports_stable_playback_apply_capabilities_disabled(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, settings=api_settings())
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+    live = response.json()["playback"]["live"]
+    assert live["enabled"] is False
+    assert live["volume_applies_immediately"] is False
+    assert live["mute_applies_immediately"] is False
+    assert live["seek_applies_immediately"] is False
+    assert live["voice_stack_transition_applies_immediately"] is False
+    assert live["voice_raw_preview_treatment_applies_immediately"] is False
+    assert live["eq_applies_immediately"] is False
+
+
 def test_api_playback_apply_mode_request_contract_names_supported_modes(
     tmp_path: Path,
 ) -> None:
