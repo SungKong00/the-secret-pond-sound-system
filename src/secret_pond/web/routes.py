@@ -28,6 +28,7 @@ from secret_pond.services.recording_transaction import (
     RecordingControlError,
 )
 from secret_pond.services.recording_workflow import (
+    apply_ready_voice_stack_transition,
     read_rendered_layer_buffers,
     run_recording_workflow,
 )
@@ -690,14 +691,16 @@ def _start_ready_voice_stack_transition(
     transition_target_id: str,
 ) -> None:
     settings = runtime.controller.settings
-    duration_frames = int(settings.voice_stack.transition_seconds * settings.audio.sample_rate)
     next_layers = read_rendered_layer_buffers(runtime.paths)
     next_voice = next_layers["voice"]
-    runtime.player.start_voice_crossfade(
+    apply_ready_voice_stack_transition(
+        runtime.player,
         next_voice,
-        duration_frames=duration_frames,
-        transition_target_id=transition_target_id,
         next_layers=next_layers,
+        transition_seconds=settings.voice_stack.transition_seconds,
+        sample_rate=settings.audio.sample_rate,
+        transition_target_id=transition_target_id,
+        disabled_policy="loop_boundary",
     )
     runtime.transition_warning = None
 

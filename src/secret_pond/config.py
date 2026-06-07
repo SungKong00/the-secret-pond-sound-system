@@ -101,7 +101,7 @@ class SourceSelectionSettings(BaseModel):
 class VoiceStackSettings(BaseModel):
     mode: Literal["test_library", "live_ephemeral"] = "live_ephemeral"
     loop_seconds: int = Field(default=60, ge=1, le=600)
-    transition_seconds: int = Field(default=3, ge=1, le=10)
+    transition_seconds: int = Field(default=3, ge=0, le=10)
     placement: Literal["random"] = "random"
     insert_gain_db: float = Field(default=-12.0, ge=-60.0, le=12.0)
 

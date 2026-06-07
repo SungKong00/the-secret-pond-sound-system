@@ -4,10 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from secret_pond.config import AppSettings
+from secret_pond.config import AppSettings, AudioFormatSettings, VoiceStackSettings
 from secret_pond.services.playback_control import (
     PlaybackControlError,
     restart_playback,
+    seek_playback,
     start_playback,
     stop_playback,
 )
@@ -19,6 +20,7 @@ class FakePlayer:
         self.frame_cursor = 10
         self.restart_calls = 0
         self.restore_calls = 0
+        self.seek_calls = []
         self.loaded_rendered_layers = None
 
     def snapshot(self):
@@ -31,6 +33,10 @@ class FakePlayer:
     def restart(self) -> None:
         self.restart_calls += 1
         self.frame_cursor = 0
+
+    def seek(self, frame_cursor: int) -> None:
+        self.seek_calls.append(frame_cursor)
+        self.frame_cursor = frame_cursor
 
     def load_rendered_layers(self, paths) -> None:
         if self.operations is not None:
@@ -185,3 +191,23 @@ def test_stop_playback_restores_preview_without_starting_inactive_main_playback(
     assert runtime.voice_raw_preview_resume_main is False
     assert runtime.voice_raw_preview_layers is None
     assert runtime.transition_warning is None
+
+
+def test_seek_playback_maps_progress_to_audio_loop_cycle() -> None:
+    player = FakePlayer()
+    runtime = SimpleNamespace(
+        player=player,
+        output=FakeOutput(),
+        logger=EventLogger(),
+        controller=SimpleNamespace(
+            settings=AppSettings(
+                audio=AudioFormatSettings(sample_rate=8_000, loop_seconds=60),
+                voice_stack=VoiceStackSettings(loop_seconds=5),
+            ),
+        ),
+    )
+
+    seek_playback(runtime, 0.5)
+
+    assert player.seek_calls == [240_000]
+    assert player.frame_cursor == 240_000

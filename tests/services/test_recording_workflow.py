@@ -354,6 +354,100 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
     )
 
 
+def test_live_ephemeral_transition_disabled_replaces_completed_stack_immediately(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings().model_copy(
+        update={"voice_stack": VoiceStackSettings(loop_seconds=1, transition_seconds=0)},
+        deep=True,
+    )
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    old_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.2, sample_rate=8_000)
+    next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.7, sample_rate=8_000)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "mid": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "voice": old_voice,
+        },
+        active_voice_identity="old",
+    )
+    player.start()
+    player.next_block(5)
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    write_ready_transition_cache(paths, next_voice, low=0.0, mid=0.0)
+    refresh_playback_after_recording(runtime, accepted_outcome())
+    block = player.next_block(2)
+
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "data/sources/voice/stack/VS0610_213112.wav"
+    assert block.next_frame_cursor == 2
+    np.testing.assert_allclose(block.samples, np.ones((2, 2)) * 0.7, atol=1e-4)
+    assert runtime.logger.events[-1]["payload"]["crossfade_scheduled"] is False
+    assert runtime.logger.events[-1]["payload"]["reason"] == (
+        "output_running_guard_matched_next_voice_ready_transition_disabled"
+    )
+
+
+def test_live_ephemeral_transition_disabled_waits_for_active_fade_then_replaces_latest_stack(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = workflow_settings().model_copy(
+        update={"voice_stack": VoiceStackSettings(loop_seconds=1, transition_seconds=0)},
+        deep=True,
+    )
+    settings.sources.voice_stack_path = "data/sources/voice/stack/VS0610_213112.wav"
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "mid": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+            "voice": AudioBuffer(samples=np.zeros((8, 2), dtype=np.float32), sample_rate=8_000),
+        },
+        active_voice_identity="old",
+    )
+    player.start()
+    player.start_voice_crossfade(
+        AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.4, sample_rate=8_000),
+        duration_frames=2,
+        transition_target_id="first",
+    )
+    next_voice = AudioBuffer(samples=np.ones((8, 2), dtype=np.float32) * 0.8, sample_rate=8_000)
+    runtime = SimpleNamespace(
+        paths=paths,
+        controller=SimpleNamespace(settings=settings),
+        player=player,
+        output=WorkflowOutput(running=True),
+        logger=WorkflowLogger(),
+        voice_stack=WorkflowVoiceStack(),
+    )
+
+    write_ready_transition_cache(paths, next_voice, low=0.0, mid=0.0)
+    refresh_playback_after_recording(runtime, accepted_outcome())
+
+    assert player.active_voice_transition_target_id == "first"
+
+    player.next_block(2)
+    block = player.next_block(1)
+
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "data/sources/voice/stack/VS0610_213112.wav"
+    np.testing.assert_allclose(block.samples, np.ones((1, 2)) * 0.8, atol=1e-4)
+
+
 @pytest.mark.parametrize(
     ("initial_low_enabled", "settings_low_enabled"),
     [(False, True), (True, False)],

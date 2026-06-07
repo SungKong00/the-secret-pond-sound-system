@@ -67,13 +67,15 @@ def refresh_playback_after_recording(
             )
             transition_target_id = _voice_stack_path(outcome) or "voice-stack"
             ready_evidence = _transition_ready_evidence(runtime, voice, guard)
-            superseded = start_ready_voice_stack_crossfade(
+            transition_enabled = settings.voice_stack.transition_seconds > 0
+            superseded = apply_ready_voice_stack_transition(
                 runtime.player,
                 voice,
                 next_layers=next_layers,
                 transition_seconds=settings.voice_stack.transition_seconds,
                 sample_rate=settings.audio.sample_rate,
                 transition_target_id=transition_target_id,
+                disabled_policy="immediate",
             )
             crossfade_scheduled = True
             _log_event_best_effort(
@@ -87,8 +89,12 @@ def refresh_playback_after_recording(
                     "transition_target_id": transition_target_id,
                     "transition_seconds": settings.voice_stack.transition_seconds,
                     "duration_frames": duration_frames,
-                    "crossfade_scheduled": True,
-                    "reason": "output_running_guard_matched_next_voice_ready",
+                    "crossfade_scheduled": transition_enabled,
+                    "reason": (
+                        "output_running_guard_matched_next_voice_ready"
+                        if transition_enabled
+                        else "output_running_guard_matched_next_voice_ready_transition_disabled"
+                    ),
                     "previous_transition_target_id": superseded,
                     **ready_evidence,
                 },
@@ -132,6 +138,42 @@ def start_ready_voice_stack_crossfade(
         transition_target_id=transition_target_id,
         next_layers=next_layers,
     )
+
+
+def apply_ready_voice_stack_transition(
+    player: Any,
+    next_voice: Any,
+    *,
+    next_layers: Mapping[LayerId, Any] | None = None,
+    transition_seconds: float,
+    sample_rate: int,
+    transition_target_id: str,
+    disabled_policy: str,
+) -> str | None:
+    duration_frames = int(transition_seconds * sample_rate)
+    if duration_frames > 0:
+        return start_ready_voice_stack_crossfade(
+            player,
+            next_voice,
+            next_layers=next_layers,
+            transition_seconds=transition_seconds,
+            sample_rate=sample_rate,
+            transition_target_id=transition_target_id,
+        )
+    if disabled_policy == "immediate":
+        return player.replace_voice_stack_immediate(
+            next_voice,
+            transition_target_id=transition_target_id,
+            next_layers=next_layers,
+        )
+    if disabled_policy == "loop_boundary":
+        return player.switch_voice_stack_at_loop_boundary(
+            next_voice,
+            transition_target_id=transition_target_id,
+            next_layers=next_layers,
+        )
+    msg = "disabled_policy must be immediate or loop_boundary"
+    raise ValueError(msg)
 
 
 def read_rendered_layer_buffers(paths: Any) -> dict[LayerId, Any]:

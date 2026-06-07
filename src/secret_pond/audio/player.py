@@ -73,6 +73,13 @@ class QueuedVoiceTransitionState:
 
 
 @dataclass(frozen=True)
+class PendingVoiceSwitchState:
+    to_layers: dict[LayerId, AudioBuffer]
+    transition_layer_ids: frozenset[LayerId]
+    transition_target_id: str
+
+
+@dataclass(frozen=True)
 class SeekEnvelopeState:
     duration_frames: int
     elapsed_frames: int = 0
@@ -88,6 +95,7 @@ class LayeredLoopPlayerSnapshot:
     peak_ceiling: float
     voice_transition: VoiceCrossfadeState | None
     queued_voice_transition: QueuedVoiceTransitionState | None
+    pending_voice_switch: PendingVoiceSwitchState | None
     seek_envelope: SeekEnvelopeState | None
     active_voice_identity: str | None = None
     loop_frames: int | None = None
@@ -106,6 +114,7 @@ class LayeredLoopPlayer:
         self._peak_ceiling = peak_ceiling
         self._voice_transition: VoiceCrossfadeState | None = None
         self._queued_voice_transition: QueuedVoiceTransitionState | None = None
+        self._pending_voice_switch: PendingVoiceSwitchState | None = None
         self._seek_envelope: SeekEnvelopeState | None = None
         self._active_voice_identity: str | None = None
         self._loop_frames: int | None = None
@@ -153,6 +162,7 @@ class LayeredLoopPlayer:
             peak_ceiling=self._peak_ceiling,
             voice_transition=self._voice_transition,
             queued_voice_transition=self._queued_voice_transition,
+            pending_voice_switch=self._pending_voice_switch,
             seek_envelope=self._seek_envelope,
             active_voice_identity=self._active_voice_identity,
             loop_frames=self._loop_frames,
@@ -170,6 +180,7 @@ class LayeredLoopPlayer:
         self._peak_ceiling = snapshot.peak_ceiling
         self._voice_transition = snapshot.voice_transition
         self._queued_voice_transition = snapshot.queued_voice_transition
+        self._pending_voice_switch = snapshot.pending_voice_switch
         self._seek_envelope = snapshot.seek_envelope
         self._active_voice_identity = snapshot.active_voice_identity
         self._loop_frames = snapshot.loop_frames
@@ -184,6 +195,7 @@ class LayeredLoopPlayer:
         self._playing = False
         self._voice_transition = None
         self._queued_voice_transition = None
+        self._pending_voice_switch = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -202,6 +214,7 @@ class LayeredLoopPlayer:
         self._playing = False
         self._voice_transition = None
         self._queued_voice_transition = None
+        self._pending_voice_switch = None
         self._seek_envelope = None
         self._active_voice_identity = active_voice_identity
 
@@ -213,6 +226,7 @@ class LayeredLoopPlayer:
         self._frame_cursor %= self._loop_frames
         self._voice_transition = None
         self._queued_voice_transition = None
+        self._pending_voice_switch = None
         self._seek_envelope = None
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
@@ -250,6 +264,7 @@ class LayeredLoopPlayer:
         self._playing = True
         self._voice_transition = None
         self._queued_voice_transition = None
+        self._pending_voice_switch = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -261,27 +276,19 @@ class LayeredLoopPlayer:
         transition_target_id: str,
         next_layers: Mapping[LayerId, AudioBuffer] | None = None,
     ) -> str | None:
-        layers = self._require_loaded()
         if duration_frames <= 0:
             msg = "duration_frames must be greater than 0"
             raise ValueError(msg)
-        if not transition_target_id:
-            msg = "transition_target_id must be a non-empty string"
-            raise ValueError(msg)
-
-        candidate_layers = (
-            _canonical_transition_layers(next_layers, layers)
-            if next_layers is not None
-            else dict(layers)
+        layers = self._require_loaded()
+        candidate_layers, transition_layer_ids = self._voice_transition_candidates(
+            next_voice,
+            next_layers=next_layers,
+            transition_target_id=transition_target_id,
         )
-        candidate_layers["voice"] = _canonical_voice_candidate(next_voice, layers)
-        loop_frames = self._require_loop_frames()
-        _validate_loaded_layers(candidate_layers, loop_frames=loop_frames)
-        transition_layer_ids = frozenset(LAYER_IDS if next_layers is not None else ("voice",))
         superseded = self.active_voice_transition_target_id
         if self._voice_transition is not None:
             self._queued_voice_transition = QueuedVoiceTransitionState(
-                to_layers={layer_id: candidate_layers[layer_id] for layer_id in LAYER_IDS},
+                to_layers=candidate_layers,
                 transition_layer_ids=transition_layer_ids,
                 duration_frames=duration_frames,
                 transition_target_id=transition_target_id,
@@ -297,6 +304,67 @@ class LayeredLoopPlayer:
             from_frame_cursor=self._frame_cursor,
         )
         self._frame_cursor = 0
+        self._pending_voice_switch = None
+        self._seek_envelope = None
+        return superseded
+
+    def replace_voice_stack_immediate(
+        self,
+        next_voice: AudioBuffer,
+        *,
+        transition_target_id: str,
+        next_layers: Mapping[LayerId, AudioBuffer] | None = None,
+    ) -> str | None:
+        candidate_layers, transition_layer_ids = self._voice_transition_candidates(
+            next_voice,
+            next_layers=next_layers,
+            transition_target_id=transition_target_id,
+        )
+        superseded = self.active_voice_transition_target_id
+        if self._voice_transition is not None:
+            self._queued_voice_transition = QueuedVoiceTransitionState(
+                to_layers=candidate_layers,
+                transition_layer_ids=transition_layer_ids,
+                duration_frames=0,
+                transition_target_id=transition_target_id,
+            )
+            return superseded
+        self._apply_voice_switch(
+            candidate_layers,
+            transition_layer_ids=transition_layer_ids,
+            transition_target_id=transition_target_id,
+        )
+        self._frame_cursor = 0
+        self._pending_voice_switch = None
+        self._seek_envelope = None
+        return superseded
+
+    def switch_voice_stack_at_loop_boundary(
+        self,
+        next_voice: AudioBuffer,
+        *,
+        transition_target_id: str,
+        next_layers: Mapping[LayerId, AudioBuffer] | None = None,
+    ) -> str | None:
+        candidate_layers, transition_layer_ids = self._voice_transition_candidates(
+            next_voice,
+            next_layers=next_layers,
+            transition_target_id=transition_target_id,
+        )
+        superseded = self.active_voice_transition_target_id
+        if self._voice_transition is not None:
+            self._queued_voice_transition = QueuedVoiceTransitionState(
+                to_layers=candidate_layers,
+                transition_layer_ids=transition_layer_ids,
+                duration_frames=0,
+                transition_target_id=transition_target_id,
+            )
+            return superseded
+        self._pending_voice_switch = PendingVoiceSwitchState(
+            to_layers=candidate_layers,
+            transition_layer_ids=transition_layer_ids,
+            transition_target_id=transition_target_id,
+        )
         self._seek_envelope = None
         return superseded
 
@@ -318,9 +386,11 @@ class LayeredLoopPlayer:
 
     def start(self) -> None:
         self._require_loaded()
+        self._seek_envelope = None
         self._playing = True
 
     def stop(self) -> None:
+        self._seek_envelope = None
         self._playing = False
 
     def next_block(self, block_size: int) -> MixerBlock:
@@ -339,14 +409,17 @@ class LayeredLoopPlayer:
 
         preserve_realtime_ramp_layers: frozenset[LayerId] = frozenset()
         if self._voice_transition is None:
-            block = mix_layer_blocks(
-                layers,
-                self._states,
-                frame_cursor=self._frame_cursor,
-                block_size=block_size,
-                loop_frames=loop_frames,
-                peak_ceiling=self._peak_ceiling,
-            )
+            if self._pending_voice_switch is None:
+                block = mix_layer_blocks(
+                    layers,
+                    self._states,
+                    frame_cursor=self._frame_cursor,
+                    block_size=block_size,
+                    loop_frames=loop_frames,
+                    peak_ceiling=self._peak_ceiling,
+                )
+            else:
+                block = self._next_block_with_pending_voice_switch(block_size, loop_frames)
             self._frame_cursor = block.next_frame_cursor
         else:
             block = mix_layer_blocks_with_voice_crossfade(
@@ -418,6 +491,17 @@ class LayeredLoopPlayer:
         if queued is None:
             return
         layers = self._require_loaded()
+        if queued.duration_frames <= 0:
+            self._apply_voice_switch(
+                queued.to_layers,
+                transition_layer_ids=queued.transition_layer_ids,
+                transition_target_id=queued.transition_target_id,
+            )
+            self._queued_voice_transition = None
+            self._pending_voice_switch = None
+            self._frame_cursor = 0
+            self._seek_envelope = None
+            return
         self._voice_transition = VoiceCrossfadeState(
             from_layers={layer_id: layers[layer_id] for layer_id in LAYER_IDS},
             to_layers={layer_id: queued.to_layers[layer_id] for layer_id in LAYER_IDS},
@@ -430,6 +514,99 @@ class LayeredLoopPlayer:
         self._queued_voice_transition = None
         self._frame_cursor = 0
         self._seek_envelope = None
+
+    def _voice_transition_candidates(
+        self,
+        next_voice: AudioBuffer,
+        *,
+        next_layers: Mapping[LayerId, AudioBuffer] | None,
+        transition_target_id: str,
+    ) -> tuple[dict[LayerId, AudioBuffer], frozenset[LayerId]]:
+        layers = self._require_loaded()
+        if not transition_target_id:
+            msg = "transition_target_id must be a non-empty string"
+            raise ValueError(msg)
+        candidate_layers = (
+            _canonical_transition_layers(next_layers, layers)
+            if next_layers is not None
+            else dict(layers)
+        )
+        candidate_layers["voice"] = _canonical_voice_candidate(next_voice, layers)
+        _validate_loaded_layers(candidate_layers, loop_frames=self._require_loop_frames())
+        transition_layer_ids = frozenset(LAYER_IDS if next_layers is not None else ("voice",))
+        return (
+            {layer_id: candidate_layers[layer_id] for layer_id in LAYER_IDS},
+            transition_layer_ids,
+        )
+
+    def _apply_voice_switch(
+        self,
+        next_layers: Mapping[LayerId, AudioBuffer],
+        *,
+        transition_layer_ids: frozenset[LayerId],
+        transition_target_id: str,
+    ) -> None:
+        layers = self._require_loaded()
+        for layer_id in LAYER_IDS:
+            if layer_id in transition_layer_ids:
+                layers[layer_id] = next_layers[layer_id]
+        self._active_voice_identity = transition_target_id
+
+    def _next_block_with_pending_voice_switch(
+        self,
+        block_size: int,
+        loop_frames: int,
+    ) -> MixerBlock:
+        pending = self._pending_voice_switch
+        if pending is None:
+            msg = "pending voice switch is required"
+            raise RuntimeError(msg)
+        layers = self._require_loaded()
+        frames_until_boundary = loop_frames - self._frame_cursor
+        if block_size < frames_until_boundary:
+            return mix_layer_blocks(
+                layers,
+                self._states,
+                frame_cursor=self._frame_cursor,
+                block_size=block_size,
+                loop_frames=loop_frames,
+                peak_ceiling=self._peak_ceiling,
+            )
+
+        before = mix_layer_blocks(
+            layers,
+            self._states,
+            frame_cursor=self._frame_cursor,
+            block_size=frames_until_boundary,
+            loop_frames=loop_frames,
+            peak_ceiling=self._peak_ceiling,
+        )
+        self._apply_voice_switch(
+            pending.to_layers,
+            transition_layer_ids=pending.transition_layer_ids,
+            transition_target_id=pending.transition_target_id,
+        )
+        self._pending_voice_switch = None
+        self._frame_cursor = 0
+        remaining = block_size - frames_until_boundary
+        if remaining == 0:
+            return before
+
+        after = mix_layer_blocks(
+            layers,
+            self._states,
+            frame_cursor=0,
+            block_size=remaining,
+            loop_frames=loop_frames,
+            peak_ceiling=self._peak_ceiling,
+        )
+        samples = np.concatenate([before.samples, after.samples], axis=0)
+        return MixerBlock(
+            samples=samples,
+            next_frame_cursor=after.next_frame_cursor,
+            peak_before_guard=max(before.peak_before_guard, after.peak_before_guard),
+            peak_after_guard=max(before.peak_after_guard, after.peak_after_guard),
+        )
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
         normalized_layer_id = _validate_layer_id(layer_id)
@@ -882,11 +1059,38 @@ def _read_wrapped(
     *,
     loop_frames: int | None = None,
 ) -> np.ndarray:
-    source_frames = samples.shape[0]
-    cycle_frames = source_frames if loop_frames is None else loop_frames
-    cycle_indices = (np.arange(block_size) + frame_cursor) % cycle_frames
-    indices = cycle_indices % source_frames
+    indices = normalized_source_frame_indices(
+        frame_cursor=frame_cursor,
+        block_size=block_size,
+        source_frames=samples.shape[0],
+        loop_frames=loop_frames,
+    )
     return samples[indices].astype(np.float32, copy=True)
+
+
+def normalized_source_frame_indices(
+    *,
+    frame_cursor: int,
+    block_size: int,
+    source_frames: int,
+    loop_frames: int | None = None,
+) -> np.ndarray:
+    if source_frames <= 0:
+        msg = "source_frames must be greater than 0"
+        raise ValueError(msg)
+    if block_size <= 0:
+        msg = "block_size must be greater than 0"
+        raise ValueError(msg)
+    cycle_frames = source_frames if loop_frames is None else loop_frames
+    if cycle_frames <= 0:
+        msg = "loop_frames must be greater than 0"
+        raise ValueError(msg)
+    if not 0 <= frame_cursor < cycle_frames:
+        msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
+        raise ValueError(msg)
+
+    cycle_indices = (np.arange(block_size) + frame_cursor) % cycle_frames
+    return cycle_indices % source_frames
 
 
 def _apply_gain(samples: np.ndarray, gain_db: float) -> np.ndarray:

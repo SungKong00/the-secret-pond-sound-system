@@ -88,7 +88,7 @@ def test_voice_stack_transition_seconds_defaults_to_three_seconds() -> None:
     assert AppSettings().voice_stack.transition_seconds == 3
 
 
-@pytest.mark.parametrize("duration", [1, 10])
+@pytest.mark.parametrize("duration", [0, 1, 10])
 def test_voice_stack_transition_seconds_accepts_configured_range(
     duration: int,
 ) -> None:
@@ -97,7 +97,7 @@ def test_voice_stack_transition_seconds_accepts_configured_range(
     assert settings.transition_seconds == duration
 
 
-@pytest.mark.parametrize("duration", [0, 11])
+@pytest.mark.parametrize("duration", [-1, 11])
 def test_voice_stack_transition_seconds_rejects_out_of_range_values(
     duration: int,
 ) -> None:

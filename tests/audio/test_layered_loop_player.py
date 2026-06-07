@@ -136,6 +136,25 @@ def test_player_seek_during_playback_applies_short_ramp_in(tmp_path: Path) -> No
     np.testing.assert_allclose(after_ramp.samples[-1], np.array([0.6, 0.6]), atol=1e-6)
 
 
+def test_player_start_after_stopped_seek_emits_first_block_without_fade_in(
+    tmp_path: Path,
+) -> None:
+    paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3, frames=512)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(paths)
+    player.start()
+    player.next_block(16)
+    player.seek(256)
+    player.stop()
+
+    player.start()
+    block = player.next_block(4)
+
+    assert player.is_playing is True
+    assert block.next_frame_cursor == 260
+    np.testing.assert_allclose(block.samples, np.ones((4, 2)) * 0.6, atol=1e-6)
+
+
 def test_player_stop_returns_silence_without_advancing_cursor(tmp_path: Path) -> None:
     paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3)
     player = LayeredLoopPlayer()
@@ -382,6 +401,113 @@ def test_player_voice_crossfade_finishes_active_before_latest_queued_target() ->
 
     assert player.active_voice_transition_target_id == "second"
     np.testing.assert_allclose(second_start.samples, np.ones((1, 2)) * 0.4, atol=1e-6)
+
+
+def test_player_transition_disabled_can_replace_voice_stack_immediately() -> None:
+    old_voice = np.column_stack(
+        [
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+        ],
+    )
+    new_voice = np.column_stack(
+        [
+            np.array([0.5, 0.6, 0.7, 0.8, 0.9], dtype=np.float32),
+            np.array([0.5, 0.6, 0.7, 0.8, 0.9], dtype=np.float32),
+        ],
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": stereo(0.0, frames=5),
+            "mid": stereo(0.0, frames=5),
+            "voice": AudioBuffer(samples=old_voice, sample_rate=8_000),
+        }
+    )
+    player.start()
+    player.next_block(3)
+
+    superseded = player.replace_voice_stack_immediate(
+        AudioBuffer(samples=new_voice, sample_rate=8_000),
+        transition_target_id="new",
+    )
+    block = player.next_block(2)
+
+    assert superseded is None
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "new"
+    assert block.next_frame_cursor == 2
+    np.testing.assert_allclose(block.samples[:, 0], new_voice[:2, 0], atol=1e-6)
+
+
+def test_player_transition_disabled_switches_voice_stack_at_loop_boundary() -> None:
+    old_voice = np.column_stack(
+        [
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+        ],
+    )
+    new_voice = np.column_stack(
+        [
+            np.array([0.5, 0.6, 0.7, 0.8, 0.9], dtype=np.float32),
+            np.array([0.5, 0.6, 0.7, 0.8, 0.9], dtype=np.float32),
+        ],
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": stereo(0.0, frames=5),
+            "mid": stereo(0.0, frames=5),
+            "voice": AudioBuffer(samples=old_voice, sample_rate=8_000),
+        }
+    )
+    player.start()
+    player.next_block(2)
+
+    superseded = player.switch_voice_stack_at_loop_boundary(
+        AudioBuffer(samples=new_voice, sample_rate=8_000),
+        transition_target_id="new",
+    )
+    block = player.next_block(5)
+
+    assert superseded is None
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "new"
+    assert block.next_frame_cursor == 2
+    np.testing.assert_allclose(
+        block.samples[:, 0],
+        np.array([0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float32),
+        atol=1e-6,
+    )
+
+
+def test_player_transition_disabled_queued_during_active_fade_applies_after_fade() -> None:
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": stereo(0.0, frames=8),
+            "mid": stereo(0.0, frames=8),
+            "voice": stereo(0.0, frames=8),
+        }
+    )
+    player.start()
+    player.start_voice_crossfade(
+        stereo(0.4, frames=8),
+        duration_frames=2,
+        transition_target_id="first",
+    )
+
+    superseded = player.replace_voice_stack_immediate(
+        stereo(0.8, frames=8),
+        transition_target_id="second",
+    )
+    player.next_block(2)
+    block = player.next_block(1)
+
+    assert superseded == "first"
+    assert player.active_voice_transition_target_id is None
+    assert player.active_voice_identity == "second"
+    np.testing.assert_allclose(block.samples, np.ones((1, 2)) * 0.8, atol=1e-6)
 
 
 def test_player_voice_crossfade_can_transition_low_mid_and_voice_together(

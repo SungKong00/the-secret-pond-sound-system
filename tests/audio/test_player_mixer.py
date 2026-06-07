@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import secret_pond.audio.player as player_module
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.player import (
     LayerPlaybackState,
@@ -89,6 +90,105 @@ def test_mixer_reads_short_sources_against_configured_loop_frames() -> None:
         atol=1e-6,
     )
     assert block.next_frame_cursor == 2
+
+
+def test_mixer_repeats_short_source_inside_configured_cycle_then_restarts_cycle() -> None:
+    sample_rate = 10
+    source_frames = 60 * sample_rate
+    loop_frames = 65 * sample_rate
+    source_values = (np.arange(source_frames, dtype=np.float32) / 10_000.0)[:, np.newaxis]
+    short_source = np.repeat(source_values, 2, axis=1)
+    layers = {
+        "low": AudioBuffer(samples=short_source, sample_rate=sample_rate),
+        "mid": stereo(0.0, frames=loop_frames, sample_rate=sample_rate),
+        "voice": stereo(0.0, frames=loop_frames, sample_rate=sample_rate),
+    }
+
+    block = mix_layer_blocks(
+        layers,
+        {},
+        frame_cursor=0,
+        block_size=loop_frames + (5 * sample_rate),
+        loop_frames=loop_frames,
+    )
+
+    expected_source_indices = np.concatenate(
+        [
+            np.arange(source_frames),
+            np.arange(loop_frames - source_frames),
+            np.arange(5 * sample_rate),
+        ],
+    )
+    expected = expected_source_indices.astype(np.float32) / 10_000.0
+    np.testing.assert_allclose(block.samples[:, 0], expected, atol=1e-6)
+    np.testing.assert_allclose(block.samples[:, 1], expected, atol=1e-6)
+    assert block.next_frame_cursor == 5 * sample_rate
+
+
+def test_low_layer_source_indices_follow_normalized_cycle_cursor() -> None:
+    source_frames = 4
+    loop_frames = 10
+    if not hasattr(player_module, "normalized_source_frame_indices"):
+        pytest.fail("normalized_source_frame_indices helper is required")
+    normalized_source_frame_indices = player_module.normalized_source_frame_indices
+
+    cycle_start = normalized_source_frame_indices(
+        frame_cursor=0,
+        block_size=5,
+        source_frames=source_frames,
+        loop_frames=loop_frames,
+    )
+    near_cycle_boundary = normalized_source_frame_indices(
+        frame_cursor=8,
+        block_size=5,
+        source_frames=source_frames,
+        loop_frames=loop_frames,
+    )
+
+    np.testing.assert_array_equal(cycle_start, np.array([0, 1, 2, 3, 0]))
+    np.testing.assert_array_equal(near_cycle_boundary, np.array([0, 1, 0, 1, 2]))
+
+
+def test_mid_layer_source_frames_follow_normalized_cycle_cursor() -> None:
+    mid_samples = np.column_stack(
+        [
+            np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+        ],
+    )
+    layers = {
+        "low": stereo(0.0, frames=4),
+        "mid": AudioBuffer(samples=mid_samples, sample_rate=8_000),
+        "voice": stereo(0.0, frames=4),
+    }
+
+    cycle_start = mix_layer_blocks(
+        layers,
+        {},
+        frame_cursor=0,
+        block_size=5,
+        loop_frames=10,
+    )
+    near_cycle_boundary = mix_layer_blocks(
+        layers,
+        {},
+        frame_cursor=8,
+        block_size=5,
+        loop_frames=10,
+    )
+
+    np.testing.assert_allclose(
+        cycle_start.samples[:, 0],
+        np.array([0.1, 0.2, 0.3, 0.4, 0.1], dtype=np.float32),
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        near_cycle_boundary.samples[:, 0],
+        np.array([0.1, 0.2, 0.1, 0.2, 0.3], dtype=np.float32),
+        atol=1e-6,
+    )
+    assert cycle_start.next_frame_cursor == 5
+    assert near_cycle_boundary.next_frame_cursor == 3
 
 
 def test_mixer_crossfades_low_mid_and_voice_layers_together() -> None:
