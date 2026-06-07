@@ -314,7 +314,7 @@ def test_refresh_playback_crossfades_from_current_voice_when_next_voice_becomes_
         "data/sources/voice/stack/VS0610_213112.wav"
     )
     assert after_ready.voice_transition.duration_frames == 32_000
-    assert player.frame_cursor == 3
+    assert player.frame_cursor == 0
     assert player.is_playing is True
     np.testing.assert_allclose(
         after_ready.voice_transition.from_buffer.samples,
@@ -564,7 +564,7 @@ def test_live_ephemeral_ready_diagnostic_captures_audible_voice_layer(tmp_path) 
     transition = player.snapshot().voice_transition
     assert transition is not None
     assert ready_moment_cursor == 5
-    assert player.frame_cursor == ready_moment_cursor
+    assert player.frame_cursor == 0
     np.testing.assert_allclose(
         transition.from_buffer.samples,
         ready_moment_voice.samples,

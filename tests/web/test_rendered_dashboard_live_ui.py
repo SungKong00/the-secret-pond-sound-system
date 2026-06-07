@@ -83,6 +83,9 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     assert rendered["transitionBadge"].startswith("Live Transition")
     assert rendered["timelineRect"]["width"] > 260
     assert rendered["seekRect"]["width"] > 260
+    assert rendered["scrubRect"]["x"] >= rendered["timelineRect"]["x"]
+    assert rendered["seekRect"]["right"] <= rendered["timelineRect"]["right"]
+    assert rendered["transitionRect"]["right"] <= rendered["timelineRect"]["right"]
     assert rendered["desktopBehaviorNotes"] == [
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
@@ -396,11 +399,11 @@ window.fetch = async (url) => {{
 </script>
 """
     rendered = html.replace(
-        '<link rel="stylesheet" href="/static/styles.css?v=20260607-layer-transition" />',
+        '<link rel="stylesheet" href="/static/styles.css?v=20260607-seek-transition" />',
         f"<style>\n{styles}\n</style>",
     )
     rendered = rendered.replace(
-        '<script src="/static/app.js?v=20260607-layer-transition" defer></script>',
+        '<script src="/static/app.js?v=20260607-seek-transition" defer></script>',
         f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
     )
     path = temp_dir / "rendered-live-dashboard.html"
@@ -612,11 +615,20 @@ class _CdpPage:
   const elementText = (id) => document.getElementById(id)?.textContent.trim() || "";
   const rect = (element) => {
     const bounds = element.getBoundingClientRect();
-    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      right: bounds.right,
+      bottom: bounds.bottom,
+    };
   };
   const seek = document.getElementById("playbackSeekSlider");
   const progress = document.getElementById("playbackProgressBar");
   const timeline = document.getElementById("playbackTimeline");
+  const scrub = document.querySelector(".playback-scrub-control");
+  const transitionControls = document.getElementById("playbackTransitionControls");
   const liveButton = document.getElementById("playbackApplyModeLiveButton");
   const stableButton = document.getElementById("playbackApplyModeStableButton");
   const details = document.getElementById("playbackLiveDetails");
@@ -646,7 +658,9 @@ class _CdpPage:
     outputSummary: elementText("outputControlSummary"),
     transitionBadge: elementText("transitionModeBadge"),
     timelineRect: timeline ? rect(timeline) : null,
+    scrubRect: scrub ? rect(scrub) : null,
     seekRect: seek ? rect(seek) : null,
+    transitionRect: transitionControls ? rect(transitionControls) : null,
   };
 })()
 """

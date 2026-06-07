@@ -6093,8 +6093,10 @@ const updatePlaybackSeekDrag = (event) => {
 const finishPlaybackSeekDrag = (event) => {
   if (state.playbackSeekPointerId === null) return;
   if (event.pointerId !== state.playbackSeekPointerId) return;
-  $("playbackSeekSlider").releasePointerCapture?.(state.playbackSeekPointerId);
+  const slider = $("playbackSeekSlider");
+  slider.releasePointerCapture?.(state.playbackSeekPointerId);
   state.playbackSeekPointerId = null;
+  releaseInteractiveControl(slider);
 };
 
 const applyAndRestart = async () => {

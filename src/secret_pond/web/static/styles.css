@@ -1287,6 +1287,7 @@ input[type="range"]:focus-visible {
 .playback-timeline {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 9px 10px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 8px;
@@ -1314,16 +1315,50 @@ input[type="range"]:focus-visible {
   position: relative;
   display: grid;
   align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 24px;
 }
 
 .playback-transition-controls {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 2px;
+  box-sizing: border-box;
 }
 
 .playback-transition-controls .control-row {
-  grid-template-columns: minmax(86px, 0.5fr) minmax(120px, 1fr) minmax(96px, auto);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
   padding: 8px;
+}
+
+.playback-transition-controls .value,
+.playback-transition-controls .value-stack {
+  justify-self: start;
+  justify-items: start;
+  text-align: left;
+}
+
+.playback-transition-controls .range-context {
+  white-space: normal;
+}
+
+.playback-transition-controls .range-marks span:first-child {
+  transform: none;
+}
+
+.playback-transition-controls .range-marks span:last-child {
+  transform: translateX(-100%);
+}
+
+.playback-transition-controls .precision-control {
+  grid-template-columns: 22px minmax(40px, 1fr) 22px;
+  gap: 2px;
+  width: min(100%, 118px);
 }
 
 .playback-progress-track {

@@ -243,7 +243,7 @@ def test_player_reload_and_restart_clears_live_eq_state_for_rendered_cache(
     }
 
 
-def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_cursor(
+def test_player_voice_crossfade_mixes_equal_power_voice_only_from_new_loop_start(
     tmp_path: Path,
 ) -> None:
     paths = write_layers(tmp_path / "first", low=0.1, mid=0.2, voice=0.0, frames=8)
@@ -257,13 +257,15 @@ def test_player_voice_crossfade_mixes_equal_power_voice_only_without_resetting_c
         duration_frames=4,
         transition_target_id="vs-2",
     )
+    assert player.frame_cursor == 0
+
     block = player.next_block(2)
 
     progress = np.array([0.0, 0.25], dtype=np.float32)
     expected_voice = 0.4 * np.sin(progress * np.pi / 2.0)
     expected = np.column_stack([0.3 + expected_voice, 0.3 + expected_voice])
     assert superseded is None
-    assert player.frame_cursor == 4
+    assert player.frame_cursor == 2
     assert player.active_voice_transition_target_id == "vs-2"
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
@@ -288,6 +290,8 @@ def test_player_voice_crossfade_can_transition_low_mid_and_voice_together(
         transition_target_id="vs-2",
         next_layers=next_layers,
     )
+    assert player.frame_cursor == 0
+
     block = player.next_block(2)
 
     progress = np.array([0.0, 0.25], dtype=np.float32)
@@ -297,7 +301,7 @@ def test_player_voice_crossfade_can_transition_low_mid_and_voice_together(
         + (0.04 + 0.05 + 0.06) * to_gain
     )
     expected = np.column_stack([expected_layer_sum, expected_layer_sum])
-    assert player.frame_cursor == 4
+    assert player.frame_cursor == 2
     assert player.active_voice_transition_target_id == "vs-2"
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
@@ -325,7 +329,7 @@ def test_player_voice_eq_update_is_audible_during_active_voice_crossfade(
     assert after > before * 1.5
 
 
-def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(
+def test_player_voice_crossfade_restarts_low_mid_voice_layers_from_zero_cursor(
     tmp_path: Path,
 ) -> None:
     frames = 8
@@ -359,7 +363,7 @@ def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(
     )
     block = player.next_block(4)
 
-    cursor_indices = np.array([3, 4, 5, 6])
+    cursor_indices = np.array([0, 1, 2, 3])
     progress = np.array([0.0, 0.25, 0.5, 0.75], dtype=np.float32)
     expected_voice = 0.2 * np.sin(progress * np.pi / 2.0)
     expected_non_voice = low_samples[cursor_indices, 0] + mid_samples[cursor_indices, 0]
@@ -369,15 +373,13 @@ def test_player_voice_crossfade_keeps_low_mid_layers_on_current_cursor(
             expected_non_voice + expected_voice,
         ],
     )
-    reset_cursor_non_voice = low_samples[:4, 0] + mid_samples[:4, 0]
 
-    assert player.frame_cursor == 7
-    assert block.next_frame_cursor == 7
-    assert not np.allclose(expected_non_voice, reset_cursor_non_voice)
+    assert player.frame_cursor == 4
+    assert block.next_frame_cursor == 4
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
 
-def test_player_voice_crossfade_preserves_mid_cursor_across_transition_boundary() -> None:
+def test_player_voice_crossfade_continues_new_loop_cursor_across_transition_boundary() -> None:
     frames = 8
     mid_samples = np.column_stack(
         [
@@ -406,15 +408,15 @@ def test_player_voice_crossfade_preserves_mid_cursor_across_transition_boundary(
 
     np.testing.assert_allclose(
         during_crossfade.samples[:, 0],
-        mid_samples[[5, 6, 7], 0],
+        mid_samples[[0, 1, 2], 0],
         atol=1e-6,
     )
     np.testing.assert_allclose(
         after_crossfade.samples[:, 0],
-        mid_samples[[0, 1, 2], 0],
+        mid_samples[[3, 4, 5], 0],
         atol=1e-6,
     )
-    assert player.frame_cursor == 3
+    assert player.frame_cursor == 6
     assert player.active_voice_transition_target_id is None
 
 

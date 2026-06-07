@@ -735,6 +735,150 @@ assert.deepStrictEqual(JSON.parse(seekRequest.options.body), { progress: 0.5 });
     )
 
 
+def test_playback_seek_pointer_drag_release_resumes_timeline_updates() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  bindEvents,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { applyState, bindEvents, state } = globalThis.__secretPond;
+
+globalThis.fetch = async () => ({
+  ok: true,
+  json: async () => ({
+    state: {
+      ...state.snapshot,
+      playback: {
+        ...state.snapshot.playback,
+        frame_cursor: 48000 * 30,
+        position_seconds: 30,
+        progress: 0.5,
+      },
+    },
+  }),
+});
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    rendered_cache_ready: true,
+    frame_cursor: 0,
+    apply_mode: "live",
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+bindEvents();
+
+const seekSlider = document.getElementById("playbackSeekSlider");
+seekSlider.getBoundingClientRect = () => ({ left: 10, width: 200 });
+seekSlider.setPointerCapture = () => {};
+seekSlider.releasePointerCapture = () => {};
+seekSlider.dispatchEvent({
+  type: "pointerdown",
+  target: seekSlider,
+  clientX: 110,
+  pointerId: 7,
+  preventDefault() {},
+});
+await Promise.resolve();
+await Promise.resolve();
+
+seekSlider.dispatchEvent({
+  type: "pointerup",
+  target: seekSlider,
+  pointerId: 7,
+  preventDefault() {},
+});
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    rendered_cache_ready: true,
+    frame_cursor: 48000 * 31,
+    apply_mode: "live",
+    position_seconds: 31,
+    duration_seconds: 60,
+    progress: 31 / 60,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false });
+
+assert.strictEqual(state.activeInteractiveControl, null);
+assert.strictEqual(seekSlider.value, "31");
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "31.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "51.667%");
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_stable_running_playback_enables_seek_slider() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

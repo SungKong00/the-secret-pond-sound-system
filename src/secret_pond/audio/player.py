@@ -259,6 +259,8 @@ class LayeredLoopPlayer:
             elapsed_frames=0,
             transition_target_id=transition_target_id,
         )
+        self._frame_cursor = 0
+        self._seek_envelope = None
         return superseded
 
     def restart(self) -> None:

@@ -923,8 +923,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260607-layer-transition"' in response.text
-    assert 'src="/static/app.js?v=20260607-layer-transition"' in response.text
+    assert 'href="/static/styles.css?v=20260607-seek-transition"' in response.text
+    assert 'src="/static/app.js?v=20260607-seek-transition"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert "No Rendered Cache" in response.text
@@ -10733,15 +10733,16 @@ def test_api_live_voice_stack_source_select_crossfades_as_soon_as_voice_is_ready
     transition = client.app.state.runtime.player.snapshot().voice_transition
     assert transition is not None
     assert transition.transition_target_id == selected_stack
-    assert client.app.state.runtime.player.frame_cursor == 2_000
+    assert client.app.state.runtime.player.frame_cursor == 0
     assert response.json()["state"]["playback"]["active_voice_transition_target_id"] == (
         selected_stack
     )
+    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
     assert response.json()["state"]["playback"]["pending_voice_transition_target_id"] is None
 
     crossfade_block = client.app.state.runtime.player.next_block(4)
     progress = np.arange(4, dtype=np.float32) / transition.duration_frames
-    expected_voice = transition.to_buffer.samples[2_000:2_004] * np.sin(
+    expected_voice = transition.to_buffer.samples[:4] * np.sin(
         progress * np.pi / 2.0,
     )[:, np.newaxis]
     np.testing.assert_allclose(crossfade_block.samples, expected_voice, atol=1e-6)
