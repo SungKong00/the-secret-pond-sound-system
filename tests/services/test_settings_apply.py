@@ -39,6 +39,7 @@ class MemoryOutput:
 class ApplyRestartPlayerSpy:
     def __init__(self) -> None:
         self.reload_paths = []
+        self.load_paths = []
         self.voice_hot_swap_calls = 0
         self.enabled_updates = []
         self.realtime_trim_updates = []
@@ -55,7 +56,7 @@ class ApplyRestartPlayerSpy:
         self.reload_paths.append(paths)
 
     def load_rendered_layers(self, paths) -> None:
-        raise AssertionError("Apply and Restart must reload the rendered cache")
+        self.load_paths.append(paths)
 
     def restart(self) -> None:
         raise AssertionError("Apply and Restart must reload the rendered cache")
@@ -209,6 +210,35 @@ def test_apply_draft_settings_reloads_rendered_cache_without_live_voice_hot_swap
     assert runtime.paths.voice_playback.exists()
 
 
+def test_stable_apply_loads_rendered_cache_without_starting_stopped_output(tmp_path) -> None:
+    settings = service_settings().model_copy(
+        update={"voice_stack": VoiceStackSettings(mode="live_ephemeral", loop_seconds=1)},
+        deep=True,
+    )
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(ProjectPaths(tmp_path), settings)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+    layers = {
+        **settings.layers,
+        "voice": settings.layers["voice"].model_copy(update={"volume_db": -9.0}),
+    }
+    draft = settings.model_copy(update={"layers": layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    result = apply_draft_settings(runtime)
+
+    assert result.was_output_running is False
+    assert result.output_running is False
+    assert player.voice_hot_swap_calls == 0
+    assert player.reload_paths == []
+    assert len(player.load_paths) == 1
+    load_paths = player.load_paths[0]
+    assert load_paths["low"] == runtime.paths.low_playback
+    assert load_paths["mid"] == runtime.paths.mid_playback
+    assert load_paths["voice"] == runtime.paths.voice_playback
+
+
 def test_stable_apply_commits_staged_volume_and_mute_to_active_state(tmp_path) -> None:
     settings = service_settings()
     runtime = build_service_runtime(tmp_path, settings)
@@ -304,7 +334,8 @@ def test_stable_apply_renders_cache_content_with_draft_eq_settings(tmp_path) -> 
     rendered = read_wav(paths.mid_playback)
     assert runtime.settings_store.load().active.layers["mid"].eq.mid_gain_db == 12.0
     assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 12.0
-    assert len(player.reload_paths) == 1
+    assert player.reload_paths == []
+    assert len(player.load_paths) == 1
     assert rms(rendered.samples[:, 0]) > rms(baseline.samples[:, 0]) * 1.5
 
 

@@ -36,6 +36,7 @@ class PlayerSpy:
         self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
         self.live_eq_state_updates: list[tuple[str, EqSettings]] = []
         self.reload_paths: list[dict[str, object]] = []
+        self.load_paths: list[dict[str, object]] = []
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
         self.layer_buffer_updates.append((layer_id, buffer))
@@ -45,6 +46,9 @@ class PlayerSpy:
 
     def reload_and_restart(self, paths) -> None:
         self.reload_paths.append(dict(paths))
+
+    def load_rendered_layers(self, paths) -> None:
+        self.load_paths.append(dict(paths))
 
 
 class RendererSpy:
@@ -62,12 +66,18 @@ class RendererSpy:
         return self.buffer
 
 
+class OutputSpy:
+    def __init__(self, *, running: bool) -> None:
+        self.is_running = running
+
+
 class RuntimeHarness:
     def __init__(
         self,
         state: SettingsState,
         live_raw_buffer: AudioBuffer,
         paths: ProjectPaths | None = None,
+        output_running: bool | None = None,
     ) -> None:
         self.settings_state = state
         self.settings_store = MemorySettingsStore(state)
@@ -76,6 +86,8 @@ class RuntimeHarness:
         self.renderer = RendererSpy(live_raw_buffer)
         self.logger = LoggerSpy()
         self.playback_render_settings = state.active
+        if output_running is not None:
+            self.output = OutputSpy(running=output_running)
         if paths is not None:
             self.paths = paths
 
@@ -158,6 +170,52 @@ def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_rende
     assert runtime.renderer.stable_render_calls == []
     assert runtime.player.layer_buffer_updates == [("voice", live_raw_buffer)]
     assert runtime.player.reload_paths == [
+        {
+            "low": paths.low_playback,
+            "mid": paths.mid_playback,
+            "voice": paths.voice_playback,
+        }
+    ]
+    assert runtime.playback_render_settings == result.active
+
+
+def test_live_to_stable_mode_loads_cache_without_starting_player_when_output_is_stopped(
+    tmp_path,
+) -> None:
+    live = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+            "layers": {
+                **AppSettings().layers,
+                "voice": AppSettings().layers["voice"].model_copy(
+                    update={
+                        "eq": AppSettings().layers["voice"].eq.model_copy(
+                            update={"mid_gain_db": 6.0},
+                        ),
+                    },
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=live, draft=live)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    paths = ProjectPaths(tmp_path)
+    runtime = RuntimeHarness(
+        state,
+        live_raw_buffer,
+        paths=paths,
+        output_running=False,
+    )
+
+    result = apply_playback_apply_mode(runtime, "stable")  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "stable"
+    assert runtime.player.reload_paths == []
+    assert runtime.player.load_paths == [
         {
             "low": paths.low_playback,
             "mid": paths.mid_playback,

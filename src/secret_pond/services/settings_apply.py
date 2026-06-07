@@ -91,7 +91,10 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
         staged = runtime.renderer.stage_all(draft)
         staged.commit()
         if voice_raw_preview_path is None:
-            runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+            if was_running:
+                runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
+            else:
+                runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
             apply_player_layer_settings(runtime, draft, reset_realtime_trims=True)
         else:
             prepare_voice_raw_preview(runtime, voice_raw_preview_path, draft)

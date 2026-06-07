@@ -514,6 +514,26 @@ def test_player_load_rendered_layers_clears_pending_voice_crossfade_and_stays_st
     np.testing.assert_allclose(block.samples, np.zeros((2, 2)), atol=1e-6)
 
 
+def test_player_load_rendered_layers_clears_live_eq_state_for_stopped_rendered_cache(
+    tmp_path: Path,
+) -> None:
+    first_paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.0, frames=8)
+    second_paths = write_layers(tmp_path / "second", low=0.1, mid=0.1, voice=0.1, frames=8)
+    player = LayeredLoopPlayer()
+    player.load_rendered_layers(first_paths)
+    player.set_live_eq_state("mid", EqSettings(mid_gain_db=9.0))
+    player.set_live_eq_state("voice", EqSettings(high_gain_db=-6.0))
+
+    player.load_rendered_layers(second_paths)
+
+    assert player.is_playing is False
+    assert player.live_eq_states == {
+        "low": EqSettings(),
+        "mid": EqSettings(),
+        "voice": EqSettings(),
+    }
+
+
 def test_player_latest_voice_crossfade_target_wins(tmp_path: Path) -> None:
     paths = write_layers(tmp_path / "first", low=0.0, mid=0.0, voice=0.0, frames=8)
     player = LayeredLoopPlayer()

@@ -399,11 +399,11 @@ window.fetch = async (url) => {{
 </script>
 """
     rendered = html.replace(
-        '<link rel="stylesheet" href="/static/styles.css?v=20260607-seek-transition" />',
+        '<link rel="stylesheet" href="/static/styles.css?v=20260608-playback-running" />',
         f"<style>\n{styles}\n</style>",
     )
     rendered = rendered.replace(
-        '<script src="/static/app.js?v=20260607-seek-transition" defer></script>',
+        '<script src="/static/app.js?v=20260608-playback-running" defer></script>',
         f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
     )
     path = temp_dir / "rendered-live-dashboard.html"

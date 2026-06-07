@@ -3077,7 +3077,7 @@ const markPlaybackTimelineServerUpdate = () => {
 };
 
 const playbackTimelineRunning = (snapshot = state.snapshot) => (
-  Boolean(snapshot?.playback?.output_running || snapshot?.playback?.is_playing)
+  Boolean(snapshot?.playback?.output_running)
 );
 
 const activePlaybackTimeline = (snapshot = state.snapshot, options = {}) => {

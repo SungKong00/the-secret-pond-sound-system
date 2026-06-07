@@ -923,8 +923,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260607-seek-transition"' in response.text
-    assert 'src="/static/app.js?v=20260607-seek-transition"' in response.text
+    assert 'href="/static/styles.css?v=20260608-playback-running"' in response.text
+    assert 'src="/static/app.js?v=20260608-playback-running"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert "No Rendered Cache" in response.text
@@ -11773,9 +11773,11 @@ def test_api_devices_update_restarts_running_output_on_output_device_change(
     output = FakeOutput()
     client = create_test_client(
         tmp_path,
+        with_sources=True,
         output=output,
         device_registry=fake_device_registry(),
     )
+    client.post("/api/settings/apply-and-restart")
     start_response = client.post("/api/playback/start")
 
     response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
@@ -11795,9 +11797,11 @@ def test_api_devices_update_restores_running_output_when_stop_fails(
     output = FakeOutput(fail_stop=OSError("stream stop failed"))
     client = create_test_client(
         tmp_path,
+        with_sources=True,
         output=output,
         device_registry=fake_device_registry(),
     )
+    client.post("/api/settings/apply-and-restart")
     start_response = client.post("/api/playback/start")
 
     response = client.put("/api/devices", json={"output_device_id": "speaker-2"})
@@ -11822,12 +11826,14 @@ def test_api_devices_update_rolls_back_runtime_devices_when_save_fails(
     output = FakeOutput()
     client = create_test_client(
         tmp_path,
+        with_sources=True,
         recorder=recorder,
         output=output,
         device_registry=fake_device_registry(),
         raise_server_exceptions=False,
     )
     runtime = client.app.state.runtime
+    client.post("/api/settings/apply-and-restart")
     start_response = client.post("/api/playback/start")
     runtime.settings_store = FailingSaveSettingsStore(
         runtime.settings_store,
@@ -12251,7 +12257,7 @@ def test_api_settings_apply_and_restart_renders_inside_runtime_lock(
     assert renderer.lock_owned_during_render is True
 
 
-def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
+def test_api_settings_apply_and_restart_renders_layers_and_prepares_player(
     tmp_path: Path,
 ) -> None:
     client = create_test_client(tmp_path, with_sources=True)
@@ -12263,8 +12269,9 @@ def test_api_settings_apply_and_restart_renders_layers_and_starts_player(
     payload = response.json()
     assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
     assert payload["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
-    assert payload["state"]["playback"]["is_playing"] is True
+    assert payload["state"]["playback"]["is_playing"] is False
     assert payload["state"]["playback"]["output_running"] is False
+    assert payload["state"]["playback"]["rendered_cache_ready"] is True
     paths = ProjectPaths(tmp_path)
     assert paths.low_playback.exists()
     assert paths.mid_playback.exists()
@@ -12768,7 +12775,7 @@ def test_api_settings_apply_and_restart_uses_single_settings_snapshot_for_respon
     assert settings_store.load_after_apply_save_count == 0
 
 
-def test_api_settings_apply_alias_renders_layers_and_starts_player(
+def test_api_settings_apply_alias_renders_layers_and_prepares_player(
     tmp_path: Path,
 ) -> None:
     client = create_test_client(tmp_path, with_sources=True)
@@ -12780,7 +12787,9 @@ def test_api_settings_apply_alias_renders_layers_and_starts_player(
     payload = response.json()
     assert payload["settings"]["active"]["layers"]["voice"]["volume_db"] == -9.0
     assert payload["settings"]["draft"]["layers"]["voice"]["volume_db"] == -9.0
-    assert payload["state"]["playback"]["is_playing"] is True
+    assert payload["state"]["playback"]["is_playing"] is False
+    assert payload["state"]["playback"]["output_running"] is False
+    assert payload["state"]["playback"]["rendered_cache_ready"] is True
     paths = ProjectPaths(tmp_path)
     assert paths.low_playback.exists()
     assert paths.mid_playback.exists()

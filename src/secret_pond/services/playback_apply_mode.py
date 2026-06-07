@@ -113,12 +113,20 @@ def _replace_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettin
 
 
 def _restore_stable_eq_artifacts(runtime: SecretPondRuntime) -> None:
-    reload_and_restart = getattr(runtime.player, "reload_and_restart", None)
     paths = getattr(runtime, "paths", None)
-    if not callable(reload_and_restart) or paths is None:
+    if paths is None:
+        return
+    output = getattr(runtime, "output", None)
+    output_running = True if output is None else bool(getattr(output, "is_running", False))
+    restore_player = (
+        getattr(runtime.player, "reload_and_restart", None)
+        if output_running
+        else getattr(runtime.player, "load_rendered_layers", None)
+    )
+    if not callable(restore_player):
         return
     try:
-        reload_and_restart(rendered_layer_paths(paths))
+        restore_player(rendered_layer_paths(paths))
     except FileNotFoundError:
         return
 

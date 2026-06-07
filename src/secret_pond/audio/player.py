@@ -161,6 +161,7 @@ class LayeredLoopPlayer:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)
         self._layers = layers
+        self._live_eq_states = _default_live_eq_states()
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None

@@ -18,6 +18,7 @@ def start_playback(runtime: SecretPondRuntime) -> None:
                 runtime.output.stop()
             restore_main_playback_after_voice_raw_preview(runtime, runtime.controller.settings)
         runtime.output.start()
+        _ensure_player_started(runtime)
     except (RuntimeError, ValueError, OSError) as exc:
         _log_playback_event(runtime, "playback.start_failed", error=str(exc))
         raise PlaybackControlError(str(exc)) from exc
@@ -108,6 +109,23 @@ def _log_playback_event(
     if error is not None:
         payload["error"] = error
     _log_event_best_effort(runtime, event_type, payload)
+
+
+def _ensure_player_started(runtime: SecretPondRuntime) -> None:
+    if getattr(runtime.player, "is_playing", False):
+        return
+    player_start = getattr(runtime.player, "start", None)
+    if not callable(player_start):
+        return
+    try:
+        player_start()
+    except (RuntimeError, ValueError, OSError):
+        try:
+            if runtime.output.is_running:
+                runtime.output.stop()
+        except Exception:
+            pass
+        raise
 
 
 def _log_event_best_effort(
