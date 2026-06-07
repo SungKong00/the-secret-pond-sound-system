@@ -68,6 +68,29 @@ def test_mixer_reads_wrapped_block_and_reports_next_cursor() -> None:
     assert block.next_frame_cursor == 2
 
 
+def test_mixer_reads_short_sources_against_configured_loop_frames() -> None:
+    samples = np.column_stack(
+        [
+            np.array([0.0, 0.1, 0.2], dtype=np.float32),
+            np.array([0.0, 0.1, 0.2], dtype=np.float32),
+        ],
+    )
+    layers = {
+        "low": AudioBuffer(samples=samples, sample_rate=8_000),
+        "mid": stereo(0.0, frames=3),
+        "voice": stereo(0.0, frames=3),
+    }
+
+    block = mix_layer_blocks(layers, {}, frame_cursor=0, block_size=7, loop_frames=5)
+
+    np.testing.assert_allclose(
+        block.samples[:, 0],
+        np.array([0.0, 0.1, 0.2, 0.0, 0.1, 0.0, 0.1], dtype=np.float32),
+        atol=1e-6,
+    )
+    assert block.next_frame_cursor == 2
+
+
 def test_mixer_crossfades_low_mid_and_voice_layers_together() -> None:
     layers = {
         "low": stereo(0.0),

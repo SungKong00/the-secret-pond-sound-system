@@ -53,6 +53,7 @@ class VoiceCrossfadeState:
     duration_frames: int
     elapsed_frames: int
     transition_target_id: str
+    from_frame_cursor: int = 0
 
     @property
     def from_buffer(self) -> AudioBuffer:
@@ -61,6 +62,14 @@ class VoiceCrossfadeState:
     @property
     def to_buffer(self) -> AudioBuffer:
         return self.to_layers["voice"]
+
+
+@dataclass(frozen=True)
+class QueuedVoiceTransitionState:
+    to_layers: dict[LayerId, AudioBuffer]
+    transition_layer_ids: frozenset[LayerId]
+    duration_frames: int
+    transition_target_id: str
 
 
 @dataclass(frozen=True)
@@ -78,8 +87,10 @@ class LayeredLoopPlayerSnapshot:
     playing: bool
     peak_ceiling: float
     voice_transition: VoiceCrossfadeState | None
+    queued_voice_transition: QueuedVoiceTransitionState | None
     seek_envelope: SeekEnvelopeState | None
     active_voice_identity: str | None = None
+    loop_frames: int | None = None
 
 
 class LayeredLoopPlayer:
@@ -94,8 +105,10 @@ class LayeredLoopPlayer:
         self._playing = False
         self._peak_ceiling = peak_ceiling
         self._voice_transition: VoiceCrossfadeState | None = None
+        self._queued_voice_transition: QueuedVoiceTransitionState | None = None
         self._seek_envelope: SeekEnvelopeState | None = None
         self._active_voice_identity: str | None = None
+        self._loop_frames: int | None = None
 
     @property
     def is_playing(self) -> bool:
@@ -139,8 +152,10 @@ class LayeredLoopPlayer:
             playing=self._playing,
             peak_ceiling=self._peak_ceiling,
             voice_transition=self._voice_transition,
+            queued_voice_transition=self._queued_voice_transition,
             seek_envelope=self._seek_envelope,
             active_voice_identity=self._active_voice_identity,
+            loop_frames=self._loop_frames,
         )
 
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
@@ -154,17 +169,21 @@ class LayeredLoopPlayer:
         self._playing = snapshot.playing
         self._peak_ceiling = snapshot.peak_ceiling
         self._voice_transition = snapshot.voice_transition
+        self._queued_voice_transition = snapshot.queued_voice_transition
         self._seek_envelope = snapshot.seek_envelope
         self._active_voice_identity = snapshot.active_voice_identity
+        self._loop_frames = snapshot.loop_frames
 
     def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
+        self._loop_frames = _default_loop_frames(layers)
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
+        self._queued_voice_transition = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -173,22 +192,27 @@ class LayeredLoopPlayer:
         buffers: Mapping[LayerId, AudioBuffer],
         *,
         active_voice_identity: str | None = None,
+        loop_frames: int | None = None,
     ) -> None:
-        _validate_loaded_layers(buffers)
+        _validate_loaded_layers(buffers, loop_frames=loop_frames)
         layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
         self._layers = layers
+        self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
+        self._queued_voice_transition = None
         self._seek_envelope = None
         self._active_voice_identity = active_voice_identity
 
     def replace_rendered_buffers(self, buffers: Mapping[LayerId, AudioBuffer]) -> None:
-        _validate_loaded_layers(buffers)
+        _validate_loaded_layers(buffers, loop_frames=self._loop_frames)
         layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
         self._layers = layers
-        self._frame_cursor %= layers[LAYER_IDS[0]].frames
+        self._loop_frames = _resolve_layer_loop_frames(layers, self._loop_frames)
+        self._frame_cursor %= self._loop_frames
         self._voice_transition = None
+        self._queued_voice_transition = None
         self._seek_envelope = None
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
@@ -203,13 +227,13 @@ class LayeredLoopPlayer:
             next_buffer = _canonical_layer_candidate(normalized_layer_id, buffer, layers)
             next_transition_layers = dict(self._voice_transition.to_layers)
             next_transition_layers[normalized_layer_id] = next_buffer
-            _validate_loaded_layers(next_transition_layers)
+            _validate_loaded_layers(next_transition_layers, loop_frames=self._loop_frames)
             self._voice_transition = replace(
                 self._voice_transition,
                 to_layers=next_transition_layers,
             )
         next_layers[normalized_layer_id] = next_buffer
-        _validate_loaded_layers(next_layers)
+        _validate_loaded_layers(next_layers, loop_frames=self._loop_frames)
         self._layers = next_layers
 
     def set_live_eq_state(self, layer_id: str, eq: EqSettings) -> None:
@@ -221,9 +245,11 @@ class LayeredLoopPlayer:
         _validate_loaded_layers(layers)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
+        self._loop_frames = _default_loop_frames(layers)
         self._frame_cursor = 0
         self._playing = True
         self._voice_transition = None
+        self._queued_voice_transition = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -249,9 +275,18 @@ class LayeredLoopPlayer:
             else dict(layers)
         )
         candidate_layers["voice"] = _canonical_voice_candidate(next_voice, layers)
-        _validate_loaded_layers(candidate_layers)
+        loop_frames = self._require_loop_frames()
+        _validate_loaded_layers(candidate_layers, loop_frames=loop_frames)
         transition_layer_ids = frozenset(LAYER_IDS if next_layers is not None else ("voice",))
         superseded = self.active_voice_transition_target_id
+        if self._voice_transition is not None:
+            self._queued_voice_transition = QueuedVoiceTransitionState(
+                to_layers={layer_id: candidate_layers[layer_id] for layer_id in LAYER_IDS},
+                transition_layer_ids=transition_layer_ids,
+                duration_frames=duration_frames,
+                transition_target_id=transition_target_id,
+            )
+            return superseded
         self._voice_transition = VoiceCrossfadeState(
             from_layers={layer_id: layers[layer_id] for layer_id in LAYER_IDS},
             to_layers={layer_id: candidate_layers[layer_id] for layer_id in LAYER_IDS},
@@ -259,6 +294,7 @@ class LayeredLoopPlayer:
             duration_frames=duration_frames,
             elapsed_frames=0,
             transition_target_id=transition_target_id,
+            from_frame_cursor=self._frame_cursor,
         )
         self._frame_cursor = 0
         self._seek_envelope = None
@@ -271,12 +307,14 @@ class LayeredLoopPlayer:
 
     def seek(self, frame_cursor: int) -> None:
         layers = self._require_loaded()
-        first_layer = layers[LAYER_IDS[0]]
-        if not 0 <= frame_cursor < first_layer.frames:
+        loop_frames = self._require_loop_frames()
+        if not 0 <= frame_cursor < loop_frames:
             msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
             raise ValueError(msg)
         self._frame_cursor = frame_cursor
-        self._seek_envelope = _seek_envelope_for_layer(first_layer) if self._playing else None
+        self._seek_envelope = (
+            _seek_envelope_for_layer(layers[LAYER_IDS[0]]) if self._playing else None
+        )
 
     def start(self) -> None:
         self._require_loaded()
@@ -287,6 +325,7 @@ class LayeredLoopPlayer:
 
     def next_block(self, block_size: int) -> MixerBlock:
         layers = self._require_loaded()
+        loop_frames = self._require_loop_frames()
         if block_size <= 0:
             msg = "block_size must be greater than 0"
             raise ValueError(msg)
@@ -305,8 +344,10 @@ class LayeredLoopPlayer:
                 self._states,
                 frame_cursor=self._frame_cursor,
                 block_size=block_size,
+                loop_frames=loop_frames,
                 peak_ceiling=self._peak_ceiling,
             )
+            self._frame_cursor = block.next_frame_cursor
         else:
             block = mix_layer_blocks_with_voice_crossfade(
                 layers,
@@ -314,6 +355,7 @@ class LayeredLoopPlayer:
                 self._voice_transition,
                 frame_cursor=self._frame_cursor,
                 block_size=block_size,
+                loop_frames=loop_frames,
                 peak_ceiling=self._peak_ceiling,
             )
             preserve_realtime_ramp_layers = (
@@ -340,17 +382,21 @@ class LayeredLoopPlayer:
                         self._states,
                         frame_cursor=self._frame_cursor,
                         block_size=block_size,
+                        loop_frames=loop_frames,
                         peak_ceiling=self._peak_ceiling,
                     )
+                    self._frame_cursor = block.next_frame_cursor
                 else:
                     self._active_voice_identity = transition_target_id
                     self._voice_transition = None
+                    self._frame_cursor = block.next_frame_cursor
+                    self._promote_queued_voice_transition()
             else:
                 self._voice_transition = replace(
                     self._voice_transition,
                     elapsed_frames=elapsed_frames,
                 )
-        self._frame_cursor = block.next_frame_cursor
+                self._frame_cursor = block.next_frame_cursor
         if self._seek_envelope is not None:
             block = _apply_seek_envelope(block, self._seek_envelope)
             elapsed_frames = self._seek_envelope.elapsed_frames + block_size
@@ -366,6 +412,24 @@ class LayeredLoopPlayer:
             preserve_layer_ids=preserve_realtime_ramp_layers,
         )
         return block
+
+    def _promote_queued_voice_transition(self) -> None:
+        queued = self._queued_voice_transition
+        if queued is None:
+            return
+        layers = self._require_loaded()
+        self._voice_transition = VoiceCrossfadeState(
+            from_layers={layer_id: layers[layer_id] for layer_id in LAYER_IDS},
+            to_layers={layer_id: queued.to_layers[layer_id] for layer_id in LAYER_IDS},
+            transition_layer_ids=queued.transition_layer_ids,
+            duration_frames=queued.duration_frames,
+            elapsed_frames=0,
+            transition_target_id=queued.transition_target_id,
+            from_frame_cursor=self._frame_cursor,
+        )
+        self._queued_voice_transition = None
+        self._frame_cursor = 0
+        self._seek_envelope = None
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
         normalized_layer_id = _validate_layer_id(layer_id)
@@ -419,6 +483,12 @@ class LayeredLoopPlayer:
             msg = "rendered layers must be loaded before playback"
             raise ValueError(msg)
         return self._layers
+
+    def _require_loop_frames(self) -> int:
+        if self._loop_frames is None:
+            layers = self._require_loaded()
+            self._loop_frames = _default_loop_frames(layers)
+        return self._loop_frames
 
     def _realtime_gain_ramp(
         self,
@@ -515,8 +585,15 @@ def mix_layer_blocks(
     frame_cursor: int,
     block_size: int,
     peak_ceiling: float = 0.98,
+    loop_frames: int | None = None,
 ) -> MixerBlock:
-    _validate_mix_inputs(layers, frame_cursor, block_size, peak_ceiling)
+    cycle_frames = _validate_mix_inputs(
+        layers,
+        frame_cursor,
+        block_size,
+        peak_ceiling,
+        loop_frames=loop_frames,
+    )
     first_layer = layers[LAYER_IDS[0]]
     mixed = np.zeros((block_size, first_layer.channels), dtype=np.float32)
 
@@ -525,13 +602,18 @@ def mix_layer_blocks(
         if not state.enabled:
             continue
 
-        layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
+        layer_block = _read_wrapped(
+            layers[layer_id].samples,
+            frame_cursor,
+            block_size,
+            loop_frames=cycle_frames,
+        )
         mixed += _apply_realtime_gain(layer_block, state)
 
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
     peak_after = _peak(guarded)
-    next_cursor = (frame_cursor + block_size) % first_layer.frames
+    next_cursor = (frame_cursor + block_size) % cycle_frames
     return MixerBlock(
         samples=guarded,
         next_frame_cursor=next_cursor,
@@ -547,10 +629,29 @@ def mix_layer_blocks_with_voice_crossfade(
     frame_cursor: int,
     block_size: int,
     peak_ceiling: float = 0.98,
+    loop_frames: int | None = None,
 ) -> MixerBlock:
-    _validate_mix_inputs(layers, frame_cursor, block_size, peak_ceiling)
-    _validate_mix_inputs(voice_transition.from_layers, frame_cursor, block_size, peak_ceiling)
-    _validate_mix_inputs(voice_transition.to_layers, frame_cursor, block_size, peak_ceiling)
+    cycle_frames = _validate_mix_inputs(
+        layers,
+        frame_cursor,
+        block_size,
+        peak_ceiling,
+        loop_frames=loop_frames,
+    )
+    _validate_mix_inputs(
+        voice_transition.from_layers,
+        voice_transition.from_frame_cursor,
+        block_size,
+        peak_ceiling,
+        loop_frames=cycle_frames,
+    )
+    _validate_mix_inputs(
+        voice_transition.to_layers,
+        frame_cursor,
+        block_size,
+        peak_ceiling,
+        loop_frames=cycle_frames,
+    )
     first_layer = layers[LAYER_IDS[0]]
     mixed = np.zeros((block_size, first_layer.channels), dtype=np.float32)
 
@@ -569,18 +670,28 @@ def mix_layer_blocks_with_voice_crossfade(
         if not state.enabled:
             continue
         if layer_id not in voice_transition.transition_layer_ids:
-            layer_block = _read_wrapped(layers[layer_id].samples, frame_cursor, block_size)
+            layer_block = _read_wrapped(
+                layers[layer_id].samples,
+                frame_cursor,
+                block_size,
+                loop_frames=cycle_frames,
+            )
             mixed += _apply_realtime_gain(layer_block, state)
             continue
+        from_frame_cursor = (
+            voice_transition.from_frame_cursor + voice_transition.elapsed_frames
+        ) % cycle_frames
         from_block = _read_wrapped(
             voice_transition.from_layers[layer_id].samples,
-            frame_cursor,
+            from_frame_cursor,
             block_size,
+            loop_frames=cycle_frames,
         )
         to_block = _read_wrapped(
             voice_transition.to_layers[layer_id].samples,
             frame_cursor,
             block_size,
+            loop_frames=cycle_frames,
         )
         layer_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
         mixed += _apply_realtime_gain(layer_block, state)
@@ -588,7 +699,7 @@ def mix_layer_blocks_with_voice_crossfade(
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
     peak_after = _peak(guarded)
-    next_cursor = (frame_cursor + block_size) % first_layer.frames
+    next_cursor = (frame_cursor + block_size) % cycle_frames
     return MixerBlock(
         samples=guarded,
         next_frame_cursor=next_cursor,
@@ -677,8 +788,34 @@ def _default_live_eq_states() -> dict[LayerId, EqSettings]:
     return {layer_id: EqSettings() for layer_id in LAYER_IDS}
 
 
-def _validate_loaded_layers(layers: Mapping[LayerId, AudioBuffer]) -> None:
-    _validate_mix_inputs(layers, frame_cursor=0, block_size=1, peak_ceiling=0.98)
+def _validate_loaded_layers(
+    layers: Mapping[LayerId, AudioBuffer],
+    *,
+    loop_frames: int | None = None,
+) -> None:
+    _validate_mix_inputs(
+        layers,
+        frame_cursor=0,
+        block_size=1,
+        peak_ceiling=0.98,
+        loop_frames=loop_frames,
+    )
+
+
+def _default_loop_frames(layers: Mapping[LayerId, AudioBuffer]) -> int:
+    return _resolve_layer_loop_frames(layers, None)
+
+
+def _resolve_layer_loop_frames(
+    layers: Mapping[LayerId, AudioBuffer],
+    loop_frames: int | None,
+) -> int:
+    if loop_frames is not None:
+        if loop_frames <= 0:
+            msg = "loop_frames must be greater than 0"
+            raise ValueError(msg)
+        return loop_frames
+    return layers[LAYER_IDS[0]].frames
 
 
 def _channel_count(layers: Mapping[LayerId, AudioBuffer]) -> int:
@@ -697,7 +834,9 @@ def _validate_mix_inputs(
     frame_cursor: int,
     block_size: int,
     peak_ceiling: float,
-) -> None:
+    *,
+    loop_frames: int | None = None,
+) -> int:
     missing = [layer_id for layer_id in LAYER_IDS if layer_id not in layers]
     if missing:
         msg = f"missing rendered layer buffers: {', '.join(missing)}"
@@ -711,26 +850,42 @@ def _validate_mix_inputs(
     if first.frames <= 0:
         msg = "layer buffers must contain at least one frame"
         raise ValueError(msg)
-    if not 0 <= frame_cursor < first.frames:
+    cycle_frames = first.frames if loop_frames is None else loop_frames
+    if cycle_frames <= 0:
+        msg = "loop_frames must be greater than 0"
+        raise ValueError(msg)
+    if not 0 <= frame_cursor < cycle_frames:
         msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
         raise ValueError(msg)
 
     for layer_id in LAYER_IDS[1:]:
         layer = layers[layer_id]
+        if layer.frames <= 0:
+            msg = "layer buffers must contain at least one frame"
+            raise ValueError(msg)
         if layer.sample_rate != first.sample_rate:
             msg = "all layer buffers must have the same sample rate"
             raise ValueError(msg)
         if layer.channels != first.channels:
             msg = "all layer buffers must have the same channel count"
             raise ValueError(msg)
-        if layer.frames != first.frames:
+        if loop_frames is None and layer.frames != first.frames:
             msg = "all layer buffers must have the same frame count"
             raise ValueError(msg)
+    return cycle_frames
 
 
-def _read_wrapped(samples: np.ndarray, frame_cursor: int, block_size: int) -> np.ndarray:
-    loop_frames = samples.shape[0]
-    indices = (np.arange(block_size) + frame_cursor) % loop_frames
+def _read_wrapped(
+    samples: np.ndarray,
+    frame_cursor: int,
+    block_size: int,
+    *,
+    loop_frames: int | None = None,
+) -> np.ndarray:
+    source_frames = samples.shape[0]
+    cycle_frames = source_frames if loop_frames is None else loop_frames
+    cycle_indices = (np.arange(block_size) + frame_cursor) % cycle_frames
+    indices = cycle_indices % source_frames
     return samples[indices].astype(np.float32, copy=True)
 
 
