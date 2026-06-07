@@ -398,7 +398,7 @@ assert.strictEqual(document.getElementById("playbackSeekSlider").value, "30");
     )
 
 
-def test_playback_timeline_uses_active_settings_loop_when_payload_duration_is_stale() -> None:
+def test_playback_timeline_uses_active_audio_loop_when_payload_duration_is_stale() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -415,7 +415,7 @@ globalThis.__secretPond = {
 const { applyState, state } = globalThis.__secretPond;
 
 const activeSettings = {
-  voice_stack: { mode: "live_ephemeral", loop_seconds: 75 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 75, transition_seconds: 0 },
   input_control: {
     minimum_recording_seconds: 3,
     maximum_recording_seconds: 120,
@@ -471,9 +471,88 @@ applyState({
 });
 
 assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
-assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "75.0s");
-assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "40%");
-assert.strictEqual(document.getElementById("playbackSeekSlider").max, "75");
+assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "300.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "10%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").max, "300");
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_playback_timeline_shortens_duration_when_transition_is_enabled() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState } = globalThis.__secretPond;
+
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 5 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(activeSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 48000 * 30,
+    apply_mode: "live",
+    position_seconds: 30,
+    duration_seconds: 60,
+    progress: 0.5,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
+assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "55.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "54.545%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").max, "55");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
@@ -1116,7 +1195,7 @@ applyState({
 
 const seekSlider = document.getElementById("playbackSeekSlider");
 assert.strictEqual(seekSlider.disabled, false);
-assert.strictEqual(seekSlider.max, "60");
+assert.strictEqual(seekSlider.max, "300");
 assert.strictEqual(seekSlider.title, "재생 위치가 즉시 이동합니다.");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1196,7 +1275,7 @@ applyState({
 
 const seekSlider = document.getElementById("playbackSeekSlider");
 assert.strictEqual(seekSlider.disabled, false);
-assert.strictEqual(seekSlider.max, "60");
+assert.strictEqual(seekSlider.max, "300");
 assert.strictEqual(seekSlider.title, "재생 위치가 즉시 이동합니다.");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1221,7 +1300,7 @@ globalThis.__secretPond = {
 const { applyState, state, trackInteractiveControl } = globalThis.__secretPond;
 
 const liveSettings = {
-  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 0 },
   input_control: {
     minimum_recording_seconds: 3,
     maximum_recording_seconds: 120,
@@ -3607,6 +3686,8 @@ def test_transition_slider_renders_below_loop_position_in_playback_panel() -> No
     assert "renderPlaybackTransitionControls" in app_script
     assert '"playbackTransitionControls"' in app_script
     assert 'path: "transition_seconds"' in app_script
+    assert "min: 0" in app_script
+    assert 'rangeLabel: "Off · 3s default · 10s"' in app_script
 
 
 def test_live_status_text_uses_korean_facing_wording() -> None:

@@ -12924,28 +12924,28 @@ def test_api_playback_restart_resets_frame_cursor(tmp_path: Path) -> None:
     assert output.start_calls == 2
 
 
-def test_api_state_reports_playback_timeline_from_voice_stack_loop_seconds(
+def test_api_state_reports_playback_timeline_from_audio_loop_seconds(
     tmp_path: Path,
 ) -> None:
     settings = api_settings().model_copy(
         update={
             "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
-            "voice_stack": VoiceStackSettings(loop_seconds=5),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=0),
         },
         deep=True,
     )
     client = create_test_client(tmp_path, with_sources=True, settings=settings)
     client.post("/api/settings/apply-and-restart")
-    client.app.state.runtime.player.next_block(8_000 * 30)
+    client.post("/api/playback/seek", json={"progress": 0.5})
 
     playback = client.get("/api/state").json()["playback"]
 
-    assert playback["position_seconds"] == pytest.approx(0.0)
-    assert playback["duration_seconds"] == pytest.approx(5.0)
-    assert playback["progress"] == pytest.approx(0.0)
+    assert playback["position_seconds"] == pytest.approx(30.0)
+    assert playback["duration_seconds"] == pytest.approx(60.0)
+    assert playback["progress"] == pytest.approx(0.5)
 
 
-def test_api_live_settings_draft_keeps_voice_loop_timeline_on_audio_loop_apply_flow(
+def test_api_live_settings_draft_uses_audio_loop_timeline_on_audio_loop_apply_flow(
     tmp_path: Path,
 ) -> None:
     settings = api_settings().model_copy(
@@ -12973,14 +12973,14 @@ def test_api_live_settings_draft_keeps_voice_loop_timeline_on_audio_loop_apply_f
     assert apply_response.json()["settings"]["active"]["audio"]["loop_seconds"] == 2
     assert apply_response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 2
     assert apply_response.json()["settings"]["active"]["voice_stack"]["loop_seconds"] == 1
-    assert state_after_apply["playback"]["duration_seconds"] == pytest.approx(1.0)
+    assert state_after_apply["playback"]["duration_seconds"] == pytest.approx(2.0)
 
 
-def test_api_playback_seek_maps_percent_to_voice_stack_loop_seconds(tmp_path: Path) -> None:
+def test_api_playback_seek_maps_percent_to_audio_loop_seconds(tmp_path: Path) -> None:
     settings = api_settings().model_copy(
         update={
             "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
-            "voice_stack": VoiceStackSettings(loop_seconds=5),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=0),
             "playback": PlaybackSettings(apply_mode="live"),
         },
         deep=True,
@@ -12996,12 +12996,35 @@ def test_api_playback_seek_maps_percent_to_voice_stack_loop_seconds(tmp_path: Pa
     assert zero.json()["state"]["playback"]["frame_cursor"] == 0
     assert zero.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
     assert midpoint.status_code == 200
-    assert midpoint.json()["state"]["playback"]["frame_cursor"] == 20_000
-    assert midpoint.json()["state"]["playback"]["position_seconds"] == pytest.approx(2.5)
+    assert midpoint.json()["state"]["playback"]["frame_cursor"] == 240_000
+    assert midpoint.json()["state"]["playback"]["position_seconds"] == pytest.approx(30.0)
     assert midpoint.json()["state"]["playback"]["progress"] == pytest.approx(0.5)
     assert end.status_code == 200
     assert end.json()["state"]["playback"]["frame_cursor"] == 0
     assert end.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
+
+
+def test_api_playback_seek_uses_shortened_loop_when_transition_is_enabled(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=5),
+            "playback": PlaybackSettings(apply_mode="live"),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    client.post("/api/settings/apply-and-restart")
+
+    response = client.post("/api/playback/seek", json={"progress": 0.5})
+
+    assert response.status_code == 200
+    assert response.json()["state"]["playback"]["frame_cursor"] == 220_000
+    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(27.5)
+    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(55.0)
+    assert response.json()["state"]["playback"]["progress"] == pytest.approx(0.5)
 
 
 def test_api_live_playback_seek_preserves_running_output_and_player(
@@ -13011,7 +13034,7 @@ def test_api_live_playback_seek_preserves_running_output_and_player(
     settings = api_settings().model_copy(
         update={
             "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
-            "voice_stack": VoiceStackSettings(loop_seconds=5),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=0),
             "playback": PlaybackSettings(apply_mode="live"),
         },
         deep=True,
@@ -13024,8 +13047,8 @@ def test_api_live_playback_seek_preserves_running_output_and_player(
     response = client.post("/api/playback/seek", json={"progress": 0.5})
 
     assert response.status_code == 200
-    assert response.json()["state"]["playback"]["frame_cursor"] == 20_000
-    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(2.5)
+    assert response.json()["state"]["playback"]["frame_cursor"] == 240_000
+    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(30.0)
     assert response.json()["state"]["playback"]["is_playing"] is True
     assert response.json()["state"]["playback"]["output_running"] is True
     assert output.is_running is True

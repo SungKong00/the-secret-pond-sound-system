@@ -209,5 +209,25 @@ def test_seek_playback_maps_progress_to_audio_loop_cycle() -> None:
 
     seek_playback(runtime, 0.5)
 
+    assert player.seek_calls == [228_000]
+    assert player.frame_cursor == 228_000
+
+
+def test_seek_playback_uses_full_audio_loop_when_transition_is_disabled() -> None:
+    player = FakePlayer()
+    runtime = SimpleNamespace(
+        player=player,
+        output=FakeOutput(),
+        logger=EventLogger(),
+        controller=SimpleNamespace(
+            settings=AppSettings(
+                audio=AudioFormatSettings(sample_rate=8_000, loop_seconds=60),
+                voice_stack=VoiceStackSettings(loop_seconds=5, transition_seconds=0),
+            ),
+        ),
+    )
+
+    seek_playback(runtime, 0.5)
+
     assert player.seek_calls == [240_000]
     assert player.frame_cursor == 240_000

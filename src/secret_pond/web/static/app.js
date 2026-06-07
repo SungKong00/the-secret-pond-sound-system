@@ -781,15 +781,16 @@ const voiceStackControlDefs = [
 const playbackTransitionControlDef = {
   path: "transition_seconds",
   label: { ko: "전환 시간", en: "Transition" },
-  min: 1,
+  min: 0,
   max: 10,
   step: 1,
   suffix: " s",
   kind: "space",
-  rangeLabel: "1s · 3s default · 10s",
+  rangeLabel: "Off · 3s default · 10s",
   defaultValue: 3,
-  description: "Stack, Mid, Low가 새 루프로 넘어갈 때 겹쳐 전환되는 시간입니다.",
+  description: "0s면 겹침 없이 교체하고, 1s 이상이면 새 루프가 겹쳐 fade 됩니다.",
   marks: [
+    { value: 0, label: "Off" },
     { value: 1, label: "1s" },
     { value: 3, label: "3s" },
     { value: 10, label: "10s" },
@@ -3080,13 +3081,31 @@ const playbackTimelineRunning = (snapshot = state.snapshot) => (
   Boolean(snapshot?.playback?.output_running)
 );
 
+const playbackTimelineDurationFromSettings = (audio = {}, voiceStack = {}, fallback = 0) => {
+  const loopSeconds = Number(audio.loop_seconds || fallback || 0);
+  if (!Number.isFinite(loopSeconds) || loopSeconds <= 0) return 0;
+  const transitionSeconds = Number(voiceStack.transition_seconds || 0);
+  if (
+    Number.isFinite(transitionSeconds) &&
+    transitionSeconds > 0 &&
+    transitionSeconds < loopSeconds
+  ) {
+    return loopSeconds - transitionSeconds;
+  }
+  return loopSeconds;
+};
+
 const activePlaybackTimeline = (snapshot = state.snapshot, options = {}) => {
   const playback = snapshot?.playback || {};
   const audio = snapshot?.settings?.active?.audio || {};
   const voiceStack = snapshot?.settings?.active?.voice_stack || {};
   const sampleRate = Number(audio.sample_rate || 0);
-  const settingsDuration = Number(voiceStack.loop_seconds || audio.loop_seconds || 0);
   const payloadDuration = Number(playback.duration_seconds || 0);
+  const settingsDuration = playbackTimelineDurationFromSettings(
+    audio,
+    voiceStack,
+    payloadDuration,
+  );
   const durationSeconds =
     Number.isFinite(settingsDuration) && settingsDuration > 0 ? settingsDuration : payloadDuration;
   const payloadPosition = Number(playback.position_seconds || 0);
