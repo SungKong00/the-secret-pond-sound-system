@@ -1451,7 +1451,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "deriveSourceFileActionState" in script.text
     assert 'path: "transition_seconds"' in script.text
     assert "전환 시간" in script.text
-    assert "1s · 3s default · 10s" in script.text
+    assert "Off · 3s default · 10s" in script.text
     assert "handleSourceFileDrop" in script.text
     assert "deleteSourceFile" in script.text
     assert "source-file-select" not in script.text
@@ -11213,7 +11213,7 @@ def test_api_playback_apply_mode_live_ignores_pending_loop_length_changes(
     assert stored.active.voice_stack.loop_seconds == 60
     assert stored.draft.voice_stack.loop_seconds == 75
     assert client.app.state.runtime.controller.settings.audio.loop_seconds == 60
-    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(60.0)
+    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(57.0)
     assert response.json()["settings"]["active"]["audio"]["loop_seconds"] == 60
     assert response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 105
     assert response.json()["settings"]["active"]["voice_stack"]["loop_seconds"] == 60

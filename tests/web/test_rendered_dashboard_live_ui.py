@@ -69,12 +69,12 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
     )
     assert rendered["seekDisabled"] is False
-    assert rendered["seekMax"] == "60"
-    assert 30 <= rendered["positionSeconds"] < 60
+    assert rendered["seekMax"] == "56"
+    assert 30 <= rendered["positionSeconds"] < 56
     assert float(rendered["seekValue"]) == pytest.approx(rendered["positionSeconds"], abs=0.2)
-    assert rendered["durationText"] == "60.0s"
+    assert rendered["durationText"] == "56.0s"
     assert rendered["progressPercent"] == pytest.approx(
-        rendered["positionSeconds"] / 60 * 100,
+        rendered["positionSeconds"] / 56 * 100,
         abs=0.2,
     )
     assert rendered["outputSummary"] == (
@@ -90,7 +90,7 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
         "timeline and seek controls remain wide enough for compact desktop operation",
-        "loop progress advances within the 60.0s fixture",
+        "loop progress advances within the 56.0s visible fixture",
     ]
 
 
@@ -111,7 +111,7 @@ def test_rendered_dashboard_verification_output_records_desktop_behavior_notes()
         "desktop viewport 1440px rendered without horizontal overflow",
         "Live mode segment is selected and the seek control is enabled",
         "timeline and seek controls remain wide enough for compact desktop operation",
-        "loop progress advances within the 60.0s fixture",
+        "loop progress advances within the 56.0s visible fixture",
     ]
 
 
@@ -344,7 +344,7 @@ def _record_desktop_behavior_notes(output: dict[str, Any]) -> dict[str, Any]:
     if timeline_width > 260 and seek_width > 260:
         notes.append("timeline and seek controls remain wide enough for compact desktop operation")
     if float(output.get("progressPercent") or 0) >= 50:
-        notes.append("loop progress advances within the 60.0s fixture")
+        notes.append("loop progress advances within the 56.0s visible fixture")
 
     return {**output, "desktopBehaviorNotes": notes}
 
