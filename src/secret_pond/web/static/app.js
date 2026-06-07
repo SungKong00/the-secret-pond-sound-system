@@ -4969,6 +4969,20 @@ const currentPendingPlaybackApplyMode = () => {
   return state.playbackApplyModeInFlight && playbackApplyModeDetails[mode] ? mode : null;
 };
 
+const playbackApplyModeLiveSwitchConfirmationMessage =
+  "안정 적용에서 아직 적용하지 않은 변경사항은 즉시 반영 모드로 전환할 때 바로 적용되지 않습니다. 마지막으로 적용된 설정에서 Live를 시작할까요?";
+
+const playbackApplyModeSwitchNeedsStagedChangeConfirmation = (mode) => (
+  currentPlaybackApplyMode() === "stable" &&
+    mode === "live" &&
+    hasPendingChanges(state.snapshot)
+);
+
+const confirmPlaybackApplyModeSwitch = (mode) => {
+  if (!playbackApplyModeSwitchNeedsStagedChangeConfirmation(mode)) return true;
+  return window.confirm(playbackApplyModeLiveSwitchConfirmationMessage);
+};
+
 const currentPendingStorageMode = () => {
   const mode = state.pendingStorageMode;
   return state.storageModeInFlight && storageModeDetails[mode] ? mode : null;
@@ -5222,7 +5236,12 @@ const setPlaybackApplyMode = async (mode) => {
     renderPlaybackApplyModeControls();
     return null;
   }
+  if (!confirmPlaybackApplyModeSwitch(mode)) {
+    renderPlaybackApplyModeControls();
+    return null;
+  }
   let modeError = null;
+  invalidatePendingDraftSaves();
   state.playbackApplyModeInFlight = true;
   state.pendingPlaybackApplyMode = mode;
   renderPlaybackApplyModeControls();

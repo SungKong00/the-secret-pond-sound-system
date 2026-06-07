@@ -17,14 +17,21 @@ def apply_playback_apply_mode(
     mode: PlaybackApplyMode,
 ) -> SettingsState:
     current = runtime.settings_store.load()
+    previous_mode = current.active.playback.apply_mode
     active = _with_playback_apply_mode(current.active, mode)
     draft = _with_playback_apply_mode(current.draft, mode)
+    if previous_mode != mode:
+        draft = _sync_live_immediate_draft_fields_from_active(
+            active,
+            draft,
+            voice_raw_preview_active=bool(runtime.voice_raw_preview_path),
+        )
     state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
-    if current.active.playback.apply_mode == "stable" and mode == "live":
+    if previous_mode == "stable" and mode == "live":
         runtime.playback_render_settings = _eq_free_render_marker(active)
         _replace_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
-    elif current.active.playback.apply_mode == "live" and mode == "stable":
+    elif previous_mode == "live" and mode == "stable":
         _restore_stable_eq_artifacts(runtime)
         runtime.playback_render_settings = active
     runtime.apply_settings_state(state)
@@ -44,6 +51,37 @@ def _with_playback_apply_mode(settings: AppSettings, mode: PlaybackApplyMode) ->
         update={"playback": settings.playback.model_copy(update={"apply_mode": mode})},
         deep=True,
     )
+
+
+def _sync_live_immediate_draft_fields_from_active(
+    active: AppSettings,
+    draft: AppSettings,
+    *,
+    voice_raw_preview_active: bool,
+) -> AppSettings:
+    layers = dict(draft.layers)
+    for layer_id in LAYER_IDS:
+        active_layer = active.layers[layer_id]
+        draft_layer = draft.layers[layer_id]
+        layers[layer_id] = draft_layer.model_copy(
+            update={
+                "enabled": active_layer.enabled,
+                "volume_db": active_layer.volume_db,
+                "eq": active_layer.eq,
+            },
+            deep=True,
+        )
+
+    updates: dict[str, object] = {
+        "layers": layers,
+        "voice_stack": draft.voice_stack.model_copy(
+            update={"transition_seconds": active.voice_stack.transition_seconds},
+            deep=True,
+        ),
+    }
+    if voice_raw_preview_active:
+        updates["recording"] = active.recording
+    return draft.model_copy(update=updates, deep=True)
 
 
 def _eq_free_render_marker(settings: AppSettings) -> AppSettings:

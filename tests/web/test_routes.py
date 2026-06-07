@@ -11126,6 +11126,61 @@ def test_api_playback_apply_mode_switch_preserves_unrelated_playback_settings(
     }
 
 
+def test_api_playback_apply_mode_switch_to_live_resets_live_immediate_draft_fields(
+    tmp_path: Path,
+) -> None:
+    active = api_settings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=60),
+            "playback": PlaybackSettings(
+                auto_start=True,
+                apply_mode="stable",
+                master_volume_db=-11.0,
+            ),
+            "voice_stack": VoiceStackSettings(loop_seconds=60),
+        },
+        deep=True,
+    )
+    draft_layers = dict(active.layers)
+    draft_layers["low"] = active.layers["low"].model_copy(update={"volume_db": -8.0})
+    draft = active.model_copy(
+        update={
+            "audio": active.audio.model_copy(update={"loop_seconds": 105}),
+            "layers": draft_layers,
+            "playback": PlaybackSettings(
+                auto_start=False,
+                apply_mode="stable",
+                master_volume_db=-3.5,
+            ),
+            "voice_stack": VoiceStackSettings(loop_seconds=75),
+        },
+        deep=True,
+    )
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.put("/api/playback/apply-mode", json={"mode": "live"})
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    assert stored.active.playback.apply_mode == "live"
+    assert stored.draft.playback.apply_mode == "live"
+    assert stored.active.playback.master_volume_db == -11.0
+    assert stored.draft.playback.master_volume_db == -3.5
+    assert stored.active.audio.loop_seconds == 60
+    assert stored.draft.audio.loop_seconds == 105
+    assert stored.active.voice_stack.loop_seconds == 60
+    assert stored.draft.voice_stack.loop_seconds == 75
+    assert stored.active.layers["low"].volume_db == pytest.approx(active.layers["low"].volume_db)
+    assert stored.draft.layers["low"].volume_db == pytest.approx(active.layers["low"].volume_db)
+    assert response.json()["settings"]["draft"]["playback"] == {
+        "auto_start": False,
+        "apply_mode": "live",
+        "master_volume_db": -3.5,
+    }
+
+
 def test_api_playback_apply_mode_live_ignores_pending_loop_length_changes(
     tmp_path: Path,
 ) -> None:
