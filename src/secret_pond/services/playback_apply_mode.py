@@ -24,7 +24,7 @@ def apply_playback_apply_mode(
         draft = _sync_live_immediate_draft_fields_from_active(
             active,
             draft,
-            voice_raw_preview_active=bool(runtime.voice_raw_preview_path),
+            voice_raw_preview_active=bool(getattr(runtime, "voice_raw_preview_path", None)),
         )
     state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
     if previous_mode == "stable" and mode == "live":

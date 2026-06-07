@@ -255,7 +255,10 @@ const responseAfterModeChange = reduceLiveApplyFeedbackState(modeChanged, {
 assert.strictEqual(responseAfterModeChange.feedbackState, liveApplyFeedbackStates.stale);
 assert.strictEqual(responseAfterModeChange.confirmedValue, 0);
 assert.strictEqual(responseAfterModeChange.warningMessage, "");
-assert.strictEqual(responseAfterModeChange.staleResponse.feedbackState, liveApplyFeedbackStates.stale);
+assert.strictEqual(
+  responseAfterModeChange.staleResponse.feedbackState,
+  liveApplyFeedbackStates.stale,
+);
 """,
     )
 
