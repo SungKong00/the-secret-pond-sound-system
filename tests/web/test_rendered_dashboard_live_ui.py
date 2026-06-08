@@ -69,12 +69,12 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
     )
     assert rendered["seekDisabled"] is False
-    assert rendered["seekMax"] == "56"
-    assert 30 <= rendered["positionSeconds"] < 56
+    assert rendered["seekMax"] == "60"
+    assert 30 <= rendered["positionSeconds"] < 60
     assert float(rendered["seekValue"]) == pytest.approx(rendered["positionSeconds"], abs=0.2)
-    assert rendered["durationText"] == "56.0s"
+    assert rendered["durationText"] == "60.0s"
     assert rendered["progressPercent"] == pytest.approx(
-        rendered["positionSeconds"] / 56 * 100,
+        rendered["positionSeconds"] / 60 * 100,
         abs=0.2,
     )
     assert rendered["outputSummary"] == (
@@ -399,11 +399,11 @@ window.fetch = async (url) => {{
 </script>
 """
     rendered = html.replace(
-        '<link rel="stylesheet" href="/static/styles.css?v=20260608-playback-running" />',
+        '<link rel="stylesheet" href="/static/styles.css?v=20260608-voice-loop-timeline" />',
         f"<style>\n{styles}\n</style>",
     )
     rendered = rendered.replace(
-        '<script src="/static/app.js?v=20260608-playback-running" defer></script>',
+        '<script src="/static/app.js?v=20260608-voice-loop-timeline" defer></script>',
         f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
     )
     path = temp_dir / "rendered-live-dashboard.html"

@@ -3082,16 +3082,8 @@ const playbackTimelineRunning = (snapshot = state.snapshot) => (
 );
 
 const playbackTimelineDurationFromSettings = (audio = {}, voiceStack = {}, fallback = 0) => {
-  const loopSeconds = Number(audio.loop_seconds || fallback || 0);
+  const loopSeconds = Number(voiceStack.loop_seconds || fallback || audio.loop_seconds || 0);
   if (!Number.isFinite(loopSeconds) || loopSeconds <= 0) return 0;
-  const transitionSeconds = Number(voiceStack.transition_seconds || 0);
-  if (
-    Number.isFinite(transitionSeconds) &&
-    transitionSeconds > 0 &&
-    transitionSeconds < loopSeconds
-  ) {
-    return loopSeconds - transitionSeconds;
-  }
   return loopSeconds;
 };
 

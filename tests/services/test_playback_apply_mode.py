@@ -44,11 +44,11 @@ class PlayerSpy:
     def set_live_eq_state(self, layer_id: str, eq: EqSettings) -> None:
         self.live_eq_state_updates.append((layer_id, eq.model_copy(deep=True)))
 
-    def reload_and_restart(self, paths) -> None:
-        self.reload_paths.append(dict(paths))
+    def reload_and_restart(self, paths, *, loop_frames=None) -> None:
+        self.reload_paths.append({"paths": dict(paths), "loop_frames": loop_frames})
 
-    def load_rendered_layers(self, paths) -> None:
-        self.load_paths.append(dict(paths))
+    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
+        self.load_paths.append({"paths": dict(paths), "loop_frames": loop_frames})
 
 
 class RendererSpy:
@@ -171,9 +171,12 @@ def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_rende
     assert runtime.player.layer_buffer_updates == [("voice", live_raw_buffer)]
     assert runtime.player.reload_paths == [
         {
-            "low": paths.low_playback,
-            "mid": paths.mid_playback,
-            "voice": paths.voice_playback,
+            "paths": {
+                "low": paths.low_playback,
+                "mid": paths.mid_playback,
+                "voice": paths.voice_playback,
+            },
+            "loop_frames": live.audio.sample_rate * live.voice_stack.loop_seconds,
         }
     ]
     assert runtime.playback_render_settings == result.active
@@ -217,9 +220,12 @@ def test_live_to_stable_mode_loads_cache_without_starting_player_when_output_is_
     assert runtime.player.reload_paths == []
     assert runtime.player.load_paths == [
         {
-            "low": paths.low_playback,
-            "mid": paths.mid_playback,
-            "voice": paths.voice_playback,
+            "paths": {
+                "low": paths.low_playback,
+                "mid": paths.mid_playback,
+                "voice": paths.voice_playback,
+            },
+            "loop_frames": live.audio.sample_rate * live.voice_stack.loop_seconds,
         }
     ]
     assert runtime.playback_render_settings == result.active

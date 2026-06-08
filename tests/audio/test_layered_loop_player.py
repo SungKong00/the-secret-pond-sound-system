@@ -774,6 +774,19 @@ def test_player_load_rendered_layers_clears_live_eq_state_for_stopped_rendered_c
     }
 
 
+def test_player_load_rendered_layers_uses_configured_loop_frames(tmp_path: Path) -> None:
+    paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3, frames=24)
+    player = LayeredLoopPlayer()
+
+    player.load_rendered_layers(paths, loop_frames=8)
+    player.start()
+    player.seek(6)
+    block = player.next_block(5)
+
+    assert block.next_frame_cursor == 3
+    assert player.frame_cursor == 3
+
+
 def test_player_latest_voice_crossfade_target_waits_until_active_transition_finishes(
     tmp_path: Path,
 ) -> None:

@@ -10,7 +10,7 @@ from secret_pond.services.file_snapshots import (
     restore_file_snapshot,
 )
 from secret_pond.services.player_settings import apply_player_layer_settings
-from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
+from secret_pond.services.runtime import SecretPondRuntime, load_main_rendered_layers
 from secret_pond.services.settings_changes import SettingsChangePlan, classify_settings_change
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.voice_raw_preview import prepare_voice_raw_preview
@@ -91,10 +91,7 @@ def apply_draft_settings(runtime: SecretPondRuntime) -> SettingsApplyResult:
         staged = runtime.renderer.stage_all(draft)
         staged.commit()
         if voice_raw_preview_path is None:
-            if was_running:
-                runtime.player.reload_and_restart(rendered_layer_paths(runtime.paths))
-            else:
-                runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
+            load_main_rendered_layers(runtime.player, runtime.paths, draft, restart=was_running)
             apply_player_layer_settings(runtime, draft, reset_realtime_trims=True)
         else:
             prepare_voice_raw_preview(runtime, voice_raw_preview_path, draft)

@@ -38,10 +38,11 @@ class FakePlayer:
         self.seek_calls.append(frame_cursor)
         self.frame_cursor = frame_cursor
 
-    def load_rendered_layers(self, paths) -> None:
+    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
         if self.operations is not None:
             self.operations.append("load_main")
         self.loaded_rendered_layers = paths
+        self.loaded_loop_frames = loop_frames
 
     def set_peak_ceiling(self, peak_ceiling: float) -> None:
         self.peak_ceiling = peak_ceiling
@@ -193,7 +194,7 @@ def test_stop_playback_restores_preview_without_starting_inactive_main_playback(
     assert runtime.transition_warning is None
 
 
-def test_seek_playback_maps_progress_to_audio_loop_cycle() -> None:
+def test_seek_playback_maps_progress_to_voice_loop_cycle() -> None:
     player = FakePlayer()
     runtime = SimpleNamespace(
         player=player,
@@ -209,11 +210,11 @@ def test_seek_playback_maps_progress_to_audio_loop_cycle() -> None:
 
     seek_playback(runtime, 0.5)
 
-    assert player.seek_calls == [228_000]
-    assert player.frame_cursor == 228_000
+    assert player.seek_calls == [20_000]
+    assert player.frame_cursor == 20_000
 
 
-def test_seek_playback_uses_full_audio_loop_when_transition_is_disabled() -> None:
+def test_seek_playback_uses_full_voice_loop_when_transition_is_enabled() -> None:
     player = FakePlayer()
     runtime = SimpleNamespace(
         player=player,
@@ -229,5 +230,5 @@ def test_seek_playback_uses_full_audio_loop_when_transition_is_disabled() -> Non
 
     seek_playback(runtime, 0.5)
 
-    assert player.seek_calls == [240_000]
-    assert player.frame_cursor == 240_000
+    assert player.seek_calls == [20_000]
+    assert player.frame_cursor == 20_000

@@ -398,7 +398,7 @@ assert.strictEqual(document.getElementById("playbackSeekSlider").value, "30");
     )
 
 
-def test_playback_timeline_uses_active_audio_loop_when_payload_duration_is_stale() -> None:
+def test_playback_timeline_uses_active_voice_loop_when_payload_duration_is_stale() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -471,15 +471,15 @@ applyState({
 });
 
 assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
-assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "300.0s");
-assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "10%");
-assert.strictEqual(document.getElementById("playbackSeekSlider").max, "300");
+assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "75.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "40%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").max, "75");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
 
 
-def test_playback_timeline_shortens_duration_when_transition_is_enabled() -> None:
+def test_playback_timeline_keeps_full_voice_loop_duration_when_transition_is_enabled() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -550,9 +550,9 @@ applyState({
 });
 
 assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
-assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "55.0s");
-assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "54.545%");
-assert.strictEqual(document.getElementById("playbackSeekSlider").max, "55");
+assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "60.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "50%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").max, "60");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
@@ -1195,7 +1195,7 @@ applyState({
 
 const seekSlider = document.getElementById("playbackSeekSlider");
 assert.strictEqual(seekSlider.disabled, false);
-assert.strictEqual(seekSlider.max, "300");
+assert.strictEqual(seekSlider.max, "60");
 assert.strictEqual(seekSlider.title, "재생 위치가 즉시 이동합니다.");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -1275,7 +1275,7 @@ applyState({
 
 const seekSlider = document.getElementById("playbackSeekSlider");
 assert.strictEqual(seekSlider.disabled, false);
-assert.strictEqual(seekSlider.max, "300");
+assert.strictEqual(seekSlider.max, "60");
 assert.strictEqual(seekSlider.title, "재생 위치가 즉시 이동합니다.");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,

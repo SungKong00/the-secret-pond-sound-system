@@ -185,12 +185,17 @@ class LayeredLoopPlayer:
         self._active_voice_identity = snapshot.active_voice_identity
         self._loop_frames = snapshot.loop_frames
 
-    def load_rendered_layers(self, paths: Mapping[LayerId, Path]) -> None:
+    def load_rendered_layers(
+        self,
+        paths: Mapping[LayerId, Path],
+        *,
+        loop_frames: int | None = None,
+    ) -> None:
         layers = _load_rendered_layers(paths)
-        _validate_loaded_layers(layers)
+        _validate_loaded_layers(layers, loop_frames=loop_frames)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
-        self._loop_frames = _default_loop_frames(layers)
+        self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
@@ -254,12 +259,17 @@ class LayeredLoopPlayer:
         normalized_layer_id = _validate_layer_id(layer_id)
         self._live_eq_states[normalized_layer_id] = eq.model_copy(deep=True)
 
-    def reload_and_restart(self, paths: Mapping[LayerId, Path]) -> None:
+    def reload_and_restart(
+        self,
+        paths: Mapping[LayerId, Path],
+        *,
+        loop_frames: int | None = None,
+    ) -> None:
         layers = _load_rendered_layers(paths)
-        _validate_loaded_layers(layers)
+        _validate_loaded_layers(layers, loop_frames=loop_frames)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
-        self._loop_frames = _default_loop_frames(layers)
+        self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
         self._frame_cursor = 0
         self._playing = True
         self._voice_transition = None

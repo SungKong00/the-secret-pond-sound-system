@@ -4,7 +4,7 @@ from typing import Literal
 
 from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.config import AppSettings, EqSettings
-from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
+from secret_pond.services.runtime import SecretPondRuntime, load_main_rendered_layers
 from secret_pond.services.settings_store import SettingsState
 
 PlaybackApplyMode = Literal["stable", "live"]
@@ -32,7 +32,7 @@ def apply_playback_apply_mode(
         _replace_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
     elif previous_mode == "live" and mode == "stable":
-        _restore_stable_eq_artifacts(runtime)
+        _restore_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
     runtime.apply_settings_state(state)
     _log_event_best_effort(runtime, "settings.playback_apply_mode_applied", {"mode": mode})
@@ -112,21 +112,19 @@ def _replace_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettin
             set_live_eq_state(layer_id, eq)
 
 
-def _restore_stable_eq_artifacts(runtime: SecretPondRuntime) -> None:
+def _restore_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettings) -> None:
     paths = getattr(runtime, "paths", None)
     if paths is None:
         return
     output = getattr(runtime, "output", None)
     output_running = True if output is None else bool(getattr(output, "is_running", False))
-    restore_player = (
-        getattr(runtime.player, "reload_and_restart", None)
-        if output_running
-        else getattr(runtime.player, "load_rendered_layers", None)
-    )
-    if not callable(restore_player):
-        return
     try:
-        restore_player(rendered_layer_paths(paths))
+        load_main_rendered_layers(
+            runtime.player,
+            paths,
+            settings,
+            restart=output_running,
+        )
     except FileNotFoundError:
         return
 

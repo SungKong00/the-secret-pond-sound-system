@@ -4,7 +4,7 @@ from typing import Any
 
 from secret_pond.config import AppSettings
 from secret_pond.services.player_settings import apply_player_layer_settings
-from secret_pond.services.runtime import rendered_layer_paths
+from secret_pond.services.runtime import load_main_rendered_layers
 
 
 def prepare_voice_raw_preview(
@@ -68,7 +68,7 @@ def restore_main_playback_after_voice_raw_preview(
     runtime: Any,
     settings: AppSettings,
 ) -> None:
-    runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
+    load_main_rendered_layers(runtime.player, runtime.paths, settings)
     apply_player_layer_settings(runtime, settings)
     runtime.voice_raw_preview_path = None
     runtime.voice_raw_preview_resume_main = False

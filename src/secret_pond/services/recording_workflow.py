@@ -8,7 +8,11 @@ from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.layers import LayerId
 from secret_pond.services.player_settings import apply_player_layer_settings
 from secret_pond.services.recording_transaction import run_recording_transaction
-from secret_pond.services.runtime import SecretPondRuntime, rendered_layer_paths
+from secret_pond.services.runtime import (
+    SecretPondRuntime,
+    load_main_rendered_layers,
+    rendered_layer_paths,
+)
 
 _T = TypeVar("_T")
 
@@ -101,7 +105,7 @@ def refresh_playback_after_recording(
             )
             runtime.transition_warning = None
         else:
-            runtime.player.load_rendered_layers(rendered_layer_paths(runtime.paths))
+            load_main_rendered_layers(runtime.player, runtime.paths, settings)
             runtime.transition_warning = None
         apply_player_layer_settings(runtime, settings)
         if crossfade_scheduled:

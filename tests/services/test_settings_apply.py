@@ -52,11 +52,11 @@ class ApplyRestartPlayerSpy:
     def snapshot(self):
         return {"reload_paths": list(self.reload_paths)}
 
-    def reload_and_restart(self, paths) -> None:
-        self.reload_paths.append(paths)
+    def reload_and_restart(self, paths, *, loop_frames=None) -> None:
+        self.reload_paths.append({"paths": paths, "loop_frames": loop_frames})
 
-    def load_rendered_layers(self, paths) -> None:
-        self.load_paths.append(paths)
+    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
+        self.load_paths.append({"paths": paths, "loop_frames": loop_frames})
 
     def restart(self) -> None:
         raise AssertionError("Apply and Restart must reload the rendered cache")
@@ -201,7 +201,10 @@ def test_apply_draft_settings_reloads_rendered_cache_without_live_voice_hot_swap
     assert result.output_running is True
     assert player.voice_hot_swap_calls == 0
     assert len(player.reload_paths) == 1
-    reload_paths = player.reload_paths[0]
+    assert player.reload_paths[0]["loop_frames"] == (
+        draft.audio.sample_rate * draft.voice_stack.loop_seconds
+    )
+    reload_paths = player.reload_paths[0]["paths"]
     assert reload_paths["low"] == runtime.paths.low_playback
     assert reload_paths["mid"] == runtime.paths.mid_playback
     assert reload_paths["voice"] == runtime.paths.voice_playback
@@ -233,7 +236,10 @@ def test_stable_apply_loads_rendered_cache_without_starting_stopped_output(tmp_p
     assert player.voice_hot_swap_calls == 0
     assert player.reload_paths == []
     assert len(player.load_paths) == 1
-    load_paths = player.load_paths[0]
+    assert player.load_paths[0]["loop_frames"] == (
+        draft.audio.sample_rate * draft.voice_stack.loop_seconds
+    )
+    load_paths = player.load_paths[0]["paths"]
     assert load_paths["low"] == runtime.paths.low_playback
     assert load_paths["mid"] == runtime.paths.mid_playback
     assert load_paths["voice"] == runtime.paths.voice_playback
@@ -268,6 +274,9 @@ def test_stable_apply_commits_staged_volume_and_mute_to_active_state(tmp_path) -
     assert stored.draft.layers == stored.active.layers
     assert runtime.controller.settings.layers == stored.active.layers
     assert len(player.reload_paths) == 1
+    assert player.reload_paths[0]["loop_frames"] == (
+        draft.audio.sample_rate * draft.voice_stack.loop_seconds
+    )
     assert player.enabled_updates == [("low", False), ("mid", False), ("voice", False)]
     assert player.realtime_trim_updates == [("low", 0.0), ("mid", 0.0), ("voice", 0.0)]
     assert runtime.output.is_running is True
@@ -303,8 +312,11 @@ def test_stable_apply_commits_staged_eq_through_rendered_cache_restart(tmp_path)
     assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 5.0
     assert runtime.playback_render_settings.layers["voice"].eq.high_gain_db == -4.0
     assert len(player.reload_paths) == 1
-    assert player.reload_paths[0]["mid"] == runtime.paths.mid_playback
-    assert player.reload_paths[0]["voice"] == runtime.paths.voice_playback
+    assert player.reload_paths[0]["loop_frames"] == (
+        draft.audio.sample_rate * draft.voice_stack.loop_seconds
+    )
+    assert player.reload_paths[0]["paths"]["mid"] == runtime.paths.mid_playback
+    assert player.reload_paths[0]["paths"]["voice"] == runtime.paths.voice_playback
     assert runtime.output.is_running is True
 
 
@@ -336,6 +348,9 @@ def test_stable_apply_renders_cache_content_with_draft_eq_settings(tmp_path) -> 
     assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 12.0
     assert player.reload_paths == []
     assert len(player.load_paths) == 1
+    assert player.load_paths[0]["loop_frames"] == (
+        draft.audio.sample_rate * draft.voice_stack.loop_seconds
+    )
     assert rms(rendered.samples[:, 0]) > rms(baseline.samples[:, 0]) * 1.5
 
 
