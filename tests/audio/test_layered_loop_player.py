@@ -116,6 +116,105 @@ def test_player_first_start_reads_loaded_layers_from_frame_zero() -> None:
     np.testing.assert_allclose(block.samples, expected, atol=1e-6)
 
 
+def test_player_crossfades_loop_tail_into_next_loop_head_after_first_cycle() -> None:
+    low = np.column_stack(
+        [
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+            np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+        ],
+    )
+    silence = np.zeros((6, 2), dtype=np.float32)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=low, sample_rate=8_000),
+            "mid": AudioBuffer(samples=silence, sample_rate=8_000),
+            "voice": AudioBuffer(samples=silence, sample_rate=8_000),
+        },
+        loop_frames=6,
+        loop_transition_frames=2,
+    )
+
+    player.start()
+    first_cycle_head = player.next_block(4)
+    transition = player.next_block(2)
+    after_transition = player.next_block(2)
+
+    np.testing.assert_allclose(first_cycle_head.samples[:, 0], [0.0, 0.1, 0.2, 0.3], atol=1e-6)
+    np.testing.assert_allclose(
+        transition.samples[:, 0],
+        [0.4, 0.1],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(after_transition.samples[:, 0], [0.2, 0.3], atol=1e-6)
+    assert player.frame_cursor == 4
+
+
+def test_player_configured_loop_transition_does_not_fade_normal_head_frames() -> None:
+    loop_frames = 100
+    source_frames = 120
+    samples = np.zeros(source_frames, dtype=np.float32)
+    samples[:40] = 0.5
+    samples[loop_frames - 40 : loop_frames] = -0.5
+    layer = AudioBuffer(
+        samples=np.column_stack([samples, samples]),
+        sample_rate=8_000,
+    )
+    silence = AudioBuffer(
+        samples=np.zeros((source_frames, 2), dtype=np.float32),
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": layer,
+            "mid": silence,
+            "voice": silence,
+        },
+        loop_frames=loop_frames,
+        loop_transition_frames=40,
+    )
+
+    player.start()
+    block = player.next_block(4)
+
+    np.testing.assert_allclose(
+        block.samples[:, 0],
+        np.ones(4, dtype=np.float32) * 0.5,
+        atol=1e-6,
+    )
+    assert block.next_frame_cursor == 4
+
+
+def test_player_single_frame_loop_transition_attaches_to_head_cursor() -> None:
+    samples = np.column_stack(
+        [
+            np.array([0.0, 0.1, 0.2, 0.9], dtype=np.float32),
+            np.array([0.0, 0.1, 0.2, 0.9], dtype=np.float32),
+        ],
+    )
+    silence = np.zeros((4, 2), dtype=np.float32)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=samples, sample_rate=8_000),
+            "mid": AudioBuffer(samples=silence, sample_rate=8_000),
+            "voice": AudioBuffer(samples=silence, sample_rate=8_000),
+        },
+        loop_frames=4,
+        loop_transition_frames=1,
+    )
+
+    player.start()
+    player.next_block(3)
+    transition = player.next_block(1)
+    after_transition = player.next_block(1)
+
+    assert transition.samples[0, 0] == pytest.approx(samples[0, 0], abs=1e-6)
+    assert after_transition.samples[0, 0] == pytest.approx(samples[1, 0], abs=1e-6)
+    assert player.frame_cursor == 2
+
+
 def test_player_seek_during_playback_applies_short_ramp_in(tmp_path: Path) -> None:
     paths = write_layers(tmp_path, low=0.1, mid=0.2, voice=0.3, frames=512)
     player = LayeredLoopPlayer()
@@ -153,6 +252,41 @@ def test_player_start_after_stopped_seek_emits_first_block_without_fade_in(
     assert player.is_playing is True
     assert block.next_frame_cursor == 260
     np.testing.assert_allclose(block.samples, np.ones((4, 2)) * 0.6, atol=1e-6)
+
+
+def test_player_transition_disabled_smooths_raw_loop_boundary_with_declick_guard() -> None:
+    loop_frames = 100
+    source_frames = 120
+    samples = np.zeros(source_frames, dtype=np.float32)
+    samples[:40] = -1.0
+    samples[loop_frames - 40 : loop_frames] = 1.0
+    layer = AudioBuffer(
+        samples=np.column_stack([samples, samples]),
+        sample_rate=8_000,
+    )
+    silence = AudioBuffer(
+        samples=np.zeros((source_frames, 2), dtype=np.float32),
+        sample_rate=8_000,
+    )
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": layer,
+            "mid": silence,
+            "voice": silence,
+        },
+        loop_frames=loop_frames,
+    )
+
+    player.start()
+    player.next_block(loop_frames - 40)
+    block = player.next_block(80)
+
+    assert abs(block.samples[39, 0]) < 0.05
+    assert abs(block.samples[40, 0]) < 0.05
+    assert abs(block.samples[40, 0] - block.samples[39, 0]) < 0.05
+    assert block.samples[-1, 0] == pytest.approx(-1.0, abs=0.05)
+    assert block.next_frame_cursor == 40
 
 
 def test_player_stop_returns_silence_without_advancing_cursor(tmp_path: Path) -> None:

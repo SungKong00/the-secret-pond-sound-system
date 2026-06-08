@@ -80,6 +80,12 @@ class PendingVoiceSwitchState:
 
 
 @dataclass(frozen=True)
+class LoopCrossfadeState:
+    duration_frames: int
+    elapsed_frames: int = 0
+
+
+@dataclass(frozen=True)
 class SeekEnvelopeState:
     duration_frames: int
     elapsed_frames: int = 0
@@ -96,9 +102,11 @@ class LayeredLoopPlayerSnapshot:
     voice_transition: VoiceCrossfadeState | None
     queued_voice_transition: QueuedVoiceTransitionState | None
     pending_voice_switch: PendingVoiceSwitchState | None
+    loop_crossfade: LoopCrossfadeState | None
     seek_envelope: SeekEnvelopeState | None
     active_voice_identity: str | None = None
     loop_frames: int | None = None
+    loop_transition_frames: int = 0
 
 
 class LayeredLoopPlayer:
@@ -115,9 +123,11 @@ class LayeredLoopPlayer:
         self._voice_transition: VoiceCrossfadeState | None = None
         self._queued_voice_transition: QueuedVoiceTransitionState | None = None
         self._pending_voice_switch: PendingVoiceSwitchState | None = None
+        self._loop_crossfade: LoopCrossfadeState | None = None
         self._seek_envelope: SeekEnvelopeState | None = None
         self._active_voice_identity: str | None = None
         self._loop_frames: int | None = None
+        self._loop_transition_frames = 0
 
     @property
     def is_playing(self) -> bool:
@@ -163,9 +173,11 @@ class LayeredLoopPlayer:
             voice_transition=self._voice_transition,
             queued_voice_transition=self._queued_voice_transition,
             pending_voice_switch=self._pending_voice_switch,
+            loop_crossfade=self._loop_crossfade,
             seek_envelope=self._seek_envelope,
             active_voice_identity=self._active_voice_identity,
             loop_frames=self._loop_frames,
+            loop_transition_frames=self._loop_transition_frames,
         )
 
     def restore(self, snapshot: LayeredLoopPlayerSnapshot) -> None:
@@ -181,26 +193,34 @@ class LayeredLoopPlayer:
         self._voice_transition = snapshot.voice_transition
         self._queued_voice_transition = snapshot.queued_voice_transition
         self._pending_voice_switch = snapshot.pending_voice_switch
+        self._loop_crossfade = snapshot.loop_crossfade
         self._seek_envelope = snapshot.seek_envelope
         self._active_voice_identity = snapshot.active_voice_identity
         self._loop_frames = snapshot.loop_frames
+        self._loop_transition_frames = snapshot.loop_transition_frames
 
     def load_rendered_layers(
         self,
         paths: Mapping[LayerId, Path],
         *,
         loop_frames: int | None = None,
+        loop_transition_frames: int = 0,
     ) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers, loop_frames=loop_frames)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
         self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
+        self._loop_transition_frames = _resolve_loop_transition_frames(
+            loop_transition_frames,
+            self._loop_frames,
+        )
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
         self._queued_voice_transition = None
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -210,16 +230,22 @@ class LayeredLoopPlayer:
         *,
         active_voice_identity: str | None = None,
         loop_frames: int | None = None,
+        loop_transition_frames: int = 0,
     ) -> None:
         _validate_loaded_layers(buffers, loop_frames=loop_frames)
         layers = {layer_id: buffers[layer_id] for layer_id in LAYER_IDS}
         self._layers = layers
         self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
+        self._loop_transition_frames = _resolve_loop_transition_frames(
+            loop_transition_frames,
+            self._loop_frames,
+        )
         self._frame_cursor = 0
         self._playing = False
         self._voice_transition = None
         self._queued_voice_transition = None
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
         self._active_voice_identity = active_voice_identity
 
@@ -232,6 +258,7 @@ class LayeredLoopPlayer:
         self._voice_transition = None
         self._queued_voice_transition = None
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
@@ -264,17 +291,23 @@ class LayeredLoopPlayer:
         paths: Mapping[LayerId, Path],
         *,
         loop_frames: int | None = None,
+        loop_transition_frames: int = 0,
     ) -> None:
         layers = _load_rendered_layers(paths)
         _validate_loaded_layers(layers, loop_frames=loop_frames)
         self._layers = layers
         self._live_eq_states = _default_live_eq_states()
         self._loop_frames = _resolve_layer_loop_frames(layers, loop_frames)
+        self._loop_transition_frames = _resolve_loop_transition_frames(
+            loop_transition_frames,
+            self._loop_frames,
+        )
         self._frame_cursor = 0
         self._playing = True
         self._voice_transition = None
         self._queued_voice_transition = None
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
         self._active_voice_identity = None
 
@@ -315,6 +348,7 @@ class LayeredLoopPlayer:
         )
         self._frame_cursor = 0
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
         return superseded
 
@@ -346,6 +380,7 @@ class LayeredLoopPlayer:
         )
         self._frame_cursor = 0
         self._pending_voice_switch = None
+        self._loop_crossfade = None
         self._seek_envelope = None
         return superseded
 
@@ -375,6 +410,7 @@ class LayeredLoopPlayer:
             transition_layer_ids=transition_layer_ids,
             transition_target_id=transition_target_id,
         )
+        self._loop_crossfade = None
         self._seek_envelope = None
         return superseded
 
@@ -382,6 +418,7 @@ class LayeredLoopPlayer:
         self._require_loaded()
         self._frame_cursor = 0
         self._playing = True
+        self._loop_crossfade = None
 
     def seek(self, frame_cursor: int) -> None:
         layers = self._require_loaded()
@@ -390,6 +427,7 @@ class LayeredLoopPlayer:
             msg = "frame_cursor must be greater than or equal to 0 and less than the loop length"
             raise ValueError(msg)
         self._frame_cursor = frame_cursor
+        self._loop_crossfade = None
         self._seek_envelope = (
             _seek_envelope_for_layer(layers[LAYER_IDS[0]]) if self._playing else None
         )
@@ -397,10 +435,12 @@ class LayeredLoopPlayer:
     def start(self) -> None:
         self._require_loaded()
         self._seek_envelope = None
+        self._loop_crossfade = None
         self._playing = True
 
     def stop(self) -> None:
         self._seek_envelope = None
+        self._loop_crossfade = None
         self._playing = False
 
     def next_block(self, block_size: int) -> MixerBlock:
@@ -419,15 +459,31 @@ class LayeredLoopPlayer:
 
         preserve_realtime_ramp_layers: frozenset[LayerId] = frozenset()
         if self._voice_transition is None:
-            if self._pending_voice_switch is None:
-                block = mix_layer_blocks(
-                    layers,
-                    self._states,
-                    frame_cursor=self._frame_cursor,
-                    block_size=block_size,
-                    loop_frames=loop_frames,
-                    peak_ceiling=self._peak_ceiling,
-                )
+            if self._loop_crossfade is not None:
+                block = self._next_block_with_loop_crossfade(block_size, loop_frames)
+            elif self._pending_voice_switch is None:
+                transition_frames = self._effective_loop_transition_frames(loop_frames)
+                visible_frames = loop_frames - transition_frames
+                if (
+                    transition_frames > 0
+                    and (
+                        self._frame_cursor >= visible_frames
+                        or self._frame_cursor + block_size > visible_frames
+                    )
+                ):
+                    block = self._next_block_with_loop_crossfade(block_size, loop_frames)
+                else:
+                    block = mix_layer_blocks(
+                        layers,
+                        self._states,
+                        frame_cursor=self._frame_cursor,
+                        block_size=block_size,
+                        loop_frames=loop_frames,
+                        loop_boundary_fade_frames=self._loop_boundary_declick_frames(
+                            loop_frames,
+                        ),
+                        peak_ceiling=self._peak_ceiling,
+                    )
             else:
                 block = self._next_block_with_pending_voice_switch(block_size, loop_frames)
             self._frame_cursor = block.next_frame_cursor
@@ -466,6 +522,9 @@ class LayeredLoopPlayer:
                         frame_cursor=self._frame_cursor,
                         block_size=block_size,
                         loop_frames=loop_frames,
+                        loop_boundary_fade_frames=self._loop_boundary_declick_frames(
+                            loop_frames,
+                        ),
                         peak_ceiling=self._peak_ceiling,
                     )
                     self._frame_cursor = block.next_frame_cursor
@@ -509,6 +568,7 @@ class LayeredLoopPlayer:
             )
             self._queued_voice_transition = None
             self._pending_voice_switch = None
+            self._loop_crossfade = None
             self._frame_cursor = 0
             self._seek_envelope = None
             return
@@ -523,6 +583,7 @@ class LayeredLoopPlayer:
         )
         self._queued_voice_transition = None
         self._frame_cursor = 0
+        self._loop_crossfade = None
         self._seek_envelope = None
 
     def _voice_transition_candidates(
@@ -561,6 +622,112 @@ class LayeredLoopPlayer:
             if layer_id in transition_layer_ids:
                 layers[layer_id] = next_layers[layer_id]
         self._active_voice_identity = transition_target_id
+
+    def _effective_loop_transition_frames(self, loop_frames: int) -> int:
+        if 0 < self._loop_transition_frames < loop_frames:
+            return self._loop_transition_frames
+        return 0
+
+    def _next_block_with_loop_crossfade(
+        self,
+        block_size: int,
+        loop_frames: int,
+    ) -> MixerBlock:
+        transition_frames = self._effective_loop_transition_frames(loop_frames)
+        if transition_frames <= 0:
+            return mix_layer_blocks(
+                self._require_loaded(),
+                self._states,
+                frame_cursor=self._frame_cursor,
+                block_size=block_size,
+                loop_frames=loop_frames,
+                loop_boundary_fade_frames=self._loop_boundary_declick_frames(loop_frames),
+                peak_ceiling=self._peak_ceiling,
+            )
+
+        visible_frames = loop_frames - transition_frames
+        if self._loop_crossfade is None:
+            normal_frames = max(0, visible_frames - self._frame_cursor)
+            if normal_frames >= block_size:
+                return mix_layer_blocks(
+                    self._require_loaded(),
+                    self._states,
+                    frame_cursor=self._frame_cursor,
+                    block_size=block_size,
+                    loop_frames=loop_frames,
+                    loop_boundary_fade_frames=self._loop_boundary_declick_frames(
+                        loop_frames,
+                    ),
+                    peak_ceiling=self._peak_ceiling,
+                )
+            before = (
+                mix_layer_blocks(
+                    self._require_loaded(),
+                    self._states,
+                    frame_cursor=self._frame_cursor,
+                    block_size=normal_frames,
+                    loop_frames=loop_frames,
+                    loop_boundary_fade_frames=self._loop_boundary_declick_frames(
+                        loop_frames,
+                    ),
+                    peak_ceiling=self._peak_ceiling,
+                )
+                if normal_frames > 0
+                else None
+            )
+            self._loop_crossfade = LoopCrossfadeState(duration_frames=transition_frames)
+            self._frame_cursor = 0
+            crossfade = self._mix_loop_crossfade_block(
+                block_size - normal_frames,
+                loop_frames,
+            )
+            if before is None:
+                return crossfade
+            return MixerBlock(
+                samples=np.concatenate([before.samples, crossfade.samples], axis=0),
+                next_frame_cursor=crossfade.next_frame_cursor,
+                peak_before_guard=max(before.peak_before_guard, crossfade.peak_before_guard),
+                peak_after_guard=max(before.peak_after_guard, crossfade.peak_after_guard),
+            )
+
+        return self._mix_loop_crossfade_block(block_size, loop_frames)
+
+    def _mix_loop_crossfade_block(
+        self,
+        block_size: int,
+        loop_frames: int,
+    ) -> MixerBlock:
+        loop_crossfade = self._loop_crossfade
+        if loop_crossfade is None:
+            msg = "loop crossfade state is required"
+            raise RuntimeError(msg)
+        block = mix_layer_blocks_with_loop_crossfade(
+            self._require_loaded(),
+            self._states,
+            loop_crossfade,
+            frame_cursor=self._frame_cursor,
+            block_size=block_size,
+            loop_frames=loop_frames,
+            peak_ceiling=self._peak_ceiling,
+        )
+        elapsed_frames = loop_crossfade.elapsed_frames + block_size
+        if elapsed_frames >= loop_crossfade.duration_frames:
+            self._loop_crossfade = None
+        else:
+            self._loop_crossfade = replace(loop_crossfade, elapsed_frames=elapsed_frames)
+        return block
+
+    def _loop_boundary_declick_frames(self, loop_frames: int) -> int:
+        layers = self._require_loaded()
+        if loop_frames <= 1:
+            return 0
+        if self._effective_loop_transition_frames(loop_frames) > 0:
+            return 0
+        if not any(layer.frames > loop_frames for layer in layers.values()):
+            return 0
+        if not _has_material_loop_boundary_jump(layers, self._states, loop_frames):
+            return 0
+        return max(1, min(loop_frames // 2, _short_ramp_frames(layers[LAYER_IDS[0]])))
 
     def _next_block_with_pending_voice_switch(
         self,
@@ -773,6 +940,7 @@ def mix_layer_blocks(
     block_size: int,
     peak_ceiling: float = 0.98,
     loop_frames: int | None = None,
+    loop_boundary_fade_frames: int = 0,
 ) -> MixerBlock:
     cycle_frames = _validate_mix_inputs(
         layers,
@@ -797,6 +965,13 @@ def mix_layer_blocks(
         )
         mixed += _apply_realtime_gain(layer_block, state)
 
+    if loop_boundary_fade_frames > 0:
+        mixed = _apply_loop_boundary_declick(
+            mixed,
+            frame_cursor=frame_cursor,
+            loop_frames=cycle_frames,
+            fade_frames=loop_boundary_fade_frames,
+        )
     peak_before = _peak(mixed)
     guarded = _guard_peak(mixed, peak_before, peak_ceiling)
     peak_after = _peak(guarded)
@@ -895,6 +1070,74 @@ def mix_layer_blocks_with_voice_crossfade(
     )
 
 
+def mix_layer_blocks_with_loop_crossfade(
+    layers: Mapping[LayerId, AudioBuffer],
+    states: Mapping[LayerId, LayerPlaybackState],
+    loop_crossfade: LoopCrossfadeState,
+    frame_cursor: int,
+    block_size: int,
+    peak_ceiling: float = 0.98,
+    loop_frames: int | None = None,
+) -> MixerBlock:
+    cycle_frames = _validate_mix_inputs(
+        layers,
+        frame_cursor,
+        block_size,
+        peak_ceiling,
+        loop_frames=loop_frames,
+    )
+    if loop_crossfade.duration_frames <= 0:
+        msg = "loop crossfade duration must be greater than 0"
+        raise ValueError(msg)
+    visible_frames = cycle_frames - loop_crossfade.duration_frames
+    if visible_frames <= 0:
+        msg = "loop crossfade duration must be less than the loop length"
+        raise ValueError(msg)
+    first_layer = layers[LAYER_IDS[0]]
+    mixed = np.zeros((block_size, first_layer.channels), dtype=np.float32)
+
+    progress = _crossfade_progress(
+        elapsed_frames=loop_crossfade.elapsed_frames,
+        block_size=block_size,
+        duration_frames=loop_crossfade.duration_frames,
+        include_endpoint=True,
+    )
+    from_gain, to_gain = _equal_power_crossfade_gains(progress)
+    from_gain = from_gain[:, np.newaxis]
+    to_gain = to_gain[:, np.newaxis]
+    from_frame_cursor = (visible_frames + loop_crossfade.elapsed_frames) % cycle_frames
+
+    for layer_id in LAYER_IDS:
+        state = states.get(layer_id, LayerPlaybackState())
+        if not state.enabled:
+            continue
+        from_block = _read_wrapped(
+            layers[layer_id].samples,
+            from_frame_cursor,
+            block_size,
+            loop_frames=cycle_frames,
+        )
+        to_block = _read_wrapped(
+            layers[layer_id].samples,
+            frame_cursor,
+            block_size,
+            loop_frames=cycle_frames,
+        )
+        layer_block = (from_block * from_gain + to_block * to_gain).astype(np.float32)
+        mixed += _apply_realtime_gain(layer_block, state)
+
+    peak_before = _peak(mixed)
+    guarded = _guard_peak(mixed, peak_before, peak_ceiling)
+    peak_after = _peak(guarded)
+    next_cursor = (frame_cursor + block_size) % cycle_frames
+    return MixerBlock(
+        samples=guarded,
+        next_frame_cursor=next_cursor,
+        peak_before_guard=peak_before,
+        peak_after_guard=peak_after,
+    )
+
+
 def _canonical_voice_candidate(
     next_voice: AudioBuffer,
     layers: Mapping[LayerId, AudioBuffer],
@@ -941,6 +1184,68 @@ def _seek_envelope_for_layer(layer: AudioBuffer) -> SeekEnvelopeState:
 
 def _short_ramp_frames(layer: AudioBuffer) -> int:
     return max(1, min(layer.frames, layer.sample_rate // 200))
+
+
+def _crossfade_progress(
+    *,
+    elapsed_frames: int,
+    block_size: int,
+    duration_frames: int,
+    include_endpoint: bool = False,
+) -> np.ndarray:
+    if include_endpoint and duration_frames <= 1:
+        return np.ones(block_size, dtype=np.float32)
+    denominator = duration_frames
+    if include_endpoint:
+        denominator = max(1, duration_frames - 1)
+    frame_offsets = elapsed_frames + np.arange(block_size, dtype=np.float32)
+    return np.clip(frame_offsets / denominator, 0.0, 1.0)
+
+
+def _has_material_loop_boundary_jump(
+    layers: Mapping[LayerId, AudioBuffer],
+    states: Mapping[LayerId, LayerPlaybackState],
+    loop_frames: int,
+) -> bool:
+    for layer_id in LAYER_IDS:
+        state = states.get(layer_id, LayerPlaybackState())
+        if not state.enabled:
+            continue
+        layer = layers[layer_id]
+        tail = layer.samples[(loop_frames - 1) % layer.frames]
+        head = layer.samples[0]
+        if _peak((tail - head)[np.newaxis, :]) > 1e-4:
+            return True
+    return False
+
+
+def _apply_loop_boundary_declick(
+    samples: np.ndarray,
+    *,
+    frame_cursor: int,
+    loop_frames: int,
+    fade_frames: int,
+) -> np.ndarray:
+    if fade_frames <= 0 or loop_frames <= 1:
+        return samples.astype(np.float32, copy=True)
+    effective_fade_frames = max(1, min(fade_frames, loop_frames // 2))
+    positions = (frame_cursor + np.arange(samples.shape[0])) % loop_frames
+    gains = np.ones(samples.shape[0], dtype=np.float32)
+    if effective_fade_frames == 1:
+        gains[(positions == 0) | (positions == loop_frames - 1)] = 0.0
+    else:
+        fade_in_mask = positions < effective_fade_frames
+        gains[fade_in_mask] = np.minimum(
+            gains[fade_in_mask],
+            positions[fade_in_mask].astype(np.float32) / (effective_fade_frames - 1),
+        )
+        fade_out_mask = positions >= loop_frames - effective_fade_frames
+        gains[fade_out_mask] = np.minimum(
+            gains[fade_out_mask],
+            (loop_frames - 1 - positions[fade_out_mask]).astype(np.float32)
+            / (effective_fade_frames - 1),
+        )
+    return (samples * gains[:, np.newaxis]).astype(np.float32)
 
 
 def _apply_seek_envelope(block: MixerBlock, seek_envelope: SeekEnvelopeState) -> MixerBlock:
@@ -1003,6 +1308,15 @@ def _resolve_layer_loop_frames(
             raise ValueError(msg)
         return loop_frames
     return layers[LAYER_IDS[0]].frames
+
+
+def _resolve_loop_transition_frames(transition_frames: int, loop_frames: int) -> int:
+    if transition_frames <= 0:
+        return 0
+    if transition_frames >= loop_frames:
+        msg = "loop_transition_frames must be less than the loop length"
+        raise ValueError(msg)
+    return transition_frames
 
 
 def _channel_count(layers: Mapping[LayerId, AudioBuffer]) -> int:
