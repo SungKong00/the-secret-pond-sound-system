@@ -585,17 +585,12 @@ const liveSnapshot = (active) => ({
     },
   },
 });
-const changedDrafts = [
-  ["layer:low", "layers.low.volume_db", (draft) => { draft.layers.low.volume_db = -1; }],
-  ["layer:mid", "layers.mid.eq.low_gain_db", (draft) => { draft.layers.mid.eq.low_gain_db = 2; }],
-  ["layer:voice", "layers.voice.enabled", (draft) => { draft.layers.voice.enabled = false; }],
-  [
-    "voice_stack",
-    "voice_stack.transition_seconds",
-    (draft) => { draft.voice_stack.transition_seconds = 7; },
-  ],
-  ["recording", "recording.reverb_mix", (draft) => { draft.recording.reverb_mix = 0.4; }],
-];
+  const changedDrafts = [
+    ["layer:low", "layers.low.volume_db", (draft) => { draft.layers.low.volume_db = -1; }],
+    ["layer:mid", "layers.mid.eq.low_gain_db", (draft) => { draft.layers.mid.eq.low_gain_db = 2; }],
+    ["layer:voice", "layers.voice.enabled", (draft) => { draft.layers.voice.enabled = false; }],
+    ["recording", "recording.reverb_mix", (draft) => { draft.recording.reverb_mix = 0.4; }],
+  ];
 
 for (const [surfaceId, feedbackControlId, mutate] of changedDrafts) {
   const draft = clone(activeSettings);
@@ -628,6 +623,21 @@ for (const [surfaceId, feedbackControlId, mutate] of changedDrafts) {
     { visual_state: "idle", show_spinner: false },
   );
 }
+
+const transitionDraft = clone(activeSettings);
+transitionDraft.voice_stack.transition_seconds = 7;
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({
+    snapshot: liveSnapshot(activeSettings),
+    draft: transitionDraft,
+    operationFlags: {
+      draftSaveInFlight: true,
+      feedbackControlId: "voice_stack.transition_seconds",
+    },
+    surfaceId: "voice_stack",
+  }),
+  { visual_state: "pending", show_spinner: false },
+);
 """,
     )
 
@@ -940,7 +950,7 @@ assert.deepStrictEqual(
       coveredFeedbackControlIds: ["layers.low.volume_db"],
     },
     surfaceId: "layer:low",
-  }),
+    }),
   { visual_state: "idle", show_spinner: false },
 );
 
@@ -1431,7 +1441,7 @@ assert.deepStrictEqual(
     operationFlags: { draftSaveInFlight: true, liveFeedbackSurfaceId: "layer:low" },
     surfaceId: "layer.low",
   }),
-  { visual_state: "idle", show_spinner: false },
+  { visual_state: "pending", show_spinner: false },
 );
 
 const outputDraft = clone(activeSettings);
@@ -2987,12 +2997,22 @@ assert.deepStrictEqual(
   deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId: "layer:low" }),
   { visual_state: "pending", show_spinner: true },
 );
-for (const surfaceId of ["layer:mid", "layer:voice", "voice_stack", "recording"]) {
-  assert.deepStrictEqual(
-    deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId }),
-    { visual_state: "idle", show_spinner: false },
-  );
-}
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId: "layer:mid" }),
+  { visual_state: "idle", show_spinner: false },
+);
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId: "layer:voice" }),
+  { visual_state: "idle", show_spinner: false },
+);
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId: "voice_stack" }),
+  { visual_state: "pending", show_spinner: false },
+);
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({ snapshot, draft, operationFlags, surfaceId: "recording" }),
+  { visual_state: "idle", show_spinner: false },
+);
 assert.deepStrictEqual(
   deriveCoveredSurfaceFeedbackState({
     snapshot,

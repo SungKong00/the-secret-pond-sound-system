@@ -44,8 +44,9 @@ def update_draft_settings(
         render_settings = _apply_live_eq_buffers(runtime, render_settings, state.active)
         apply_live_player_layer_controls(
             runtime.player,
-            previous=render_settings,
+            previous=current.active,
             current=state.active,
+            rendered_baseline=render_settings,
         )
         runtime.apply_settings_state(state)
         if live_preview_reprocess_needed:

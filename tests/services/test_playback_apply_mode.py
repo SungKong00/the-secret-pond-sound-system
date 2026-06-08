@@ -44,11 +44,23 @@ class PlayerSpy:
     def set_live_eq_state(self, layer_id: str, eq: EqSettings) -> None:
         self.live_eq_state_updates.append((layer_id, eq.model_copy(deep=True)))
 
-    def reload_and_restart(self, paths, *, loop_frames=None) -> None:
-        self.reload_paths.append({"paths": dict(paths), "loop_frames": loop_frames})
+    def reload_and_restart(self, paths, *, loop_frames=None, loop_transition_frames=0) -> None:
+        self.reload_paths.append(
+            {
+                "paths": dict(paths),
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
-    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
-        self.load_paths.append({"paths": dict(paths), "loop_frames": loop_frames})
+    def load_rendered_layers(self, paths, *, loop_frames=None, loop_transition_frames=0) -> None:
+        self.load_paths.append(
+            {
+                "paths": dict(paths),
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
 
 class RendererSpy:
@@ -177,6 +189,8 @@ def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_rende
                 "voice": paths.voice_playback,
             },
             "loop_frames": live.audio.sample_rate * live.voice_stack.loop_seconds,
+            "loop_transition_frames": live.audio.sample_rate
+            * live.voice_stack.transition_seconds,
         }
     ]
     assert runtime.playback_render_settings == result.active
@@ -226,6 +240,8 @@ def test_live_to_stable_mode_loads_cache_without_starting_player_when_output_is_
                 "voice": paths.voice_playback,
             },
             "loop_frames": live.audio.sample_rate * live.voice_stack.loop_seconds,
+            "loop_transition_frames": live.audio.sample_rate
+            * live.voice_stack.transition_seconds,
         }
     ]
     assert runtime.playback_render_settings == result.active

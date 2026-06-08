@@ -69,12 +69,12 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
     )
     assert rendered["seekDisabled"] is False
-    assert rendered["seekMax"] == "60"
-    assert 30 <= rendered["positionSeconds"] < 60
+    assert rendered["seekMax"] == "56"
+    assert 30 <= rendered["positionSeconds"] < 56
     assert float(rendered["seekValue"]) == pytest.approx(rendered["positionSeconds"], abs=0.2)
-    assert rendered["durationText"] == "60.0s"
+    assert rendered["durationText"] == "56.0s"
     assert rendered["progressPercent"] == pytest.approx(
-        rendered["positionSeconds"] / 60 * 100,
+        rendered["positionSeconds"] / 56 * 100,
         abs=0.2,
     )
     assert rendered["outputSummary"] == (
@@ -546,7 +546,7 @@ def _live_state_payload() -> dict[str, Any]:
                 "volume_applies_immediately": True,
                 "mute_applies_immediately": True,
                 "seek_applies_immediately": True,
-                "voice_stack_transition_applies_immediately": True,
+                "voice_stack_transition_applies_immediately": False,
                 "voice_raw_preview_treatment_applies_immediately": True,
                 "eq_applies_immediately": True,
                 "excluded_apply_flow": [

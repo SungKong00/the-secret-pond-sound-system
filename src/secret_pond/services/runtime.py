@@ -30,7 +30,7 @@ from secret_pond.paths import ProjectPaths
 from secret_pond.services.controller import RecordingController
 from secret_pond.services.device_inventory import device_payload
 from secret_pond.services.logging_service import EventLogger
-from secret_pond.services.loop_cycle import playback_loop_frames
+from secret_pond.services.loop_cycle import loop_transition_frames, playback_loop_frames
 from secret_pond.services.participants import ParticipantCounter
 from secret_pond.services.player_settings import apply_player_settings
 from secret_pond.services.settings_store import SettingsState, SettingsStore
@@ -226,10 +226,19 @@ def load_main_rendered_layers(
 ) -> None:
     layer_paths = rendered_layer_paths(paths)
     loop_frames = playback_loop_frames(settings)
+    transition_frames = loop_transition_frames(settings)
     if restart:
-        player.reload_and_restart(layer_paths, loop_frames=loop_frames)
+        player.reload_and_restart(
+            layer_paths,
+            loop_frames=loop_frames,
+            loop_transition_frames=transition_frames,
+        )
     else:
-        player.load_rendered_layers(layer_paths, loop_frames=loop_frames)
+        player.load_rendered_layers(
+            layer_paths,
+            loop_frames=loop_frames,
+            loop_transition_frames=transition_frames,
+        )
 
 
 def _log_startup_diagnostics_best_effort(

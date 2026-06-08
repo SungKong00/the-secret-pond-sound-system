@@ -788,6 +788,7 @@ const playbackTransitionControlDef = {
   kind: "space",
   rangeLabel: "Off · 3s default · 10s",
   defaultValue: 3,
+  positiveToggle: true,
   description: "0s면 겹침 없이 교체하고, 1s 이상이면 새 루프가 겹쳐 fade 됩니다.",
   marks: [
     { value: 0, label: "Off" },
@@ -2070,13 +2071,6 @@ const syncLiveConfirmedCoveredDraftFields = (draft, settingsPayload, snapshot) =
     }
   });
   if (
-    live.voice_stack_transition_applies_immediately &&
-    hasOwnProperty(active.voice_stack, "transition_seconds") &&
-    nextDraft.voice_stack
-  ) {
-    nextDraft.voice_stack.transition_seconds = clone(active.voice_stack.transition_seconds);
-  }
-  if (
     live.voice_raw_preview_treatment_applies_immediately &&
     active.recording &&
     nextDraft.recording
@@ -2813,12 +2807,7 @@ const liveVoiceStackTransitionChangeOnly = (snapshot, settingsPlan) => {
   if (!snapshot?.settings?.active || !state.draft) return false;
   if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
   if (settingsPlan.changedSections.some((section) => section !== "voice_stack")) return false;
-  const live = livePlaybackFeatures(snapshot);
-  if (!live.enabled || !live.voice_stack_transition_applies_immediately) return false;
-  const activeVoiceStack = clone(snapshot.settings.active.voice_stack || {});
-  const draftVoiceStack = clone(state.draft.voice_stack || {});
-  draftVoiceStack.transition_seconds = activeVoiceStack.transition_seconds;
-  return stableSettingsSignature(activeVoiceStack) === stableSettingsSignature(draftVoiceStack);
+  return false;
 };
 
 const liveVoiceRawPreviewTreatmentChangeOnly = (snapshot, settingsPlan) => {
@@ -2964,14 +2953,7 @@ const liveApplicableLayerSurfaceChange = (snapshot, active, draft, surfaceId) =>
   return stableSettingsSignature(activeLayer) === stableSettingsSignature(draftLayer);
 };
 
-const liveApplicableVoiceStackSurfaceChange = (snapshot, active, draft) => {
-  const live = livePlaybackFeatures(snapshot);
-  if (!live.enabled || !live.voice_stack_transition_applies_immediately) return false;
-  const activeVoiceStack = clone(active?.voice_stack || {});
-  const draftVoiceStack = clone(draft?.voice_stack || {});
-  draftVoiceStack.transition_seconds = activeVoiceStack.transition_seconds;
-  return stableSettingsSignature(activeVoiceStack) === stableSettingsSignature(draftVoiceStack);
-};
+const liveApplicableVoiceStackSurfaceChange = () => false;
 
 const liveApplicableRecordingSurfaceChange = (snapshot, active, draft, settingsPlan) => {
   const live = livePlaybackFeatures(snapshot);
@@ -3084,6 +3066,14 @@ const playbackTimelineRunning = (snapshot = state.snapshot) => (
 const playbackTimelineDurationFromSettings = (audio = {}, voiceStack = {}, fallback = 0) => {
   const loopSeconds = Number(voiceStack.loop_seconds || fallback || audio.loop_seconds || 0);
   if (!Number.isFinite(loopSeconds) || loopSeconds <= 0) return 0;
+  const transitionSeconds = Number(voiceStack.transition_seconds || 0);
+  if (
+    Number.isFinite(transitionSeconds) &&
+    transitionSeconds > 0 &&
+    transitionSeconds < loopSeconds
+  ) {
+    return loopSeconds - transitionSeconds;
+  }
   return loopSeconds;
 };
 
@@ -5190,6 +5180,13 @@ const deriveCoveredSurfaceFeedbackState = ({
   const liveFeedbackTargeted = operationTargetsFeedbackSurface(operationFlags, surfaceId);
   const liveFeedbackInFlight = feedbackOperationInFlight(operationFlags, surfaceId);
   const liveFeedbackPending = Boolean(operationFlags.liveFeedbackPending && liveFeedbackTargeted);
+  const applyInFlight = stableApplyAndRestartInFlight(operationFlags);
+  if (!liveApplicableChange && hasUnappliedChange) {
+    return {
+      visual_state: applyInFlight ? "restart_pending" : "pending",
+      show_spinner: applyInFlight,
+    };
+  }
   return {
     visual_state: liveApplicableChange && (liveFeedbackPending || liveFeedbackInFlight)
       ? "pending"
@@ -5992,6 +5989,35 @@ const precisionControlMarkup = (control, value, min, max, safeId) => `
   </div>
 `;
 
+const normalizedTransitionSeconds = (value) => {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) ? seconds : 0;
+};
+
+const positiveToggleMarkup = (control, value) => {
+  if (!control.positiveToggle) return "";
+  const enabled = normalizedTransitionSeconds(value) > 0;
+  return `
+    <label class="layer-toggle value-toggle ${enabled ? "enabled" : ""}">
+      <input
+        type="checkbox"
+        role="switch"
+        data-positive-toggle="true"
+        aria-label="${labelText(control.label)} ${enabled ? "끄기" : "켜기"}"
+        ${enabled ? "checked" : ""}
+      />
+      <span class="layer-toggle-copy">
+        <span class="layer-toggle-label">${layerEnabledText(enabled)}</span>
+      </span>
+    </label>
+  `;
+};
+
+const valueLineDescriptionMarkup = (control) => {
+  if (!control.positiveToggle || !control.description) return "";
+  return `<small class="control-description value-description">${helperText(control.description)}</small>`;
+};
+
 const rangeControl = (control, value, onInput, activeValue = undefined) => {
   const row = document.createElement("div");
   row.className = [
@@ -6014,7 +6040,7 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
   row.innerHTML = `
     <label for="${safeId}">
       ${labelMarkup(control.label)}
-      <small class="control-description">${helperText(control.description)}</small>
+      ${control.positiveToggle ? "" : `<small class="control-description">${helperText(control.description)}</small>`}
     </label>
     <div class="slider-cell">
       <div class="range-rail">
@@ -6033,24 +6059,50 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
       </div>
     </div>
     <div class="value-stack">
-      <span class="value">${renderDraftValue(value, activeValue, control.suffix)}</span>
+      <div class="value-line">
+        <span class="value">${renderDraftValue(value, activeValue, control.suffix)}</span>
+        ${valueLineDescriptionMarkup(control)}
+        ${positiveToggleMarkup(control, value)}
+      </div>
       ${precisionControlMarkup(control, value, min, max, safeId)}
     </div>
   `;
   const input = row.querySelector("input");
   const output = row.querySelector(".value");
   const valueInput = row.querySelector(".value-input");
+  const positiveToggle = row.querySelector("[data-positive-toggle]");
   const nudgeDown = row.querySelector(".nudge-down");
   const nudgeUp = row.querySelector(".nudge-up");
   let currentValue = value;
-  [input, valueInput, nudgeDown, nudgeUp].filter(Boolean).forEach((controlElement) => {
+  let lastPositiveValue =
+    control.positiveToggle && normalizedTransitionSeconds(value) > 0
+      ? value
+      : control.defaultValue;
+  [input, valueInput, positiveToggle, nudgeDown, nudgeUp].filter(Boolean).forEach((controlElement) => {
     controlElement.disabled = draftEditLocked();
   });
+  const setPositiveToggleState = (nextValue) => {
+    if (!positiveToggle) return;
+    const enabled = normalizedTransitionSeconds(nextValue) > 0;
+    positiveToggle.checked = enabled;
+    positiveToggle.setAttribute(
+      "aria-label",
+      `${labelText(control.label)} ${enabled ? "끄기" : "켜기"}`,
+    );
+    const valueToggle =
+      typeof positiveToggle.closest === "function"
+        ? positiveToggle.closest(".value-toggle")
+        : null;
+    const label = valueToggle?.querySelector(".layer-toggle-label");
+    if (label) label.textContent = layerEnabledText(enabled);
+    valueToggle?.classList.toggle("enabled", enabled);
+  };
   const setDisplayedValue = (nextValue) => {
     input.value = String(rangeSliderValueFromActual(control, nextValue, min, max));
     if (valueInput) valueInput.value = String(nextValue);
     setRangeProgress(row, nextValue, min, max, control);
     output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
+    setPositiveToggleState(nextValue);
   };
   const updateValue = (nextValue, { fromSlider = false } = {}) => {
     if (draftEditLocked()) {
@@ -6061,6 +6113,7 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
       ? rangeActualValueFromSlider(control, nextValue, min, max)
       : nextValue;
     const numericValue = snappedValue(actualValue, control.step, min, max);
+    if (control.positiveToggle && numericValue > 0) lastPositiveValue = numericValue;
     currentValue = numericValue;
     setDisplayedValue(numericValue);
     onInput(numericValue);
@@ -6071,6 +6124,9 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
   valueInput?.addEventListener("change", () => updateValue(valueInput.value));
   valueInput?.addEventListener("input", () => {
     if (Number.isFinite(Number(valueInput.value))) updateValue(valueInput.value);
+  });
+  positiveToggle?.addEventListener("change", () => {
+    updateValue(positiveToggle.checked ? lastPositiveValue : 0);
   });
   nudgeDown?.addEventListener("click", () => updateValue(Number(currentValue) - Number(control.step)));
   nudgeUp?.addEventListener("click", () => updateValue(Number(currentValue) + Number(control.step)));

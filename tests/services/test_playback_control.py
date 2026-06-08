@@ -38,11 +38,18 @@ class FakePlayer:
         self.seek_calls.append(frame_cursor)
         self.frame_cursor = frame_cursor
 
-    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
+    def load_rendered_layers(
+        self,
+        paths,
+        *,
+        loop_frames=None,
+        loop_transition_frames=0,
+    ) -> None:
         if self.operations is not None:
             self.operations.append("load_main")
         self.loaded_rendered_layers = paths
         self.loaded_loop_frames = loop_frames
+        self.loaded_loop_transition_frames = loop_transition_frames
 
     def set_peak_ceiling(self, peak_ceiling: float) -> None:
         self.peak_ceiling = peak_ceiling
@@ -194,7 +201,7 @@ def test_stop_playback_restores_preview_without_starting_inactive_main_playback(
     assert runtime.transition_warning is None
 
 
-def test_seek_playback_maps_progress_to_voice_loop_cycle() -> None:
+def test_seek_playback_maps_progress_to_visible_voice_loop_cycle() -> None:
     player = FakePlayer()
     runtime = SimpleNamespace(
         player=player,
@@ -203,18 +210,18 @@ def test_seek_playback_maps_progress_to_voice_loop_cycle() -> None:
         controller=SimpleNamespace(
             settings=AppSettings(
                 audio=AudioFormatSettings(sample_rate=8_000, loop_seconds=60),
-                voice_stack=VoiceStackSettings(loop_seconds=5),
+                voice_stack=VoiceStackSettings(loop_seconds=60, transition_seconds=5),
             ),
         ),
     )
 
     seek_playback(runtime, 0.5)
 
-    assert player.seek_calls == [20_000]
-    assert player.frame_cursor == 20_000
+    assert player.seek_calls == [220_000]
+    assert player.frame_cursor == 220_000
 
 
-def test_seek_playback_uses_full_voice_loop_when_transition_is_enabled() -> None:
+def test_seek_playback_uses_full_voice_loop_when_transition_is_disabled() -> None:
     player = FakePlayer()
     runtime = SimpleNamespace(
         player=player,
@@ -223,12 +230,12 @@ def test_seek_playback_uses_full_voice_loop_when_transition_is_enabled() -> None
         controller=SimpleNamespace(
             settings=AppSettings(
                 audio=AudioFormatSettings(sample_rate=8_000, loop_seconds=60),
-                voice_stack=VoiceStackSettings(loop_seconds=5, transition_seconds=0),
+                voice_stack=VoiceStackSettings(loop_seconds=60, transition_seconds=0),
             ),
         ),
     )
 
     seek_playback(runtime, 0.5)
 
-    assert player.seek_calls == [20_000]
-    assert player.frame_cursor == 20_000
+    assert player.seek_calls == [240_000]
+    assert player.frame_cursor == 240_000

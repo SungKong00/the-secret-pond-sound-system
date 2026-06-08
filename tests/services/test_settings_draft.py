@@ -276,6 +276,36 @@ def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_
     assert runtime.player.realtime_trim_updates == [("low", -12.0)]
 
 
+def test_live_update_draft_settings_uses_active_state_for_layer_reenable() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    disabled_layers = {
+        **active.layers,
+        "low": active.layers["low"].model_copy(update={"enabled": False}),
+    }
+    disabled_active = active.model_copy(update={"layers": disabled_layers}, deep=True)
+    draft_layers = {
+        **disabled_active.layers,
+        "low": disabled_active.layers["low"].model_copy(update={"enabled": True}),
+    }
+    draft = disabled_active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=disabled_active, draft=disabled_active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.playback_render_settings = active
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.layers["low"].enabled is True
+    assert result.draft.layers["low"].enabled is True
+    assert runtime.controller.settings.layers["low"].enabled is True
+    assert runtime.player.enabled_updates == [("low", True)]
+
+
 def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_restart(
     tmp_path: Path,
 ) -> None:

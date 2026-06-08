@@ -52,11 +52,35 @@ class ApplyRestartPlayerSpy:
     def snapshot(self):
         return {"reload_paths": list(self.reload_paths)}
 
-    def reload_and_restart(self, paths, *, loop_frames=None) -> None:
-        self.reload_paths.append({"paths": paths, "loop_frames": loop_frames})
+    def reload_and_restart(
+        self,
+        paths,
+        *,
+        loop_frames=None,
+        loop_transition_frames=0,
+    ) -> None:
+        self.reload_paths.append(
+            {
+                "paths": paths,
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
-    def load_rendered_layers(self, paths, *, loop_frames=None) -> None:
-        self.load_paths.append({"paths": paths, "loop_frames": loop_frames})
+    def load_rendered_layers(
+        self,
+        paths,
+        *,
+        loop_frames=None,
+        loop_transition_frames=0,
+    ) -> None:
+        self.load_paths.append(
+            {
+                "paths": paths,
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
     def restart(self) -> None:
         raise AssertionError("Apply and Restart must reload the rendered cache")

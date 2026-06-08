@@ -39,14 +39,14 @@ def apply_live_player_layer_controls(
     *,
     previous: AppSettings,
     current: AppSettings,
+    rendered_baseline: AppSettings | None = None,
 ) -> None:
+    volume_baseline = rendered_baseline or previous
     for layer_id, layer_settings in current.layers.items():
         previous_layer = previous.layers[layer_id]
         if layer_settings.enabled != previous_layer.enabled:
-            if hasattr(player, "set_enabled_immediate"):
-                player.set_enabled_immediate(layer_id, layer_settings.enabled)
-            else:
-                player.set_enabled(layer_id, layer_settings.enabled)
-        volume_delta_db = layer_settings.volume_db - previous_layer.volume_db
+            player.set_enabled(layer_id, layer_settings.enabled)
+        baseline_layer = volume_baseline.layers[layer_id]
+        volume_delta_db = layer_settings.volume_db - baseline_layer.volume_db
         if volume_delta_db != 0.0:
             player.set_realtime_trim(layer_id, volume_delta_db)

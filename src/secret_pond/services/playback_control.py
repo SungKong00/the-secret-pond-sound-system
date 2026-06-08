@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from secret_pond.services.loop_cycle import playback_loop_frames
+from secret_pond.services.loop_cycle import visible_loop_frames
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.voice_raw_preview import restore_main_playback_after_voice_raw_preview
 
@@ -81,7 +81,7 @@ def seek_playback(runtime: SecretPondRuntime, progress: float) -> None:
         raise PlaybackControlError(detail)
 
     settings = runtime.controller.settings
-    loop_frames = playback_loop_frames(settings)
+    loop_frames = visible_loop_frames(settings)
     if loop_frames <= 0:
         detail = "audio loop length must be greater than 0"
         _log_playback_event(runtime, "playback.seek_failed", error=detail)

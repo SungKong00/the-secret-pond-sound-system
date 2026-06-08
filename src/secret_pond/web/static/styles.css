@@ -1338,9 +1338,23 @@ input[type="range"]:focus-visible {
 
 .playback-transition-controls .value,
 .playback-transition-controls .value-stack {
-  justify-self: start;
-  justify-items: start;
-  text-align: left;
+  justify-self: stretch;
+  justify-items: end;
+  text-align: right;
+}
+
+.playback-transition-controls .value-line {
+  width: 100%;
+  justify-self: stretch;
+  justify-content: flex-end;
+}
+
+.playback-transition-controls .value-description {
+  min-width: 0;
+  max-width: min(100%, 360px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playback-transition-controls .range-context {
@@ -2791,6 +2805,17 @@ label {
   min-width: 0;
 }
 
+.value-line {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .value {
   justify-self: end;
   color: var(--text);
@@ -2812,6 +2837,16 @@ label {
   color: var(--amber);
   font-size: 11px;
   font-weight: 650;
+}
+
+.value-toggle {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+
+.value-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .precision-control {

@@ -45,11 +45,23 @@ class WorkflowPlayerSpy:
         )
         return None
 
-    def reload_and_restart(self, paths, *, loop_frames=None):
-        self.reload_paths.append({"paths": paths, "loop_frames": loop_frames})
+    def reload_and_restart(self, paths, *, loop_frames=None, loop_transition_frames=0):
+        self.reload_paths.append(
+            {
+                "paths": paths,
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
-    def load_rendered_layers(self, paths, *, loop_frames=None):
-        self.load_paths.append({"paths": paths, "loop_frames": loop_frames})
+    def load_rendered_layers(self, paths, *, loop_frames=None, loop_transition_frames=0):
+        self.load_paths.append(
+            {
+                "paths": paths,
+                "loop_frames": loop_frames,
+                "loop_transition_frames": loop_transition_frames,
+            }
+        )
 
     def set_enabled(self, _layer_id, _enabled):
         return None

@@ -479,7 +479,7 @@ assert.strictEqual(document.getElementById("playbackSeekSlider").max, "75");
     )
 
 
-def test_playback_timeline_keeps_full_voice_loop_duration_when_transition_is_enabled() -> None:
+def test_playback_timeline_shortens_voice_loop_duration_when_transition_is_enabled() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
@@ -550,9 +550,9 @@ applyState({
 });
 
 assert.strictEqual(document.getElementById("playbackPositionTime").textContent, "30.0s");
-assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "60.0s");
-assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "50%");
-assert.strictEqual(document.getElementById("playbackSeekSlider").max, "60");
+assert.strictEqual(document.getElementById("playbackDurationTime").textContent, "55.0s");
+assert.strictEqual(document.getElementById("playbackProgressBar").style.width, "54.545%");
+assert.strictEqual(document.getElementById("playbackSeekSlider").max, "55");
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
     )
@@ -3690,6 +3690,135 @@ def test_transition_slider_renders_below_loop_position_in_playback_panel() -> No
     assert 'rangeLabel: "Off · 3s default · 10s"' in app_script
 
 
+def test_transition_checkbox_renders_in_transition_value_area() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  renderPlaybackTransitionControls,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { applyState, renderPlaybackTransitionControls } = globalThis.__secretPond;
+
+const settings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 5 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "live", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: {} },
+    mid: { enabled: true, volume_db: 0, eq: {} },
+    voice: { enabled: true, volume_db: 0, eq: {} },
+  },
+};
+const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+
+applyState({
+  settings: {
+    active: cloneSettings(settings),
+    draft: cloneSettings(settings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 0,
+    apply_mode: "live",
+    position_seconds: 0,
+    duration_seconds: 55,
+    progress: 0,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+renderPlaybackTransitionControls();
+
+let markup = document.getElementById("playbackTransitionControls").children
+  .map((child) => child.innerHTML)
+  .join("\\n");
+assert.match(markup, /class="value-line"/);
+assert.match(markup, /class="control-description value-description"/);
+assert.match(
+  markup,
+  new RegExp(
+    '<span class="value">[\\\\s\\\\S]*?' +
+      '<small class="control-description value-description">' +
+      '0s면 겹침 없이 교체하고, 1s 이상이면 새 루프가 겹쳐 fade 됩니다\\\\.' +
+      '<\\\\/small>[\\\\s\\\\S]*?data-positive-toggle="true"',
+  ),
+);
+assert.doesNotMatch(
+  markup,
+  /<label[^>]*>[\\s\\S]*?<small class="control-description">[\\s\\S]*?<\\/label>/,
+);
+assert.match(markup, /data-positive-toggle="true"/);
+assert.match(markup, /role="switch"/);
+assert.match(markup, /checked/);
+assert.match(markup, /켜짐/);
+
+const disabledSettings = cloneSettings(settings);
+disabledSettings.voice_stack.transition_seconds = 0;
+applyState({
+  settings: {
+    active: cloneSettings(disabledSettings),
+    draft: cloneSettings(disabledSettings),
+    change: { changed_sections: [], requires_restart: false, runtime_config_changed: false },
+  },
+  playback: {
+    output_running: true,
+    frame_cursor: 0,
+    apply_mode: "live",
+    position_seconds: 0,
+    duration_seconds: 60,
+    progress: 0,
+    live: { enabled: true, seek_applies_immediately: true },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+renderPlaybackTransitionControls();
+markup = document.getElementById("playbackTransitionControls").children
+  .map((child) => child.innerHTML)
+  .join("\\n");
+assert.doesNotMatch(markup, /checked/);
+assert.match(markup, /꺼짐/);
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_live_status_text_uses_korean_facing_wording() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
 
@@ -3802,12 +3931,13 @@ assert.strictEqual(
     )
 
 
-def test_live_voice_stack_transition_draft_does_not_show_apply_restart_message() -> None:
+def test_live_transition_seconds_change_uses_pending_apply_button_and_highlight() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
     app_script += """
 globalThis.__secretPond = {
   applyState,
+  renderPlaybackTransitionControls,
   renderState,
   state,
 };
@@ -3817,7 +3947,12 @@ globalThis.__secretPond = {
     run_node_harness(
         script=app_script,
         body="""
-const { applyState, renderState, state } = globalThis.__secretPond;
+const {
+  applyState,
+  renderPlaybackTransitionControls,
+  renderState,
+  state,
+} = globalThis.__secretPond;
 
 const liveSettings = {
   voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
@@ -3867,7 +4002,7 @@ applyState({
     progress: 0.5,
     live: {
       enabled: true,
-      voice_stack_transition_applies_immediately: true,
+      voice_stack_transition_applies_immediately: false,
     },
   },
   armed: false,
@@ -3879,13 +4014,22 @@ applyState({
 
 state.draft.voice_stack.transition_seconds = 8;
 renderState();
+renderPlaybackTransitionControls();
 
-assert.strictEqual(document.getElementById("pendingBadge").hidden, true);
-assert.strictEqual(document.getElementById("applyButton").disabled, true);
-assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), false);
+assert.strictEqual(document.getElementById("pendingBadge").hidden, false);
+assert.strictEqual(document.getElementById("applyButton").disabled, false);
+assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), true);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "적용할 변경사항이 없습니다.",
+  "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다.",
+);
+assert.match(
+  document.getElementById("playbackTransitionControls").className,
+  /\\bfeedback-pending\\b/,
+);
+assert.strictEqual(
+  document.getElementById("outputControlSummary").textContent,
+  "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.",
 );
 
 state.draft.voice_stack.loop_seconds = 75;

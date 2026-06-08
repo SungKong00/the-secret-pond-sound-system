@@ -692,6 +692,14 @@ def draft_with_low_layer_disabled() -> dict:
     return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
 
 
+def draft_with_low_layer_disabled_from(settings: AppSettings) -> dict:
+    layers = {
+        **settings.layers,
+        "low": settings.layers["low"].model_copy(update={"enabled": False}),
+    }
+    return settings.model_copy(update={"layers": layers}, deep=True).model_dump(mode="json")
+
+
 def draft_with_low_volume(volume_db: float, *, base: AppSettings | None = None) -> dict:
     settings = base or api_settings()
     layers = {
@@ -10978,7 +10986,7 @@ def test_api_state_reports_live_playback_apply_capabilities(tmp_path: Path) -> N
         "volume_applies_immediately": True,
         "mute_applies_immediately": True,
         "seek_applies_immediately": True,
-        "voice_stack_transition_applies_immediately": True,
+        "voice_stack_transition_applies_immediately": False,
         "voice_raw_preview_treatment_applies_immediately": True,
         "eq_applies_immediately": True,
         "excluded_apply_flow": [
@@ -11213,7 +11221,7 @@ def test_api_playback_apply_mode_live_ignores_pending_loop_length_changes(
     assert stored.active.voice_stack.loop_seconds == 60
     assert stored.draft.voice_stack.loop_seconds == 75
     assert client.app.state.runtime.controller.settings.audio.loop_seconds == 60
-    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(60.0)
+    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(57.0)
     assert response.json()["settings"]["active"]["audio"]["loop_seconds"] == 60
     assert response.json()["settings"]["draft"]["audio"]["loop_seconds"] == 105
     assert response.json()["settings"]["active"]["voice_stack"]["loop_seconds"] == 60
@@ -12939,7 +12947,7 @@ def test_api_state_reports_playback_timeline_from_voice_loop_seconds(
     playback = client.get("/api/state").json()["playback"]
 
     assert playback["position_seconds"] == pytest.approx(0.0)
-    assert playback["duration_seconds"] == pytest.approx(60.0)
+    assert playback["duration_seconds"] == pytest.approx(55.0)
     assert playback["progress"] == pytest.approx(0.0)
 
 
@@ -12978,6 +12986,41 @@ def test_api_live_settings_draft_keeps_playback_timeline_on_active_voice_loop(
     )
 
 
+def test_api_live_settings_draft_keeps_transition_seconds_pending_until_apply(
+    tmp_path: Path,
+) -> None:
+    settings = api_settings().model_copy(
+        update={
+            "playback": PlaybackSettings(apply_mode="live"),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=1),
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, with_sources=True, settings=settings)
+    client.post("/api/settings/apply-and-restart")
+    draft = settings.model_copy(
+        update={
+            "voice_stack": settings.voice_stack.model_copy(update={"transition_seconds": 2}),
+        },
+        deep=True,
+    )
+
+    draft_response = client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
+    state_after_draft = client.get("/api/state").json()
+
+    assert draft_response.status_code == 200
+    assert draft_response.json()["settings"]["active"]["voice_stack"]["transition_seconds"] == 1
+    assert draft_response.json()["settings"]["draft"]["voice_stack"]["transition_seconds"] == 2
+    assert state_after_draft["playback"]["duration_seconds"] == pytest.approx(4.0)
+
+    apply_response = client.post("/api/settings/apply")
+    state_after_apply = client.get("/api/state").json()
+
+    assert apply_response.status_code == 200
+    assert apply_response.json()["settings"]["active"]["voice_stack"]["transition_seconds"] == 2
+    assert state_after_apply["playback"]["duration_seconds"] == pytest.approx(3.0)
+
+
 def test_api_playback_seek_maps_percent_to_voice_loop_seconds(tmp_path: Path) -> None:
     settings = api_settings().model_copy(
         update={
@@ -13006,13 +13049,13 @@ def test_api_playback_seek_maps_percent_to_voice_loop_seconds(tmp_path: Path) ->
     assert end.json()["state"]["playback"]["position_seconds"] == pytest.approx(0.0)
 
 
-def test_api_playback_seek_uses_full_voice_loop_when_transition_is_enabled(
+def test_api_playback_seek_uses_shortened_voice_loop_when_transition_is_enabled(
     tmp_path: Path,
 ) -> None:
     settings = api_settings().model_copy(
         update={
             "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=3),
-            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=5),
+            "voice_stack": VoiceStackSettings(loop_seconds=5, transition_seconds=2),
             "playback": PlaybackSettings(apply_mode="live"),
         },
         deep=True,
@@ -13023,9 +13066,9 @@ def test_api_playback_seek_uses_full_voice_loop_when_transition_is_enabled(
     response = client.post("/api/playback/seek", json={"progress": 0.5})
 
     assert response.status_code == 200
-    assert response.json()["state"]["playback"]["frame_cursor"] == 20_000
-    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(2.5)
-    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(5.0)
+    assert response.json()["state"]["playback"]["frame_cursor"] == 12_000
+    assert response.json()["state"]["playback"]["position_seconds"] == pytest.approx(1.5)
+    assert response.json()["state"]["playback"]["duration_seconds"] == pytest.approx(3.0)
     assert response.json()["state"]["playback"]["progress"] == pytest.approx(0.5)
 
 
@@ -13262,7 +13305,8 @@ def test_api_live_settings_draft_update_applies_low_mute_without_restart(
     draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
 
     response = client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
-    after = client.app.state.runtime.player.next_block(512)
+    ramp_after = client.app.state.runtime.player.next_block(512)
+    muted_after_ramp = client.app.state.runtime.player.next_block(512)
 
     assert response.status_code == 200
     assert output.is_running is True
@@ -13272,7 +13316,51 @@ def test_api_live_settings_draft_update_applies_low_mute_without_restart(
     assert response.json()["settings"]["draft"]["layers"]["low"]["enabled"] is False
     assert client.app.state.runtime.player.layer_states["low"].enabled is False
     assert float(np.max(np.abs(before.samples))) > 0.0
-    np.testing.assert_allclose(after.samples, np.zeros_like(after.samples), atol=1e-6)
+    assert float(np.max(np.abs(ramp_after.samples))) > 0.0
+    np.testing.assert_allclose(
+        muted_after_ramp.samples,
+        np.zeros_like(muted_after_ramp.samples),
+        atol=1e-6,
+    )
+
+
+def test_api_live_settings_draft_update_reenables_low_layer_without_restart(
+    tmp_path: Path,
+) -> None:
+    output = PlayerLinkedFakeOutput()
+    settings = api_settings_with_low_only_live_playback()
+    client = create_test_client(tmp_path, with_sources=True, output=output, settings=settings)
+    output.player = client.app.state.runtime.player
+    client.post("/api/settings/apply-and-restart")
+    client.post("/api/playback/start")
+
+    disable_response = client.put(
+        "/api/settings/draft",
+        json=draft_with_low_layer_disabled_from(settings),
+    )
+    disable_ramp = client.app.state.runtime.player.next_block(512)
+    disabled_block = client.app.state.runtime.player.next_block(512)
+    reenabled_draft = disable_response.json()["settings"]["draft"]
+    reenabled_draft["layers"]["low"]["enabled"] = True
+
+    response = client.put("/api/settings/draft", json=reenabled_draft)
+    reenabled_ramp = client.app.state.runtime.player.next_block(512)
+
+    assert disable_response.status_code == 200
+    assert float(np.max(np.abs(disable_ramp.samples))) > 0.0
+    np.testing.assert_allclose(
+        disabled_block.samples,
+        np.zeros_like(disabled_block.samples),
+        atol=1e-6,
+    )
+    assert response.status_code == 200
+    assert output.is_running is True
+    assert output.stop_calls == 0
+    assert output.start_calls == 1
+    assert response.json()["settings"]["active"]["layers"]["low"]["enabled"] is True
+    assert response.json()["settings"]["draft"]["layers"]["low"]["enabled"] is True
+    assert client.app.state.runtime.player.layer_states["low"].enabled is True
+    assert float(np.max(np.abs(reenabled_ramp.samples))) > 0.0
 
 
 def test_api_live_settings_draft_update_applies_mid_volume_without_restart(
@@ -13317,7 +13405,8 @@ def test_api_live_settings_draft_update_applies_mid_mute_without_restart(
         "/api/settings/draft",
         json=draft_with_mid_layer_disabled(base=settings),
     )
-    after = client.app.state.runtime.player.next_block(512)
+    ramp_after = client.app.state.runtime.player.next_block(512)
+    muted_after_ramp = client.app.state.runtime.player.next_block(512)
 
     assert response.status_code == 200
     assert output.is_running is True
@@ -13327,7 +13416,12 @@ def test_api_live_settings_draft_update_applies_mid_mute_without_restart(
     assert response.json()["settings"]["draft"]["layers"]["mid"]["enabled"] is False
     assert client.app.state.runtime.player.layer_states["mid"].enabled is False
     assert float(np.max(np.abs(before.samples))) > 0.0
-    np.testing.assert_allclose(after.samples, np.zeros_like(after.samples), atol=1e-6)
+    assert float(np.max(np.abs(ramp_after.samples))) > 0.0
+    np.testing.assert_allclose(
+        muted_after_ramp.samples,
+        np.zeros_like(muted_after_ramp.samples),
+        atol=1e-6,
+    )
 
 
 def test_api_live_settings_draft_update_applies_voice_mute_without_restart(
@@ -13355,7 +13449,8 @@ def test_api_live_settings_draft_update_applies_voice_mute_without_restart(
         "/api/settings/draft",
         json=draft_with_voice_layer_disabled(base=settings),
     )
-    after = client.app.state.runtime.player.next_block(512)
+    ramp_after = client.app.state.runtime.player.next_block(512)
+    muted_after_ramp = client.app.state.runtime.player.next_block(512)
 
     assert response.status_code == 200
     assert output.is_running is True
@@ -13365,7 +13460,12 @@ def test_api_live_settings_draft_update_applies_voice_mute_without_restart(
     assert response.json()["settings"]["draft"]["layers"]["voice"]["enabled"] is False
     assert client.app.state.runtime.player.layer_states["voice"].enabled is False
     assert float(np.max(np.abs(before.samples))) > 0.0
-    np.testing.assert_allclose(after.samples, np.zeros_like(after.samples), atol=1e-6)
+    assert float(np.max(np.abs(ramp_after.samples))) > 0.0
+    np.testing.assert_allclose(
+        muted_after_ramp.samples,
+        np.zeros_like(muted_after_ramp.samples),
+        atol=1e-6,
+    )
 
 
 def test_api_settings_apply_and_restart_applies_peak_ceiling_to_player(

@@ -4,7 +4,7 @@ from typing import Any
 
 from secret_pond.config import AppSettings
 from secret_pond.services.controller import RecordingOutcome
-from secret_pond.services.loop_cycle import playback_loop_seconds
+from secret_pond.services.loop_cycle import visible_loop_seconds
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_changes import (
     SettingsChangePlan,
@@ -39,7 +39,7 @@ def state_payload(
     playback_timeline = _playback_timeline_payload(
         frame_cursor=runtime.player.frame_cursor,
         sample_rate=active_settings.audio.sample_rate,
-        loop_seconds=playback_loop_seconds(active_settings),
+        loop_seconds=visible_loop_seconds(active_settings),
     )
     transition_guard = runtime.voice_stack.transition_guard_state(runtime.controller.settings)
     return {
@@ -135,7 +135,7 @@ def _playback_live_payload(settings: AppSettings) -> dict[str, Any]:
         "volume_applies_immediately": enabled,
         "mute_applies_immediately": enabled,
         "seek_applies_immediately": enabled,
-        "voice_stack_transition_applies_immediately": enabled,
+        "voice_stack_transition_applies_immediately": False,
         "voice_raw_preview_treatment_applies_immediately": enabled,
         "eq_applies_immediately": enabled,
         "excluded_apply_flow": LIVE_EXCLUDED_APPLY_FLOW_FIELDS,
