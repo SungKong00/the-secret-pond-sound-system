@@ -65,7 +65,7 @@ def test_operator_guide_covers_required_operations() -> None:
         "apply as soon as you choose a dropdown option",
         "briefly stops the output stream",
         "blocked while a recording is active",
-        "Python 3.11 or 3.12",
+        "Python 3.11-3.14",
         "loads existing compatible playback caches",
         "startup playback is unavailable",
         "Playback panel",

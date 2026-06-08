@@ -20,7 +20,7 @@ Start Secret Pond.bat
 
 The launcher creates `.venv` if needed, installs the project package, starts the local server, and opens `http://127.0.0.1:8000`. Keep the launcher window open while the app is running. Close the window or press `Ctrl+C` to stop the server.
 
-Use Python 3.11 or 3.12. The project currently declares `>=3.11,<3.13`, so do not use Python 3.13 for show setup. The app is WAV-only for the MVP and does not require ffmpeg.
+Use Python 3.11-3.14. The project currently declares `>=3.11,<3.15`. The app is WAV-only for the MVP and does not require ffmpeg.
 
 Manual setup for development or troubleshooting:
 

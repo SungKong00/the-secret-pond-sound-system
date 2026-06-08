@@ -77,8 +77,20 @@ def test_launcher_reinstalls_when_project_inputs_are_newer_than_marker(tmp_path:
 def test_launcher_uses_python_bootstrap_candidates_by_os() -> None:
     launcher = load_launcher()
 
-    assert launcher.bootstrap_candidates("nt")[0] == ["py", "-3.11"]
-    assert launcher.bootstrap_candidates("posix")[0] == ["python3.11"]
+    assert launcher.bootstrap_candidates("nt") == [
+        ["py", "-3.11"],
+        ["py", "-3.12"],
+        ["py", "-3.13"],
+        ["py", "-3.14"],
+        ["python"],
+    ]
+    assert launcher.bootstrap_candidates("posix") == [
+        ["python3.11"],
+        ["python3.12"],
+        ["python3.13"],
+        ["python3.14"],
+        ["python3"],
+    ]
 
 
 def test_clickable_launcher_wrappers_call_common_bootstrapper() -> None:

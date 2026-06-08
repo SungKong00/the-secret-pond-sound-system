@@ -47,8 +47,8 @@ def build_serve_command(
 
 def bootstrap_candidates(os_name: str = os.name) -> list[list[str]]:
     if os_name == "nt":
-        return [["py", "-3.11"], ["py", "-3.12"], ["python"]]
-    return [["python3.11"], ["python3.12"], ["python3"]]
+        return [["py", "-3.11"], ["py", "-3.12"], ["py", "-3.13"], ["py", "-3.14"], ["python"]]
+    return [["python3.11"], ["python3.12"], ["python3.13"], ["python3.14"], ["python3"]]
 
 
 def needs_install(root: Path) -> bool:
@@ -69,7 +69,7 @@ def server_url(host: str, port: int) -> str:
 def _supported_python_command(command: list[str]) -> bool:
     probe = (
         "import sys; "
-        "raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)"
+        "raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
     )
     try:
         result = subprocess.run(
@@ -84,14 +84,14 @@ def _supported_python_command(command: list[str]) -> bool:
 
 
 def choose_bootstrap_python() -> list[str]:
-    if (3, 11) <= sys.version_info[:2] < (3, 13):
+    if (3, 11) <= sys.version_info[:2] < (3, 15):
         return [sys.executable]
 
     for command in bootstrap_candidates():
         if _supported_python_command(command):
             return command
 
-    raise RuntimeError("Python 3.11 또는 3.12를 찾을 수 없습니다.")
+    raise RuntimeError("Python 3.11-3.14를 찾을 수 없습니다.")
 
 
 def ensure_venv(root: Path) -> Path:
