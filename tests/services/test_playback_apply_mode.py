@@ -5,9 +5,11 @@ from collections.abc import Callable
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.audio.renderer import LiveEqSourceError
 from secret_pond.config import AppSettings, EqSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.live_graph_eq import (
+    LIVE_GRAPH_EQ_FAILURE_WARNING,
     apply_live_graph_eq_render_result,
     live_graph_eq_state,
     schedule_live_graph_eq_update,
@@ -94,6 +96,12 @@ class RendererSpy:
         return self.buffer
 
 
+class MissingLiveSourceRendererSpy(RendererSpy):
+    def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.live_eq_buffer_renders.append((layer_id, settings))
+        raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
+
+
 class OutputSpy:
     def __init__(self, *, running: bool) -> None:
         self.is_running = running
@@ -114,6 +122,7 @@ class RuntimeHarness:
         self.renderer = RendererSpy(live_raw_buffer)
         self.logger = LoggerSpy()
         self.playback_render_settings = state.active
+        self.transition_warning: str | None = None
         if output_running is not None:
             self.output = OutputSpy(running=output_running)
         if paths is not None:
@@ -203,6 +212,36 @@ def test_stable_to_live_mode_marks_graph_eq_render_baseline_eq_free() -> None:
     assert marker_eq.lowpass_hz == 20_000.0
     assert [point.gain_db for point in marker_eq.points] == [0.0, 0.0, 0.0]
     assert runtime.playback_render_settings == result.active
+
+
+def test_stable_to_live_mode_missing_live_source_rolls_back_to_stable_state() -> None:
+    stable = AppSettings().model_copy(
+        update={
+            "layers": {
+                **AppSettings().layers,
+                "mid": AppSettings().layers["mid"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(AppSettings().layers["mid"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=stable)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+    runtime.renderer = MissingLiveSourceRendererSpy(live_raw_buffer)
+
+    result = apply_playback_apply_mode(runtime, "live")  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "stable"
+    assert runtime.settings_store.state.active.playback.apply_mode == "stable"
+    assert runtime.controller.settings.playback.apply_mode == "stable"
+    assert runtime.playback_render_settings == stable
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
 
 
 def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_render(

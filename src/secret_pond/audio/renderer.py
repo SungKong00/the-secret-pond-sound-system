@@ -33,6 +33,19 @@ class _RenderedAudio:
     sample_rate: int
 
 
+class LiveEqSourceError(FileNotFoundError):
+    def __init__(
+        self,
+        layer_id: str,
+        source_path: Path | None,
+        reason: str = "EQ-free source is unavailable",
+    ) -> None:
+        self.layer_id = layer_id
+        self.source_path = source_path
+        source = f": {source_path}" if source_path is not None else ""
+        super().__init__(f"Live Graph EQ source for {layer_id} is unavailable{source}. {reason}")
+
+
 @dataclass
 class StagedRenderSet:
     results: dict[LayerId, RenderResult]
@@ -97,9 +110,10 @@ class LayerRenderer:
         return guarded
 
     def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
-        """Render a live replacement from the configured source, not playback cache."""
+        """Render a live replacement from EQ-free source material, never playback cache."""
         normalized_layer_id = _validate_layer_id(layer_id)
-        rendered_audio = self._render_audio(normalized_layer_id, settings)
+        source_path = self._live_eq_source_path(normalized_layer_id, settings)
+        rendered_audio = self._render_audio(normalized_layer_id, settings, source_path=source_path)
         _result, guarded = _guard_rendered_buffer(
             normalized_layer_id,
             self._output_path(normalized_layer_id),
@@ -140,8 +154,14 @@ class LayerRenderer:
                 _safe_unlink(path)
             raise
 
-    def _render_audio(self, layer_id: LayerId, settings: AppSettings) -> _RenderedAudio:
-        source_path = self._source_path(layer_id, settings)
+    def _render_audio(
+        self,
+        layer_id: LayerId,
+        settings: AppSettings,
+        *,
+        source_path: Path | None = None,
+    ) -> _RenderedAudio:
+        source_path = source_path or self._source_path(layer_id, settings)
         if not source_path.exists():
             msg = f"{layer_id} source file does not exist: {source_path}"
             raise FileNotFoundError(msg)
@@ -160,6 +180,25 @@ class LayerRenderer:
 
     def _source_path(self, layer_id: LayerId, settings: AppSettings) -> Path:
         return render_source_path(self._paths, settings, layer_id)
+
+    def _live_eq_source_path(self, layer_id: LayerId, settings: AppSettings) -> Path:
+        try:
+            source_path = self._source_path(layer_id, settings)
+        except FileNotFoundError as exc:
+            raise LiveEqSourceError(layer_id, None, str(exc)) from exc
+        if source_path in {
+            self._paths.low_playback,
+            self._paths.mid_playback,
+            self._paths.voice_playback,
+        }:
+            raise LiveEqSourceError(
+                layer_id,
+                source_path,
+                "playback cache is not an EQ-free source",
+            )
+        if not source_path.exists():
+            raise LiveEqSourceError(layer_id, source_path)
+        return source_path
 
     def _output_path(self, layer_id: LayerId) -> Path:
         if layer_id == "low":

@@ -3,10 +3,12 @@ from __future__ import annotations
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
+from secret_pond.audio.renderer import LiveEqSourceError
 from secret_pond.config import AppSettings, EqSettings
 from secret_pond.services.live_graph_eq import (
     LIVE_EQ_APPLY_DEBOUNCE_MS,
     LIVE_EQ_SLOW_APPLY_MS,
+    LIVE_GRAPH_EQ_FAILURE_WARNING,
     apply_live_graph_eq_render_result,
     live_graph_eq_state,
     mark_slow_live_graph_eq_requests,
@@ -26,6 +28,12 @@ class RendererSpy:
     def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
         self.renders.append((layer_id, settings))
         return self.buffer
+
+
+class MissingSourceRendererSpy(RendererSpy):
+    def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.renders.append((layer_id, settings))
+        raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
 
 
 class PlayerSpy:
@@ -149,3 +157,24 @@ def test_slow_live_graph_eq_request_marks_caution_after_threshold() -> None:
         now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS + LIVE_EQ_SLOW_APPLY_MS,
     ) is True
     assert live_graph_eq_state(runtime).slow_caution is True
+
+
+def test_missing_live_eq_source_keeps_current_playback_and_sets_warning() -> None:
+    runtime = RuntimeHarness()
+    runtime.renderer = MissingSourceRendererSpy()
+    settings = graph_eq_with_mid_gain(runtime.playback_render_settings, 6.0)
+
+    schedule_live_graph_eq_update(runtime, "mid", settings, now_ms=0)
+    result = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+
+    live_state = live_graph_eq_state(runtime)
+    assert result is None
+    assert runtime.renderer.renders == [("mid", settings)]
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 0.0
+    assert live_state.pending_request is None
+    assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING

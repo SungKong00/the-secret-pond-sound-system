@@ -5,6 +5,7 @@ from typing import Literal
 from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.config import AppSettings, EqSettings
 from secret_pond.services.live_graph_eq import (
+    LIVE_GRAPH_EQ_FAILURE_WARNING,
     invalidate_live_graph_eq_requests,
     schedule_live_graph_eq_update,
 )
@@ -33,17 +34,26 @@ def apply_playback_apply_mode(
             draft,
             voice_raw_preview_active=bool(getattr(runtime, "voice_raw_preview_path", None)),
         )
-    state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
     if previous_mode == "stable" and mode == "live":
+        previous_render_settings = getattr(runtime, "playback_render_settings", None)
         runtime.playback_render_settings = _eq_free_render_marker(active)
-        _replace_stable_eq_artifacts(runtime, active)
+        try:
+            _replace_stable_eq_artifacts(runtime, active)
+        except (OSError, RuntimeError, ValueError) as exc:
+            runtime.playback_render_settings = previous_render_settings
+            _record_live_eq_failure_best_effort(runtime, exc)
+            return current
         runtime.playback_render_settings = active
+        state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
         if staged_graph_eq == "apply":
             _schedule_staged_graph_eq_live_requests(runtime, active, state.draft)
     elif previous_mode == "live" and mode == "stable":
         invalidate_live_graph_eq_requests(runtime, "playback_apply_mode:stable")
         _restore_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
+        state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
+    else:
+        state = runtime.settings_store.save(SettingsState(active=active, draft=draft))
     runtime.apply_settings_state(state)
     _log_event_best_effort(runtime, "settings.playback_apply_mode_applied", {"mode": mode})
     return state
@@ -113,13 +123,18 @@ def _replace_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettin
     if not callable(render_live_eq_layer_buffer) or not callable(set_layer_buffer):
         return
 
-    for layer_id in LAYER_IDS:
-        eq = settings.layers[layer_id].eq
-        if eq == EqSettings():
-            continue
-        set_layer_buffer(layer_id, render_live_eq_layer_buffer(layer_id, settings))
-        if callable(set_live_eq_state):
-            set_live_eq_state(layer_id, eq)
+    player_snapshot = _capture_player_snapshot(runtime)
+    try:
+        for layer_id in LAYER_IDS:
+            eq = settings.layers[layer_id].eq
+            if eq == EqSettings():
+                continue
+            set_layer_buffer(layer_id, render_live_eq_layer_buffer(layer_id, settings))
+            if callable(set_live_eq_state):
+                set_live_eq_state(layer_id, eq)
+    except (OSError, RuntimeError, ValueError):
+        _restore_player_snapshot(runtime, player_snapshot)
+        raise
 
 
 def _schedule_staged_graph_eq_live_requests(
@@ -167,5 +182,41 @@ def _log_event_best_effort(
 ) -> None:
     try:
         runtime.logger.log_event(event_type, payload)
+    except Exception:
+        return
+
+
+def _record_live_eq_failure_best_effort(runtime: SecretPondRuntime, exc: Exception) -> None:
+    runtime.transition_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
+    layer_id = getattr(exc, "layer_id", None)
+    _log_event_best_effort(
+        runtime,
+        "settings.live_graph_eq_failed",
+        {
+            "layer_id": layer_id,
+            "request_id": "playback_apply_mode",
+            "error": str(exc),
+        },
+    )
+
+
+def _capture_player_snapshot(runtime: SecretPondRuntime) -> object | None:
+    snapshot = getattr(runtime.player, "snapshot", None)
+    if not callable(snapshot):
+        return None
+    try:
+        return snapshot()
+    except Exception:
+        return None
+
+
+def _restore_player_snapshot(runtime: SecretPondRuntime, snapshot: object | None) -> None:
+    if snapshot is None:
+        return
+    restore = getattr(runtime.player, "restore", None)
+    if not callable(restore):
+        return
+    try:
+        restore(snapshot)
     except Exception:
         return
