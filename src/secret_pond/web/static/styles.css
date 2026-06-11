@@ -2677,10 +2677,8 @@ section.control-group .control-group-head h4::before {
 
 .layer-controls {
   display: grid;
-  grid-template-columns: minmax(170px, 0.68fr) minmax(340px, 1.32fr);
-  grid-template-areas:
-    "level eq"
-    "filter filter";
+  grid-template-columns: minmax(170px, 1fr);
+  grid-template-areas: "level";
   gap: 10px;
   align-items: start;
   padding: 10px;
@@ -2733,6 +2731,167 @@ section.control-group .control-group-head h4::before {
 .layer-controls .filter-group .control-description,
 .layer-controls .filter-group .range-context {
   display: none;
+}
+
+.graph-eq-panel {
+  min-width: 760px;
+}
+
+.graph-eq-layer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.graph-eq-layer-tab {
+  border: 1px solid rgba(223, 213, 191, 0.14);
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--text);
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.graph-eq-layer-tab.active {
+  border-color: rgba(101, 247, 255, 0.44);
+  background: rgba(101, 247, 255, 0.1);
+}
+
+.graph-eq-workbench {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) minmax(220px, 0.34fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.graph-eq-editor {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: minmax(320px, 44vh) auto;
+  gap: 8px;
+  min-height: 360px;
+}
+
+.graph-eq-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(223, 213, 191, 0.14);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 16.66% 100%,
+    rgba(14, 17, 22, 0.68);
+}
+
+.graph-eq-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.graph-eq-zero-line {
+  stroke: rgba(223, 213, 191, 0.3);
+  stroke-width: 2;
+}
+
+.graph-eq-curve {
+  fill: none;
+  stroke: #65f7ff;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-eq-point {
+  fill: #d6a84d;
+  stroke: rgba(14, 17, 22, 0.95);
+  stroke-width: 4;
+  cursor: grab;
+}
+
+.graph-eq-point.selected {
+  fill: #ff4fd8;
+  stroke: #f4ead8;
+}
+
+.graph-eq-scale {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-eq-scale-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: right;
+}
+
+.graph-eq-scale-x {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+}
+
+.graph-eq-point-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  align-content: start;
+  border: 1px solid rgba(223, 213, 191, 0.14);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 12px;
+}
+
+.graph-eq-point-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.graph-eq-point-controls select,
+.graph-eq-point-controls input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(223, 213, 191, 0.16);
+  border-radius: 7px;
+  background: var(--control);
+  color: var(--text);
+  padding: 8px 9px;
+}
+
+.graph-eq-empty-state {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.graph-eq-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.graph-eq-filter-range {
+  margin-top: 12px;
+  border-top: 1px solid rgba(223, 213, 191, 0.12);
+  padding-top: 12px;
+}
+
+.graph-eq-filter-range h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.graph-eq-filter-range h3 small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.graph-eq-filter-range .filter-group .control-group-body {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 label {

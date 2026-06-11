@@ -23,7 +23,7 @@ const api = async (path, options = {}) => {
   return payload;
 };
 
-const workspaceTabNames = ["treatment", "stack", "mixer"];
+const workspaceTabNames = ["treatment", "stack", "mixer", "graph-eq"];
 const sideTabNames = ["library", "system"];
 
 const workspaceTabFromUrl = () => {
@@ -104,6 +104,12 @@ const state = {
   presetSelections: {
     layers: {},
     recording: null,
+  },
+  graphEqLayer: "low",
+  graphEqSelectedPointIds: {
+    low: null,
+    mid: null,
+    voice: null,
   },
   expandedControlGroups: {},
   workspaceTab: workspaceTabFromUrl(),
@@ -532,6 +538,151 @@ const zeroCenteredDbMarks = (min, max) => [
   { value: max, label: dbMarkLabel(max) },
 ];
 
+const graphEqMinFrequencyHz = 20;
+const graphEqMaxFrequencyHz = 20000;
+const graphEqMinGainDb = -18;
+const graphEqMaxGainDb = 18;
+const graphEqMaxPoints = 6;
+
+const graphEqPointTypes = Object.freeze({
+  bell: "Bell / Peak",
+  low_shelf: "Low Shelf",
+  high_shelf: "High Shelf",
+});
+
+const defaultGraphEqPoints = () => [
+  { id: "low", type: "low_shelf", frequency_hz: 120, gain_db: 0, q: 0.7 },
+  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1.0 },
+  { id: "high", type: "high_shelf", frequency_hz: 8000, gain_db: 0, q: 0.7 },
+];
+
+const graphEqFilterGroup = {
+  title: "Filter Range",
+  note: "필터가 통과시킬 대역을 정합니다.",
+  className: "filter-group",
+  layout: "filter-pair-grid",
+  action: "reset-filter",
+  controls: [
+    {
+      path: "eq.highpass_hz",
+      label: "Low Cut",
+      min: 20,
+      max: 500,
+      step: 1,
+      suffix: " Hz",
+      kind: "filter",
+      rangeLabel: "below cut",
+      description: "이 값보다 낮은 소리를 줄입니다.",
+    },
+    {
+      path: "eq.lowpass_hz",
+      label: "High Cut",
+      min: 2000,
+      max: 20000,
+      step: 10,
+      suffix: " Hz",
+      kind: "filter",
+      rangeLabel: "above cut",
+      description: "이 값보다 높은 소리를 줄입니다.",
+    },
+  ],
+};
+
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+
+const normalizeGraphEqPoint = (point, index = 0) => {
+  const fallback = defaultGraphEqPoints()[index] || defaultGraphEqPoints()[1];
+  const type = graphEqPointTypes[point?.type] ? point.type : fallback.type;
+  return {
+    id: String(point?.id || fallback.id || `point-${index + 1}`),
+    type,
+    frequency_hz: clampNumber(
+      point?.frequency_hz ?? fallback.frequency_hz,
+      graphEqMinFrequencyHz,
+      graphEqMaxFrequencyHz,
+    ),
+    gain_db: clampNumber(point?.gain_db ?? fallback.gain_db, graphEqMinGainDb, graphEqMaxGainDb),
+    q: clampNumber(point?.q ?? fallback.q ?? 1, 0.1, 18),
+  };
+};
+
+const normalizeGraphEqSettings = (eq = {}) => {
+  const points = Array.isArray(eq.points) && eq.points.length > 0
+    ? eq.points.slice(0, graphEqMaxPoints).map(normalizeGraphEqPoint)
+    : defaultGraphEqPoints();
+  return {
+    ...eq,
+    points,
+    highpass_hz: clampNumber(eq.highpass_hz ?? 20, 20, 1000),
+    lowpass_hz: clampNumber(eq.lowpass_hz ?? 20000, 1000, 20000),
+  };
+};
+
+const graphEqFrequencyToX = (frequencyHz) => {
+  const minLog = Math.log10(graphEqMinFrequencyHz);
+  const maxLog = Math.log10(graphEqMaxFrequencyHz);
+  return (Math.log10(clampNumber(frequencyHz, graphEqMinFrequencyHz, graphEqMaxFrequencyHz)) - minLog) /
+    (maxLog - minLog);
+};
+
+const graphEqXToFrequency = (x) => {
+  const minLog = Math.log10(graphEqMinFrequencyHz);
+  const maxLog = Math.log10(graphEqMaxFrequencyHz);
+  return 10 ** (minLog + clampNumber(x, 0, 1) * (maxLog - minLog));
+};
+
+const graphEqGainToY = (gainDb) => (
+  (graphEqMaxGainDb - clampNumber(gainDb, graphEqMinGainDb, graphEqMaxGainDb)) /
+  (graphEqMaxGainDb - graphEqMinGainDb)
+);
+
+const graphEqYToGain = (y) => (
+  graphEqMaxGainDb - clampNumber(y, 0, 1) * (graphEqMaxGainDb - graphEqMinGainDb)
+);
+
+const graphEqPointResponseGain = (frequencyHz, point) => {
+  const center = clampNumber(point.frequency_hz, graphEqMinFrequencyHz, graphEqMaxFrequencyHz);
+  const gain = Number(point.gain_db) || 0;
+  const q = Math.max(Number(point.q) || 1, 0.1);
+  if (point.type === "bell") {
+    const octaveDistance = Math.log2(frequencyHz / center);
+    return gain / (1 + (octaveDistance * q * 2) ** 2);
+  }
+  if (point.type === "low_shelf") {
+    return gain / (1 + (frequencyHz / center) ** (q * 2));
+  }
+  if (point.type === "high_shelf") {
+    return gain / (1 + (center / frequencyHz) ** (q * 2));
+  }
+  return 0;
+};
+
+const graphEqVisualResponsePoints = (eq, width = 96) => {
+  const normalized = normalizeGraphEqSettings(eq);
+  const sampleCount = Math.max(2, width);
+  const controlPointSamples = new Map(
+    normalized.points.map((point) => {
+      const x = graphEqFrequencyToX(point.frequency_hz);
+      return [Math.round(x * (sampleCount - 1)), x];
+    }),
+  );
+  return Array.from({ length: sampleCount }, (_value, index) => {
+    const x = controlPointSamples.get(index) ?? index / (sampleCount - 1);
+    const frequencyHz = graphEqXToFrequency(x);
+    const gainDb = normalized.points.reduce(
+      (total, point) => total + graphEqPointResponseGain(frequencyHz, point),
+      0,
+    );
+    const clampedGainDb = clampNumber(gainDb, graphEqMinGainDb, graphEqMaxGainDb);
+    return {
+      frequency_hz: frequencyHz,
+      gain_db: clampedGainDb,
+      x,
+      y: graphEqGainToY(clampedGainDb),
+    };
+  });
+};
+
 const layerControlGroups = [
   {
     title: { ko: "레벨", en: "Level" },
@@ -552,82 +703,7 @@ const layerControlGroups = [
       },
     ],
   },
-  {
-    title: { ko: "음역 EQ", en: "Tone EQ" },
-    note: "저역 20-250Hz · 중역 250Hz-2kHz · 고역 2kHz+",
-    className: "eq-group",
-    layout: "eq-band-grid",
-    guide: "eq",
-    controls: [
-      {
-        path: "eq.low_gain_db",
-        label: { ko: "저역", en: "Low" },
-        min: -12,
-        max: 12,
-        step: 0.5,
-        suffix: " dB",
-        kind: "eq",
-        band: "low",
-        rangeLabel: "20-250 Hz",
-        description: "무게감, 바닥 울림",
-      },
-      {
-        path: "eq.mid_gain_db",
-        label: { ko: "중역", en: "Mid" },
-        min: -12,
-        max: 12,
-        step: 0.5,
-        suffix: " dB",
-        kind: "eq",
-        band: "mid",
-        rangeLabel: "250 Hz-2 kHz",
-        description: "몸통감, 존재감",
-      },
-      {
-        path: "eq.high_gain_db",
-        label: { ko: "고역", en: "High" },
-        min: -12,
-        max: 12,
-        step: 0.5,
-        suffix: " dB",
-        kind: "eq",
-        band: "high",
-        rangeLabel: "2 kHz+",
-        description: "공기감, 선명도",
-      },
-    ],
-  },
-  {
-    title: "Filter Range",
-    note: "필터가 통과시킬 대역을 정합니다.",
-    className: "filter-group",
-    layout: "filter-pair-grid",
-    action: "reset-filter",
-    controls: [
-      {
-        path: "eq.highpass_hz",
-        label: "Low Cut",
-        min: 20,
-        max: 500,
-        step: 1,
-        suffix: " Hz",
-        kind: "filter",
-        rangeLabel: "below cut",
-        description: "이 값보다 낮은 소리를 줄입니다.",
-      },
-      {
-        path: "eq.lowpass_hz",
-        label: "High Cut",
-        min: 2000,
-        max: 20000,
-        step: 10,
-        suffix: " Hz",
-        kind: "filter",
-        rangeLabel: "above cut",
-        description: "이 값보다 높은 소리를 줄입니다.",
-      },
-    ],
-  },
+  graphEqFilterGroup,
 ];
 
 const recordingControlGroups = [
@@ -807,33 +883,12 @@ const layerPresetLabels = {
 const layerPresetDefs = {
   "Warm Bed": {
     volume_db: -13,
-    eq: {
-      low_gain_db: 3,
-      mid_gain_db: -2,
-      high_gain_db: -3,
-      highpass_hz: 20,
-      lowpass_hz: 9000,
-    },
   },
   "Clear Pocket": {
     volume_db: -14,
-    eq: {
-      low_gain_db: -3,
-      mid_gain_db: 2,
-      high_gain_db: 1,
-      highpass_hz: 90,
-      lowpass_hz: 12000,
-    },
   },
   "Distant Air": {
     volume_db: -18,
-    eq: {
-      low_gain_db: -4,
-      mid_gain_db: -1,
-      high_gain_db: 4,
-      highpass_hz: 140,
-      lowpass_hz: 16000,
-    },
   },
 };
 
@@ -4882,6 +4937,7 @@ const renderControls = () => {
   renderPlaybackTransitionControls();
   renderLayerControls();
   renderVoiceStackControls();
+  renderGraphEqWorkspace();
   renderRecordingPresets();
   renderRecordingControls();
 };
@@ -5011,6 +5067,7 @@ const excludedFeedbackSurfaceIds = Object.freeze(["output", "playback_apply_mode
 const coveredLayerFeedbackControlPaths = [
   "enabled",
   "volume_db",
+  "eq.points",
   "eq.low_gain_db",
   "eq.mid_gain_db",
   "eq.high_gain_db",
@@ -5073,15 +5130,23 @@ const stableCoveredFeedbackControlIds = Object.freeze(
   Object.keys(coveredLiveFeedbackControlSurfaceTargets),
 );
 
-const confirmedActiveSettingsForRollback = (snapshot = state.snapshot) => (
-  state.confirmedActiveSettingsSnapshot || snapshot?.settings?.active || null
-);
+const confirmedActiveSettingsForRollback = (snapshot = state.snapshot, draft = null) => {
+  const snapshotActive = snapshot?.settings?.active || null;
+  if (
+    snapshotActive &&
+    draft &&
+    stableSettingsSignature(snapshotActive) !== stableSettingsSignature(draft)
+  ) {
+    return snapshotActive;
+  }
+  return state.confirmedActiveSettingsSnapshot || snapshotActive || null;
+};
 
 const captureStableCoveredFeedbackControlSnapshots = ({
   snapshot = state.snapshot,
   draft = state.draft || snapshot?.settings?.draft || null,
 } = {}) => {
-  const activeSettings = confirmedActiveSettingsForRollback(snapshot);
+  const activeSettings = confirmedActiveSettingsForRollback(snapshot, draft);
   if (!activeSettings || !draft) return [];
   return stableCoveredFeedbackControlIds
     .filter((controlId) => (
@@ -5474,7 +5539,6 @@ const renderLayerCard = (layerId) => {
         </label>
       </div>
     </div>
-    ${layerId === "voice" ? "" : layerPresetMarkup(layerId)}
     <div class="layer-controls"></div>
   `;
   const spinner = card.querySelector(".feedback-spinner");
@@ -5505,7 +5569,7 @@ const renderLayerCard = (layerId) => {
   });
 
   const controls = card.querySelector(".layer-controls");
-  layerControlGroups.forEach((group) => {
+  layerControlGroups.filter((group) => group.action !== "reset-filter").forEach((group) => {
     controls.appendChild(
       controlGroup(
         group,
@@ -5614,6 +5678,342 @@ const resetLayerFilter = (layerId) => {
       afterSync: renderLayerControls,
     },
   );
+};
+
+const currentGraphEqLayerId = () => (
+  layerIds.includes(state.graphEqLayer) ? state.graphEqLayer : "low"
+);
+
+const graphEqForLayer = (settings, layerId = currentGraphEqLayerId()) => (
+  normalizeGraphEqSettings(settings?.layers?.[layerId]?.eq || {})
+);
+
+const selectedGraphEqPointId = (layerId = currentGraphEqLayerId()) => (
+  state.graphEqSelectedPointIds[layerId] || null
+);
+
+const selectedGraphEqPoint = (eq, layerId = currentGraphEqLayerId()) => {
+  const pointId = selectedGraphEqPointId(layerId);
+  return eq.points.find((point) => point.id === pointId) || null;
+};
+
+const setGraphEqLayer = (layerId) => {
+  if (!layerIds.includes(layerId)) return;
+  state.graphEqLayer = layerId;
+  renderGraphEqWorkspace();
+};
+
+const setSelectedGraphEqPoint = (layerId, pointId) => {
+  state.graphEqSelectedPointIds[layerId] = pointId || null;
+  renderGraphEqWorkspace();
+};
+
+const updateDraftGraphEq = (layerId, nextEq) => {
+  const layer = state.draft?.layers?.[layerId];
+  if (!layer) return;
+  layer.eq = normalizeGraphEqSettings(nextEq);
+};
+
+const updateDraftGraphEqPoint = (layerId, pointId, updates) => {
+  const eq = graphEqForLayer(state.draft, layerId);
+  const points = eq.points.map((point) => (
+    point.id === pointId ? normalizeGraphEqPoint({ ...point, ...updates }) : point
+  ));
+  updateDraftGraphEq(layerId, { ...eq, points });
+};
+
+const graphEqControlIds = (layerId, pointId = selectedGraphEqPointId(layerId)) => {
+  const ids = [`layers.${layerId}.eq.points`];
+  if (pointId) ids.push(`layers.${layerId}.eq.points.${pointId}`);
+  return ids;
+};
+
+const commitGraphEqPointEdit = (layerId, pointId, updates) => {
+  commitDraftChange(
+    () => {
+      updateDraftGraphEqPoint(layerId, pointId, updates);
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: graphEqControlIds(layerId, pointId),
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const commitGraphEqFilterEdit = (layerId, control, value) => {
+  commitDraftChange(
+    () => {
+      setPath(state.draft.layers[layerId], control.path, value);
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlId: `layers.${layerId}.${control.path}`,
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const addGraphEqPoint = () => {
+  const layerId = currentGraphEqLayerId();
+  const eq = graphEqForLayer(state.draft, layerId);
+  if (eq.points.length >= graphEqMaxPoints) return;
+  const id = `point-${Date.now().toString(36)}`;
+  const nextPoint = normalizeGraphEqPoint({
+    id,
+    type: "bell",
+    frequency_hz: 1000,
+    gain_db: 0,
+    q: 1,
+  });
+  commitDraftChange(
+    () => {
+      updateDraftGraphEq(layerId, { ...eq, points: [...eq.points, nextPoint] });
+      state.graphEqSelectedPointIds[layerId] = id;
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: graphEqControlIds(layerId, id),
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const deleteSelectedGraphEqPoint = () => {
+  const layerId = currentGraphEqLayerId();
+  const eq = graphEqForLayer(state.draft, layerId);
+  const pointId = selectedGraphEqPointId(layerId);
+  if (!pointId || eq.points.length <= 1) return;
+  commitDraftChange(
+    () => {
+      updateDraftGraphEq(layerId, {
+        ...eq,
+        points: eq.points.filter((point) => point.id !== pointId),
+      });
+      state.graphEqSelectedPointIds[layerId] = null;
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: graphEqControlIds(layerId, pointId),
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const resetGraphEqLayer = (layerId = currentGraphEqLayerId()) => {
+  commitDraftChange(
+    () => {
+      updateDraftGraphEq(layerId, normalizeGraphEqSettings({ points: defaultGraphEqPoints() }));
+      state.graphEqSelectedPointIds[layerId] = null;
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: graphEqControlIds(layerId),
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const resetAllGraphEqLayers = () => {
+  if (!window.confirm("모든 레이어의 Graph EQ를 초기화할까요?")) return;
+  commitDraftChange(
+    () => {
+      layerIds.forEach((layerId) => {
+        updateDraftGraphEq(layerId, normalizeGraphEqSettings({ points: defaultGraphEqPoints() }));
+        state.graphEqSelectedPointIds[layerId] = null;
+      });
+    },
+    {
+      feedbackSurfaceId: "layer:mid",
+      feedbackControlIds: layerIds.flatMap((layerId) => graphEqControlIds(layerId)),
+      afterSync: renderGraphEqWorkspace,
+    },
+  );
+};
+
+const graphEqPathD = (points) => points
+  .map((point, index) => {
+    const x = point.x * 1000;
+    const y = point.y * 360;
+    return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  })
+  .join(" ");
+
+const renderGraphEqLayerTabs = () => {
+  const container = $("graphEqLayerTabs");
+  if (!container) return;
+  const activeLayerId = currentGraphEqLayerId();
+  container.innerHTML = layerIds.map((layerId) => {
+    const active = layerId === activeLayerId;
+    return `
+      <button
+        class="graph-eq-layer-tab ${active ? "active" : ""}"
+        type="button"
+        role="tab"
+        aria-selected="${active ? "true" : "false"}"
+        data-graph-eq-layer="${layerId}"
+      >
+        ${labelMarkup(layerLabels[layerId])}
+      </button>
+    `;
+  }).join("");
+  (container.querySelectorAll?.("[data-graph-eq-layer]") || []).forEach((button) => {
+    button.addEventListener("click", () => setGraphEqLayer(button.dataset.graphEqLayer));
+  });
+};
+
+const renderGraphEqEditor = (eq, layerId) => {
+  const svg = $("graphEqSvg");
+  if (!svg) return;
+  const selectedId = selectedGraphEqPointId(layerId);
+  const responsePath = graphEqPathD(graphEqVisualResponsePoints(eq, 96));
+  const zeroY = graphEqGainToY(0) * 360;
+  svg.innerHTML = `
+    <line class="graph-eq-zero-line" x1="0" y1="${zeroY}" x2="1000" y2="${zeroY}" />
+    <path class="graph-eq-curve" d="${responsePath}" />
+    ${eq.points.map((point) => {
+      const x = graphEqFrequencyToX(point.frequency_hz) * 1000;
+      const y = graphEqGainToY(point.gain_db) * 360;
+      const selected = point.id === selectedId;
+      return `
+        <circle
+          class="graph-eq-point ${selected ? "selected" : ""}"
+          data-graph-eq-point="${escapeHtml(point.id)}"
+          cx="${x.toFixed(1)}"
+          cy="${y.toFixed(1)}"
+          r="${selected ? 12 : 9}"
+          tabindex="0"
+          role="button"
+          aria-label="${graphEqPointTypes[point.type]} ${Math.round(point.frequency_hz)} Hz"
+        ></circle>
+      `;
+    }).join("")}
+  `;
+  (svg.querySelectorAll?.("[data-graph-eq-point]") || []).forEach((pointNode) => {
+    const pointId = pointNode.dataset.graphEqPoint;
+    pointNode.addEventListener("click", () => setSelectedGraphEqPoint(layerId, pointId));
+    pointNode.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      setSelectedGraphEqPoint(layerId, pointId);
+      state.graphEqDrag = { layerId, pointId, pointerId: event.pointerId };
+      pointNode.setPointerCapture?.(event.pointerId);
+    });
+  });
+};
+
+const graphEqPointFromPointerEvent = (event) => {
+  const svg = $("graphEqSvg");
+  const rect = svg?.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  const x = clampNumber((event.clientX - rect.left) / rect.width, 0, 1);
+  const y = clampNumber((event.clientY - rect.top) / rect.height, 0, 1);
+  return {
+    frequency_hz: Math.round(graphEqXToFrequency(x)),
+    gain_db: Number(graphEqYToGain(y).toFixed(1)),
+  };
+};
+
+const renderGraphEqPointControls = (eq, layerId) => {
+  const selected = selectedGraphEqPoint(eq, layerId);
+  const controls = $("graphEqPointControls");
+  const status = $("graphEqStatus");
+  if (!controls) return;
+  controls.classList.toggle("empty", !selected);
+  controls.querySelector(".graph-eq-empty-state").hidden = Boolean(selected);
+  ["graphEqPointType", "graphEqPointFreq", "graphEqPointGain", "graphEqPointQ"].forEach((id) => {
+    const input = $(id);
+    input.disabled = !selected || draftEditLocked();
+  });
+  $("graphEqDeletePointButton").disabled = !selected || draftEditLocked() || eq.points.length <= 1;
+  $("graphEqAddPointButton").disabled = draftEditLocked() || eq.points.length >= graphEqMaxPoints;
+  $("graphEqResetLayerButton").disabled = draftEditLocked();
+  $("graphEqResetAllButton").disabled = draftEditLocked();
+  if (status) {
+    status.textContent = selected ? `${graphEqPointTypes[selected.type]} 선택됨` : "점을 선택하세요";
+    status.className = `status-pill ${selected ? "safe" : "muted"}`;
+  }
+  if (!selected) return;
+  $("graphEqPointType").value = selected.type;
+  $("graphEqPointFreq").value = String(Math.round(selected.frequency_hz));
+  $("graphEqPointGain").value = String(Number(selected.gain_db.toFixed(1)));
+  $("graphEqPointQ").value = String(Number(selected.q.toFixed(2)));
+};
+
+const renderGraphEqFilterRange = (layerId) => {
+  const container = $("graphEqFilterControls");
+  if (!container || !state.draft) return;
+  container.innerHTML = "";
+  const layer = state.draft.layers[layerId];
+  const activeLayer = state.snapshot?.settings?.active?.layers?.[layerId] || layer;
+  container.appendChild(
+    controlGroup(
+      graphEqFilterGroup,
+      layer,
+      activeLayer,
+      (control, value) => commitGraphEqFilterEdit(layerId, control, value),
+      () => resetLayerFilter(layerId),
+    ),
+  );
+};
+
+const renderGraphEqWorkspace = () => {
+  if (!state.draft?.layers) return;
+  const layerId = currentGraphEqLayerId();
+  const eq = graphEqForLayer(state.draft, layerId);
+  renderGraphEqLayerTabs();
+  renderGraphEqEditor(eq, layerId);
+  renderGraphEqPointControls(eq, layerId);
+  renderGraphEqFilterRange(layerId);
+};
+
+const commitGraphEqSelectedControl = (controlId) => {
+  const layerId = currentGraphEqLayerId();
+  const pointId = selectedGraphEqPointId(layerId);
+  if (!pointId) return;
+  const updates = {};
+  if (controlId === "graphEqPointType") updates.type = $("graphEqPointType").value;
+  if (controlId === "graphEqPointFreq") updates.frequency_hz = Number($("graphEqPointFreq").value);
+  if (controlId === "graphEqPointGain") updates.gain_db = Number($("graphEqPointGain").value);
+  if (controlId === "graphEqPointQ") updates.q = Number($("graphEqPointQ").value);
+  commitGraphEqPointEdit(layerId, pointId, updates);
+};
+
+const bindGraphEqControls = () => {
+  ["graphEqPointFreq", "graphEqPointGain", "graphEqPointQ"].forEach((id) => {
+    $(id).addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      commitGraphEqSelectedControl(id);
+    });
+    $(id).addEventListener("blur", () => commitGraphEqSelectedControl(id));
+  });
+  $("graphEqPointType").addEventListener("change", () => commitGraphEqSelectedControl("graphEqPointType"));
+  $("graphEqAddPointButton").addEventListener("click", addGraphEqPoint);
+  $("graphEqDeletePointButton").addEventListener("click", deleteSelectedGraphEqPoint);
+  $("graphEqResetLayerButton").addEventListener("click", () => resetGraphEqLayer());
+  $("graphEqResetAllButton").addEventListener("click", resetAllGraphEqLayers);
+  $("graphEqSvg").addEventListener("pointermove", (event) => {
+    const drag = state.graphEqDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const updates = graphEqPointFromPointerEvent(event);
+    if (!updates) return;
+    updateDraftGraphEqPoint(drag.layerId, drag.pointId, updates);
+    syncDraftSnapshot();
+    renderGraphEqWorkspace();
+  });
+  $("graphEqSvg").addEventListener("pointerup", (event) => {
+    const drag = state.graphEqDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    state.graphEqDrag = null;
+    commitDraftChange(() => {}, {
+      feedbackSurfaceId: `layer:${drag.layerId}`,
+      feedbackControlIds: graphEqControlIds(drag.layerId, drag.pointId),
+      afterSync: renderGraphEqWorkspace,
+    });
+  });
+  $("graphEqSvg").addEventListener("pointercancel", () => {
+    state.graphEqDrag = null;
+  });
 };
 
 const renderRecordingControls = () => {
@@ -6816,6 +7216,7 @@ const bindEvents = () => {
   document.querySelectorAll("[data-playback-apply-mode]").forEach((button) => {
     button.addEventListener("click", () => setPlaybackApplyMode(button.dataset.playbackApplyMode));
   });
+  bindGraphEqControls();
   document.addEventListener("pointerdown", trackSettingsInteractiveControl);
   document.addEventListener("focusin", trackSettingsInteractiveControl);
   document.addEventListener("focusout", releaseSettingsInteractiveControl);

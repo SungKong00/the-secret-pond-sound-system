@@ -1991,7 +1991,7 @@ applyLayerPreset("low", "Warm Bed");
 
 assert.strictEqual(state.draft.layers.low.enabled, false);
 assert.strictEqual(state.draft.layers.low.volume_db, -13);
-assert.strictEqual(state.draft.layers.low.eq.low_gain_db, 3);
+assert.strictEqual(state.draft.layers.low.eq.low_gain_db, 0);
 
 globalThis.fetch = async () => ({
   ok: false,
