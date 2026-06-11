@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from secret_pond.config import AppSettings
 from secret_pond.services.device_switcher import validate_draft_device_settings
+from secret_pond.services.live_graph_eq import (
+    invalidate_live_graph_eq_requests,
+    schedule_live_graph_eq_update,
+)
 from secret_pond.services.player_settings import apply_live_player_layer_controls
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_changes import classify_settings_change
@@ -41,7 +45,7 @@ def update_draft_settings(
     state = SettingsState(active=_settings_copy(active_snapshot), draft=saved_state.draft)
     if current.active.playback.apply_mode == "live":
         render_settings = _playback_render_settings(runtime, current)
-        render_settings = _apply_live_eq_buffers(runtime, render_settings, state.active)
+        _schedule_live_eq_buffers(runtime, render_settings, state.active, state.draft)
         apply_live_player_layer_controls(
             runtime.player,
             previous=current.active,
@@ -97,10 +101,35 @@ def _active_settings_for_draft_update(active: AppSettings, draft: AppSettings) -
             update={
                 "enabled": draft_layer.enabled,
                 "volume_db": draft_layer.volume_db,
-                "eq": draft_layer.eq,
             },
         )
     return active.model_copy(update={"layers": live_layers}, deep=True)
+
+
+def _schedule_live_eq_buffers(
+    runtime: SecretPondRuntime,
+    render_settings: AppSettings,
+    active: AppSettings,
+    draft: AppSettings,
+) -> None:
+    scheduled = False
+    for layer_id, render_layer in render_settings.layers.items():
+        draft_eq = draft.layers[layer_id].eq
+        if draft_eq == render_layer.eq:
+            continue
+        next_render_layers = {
+            **render_settings.layers,
+            layer_id: render_layer.model_copy(update={"eq": draft_eq}),
+        }
+        next_render_settings = render_settings.model_copy(
+            update={"layers": next_render_layers},
+            deep=True,
+        )
+        schedule_live_graph_eq_update(runtime, layer_id, next_render_settings)
+        scheduled = True
+    if not scheduled:
+        invalidate_live_graph_eq_requests(runtime, "graph_eq_matches_render_settings")
+        _sync_live_eq_states(runtime, active)
 
 
 def _apply_live_eq_buffers(

@@ -17,6 +17,7 @@ from secret_pond.config import (
     SourceSelectionSettings,
 )
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.live_graph_eq import LIVE_GRAPH_EQ_FAILURE_WARNING
 from secret_pond.services.playback_apply_mode import apply_playback_apply_mode
 from secret_pond.services.settings_draft import (
     SettingsDraftUpdateError,
@@ -340,6 +341,46 @@ def test_live_update_draft_settings_uses_active_state_for_layer_reenable() -> No
     assert runtime.player.enabled_updates == [("low", True)]
 
 
+def test_live_graph_eq_draft_update_schedules_debounced_render_without_immediate_swap() -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={"eq": graph_eq_with_mid_gain(active.layers["mid"].eq, 5.0)},
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+    runtime.playback_render_settings = active
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    live_state = live_graph_eq_state(runtime)
+    assert result.active.layers["mid"].eq == active.layers["mid"].eq
+    assert result.draft.layers["mid"].eq.points[1].gain_db == 5.0
+    assert live_state.pending_request is not None
+    assert live_state.pending_request.layer_id == "mid"
+    assert live_state.pending_request.settings.layers["mid"].eq.points[1].gain_db == 5.0
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.playback_render_settings.layers["mid"].eq == active.layers["mid"].eq
+
+
 def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_restart(
     tmp_path: Path,
 ) -> None:
@@ -382,16 +423,20 @@ def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_re
     draft_layers = {
         **settings.layers,
         "low": settings.layers["low"].model_copy(
-            update={
-                "eq": settings.layers["low"].eq.model_copy(update={"low_gain_db": 6.0}),
-            },
+            update={"eq": graph_eq_with_point_gain(settings.layers["low"].eq, 0, 6.0)},
         ),
     }
     draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.layers["low"].eq == settings.layers["low"].eq
+    assert result.draft.layers["low"].eq.points[0].gain_db == 6.0
+    assert _rms(player.next_block(2_048).samples[:, 0]) == pytest.approx(before, rel=0.2)
+
+    _run_due_live_eq(runtime)
     after = _rms(player.next_block(2_048).samples[:, 0])
 
-    assert result.active.layers["low"].eq.low_gain_db == 6.0
+    assert runtime.settings_state.active.layers["low"].eq.points[0].gain_db == 6.0
     assert after > before * 1.5
 
 
@@ -437,17 +482,22 @@ def test_live_update_draft_settings_applies_mid_eq_to_current_playback_state(
     draft_layers = {
         **settings.layers,
         "mid": settings.layers["mid"].model_copy(
-            update={
-                "eq": settings.layers["mid"].eq.model_copy(update={"mid_gain_db": 6.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(settings.layers["mid"].eq, 6.0)},
         ),
     }
     draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.layers["mid"].eq == settings.layers["mid"].eq
+    assert result.draft.layers["mid"].eq.points[1].gain_db == 6.0
+    assert player.live_eq_states["mid"].points[1].gain_db == 0.0
+    assert _rms(player.next_block(2_048).samples[:, 0]) == pytest.approx(before, rel=0.2)
+
+    _run_due_live_eq(runtime)
     after = _rms(player.next_block(2_048).samples[:, 0])
 
-    assert result.active.layers["mid"].eq.mid_gain_db == 6.0
-    assert player.live_eq_states["mid"].mid_gain_db == 6.0
+    assert runtime.settings_state.active.layers["mid"].eq.points[1].gain_db == 6.0
+    assert player.live_eq_states["mid"].points[1].gain_db == 6.0
     assert after > before * 1.5
     assert player.is_playing is True
 
@@ -497,11 +547,7 @@ def test_live_rapid_eq_updates_keep_output_playback_running(
         draft_layers = {
             **current.draft.layers,
             "mid": current.draft.layers["mid"].model_copy(
-                update={
-                    "eq": current.draft.layers["mid"].eq.model_copy(
-                        update={"mid_gain_db": gain_db},
-                    ),
-                },
+                update={"eq": graph_eq_with_mid_gain(current.draft.layers["mid"].eq, gain_db)},
             ),
         }
         draft = current.draft.model_copy(update={"layers": draft_layers}, deep=True)
@@ -510,13 +556,20 @@ def test_live_rapid_eq_updates_keep_output_playback_running(
         current = update_draft_settings(runtime, draft, current=current)  # type: ignore[arg-type]
         block = player.next_block(block_size)
 
-        assert current.active.layers["mid"].eq.mid_gain_db == gain_db
+        assert current.active.layers["mid"].eq == settings.layers["mid"].eq
+        assert current.draft.layers["mid"].eq.points[1].gain_db == gain_db
         assert player.is_playing is True
         assert cursor_before_update != 0
         assert block.next_frame_cursor == (cursor_before_update + block_size) % 8_000
         assert _rms(block.samples[:, 0]) > 0.01
 
-    recovery_eq = current.draft.layers["mid"].eq.model_copy(update={"mid_gain_db": 4.0})
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    assert live_graph_eq_state(runtime).pending_request is None
+    assert runtime.settings_state.active.layers["mid"].eq.points[1].gain_db == 0.0
+
+    current = runtime.settings_state
+    recovery_eq = graph_eq_with_mid_gain(current.draft.layers["mid"].eq, 4.0)
     recovery_draft_layers = {
         **current.draft.layers,
         "mid": current.draft.layers["mid"].model_copy(update={"eq": recovery_eq}),
@@ -525,12 +578,16 @@ def test_live_rapid_eq_updates_keep_output_playback_running(
     cursor_before_recovery = player.frame_cursor
 
     current = update_draft_settings(runtime, recovery_draft, current=current)  # type: ignore[arg-type]
+    pending_block = player.next_block(block_size)
+
+    assert current.active.layers["mid"].eq.points[1].gain_db == 0.0
+    assert pending_block.next_frame_cursor == (cursor_before_recovery + block_size) % 8_000
+    _run_due_live_eq(runtime)
     recovery_block = player.next_block(block_size)
 
-    assert current.active.layers["mid"].eq.mid_gain_db == 4.0
-    assert player.live_eq_states["mid"].mid_gain_db == 4.0
+    assert runtime.settings_state.active.layers["mid"].eq.points[1].gain_db == 4.0
+    assert player.live_eq_states["mid"].points[1].gain_db == 4.0
     assert player.is_playing is True
-    assert recovery_block.next_frame_cursor == (cursor_before_recovery + block_size) % 8_000
     assert _rms(recovery_block.samples[:, 0]) > 0.01
 
     player.set_realtime_trim("mid", -6.0)
@@ -591,16 +648,23 @@ def test_live_rapid_eq_updates_keep_final_state_matching_last_submission() -> No
         current = update_draft_settings(runtime, draft, current=current)  # type: ignore[arg-type]
 
     final_eq = submitted_eqs[-1]
-    assert current.active.layers["mid"].eq == final_eq
+    assert current.active.layers["mid"].eq == active.layers["mid"].eq
     assert current.draft.layers["mid"].eq == final_eq
+    assert runtime.controller.settings.layers["mid"].eq == active.layers["mid"].eq
+    assert runtime.settings_state.active.layers["mid"].eq == active.layers["mid"].eq
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+
+    _run_due_live_eq(runtime)
+
     assert runtime.controller.settings.layers["mid"].eq == final_eq
     assert runtime.settings_state.active.layers["mid"].eq == final_eq
     assert runtime.playback_render_settings.layers["mid"].eq == final_eq
     assert runtime.player.live_eq_states["mid"] == final_eq
     assert runtime.player.live_eq_state_updates[-1] == ("mid", final_eq.mid_gain_db)
-    assert runtime.renderer.live_eq_buffer_renders[-1] == ("mid", current.active)
-    assert len(runtime.renderer.live_eq_buffer_renders) == len(submitted_eqs)
-    assert len(runtime.player.layer_buffer_updates) == len(submitted_eqs)
+    assert runtime.renderer.live_eq_buffer_renders[-1] == ("mid", runtime.playback_render_settings)
+    assert len(runtime.renderer.live_eq_buffer_renders) == 1
+    assert len(runtime.player.layer_buffer_updates) == 1
     assert runtime.player.is_playing is True
     assert current.active.layers["mid"].enabled is True
     assert current.active.layers["mid"].volume_db == -6.0
@@ -620,9 +684,7 @@ def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_res
     draft_layers = {
         **active.layers,
         "mid": active.layers["mid"].model_copy(
-            update={
-                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(active.layers["mid"].eq, 5.0)},
         ),
     }
     draft = active.model_copy(update={"layers": draft_layers}, deep=True)
@@ -637,14 +699,22 @@ def test_live_update_draft_settings_routes_mid_eq_to_active_playback_without_res
 
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
 
-    assert result.active.layers["mid"].eq.mid_gain_db == 5.0
-    assert result.draft.layers["mid"].eq.mid_gain_db == 5.0
-    assert runtime.controller.settings.layers["mid"].eq.mid_gain_db == 5.0
+    assert result.active.layers["mid"].eq == active.layers["mid"].eq
+    assert result.draft.layers["mid"].eq.points[1].gain_db == 5.0
+    assert runtime.controller.settings.layers["mid"].eq == active.layers["mid"].eq
     assert runtime.renderer.layer_buffer_renders == []
-    assert runtime.renderer.live_eq_buffer_renders == [("mid", result.active)]
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.playback_render_settings.layers["mid"].eq == active.layers["mid"].eq
+
+    _run_due_live_eq(runtime)
+
+    assert runtime.renderer.live_eq_buffer_renders == [("mid", runtime.playback_render_settings)]
     assert runtime.player.layer_buffer_updates == [("mid", rendered_mid)]
-    assert runtime.player.live_eq_state_updates == [("mid", 5.0)]
-    assert runtime.playback_render_settings.layers["mid"].eq.mid_gain_db == 5.0
+    assert runtime.player.live_eq_state_updates[-1][0] == "mid"
+    assert runtime.player.live_eq_state_updates[-1][1] == 0.0
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 5.0
     assert runtime.player.restart_called is False
     assert runtime.player.reload_and_restart_called is False
 
@@ -659,9 +729,7 @@ def test_live_update_draft_settings_routes_voice_eq_to_active_playback_without_r
     draft_layers = {
         **active.layers,
         "voice": active.layers["voice"].model_copy(
-            update={
-                "eq": active.layers["voice"].eq.model_copy(update={"mid_gain_db": 6.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(active.layers["voice"].eq, 6.0)},
         ),
     }
     draft = active.model_copy(update={"layers": draft_layers}, deep=True)
@@ -676,13 +744,21 @@ def test_live_update_draft_settings_routes_voice_eq_to_active_playback_without_r
 
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
 
-    assert result.active.layers["voice"].eq.mid_gain_db == 6.0
-    assert runtime.controller.settings.layers["voice"].eq.mid_gain_db == 6.0
+    assert result.active.layers["voice"].eq == active.layers["voice"].eq
+    assert result.draft.layers["voice"].eq.points[1].gain_db == 6.0
+    assert runtime.controller.settings.layers["voice"].eq == active.layers["voice"].eq
     assert runtime.renderer.layer_buffer_renders == []
-    assert runtime.renderer.live_eq_buffer_renders == [("voice", result.active)]
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.playback_render_settings.layers["voice"].eq == active.layers["voice"].eq
+
+    _run_due_live_eq(runtime)
+
+    assert runtime.renderer.live_eq_buffer_renders == [("voice", runtime.playback_render_settings)]
     assert runtime.player.layer_buffer_updates == [("voice", rendered_voice)]
-    assert runtime.player.live_eq_state_updates == [("voice", 6.0)]
-    assert runtime.playback_render_settings.layers["voice"].eq.mid_gain_db == 6.0
+    assert runtime.player.live_eq_state_updates[-1] == ("voice", 0.0)
+    assert runtime.playback_render_settings.layers["voice"].eq.points[1].gain_db == 6.0
     assert runtime.player.restart_called is False
     assert runtime.player.reload_and_restart_called is False
 
@@ -697,9 +773,7 @@ def test_live_eq_hot_swap_failure_sets_nonfatal_korean_operator_caution() -> Non
     draft_layers = {
         **active.layers,
         "mid": active.layers["mid"].model_copy(
-            update={
-                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(active.layers["mid"].eq, 5.0)},
         ),
     }
     draft = active.model_copy(update={"layers": draft_layers}, deep=True)
@@ -715,14 +789,17 @@ def test_live_eq_hot_swap_failure_sets_nonfatal_korean_operator_caution() -> Non
 
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
 
-    assert result.draft.layers["mid"].eq.mid_gain_db == 5.0
-    assert runtime.transition_warning == (
-        "Live EQ 전환을 적용하지 못했습니다. 기존 재생 상태를 유지합니다."
-    )
+    assert result.draft.layers["mid"].eq.points[1].gain_db == 5.0
+    assert runtime.transition_warning is None
+
+    _run_due_live_eq_expect_no_apply(runtime)
+
+    assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert runtime.logger.events[-1] == (
-        "settings.live_eq_hot_swap_failed",
+        "settings.live_graph_eq_failed",
         {
             "layer_id": "mid",
+            "request_id": 1,
             "error": "hot swap failed",
         },
     )
@@ -773,9 +850,7 @@ def test_live_eq_hot_swap_failure_restores_current_stream_state() -> None:
     draft_layers = {
         **active.layers,
         "mid": active.layers["mid"].model_copy(
-            update={
-                "eq": active.layers["mid"].eq.model_copy(update={"mid_gain_db": 5.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(active.layers["mid"].eq, 5.0)},
         ),
     }
     draft = active.model_copy(update={"layers": draft_layers}, deep=True)
@@ -789,12 +864,13 @@ def test_live_eq_hot_swap_failure_restores_current_stream_state() -> None:
     runtime.playback_render_settings = active
 
     update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+    assert runtime.transition_warning is None
+
+    _run_due_live_eq_expect_no_apply(runtime)
 
     after_failure_snapshot = player.snapshot()
     next_block = player.next_block(2)
-    assert runtime.transition_warning == (
-        "Live EQ 전환을 적용하지 못했습니다. 기존 재생 상태를 유지합니다."
-    )
+    assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert after_failure_snapshot.playing is True
     assert after_failure_snapshot.frame_cursor == cursor_before_update
     assert next_block.next_frame_cursor == cursor_before_update + 2
@@ -897,9 +973,7 @@ def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cach
                 "voice": AppSettings().layers["voice"].model_copy(
                     update={
                         "volume_db": 0.0,
-                        "eq": AppSettings().layers["voice"].eq.model_copy(
-                            update={"mid_gain_db": 6.0},
-                        ),
+                        "eq": graph_eq_with_mid_gain(AppSettings().layers["voice"].eq, 6.0),
                     },
                 ),
             },
@@ -937,20 +1011,26 @@ def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cach
     draft_layers = {
         **settings.layers,
         "voice": settings.layers["voice"].model_copy(
-            update={
-                "eq": settings.layers["voice"].eq.model_copy(update={"mid_gain_db": 12.0}),
-            },
+            update={"eq": graph_eq_with_mid_gain(settings.layers["voice"].eq, 12.0)},
         ),
     }
     draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
 
     result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
-    expected_raw_based = renderer.render_layer_buffer("voice", result.active).samples
+    assert result.active.layers["voice"].eq.points[1].gain_db == 6.0
+    assert result.draft.layers["voice"].eq.points[1].gain_db == 12.0
+
+    _run_due_live_eq(runtime)
+
+    expected_raw_based = renderer.render_layer_buffer(
+        "voice",
+        runtime.settings_state.active,
+    ).samples
     if np.allclose(expected_raw_based, already_eq_rendered_voice, atol=1e-4):
         raise AssertionError("test setup must distinguish raw source from playback cache")
     block = player.next_block(8_000).samples
 
-    assert result.active.layers["voice"].eq.mid_gain_db == 12.0
+    assert runtime.settings_state.active.layers["voice"].eq.points[1].gain_db == 12.0
     np.testing.assert_allclose(block, expected_raw_based, atol=2e-4)
 
 
@@ -958,10 +1038,36 @@ def _rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
 
 
-def graph_eq_with_mid_gain(eq: EqSettings, gain_db: float) -> EqSettings:
+def _run_due_live_eq(runtime) -> None:
+    from secret_pond.services.live_graph_eq import (
+        live_graph_eq_state,
+        run_due_live_graph_eq_update,
+    )
+
+    request = live_graph_eq_state(runtime).pending_request
+    assert request is not None
+    assert run_due_live_graph_eq_update(runtime, now_ms=request.due_at_ms) is not None
+
+
+def _run_due_live_eq_expect_no_apply(runtime) -> None:
+    from secret_pond.services.live_graph_eq import (
+        live_graph_eq_state,
+        run_due_live_graph_eq_update,
+    )
+
+    request = live_graph_eq_state(runtime).pending_request
+    assert request is not None
+    assert run_due_live_graph_eq_update(runtime, now_ms=request.due_at_ms) is None
+
+
+def graph_eq_with_point_gain(eq: EqSettings, index: int, gain_db: float) -> EqSettings:
     points = [point.model_dump() for point in eq.points]
-    points[1]["gain_db"] = gain_db
+    points[index]["gain_db"] = gain_db
     return EqSettings(points=points, highpass_hz=eq.highpass_hz, lowpass_hz=eq.lowpass_hz)
+
+
+def graph_eq_with_mid_gain(eq: EqSettings, gain_db: float) -> EqSettings:
+    return graph_eq_with_point_gain(eq, 1, gain_db)
 
 
 def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatment(
