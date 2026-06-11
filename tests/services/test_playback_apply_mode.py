@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
@@ -64,8 +66,15 @@ class PlayerSpy:
 
 
 class RendererSpy:
-    def __init__(self, buffer: AudioBuffer) -> None:
+    def __init__(
+        self,
+        buffer: AudioBuffer,
+        *,
+        marker_reader: Callable[[], AppSettings] | None = None,
+    ) -> None:
         self.buffer = buffer
+        self.marker_reader = marker_reader
+        self.render_markers: list[AppSettings] = []
         self.live_eq_buffer_renders: list[tuple[str, AppSettings]] = []
         self.stable_render_calls: list[tuple[str, AppSettings]] = []
 
@@ -74,6 +83,8 @@ class RendererSpy:
         return self.buffer
 
     def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        if self.marker_reader is not None:
+            self.render_markers.append(self.marker_reader().model_copy(deep=True))
         self.live_eq_buffer_renders.append((layer_id, settings))
         return self.buffer
 
@@ -147,6 +158,48 @@ def test_stable_to_live_mode_uses_live_eq_buffer_not_stable_rendered_artifact() 
     assert runtime.playback_render_settings == result.active
 
 
+def test_stable_to_live_mode_marks_graph_eq_render_baseline_eq_free() -> None:
+    stable = AppSettings().model_copy(
+        update={
+            "layers": {
+                **AppSettings().layers,
+                "mid": AppSettings().layers["mid"].model_copy(
+                    update={
+                        "eq": graph_eq_with_mid_gain(
+                            AppSettings().layers["mid"].eq,
+                            6.0,
+                            highpass_hz=90.0,
+                            lowpass_hz=9_000.0,
+                        ),
+                    },
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=stable)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+    runtime.renderer = RendererSpy(
+        live_raw_buffer,
+        marker_reader=lambda: runtime.playback_render_settings,
+    )
+
+    result = apply_playback_apply_mode(runtime, "live")  # type: ignore[arg-type]
+
+    assert runtime.renderer.live_eq_buffer_renders == [("mid", result.active)]
+    assert len(runtime.renderer.render_markers) == 1
+    marker_eq = runtime.renderer.render_markers[0].layers["mid"].eq
+    assert marker_eq == EqSettings()
+    assert marker_eq.highpass_hz == 20.0
+    assert marker_eq.lowpass_hz == 20_000.0
+    assert [point.gain_db for point in marker_eq.points] == [0.0, 0.0, 0.0]
+    assert runtime.playback_render_settings == result.active
+
+
 def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_render(
     tmp_path,
 ) -> None:
@@ -194,6 +247,18 @@ def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_rende
         }
     ]
     assert runtime.playback_render_settings == result.active
+
+
+def graph_eq_with_mid_gain(
+    eq: EqSettings,
+    gain_db: float,
+    *,
+    highpass_hz: float = 20.0,
+    lowpass_hz: float = 20_000.0,
+) -> EqSettings:
+    points = [point.model_dump() for point in eq.points]
+    points[1]["gain_db"] = gain_db
+    return EqSettings(points=points, highpass_hz=highpass_hz, lowpass_hz=lowpass_hz)
 
 
 def test_live_to_stable_mode_loads_cache_without_starting_player_when_output_is_stopped(

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.config import AppSettings
 
 
@@ -11,6 +12,7 @@ from secret_pond.config import AppSettings
 class SettingsChangePlan:
     runtime_config_changed: bool
     changed_runtime_fields: list[str]
+    changed_layer_eq_fields: list[str]
     live_preview_reprocessable_fields: list[str]
     changed_sections: list[str]
 
@@ -35,6 +37,11 @@ _LIVE_PREVIEW_REPROCESSABLE_FIELDS: tuple[tuple[str, _RuntimeFieldReader], ...] 
     ("recording.fade_ms", lambda settings: settings.recording.fade_ms),
 )
 
+_LAYER_EQ_FIELDS: tuple[tuple[str, _RuntimeFieldReader], ...] = tuple(
+    (f"layers.{layer_id}.eq", lambda settings, layer_id=layer_id: settings.layers[layer_id].eq)
+    for layer_id in LAYER_IDS
+)
+
 
 def runtime_config_field_names() -> list[str]:
     return [field_name for field_name, _read_field in _RUNTIME_CONFIG_FIELDS]
@@ -49,6 +56,7 @@ def classify_settings_change(active: AppSettings, draft: AppSettings) -> Setting
     return SettingsChangePlan(
         runtime_config_changed=bool(changed_runtime_fields),
         changed_runtime_fields=changed_runtime_fields,
+        changed_layer_eq_fields=_changed_layer_eq_fields(active, draft),
         live_preview_reprocessable_fields=_changed_live_preview_reprocessable_fields(
             active,
             draft,
@@ -74,6 +82,10 @@ def promote_runtime_config(active: AppSettings, draft: AppSettings) -> AppSettin
 
 def _changed_runtime_fields(active: AppSettings, draft: AppSettings) -> list[str]:
     return _changed_fields(active, draft, _RUNTIME_CONFIG_FIELDS)
+
+
+def _changed_layer_eq_fields(active: AppSettings, draft: AppSettings) -> list[str]:
+    return _changed_fields(active, draft, _LAYER_EQ_FIELDS)
 
 
 def _changed_live_preview_reprocessable_fields(

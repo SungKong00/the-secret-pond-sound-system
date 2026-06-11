@@ -10,6 +10,7 @@ from secret_pond.config import (
     GRAPH_EQ_MIN_HZ,
     EqPointSettings,
     EqSettings,
+    default_graph_eq_points,
 )
 
 _LEGACY_LOW_SHELF_HZ = 250.0
@@ -50,7 +51,7 @@ def _active_points(eq: EqSettings) -> list[EqPointSettings]:
 
 
 def _uses_legacy_three_band_fields(eq: EqSettings) -> bool:
-    if "points" in eq.model_fields_set:
+    if eq.points != default_graph_eq_points():
         return False
     return eq.low_gain_db != 0.0 or eq.mid_gain_db != 0.0 or eq.high_gain_db != 0.0
 

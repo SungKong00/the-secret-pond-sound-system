@@ -252,6 +252,40 @@ def test_stable_update_draft_settings_stages_eq_without_touching_active_playback
     assert runtime.player.reload_and_restart_called is False
 
 
+def test_stable_update_draft_settings_stages_graph_eq_points_without_touching_playback() -> None:
+    active = AppSettings()
+    draft_layers = {
+        **active.layers,
+        "mid": active.layers["mid"].model_copy(
+            update={"eq": graph_eq_with_mid_gain(active.layers["mid"].eq, 5.0)},
+        ),
+    }
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    rendered_mid = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.1,
+        sample_rate=48_000,
+    )
+    runtime.renderer = RendererSpy(rendered_mid)
+    runtime.playback_render_settings = active
+
+    result = update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "stable"
+    assert result.active.layers["mid"].eq == active.layers["mid"].eq
+    assert runtime.controller.settings.layers["mid"].eq == active.layers["mid"].eq
+    assert result.draft.layers["mid"].eq.points[1].gain_db == 5.0
+    assert runtime.playback_render_settings is active
+    assert runtime.renderer.layer_buffer_renders == []
+    assert runtime.renderer.live_eq_buffer_renders == []
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.player.restart_called is False
+    assert runtime.player.reload_and_restart_called is False
+
+
 def test_live_update_draft_settings_applies_low_volume_delta_to_active_playback_gain() -> None:
     active = AppSettings().model_copy(
         update={
@@ -922,6 +956,12 @@ def test_live_voice_eq_rerenders_from_raw_voice_stack_not_existing_playback_cach
 
 def _rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
+
+
+def graph_eq_with_mid_gain(eq: EqSettings, gain_db: float) -> EqSettings:
+    points = [point.model_dump() for point in eq.points]
+    points[1]["gain_db"] = gain_db
+    return EqSettings(points=points, highpass_hz=eq.highpass_hz, lowpass_hz=eq.lowpass_hz)
 
 
 def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatment(
