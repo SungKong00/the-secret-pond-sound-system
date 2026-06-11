@@ -9,7 +9,7 @@ from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.audio.renderer import LayerRenderer
-from secret_pond.config import AppSettings, AudioFormatSettings, SourceSelectionSettings
+from secret_pond.config import AppSettings, AudioFormatSettings, EqSettings, SourceSelectionSettings
 from secret_pond.paths import ProjectPaths
 
 
@@ -256,6 +256,38 @@ def test_renderer_three_band_eq_boosts_target_band(
 
     assert tone_magnitude(boosted, 8_000, frequency) > (
         tone_magnitude(baseline, 8_000, frequency) * 1.5
+    )
+
+
+def test_renderer_applies_graph_eq_points(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["low"].volume_db = 0.0
+    source = (sine_wave(100.0) + sine_wave(1_000.0)) * 0.1
+    write_wav_atomic(paths.low_source, AudioBuffer(samples=source, sample_rate=8_000))
+    baseline_result = LayerRenderer(paths).render_layer("low", settings)
+    baseline = read_wav(baseline_result.output_path).samples
+    settings.layers["low"].eq = EqSettings(
+        points=[
+            {
+                "id": "focus",
+                "type": "bell",
+                "frequency_hz": 1_000.0,
+                "gain_db": 6.0,
+                "q": 2.0,
+            }
+        ],
+    )
+
+    boosted_result = LayerRenderer(paths).render_layer("low", settings)
+    boosted = read_wav(boosted_result.output_path).samples
+
+    assert tone_magnitude(boosted, 8_000, 1_000.0) > (
+        tone_magnitude(baseline, 8_000, 1_000.0) * 1.8
+    )
+    assert tone_magnitude(boosted, 8_000, 100.0) < (
+        tone_magnitude(baseline, 8_000, 100.0) * 1.3
     )
 
 

@@ -11,13 +11,11 @@ from scipy.signal import butter, sosfilt
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
+from secret_pond.audio.graph_eq import apply_graph_eq
 from secret_pond.audio.layers import LAYER_IDS, LayerId
 from secret_pond.audio.source_library import render_source_path
-from secret_pond.config import AppSettings, EqSettings, LayerSettings
+from secret_pond.config import AppSettings, LayerSettings
 from secret_pond.paths import ProjectPaths
-
-_LOW_BAND_HZ = 250.0
-_HIGH_BAND_HZ = 2_000.0
 
 
 @dataclass(frozen=True)
@@ -156,7 +154,7 @@ class LayerRenderer:
         source = source.to_frame_count(target_frames)
         layer_settings = settings.layers[layer_id]
         samples = _apply_playback_filters(source.samples, source.sample_rate, layer_settings)
-        samples = _apply_three_band_eq(samples, source.sample_rate, layer_settings.eq)
+        samples = apply_graph_eq(samples, source.sample_rate, layer_settings.eq)
         samples = _apply_gain(samples, layer_settings.volume_db)
         return _RenderedAudio(samples=samples, sample_rate=source.sample_rate)
 
@@ -188,20 +186,6 @@ def _apply_playback_filters(
     if layer_settings.eq.lowpass_hz >= nyquist:
         return filtered
     return _apply_filter(filtered, sample_rate, layer_settings.eq.lowpass_hz, "lowpass")
-
-
-def _apply_three_band_eq(samples: np.ndarray, sample_rate: int, eq: EqSettings) -> np.ndarray:
-    if eq.low_gain_db == 0.0 and eq.mid_gain_db == 0.0 and eq.high_gain_db == 0.0:
-        return samples.astype(np.float32, copy=True)
-
-    low = _apply_filter(samples, sample_rate, _LOW_BAND_HZ, "lowpass")
-    high = _apply_filter(samples, sample_rate, _HIGH_BAND_HZ, "highpass")
-    mid = samples - low - high
-    return (
-        _apply_gain(low, eq.low_gain_db)
-        + _apply_gain(mid, eq.mid_gain_db)
-        + _apply_gain(high, eq.high_gain_db)
-    ).astype(np.float32)
 
 
 def _apply_filter(
