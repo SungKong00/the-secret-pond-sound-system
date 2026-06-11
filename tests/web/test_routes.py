@@ -31,6 +31,7 @@ from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
     DeviceSettings,
+    EqSettings,
     InputControlSettings,
     PlaybackSettings,
     RecordingProcessingSettings,
@@ -11104,6 +11105,8 @@ def test_api_playback_apply_mode_request_contract_names_supported_modes(
     schema = openapi["components"]["schemas"]["PlaybackApplyModeRequest"]
 
     assert schema["properties"]["mode"]["enum"] == ["stable", "live"]
+    assert schema["properties"]["staged_graph_eq"]["enum"] == ["apply", "discard"]
+    assert schema["properties"]["staged_graph_eq"]["default"] == "discard"
     assert schema["required"] == ["mode"]
 
 
@@ -11120,6 +11123,27 @@ def test_api_playback_apply_mode_rejects_invalid_mode_with_validation_error(
     assert error["loc"] == ["body", "mode"]
     assert "stable" in error["msg"]
     assert "live" in error["msg"]
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.playback.apply_mode == "stable"
+    assert stored.draft.playback.apply_mode == "stable"
+
+
+def test_api_playback_apply_mode_rejects_invalid_staged_graph_eq_choice(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.put(
+        "/api/playback/apply-mode",
+        json={"mode": "live", "staged_graph_eq": "preview"},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["type"] == "literal_error"
+    assert error["loc"] == ["body", "staged_graph_eq"]
+    assert "apply" in error["msg"]
+    assert "discard" in error["msg"]
     stored = SettingsStore(ProjectPaths(tmp_path)).load()
     assert stored.active.playback.apply_mode == "stable"
     assert stored.draft.playback.apply_mode == "stable"
@@ -11148,6 +11172,40 @@ def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_
     assert stored_after_stable.active.playback.apply_mode == "stable"
     assert stored_after_stable.draft.playback.apply_mode == "stable"
     assert client.app.state.runtime.controller.settings.playback.apply_mode == "stable"
+
+
+def test_api_playback_apply_mode_stable_to_live_can_apply_staged_graph_eq(
+    tmp_path: Path,
+) -> None:
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    active = api_settings()
+    draft_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    draft_points[1]["gain_db"] = 6.0
+    draft_layers = dict(active.layers)
+    draft_layers["mid"] = active.layers["mid"].model_copy(
+        update={"eq": EqSettings(points=draft_points)},
+    )
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.put(
+        "/api/playback/apply-mode",
+        json={"mode": "live", "staged_graph_eq": "apply"},
+    )
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    assert stored.active.playback.apply_mode == "live"
+    assert stored.draft.playback.apply_mode == "live"
+    assert stored.active.layers["mid"].eq == active.layers["mid"].eq
+    assert stored.draft.layers["mid"].eq == draft.layers["mid"].eq
+    pending_request = live_graph_eq_state(client.app.state.runtime).pending_request
+    assert pending_request is not None
+    assert pending_request.layer_id == "mid"
+    assert pending_request.settings.layers["mid"].eq == draft.layers["mid"].eq
 
 
 def test_api_playback_apply_mode_switch_preserves_unrelated_playback_settings(

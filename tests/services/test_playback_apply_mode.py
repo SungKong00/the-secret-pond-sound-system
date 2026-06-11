@@ -7,6 +7,11 @@ import numpy as np
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.config import AppSettings, EqSettings
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.live_graph_eq import (
+    apply_live_graph_eq_render_result,
+    live_graph_eq_state,
+    schedule_live_graph_eq_update,
+)
 from secret_pond.services.playback_apply_mode import apply_playback_apply_mode
 from secret_pond.services.settings_store import SettingsState
 
@@ -247,6 +252,123 @@ def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_rende
         }
     ]
     assert runtime.playback_render_settings == result.active
+
+
+def test_live_to_stable_mode_invalidates_pending_live_graph_eq_request() -> None:
+    live = AppSettings().model_copy(
+        update={"playback": AppSettings().playback.model_copy(update={"apply_mode": "live"})},
+        deep=True,
+    )
+    scheduled = live.model_copy(
+        update={
+            "layers": {
+                **live.layers,
+                "mid": live.layers["mid"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(live.layers["mid"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=live, draft=scheduled)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+    pending_state = schedule_live_graph_eq_update(runtime, "mid", scheduled, now_ms=0)
+    pending_request = pending_state.pending_request
+
+    result = apply_playback_apply_mode(runtime, "stable")  # type: ignore[arg-type]
+
+    assert pending_request is not None
+    assert result.active.playback.apply_mode == "stable"
+    assert result.active.layers["mid"].eq == live.layers["mid"].eq
+    assert result.draft.playback.apply_mode == "stable"
+    assert result.draft.layers["mid"].eq == scheduled.layers["mid"].eq
+    assert live_graph_eq_state(runtime).pending_request is None
+    assert live_graph_eq_state(runtime).invalidation_reason == "playback_apply_mode:stable"
+
+    accepted = apply_live_graph_eq_render_result(
+        runtime,
+        request_id=pending_request.request_id,
+        mode_epoch=pending_request.mode_epoch,
+        layer_id="mid",
+        buffer=live_raw_buffer,
+        rendered_settings=scheduled,
+    )
+
+    assert accepted is False
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.playback_render_settings == result.active
+
+
+def test_stable_to_live_mode_apply_choice_preserves_staged_graph_eq_and_schedules() -> None:
+    stable = AppSettings()
+    staged = stable.model_copy(
+        update={
+            "layers": {
+                **stable.layers,
+                "mid": stable.layers["mid"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(stable.layers["mid"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=staged)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+
+    result = apply_playback_apply_mode(  # type: ignore[arg-type]
+        runtime,
+        "live",
+        staged_graph_eq="apply",
+    )
+
+    live_state = live_graph_eq_state(runtime)
+    assert result.active.playback.apply_mode == "live"
+    assert result.active.layers["mid"].eq == stable.layers["mid"].eq
+    assert result.draft.playback.apply_mode == "live"
+    assert result.draft.layers["mid"].eq == staged.layers["mid"].eq
+    assert live_state.pending_request is not None
+    assert live_state.pending_request.layer_id == "mid"
+    assert live_state.pending_request.settings.layers["mid"].eq == staged.layers["mid"].eq
+
+
+def test_stable_to_live_mode_discard_choice_syncs_staged_graph_eq_from_active() -> None:
+    stable = AppSettings()
+    staged = stable.model_copy(
+        update={
+            "layers": {
+                **stable.layers,
+                "mid": stable.layers["mid"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(stable.layers["mid"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=staged)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+
+    result = apply_playback_apply_mode(  # type: ignore[arg-type]
+        runtime,
+        "live",
+        staged_graph_eq="discard",
+    )
+
+    assert result.active.playback.apply_mode == "live"
+    assert result.draft.playback.apply_mode == "live"
+    assert result.draft.layers["mid"].eq == stable.layers["mid"].eq
+    assert live_graph_eq_state(runtime).pending_request is None
 
 
 def graph_eq_with_mid_gain(

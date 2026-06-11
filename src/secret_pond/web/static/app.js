@@ -5035,15 +5035,61 @@ const currentPendingPlaybackApplyMode = () => {
 const playbackApplyModeLiveSwitchConfirmationMessage =
   "안정 적용에서 아직 적용하지 않은 변경사항은 즉시 반영 모드로 전환할 때 바로 적용되지 않습니다. 마지막으로 적용된 설정에서 Live를 시작할까요?";
 
+const playbackApplyModeLiveSwitchGraphEqChoiceMessage =
+  "Stable에서 바꾼 Graph EQ가 있습니다.\n\n" +
+  "Apply: Live 시작 후 1초 뒤 현재 Graph EQ를 적용합니다.\n" +
+  "Discard: 마지막 적용 설정으로 Live를 시작합니다.\n" +
+  "Cancel: 전환하지 않습니다.";
+
 const playbackApplyModeSwitchNeedsStagedChangeConfirmation = (mode) => (
   currentPlaybackApplyMode() === "stable" &&
     mode === "live" &&
     hasPendingChanges(state.snapshot)
 );
 
-const confirmPlaybackApplyModeSwitch = (mode) => {
-  if (!playbackApplyModeSwitchNeedsStagedChangeConfirmation(mode)) return true;
-  return window.confirm(playbackApplyModeLiveSwitchConfirmationMessage);
+const stagedGraphEqLayerIdsForLiveSwitch = () => {
+  const active = state.snapshot?.settings?.active;
+  const draft = state.draft || state.snapshot?.settings?.draft;
+  if (!active || !draft) return [];
+  return layerIds.filter((layerId) => (
+    stableSettingsSignature(active.layers?.[layerId]?.eq || {}) !==
+      stableSettingsSignature(draft.layers?.[layerId]?.eq || {})
+  ));
+};
+
+const playbackApplyModeSwitchNeedsStagedGraphEqChoice = (mode) => (
+  currentPlaybackApplyMode() === "stable" &&
+    mode === "live" &&
+    stagedGraphEqLayerIdsForLiveSwitch().length > 0
+);
+
+const normalizeStagedGraphEqChoice = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["apply", "a", "적용"].includes(normalized)) return "apply";
+  if (["discard", "d", "버리기", "삭제"].includes(normalized)) return "discard";
+  return null;
+};
+
+const playbackApplyModeSwitchChoice = (mode) => {
+  if (playbackApplyModeSwitchNeedsStagedGraphEqChoice(mode)) {
+    if (typeof window.prompt !== "function") {
+      return window.confirm(playbackApplyModeLiveSwitchGraphEqChoiceMessage)
+        ? { proceed: true, stagedGraphEq: "apply" }
+        : { proceed: false, stagedGraphEq: "discard" };
+    }
+    const choice = normalizeStagedGraphEqChoice(
+      window.prompt(playbackApplyModeLiveSwitchGraphEqChoiceMessage, "apply"),
+    );
+    return choice
+      ? { proceed: true, stagedGraphEq: choice }
+      : { proceed: false, stagedGraphEq: "discard" };
+  }
+  if (!playbackApplyModeSwitchNeedsStagedChangeConfirmation(mode)) {
+    return { proceed: true, stagedGraphEq: "discard" };
+  }
+  return window.confirm(playbackApplyModeLiveSwitchConfirmationMessage)
+    ? { proceed: true, stagedGraphEq: "discard" }
+    : { proceed: false, stagedGraphEq: "discard" };
 };
 
 const currentPendingStorageMode = () => {
@@ -5315,7 +5361,8 @@ const setPlaybackApplyMode = async (mode) => {
     renderPlaybackApplyModeControls();
     return null;
   }
-  if (!confirmPlaybackApplyModeSwitch(mode)) {
+  const switchChoice = playbackApplyModeSwitchChoice(mode);
+  if (!switchChoice.proceed) {
     renderPlaybackApplyModeControls();
     return null;
   }
@@ -5328,7 +5375,7 @@ const setPlaybackApplyMode = async (mode) => {
   try {
     const payload = await api("/api/playback/apply-mode", {
       method: "PUT",
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, staged_graph_eq: switchChoice.stagedGraphEq }),
     });
     await applyResponseState(payload, { syncDraft: false });
     return payload;

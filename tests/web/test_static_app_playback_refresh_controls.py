@@ -2718,7 +2718,7 @@ globalThis.fetch = async (path, options = {}) => {
   requests.push({ path, options });
   assert.strictEqual(path, "/api/playback/apply-mode");
   assert.strictEqual(options.method, "PUT");
-  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live" });
+  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live", staged_graph_eq: "discard" });
   const nextSettings = cloneSettings(state.snapshot.settings.active);
   nextSettings.playback = {
     ...nextSettings.playback,
@@ -2915,7 +2915,7 @@ let resolveFetch;
 globalThis.fetch = async (path, options = {}) => {
   assert.strictEqual(path, "/api/playback/apply-mode");
   assert.strictEqual(options.method, "PUT");
-  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live" });
+  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live", staged_graph_eq: "discard" });
   const nextSettings = cloneSettings(activeSettings);
   nextSettings.playback.apply_mode = "live";
   return new Promise((resolve) => {
@@ -3068,6 +3068,147 @@ assert.strictEqual(state.playbackApplyModeInFlight, false);
 assert.strictEqual(state.pendingPlaybackApplyMode, null);
 assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "stable");
 assert.strictEqual(state.draft.layers.low.volume_db, -12);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_playback_apply_mode_live_switch_can_apply_staged_graph_eq_changes() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  setPlaybackApplyMode,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const {
+  applyState,
+  setPlaybackApplyMode,
+  state,
+} = globalThis.__secretPond;
+
+const cloneSettings = (settings) => JSON.parse(JSON.stringify(settings));
+const graphEq = () => ({
+  highpass_hz: 20,
+  lowpass_hz: 20000,
+  points: [
+    { id: "low", type: "low_shelf", frequency_hz: 120, gain_db: 0, q: 0.7 },
+    { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
+    { id: "high", type: "high_shelf", frequency_hz: 8000, gain_db: 0, q: 0.7 },
+  ],
+});
+const activeSettings = {
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: {
+    minimum_recording_seconds: 3,
+    maximum_recording_seconds: 120,
+  },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { auto_start: true, apply_mode: "stable", master_volume_db: -9 },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: graphEq() },
+    mid: { enabled: true, volume_db: 0, eq: graphEq() },
+    voice: { enabled: true, volume_db: 0, eq: graphEq() },
+  },
+};
+const draftSettings = cloneSettings(activeSettings);
+draftSettings.layers.mid.eq.points[1].gain_db = 6;
+
+applyState({
+  settings: {
+    active: cloneSettings(activeSettings),
+    draft: cloneSettings(draftSettings),
+    change: {
+      changed_sections: ["layers"],
+      requires_restart: false,
+      runtime_config_changed: false,
+    },
+  },
+  playback: { output_running: true, frame_cursor: 1200, apply_mode: "stable" },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+});
+
+let promptMessage = null;
+let promptDefault = null;
+window.prompt = (message, defaultValue) => {
+  promptMessage = message;
+  promptDefault = defaultValue;
+  return "apply";
+};
+window.confirm = () => {
+  throw new Error("Graph EQ 변경은 confirm이 아니라 Apply/Discard 선택을 받아야 합니다.");
+};
+globalThis.fetch = async (path, options = {}) => {
+  assert.strictEqual(path, "/api/playback/apply-mode");
+  assert.strictEqual(options.method, "PUT");
+  assert.deepStrictEqual(JSON.parse(options.body), { mode: "live", staged_graph_eq: "apply" });
+  const nextActiveSettings = cloneSettings(activeSettings);
+  const nextDraftSettings = cloneSettings(draftSettings);
+  nextActiveSettings.playback.apply_mode = "live";
+  nextDraftSettings.playback.apply_mode = "live";
+  return {
+    ok: true,
+    json: async () => ({
+      state: {
+        settings: {
+          active: nextActiveSettings,
+          draft: nextDraftSettings,
+          change: {
+            changed_sections: ["layers"],
+            requires_restart: false,
+            runtime_config_changed: false,
+          },
+        },
+        playback: { output_running: true, frame_cursor: 1200, apply_mode: "live" },
+        armed: false,
+        is_recording: false,
+        recording_elapsed_seconds: 0,
+        recording_remaining_seconds: 120,
+        participant_count: 0,
+      },
+    }),
+  };
+};
+
+const result = await setPlaybackApplyMode("live");
+
+assert.notStrictEqual(result, null);
+assert.match(promptMessage, /Graph EQ/);
+assert.match(promptMessage, /Apply/);
+assert.match(promptMessage, /Discard/);
+assert.strictEqual(promptDefault, "apply");
+assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "live");
+assert.strictEqual(state.draft.layers.mid.eq.points[1].gain_db, 6);
 })();
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,

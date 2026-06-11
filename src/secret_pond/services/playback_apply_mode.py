@@ -4,10 +4,15 @@ from typing import Literal
 
 from secret_pond.audio.layers import LAYER_IDS
 from secret_pond.config import AppSettings, EqSettings
+from secret_pond.services.live_graph_eq import (
+    invalidate_live_graph_eq_requests,
+    schedule_live_graph_eq_update,
+)
 from secret_pond.services.runtime import SecretPondRuntime, load_main_rendered_layers
 from secret_pond.services.settings_store import SettingsState
 
 PlaybackApplyMode = Literal["stable", "live"]
+StagedGraphEqChoice = Literal["apply", "discard"]
 
 PLAYBACK_APPLY_MODES: set[str] = {"stable", "live"}
 
@@ -15,12 +20,14 @@ PLAYBACK_APPLY_MODES: set[str] = {"stable", "live"}
 def apply_playback_apply_mode(
     runtime: SecretPondRuntime,
     mode: PlaybackApplyMode,
+    *,
+    staged_graph_eq: StagedGraphEqChoice = "discard",
 ) -> SettingsState:
     current = runtime.settings_store.load()
     previous_mode = current.active.playback.apply_mode
     active = _with_playback_apply_mode(current.active, mode)
     draft = _with_playback_apply_mode(current.draft, mode)
-    if previous_mode != mode:
+    if previous_mode == "stable" and mode == "live" and staged_graph_eq == "discard":
         draft = _sync_live_immediate_draft_fields_from_active(
             active,
             draft,
@@ -31,7 +38,10 @@ def apply_playback_apply_mode(
         runtime.playback_render_settings = _eq_free_render_marker(active)
         _replace_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
+        if staged_graph_eq == "apply":
+            _schedule_staged_graph_eq_live_requests(runtime, active, state.draft)
     elif previous_mode == "live" and mode == "stable":
+        invalidate_live_graph_eq_requests(runtime, "playback_apply_mode:stable")
         _restore_stable_eq_artifacts(runtime, active)
         runtime.playback_render_settings = active
     runtime.apply_settings_state(state)
@@ -110,6 +120,27 @@ def _replace_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettin
         set_layer_buffer(layer_id, render_live_eq_layer_buffer(layer_id, settings))
         if callable(set_live_eq_state):
             set_live_eq_state(layer_id, eq)
+
+
+def _schedule_staged_graph_eq_live_requests(
+    runtime: SecretPondRuntime,
+    active: AppSettings,
+    draft: AppSettings,
+) -> None:
+    render_settings = getattr(runtime, "playback_render_settings", None) or active
+    for layer_id in LAYER_IDS:
+        draft_eq = draft.layers[layer_id].eq
+        if draft_eq == active.layers[layer_id].eq:
+            continue
+        next_render_layers = {
+            **render_settings.layers,
+            layer_id: render_settings.layers[layer_id].model_copy(update={"eq": draft_eq}),
+        }
+        next_render_settings = render_settings.model_copy(
+            update={"layers": next_render_layers},
+            deep=True,
+        )
+        schedule_live_graph_eq_update(runtime, layer_id, next_render_settings)
 
 
 def _restore_stable_eq_artifacts(runtime: SecretPondRuntime, settings: AppSettings) -> None:
