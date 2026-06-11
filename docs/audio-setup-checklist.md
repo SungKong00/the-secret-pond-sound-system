@@ -31,6 +31,16 @@ Use this checklist before rehearsal and before show operation.
 - [ ] Changing `Voice loop` shows `Unsaved audio changes`, then `Apply and Restart` rebuilds voice_stack_raw.wav and voice_playback.wav to the selected length.
 - [ ] Changing source selections shows `Unsaved audio changes`, then `Apply and Restart` renders from the selected files.
 
+## Graph EQ
+
+- [ ] Default flat Graph EQ points do not audibly color Low, Mid, or Voice when `Filter Range` is open.
+- [ ] Low, Mid, and Voice Graph EQ layer tabs each update their own layer without changing the other layers.
+- [ ] Stable mode Graph EQ edits stay staged until `Apply and Restart`.
+- [ ] Live mode Graph EQ edits apply after roughly 1 second debounce and are audible within the 3 second target on typical local source files.
+- [ ] Live Graph EQ failure shows a dashboard warning and keeps the previously audible playback state.
+- [ ] Live Graph EQ renders from selected source material or `voice_stack_raw.wav`, not from already rendered `*_playback.wav` cache files.
+- [ ] Local hardware timing is checked with the actual exhibition source files and output device.
+
 ## Recording
 
 - [ ] Spacebar does nothing while Disarmed.
