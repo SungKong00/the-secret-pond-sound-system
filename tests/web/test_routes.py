@@ -2131,6 +2131,8 @@ def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
     assert script.status_code == 200
     assert styles.status_code == 200
     assert 'id="workspaceTabGraphEq"' in response.text
+    assert "20260612-graph-eq-completion" in response.text
+    assert "20260608-voice-loop-timeline" not in response.text
     assert 'id="workspacePaneGraphEq"' in response.text
     assert 'id="graphEqLayerTabs"' in response.text
     assert 'id="graphEqEditor"' in response.text
