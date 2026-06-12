@@ -2791,9 +2791,16 @@ section.control-group .control-group-head h4::before {
   touch-action: none;
 }
 
+.graph-eq-hit-surface {
+  fill: transparent;
+  cursor: grab;
+  pointer-events: all;
+}
+
 .graph-eq-zero-line {
   stroke: rgba(223, 213, 191, 0.3);
   stroke-width: 2;
+  pointer-events: none;
 }
 
 .graph-eq-curve {
@@ -2802,6 +2809,18 @@ section.control-group .control-group-head h4::before {
   stroke-width: 4;
   stroke-linecap: round;
   stroke-linejoin: round;
+  cursor: grab;
+  pointer-events: stroke;
+}
+
+.graph-eq-curve:hover {
+  stroke: #a9fbff;
+}
+
+.graph-eq-point-hit {
+  fill: transparent;
+  cursor: grab;
+  pointer-events: all;
 }
 
 .graph-eq-point {
@@ -2809,11 +2828,20 @@ section.control-group .control-group-head h4::before {
   stroke: rgba(14, 17, 22, 0.95);
   stroke-width: 4;
   cursor: grab;
+  pointer-events: all;
 }
 
 .graph-eq-point.selected {
   fill: #ff4fd8;
   stroke: #f4ead8;
+}
+
+.graph-eq-svg.drag-active,
+.graph-eq-svg.drag-active .graph-eq-hit-surface,
+.graph-eq-svg.drag-active .graph-eq-curve,
+.graph-eq-svg.drag-active .graph-eq-point,
+.graph-eq-svg.drag-active .graph-eq-point-hit {
+  cursor: grabbing;
 }
 
 .graph-eq-scale {

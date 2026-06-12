@@ -2125,9 +2125,11 @@ def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
 
     response = client.get("/")
     script = client.get("/static/app.js")
+    styles = client.get("/static/styles.css")
 
     assert response.status_code == 200
     assert script.status_code == 200
+    assert styles.status_code == 200
     assert 'id="workspaceTabGraphEq"' in response.text
     assert 'id="workspacePaneGraphEq"' in response.text
     assert 'id="graphEqLayerTabs"' in response.text
@@ -2152,6 +2154,12 @@ def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
     assert "const graphEqFrequencyToX = " in script.text
     assert "const graphEqGainToY = " in script.text
     assert "const commitGraphEqPointEdit = " in script.text
+    assert "data-graph-eq-hit-surface" in script.text
+    assert "data-graph-eq-curve" in script.text
+    assert ".graph-eq-svg.drag-active" in styles.text
+    assert ".graph-eq-hit-surface" in styles.text
+    assert ".graph-eq-curve:hover" in styles.text
+    assert "cursor: grabbing" in styles.text
 
 
 def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) -> None:
@@ -2159,7 +2167,8 @@ def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) ->
         tmp_path,
         exports=(
             "{ defaultGraphEqPoints, normalizeGraphEqSettings, graphEqFrequencyToX, "
-            "graphEqXToFrequency, graphEqGainToY, graphEqYToGain, graphEqVisualResponsePoints }"
+            "graphEqXToFrequency, graphEqGainToY, graphEqYToGain, graphEqVisualResponsePoints, "
+            "graphEqNearestPointId, graphEqPointFromPointerRatio }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -2184,9 +2193,23 @@ const response = helpers.graphEqVisualResponsePoints({
 }, 9);
 assert.strictEqual(response.length, 9);
 assert(response.some((point) => point.gain_db > 5));
+const dragEq = {
+  points: [
+    { id: "low", type: "low_shelf", frequency_hz: 120, gain_db: -3, q: 0.7 },
+    { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 8, q: 1 },
+    { id: "high", type: "high_shelf", frequency_hz: 8000, gain_db: 2, q: 0.7 },
+  ],
+  highpass_hz: 20,
+  lowpass_hz: 20000,
+};
+assert.strictEqual(helpers.graphEqNearestPointId(dragEq, { x: 0.56, y: 0.28 }), "mid");
+assert.strictEqual(helpers.graphEqNearestPointId(dragEq, { x: 0.90, y: 0.44 }), "high");
+assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
+  frequency_hz: 20,
+  gain_db: -18,
+});
 """,
     )
-
 
 def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
     tmp_path: Path,

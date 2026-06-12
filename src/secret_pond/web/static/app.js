@@ -685,6 +685,23 @@ const graphEqVisualResponsePoints = (eq, width = 96) => {
   });
 };
 
+const graphEqNearestPointId = (eq, pointer) => {
+  const normalized = normalizeGraphEqSettings(eq);
+  if (!normalized.points.length) return null;
+  return normalized.points
+    .map((point) => {
+      const dx = graphEqFrequencyToX(point.frequency_hz) - clampNumber(pointer?.x ?? 0, 0, 1);
+      const dy = graphEqGainToY(point.gain_db) - clampNumber(pointer?.y ?? 0, 0, 1);
+      return { id: point.id, distance: Math.hypot(dx * 1.25, dy) };
+    })
+    .sort((a, b) => a.distance - b.distance)[0].id;
+};
+
+const graphEqPointFromPointerRatio = (pointer) => ({
+  frequency_hz: Math.round(graphEqXToFrequency(pointer?.x ?? 0)),
+  gain_db: Number(graphEqYToGain(pointer?.y ?? 0).toFixed(1)),
+});
+
 const layerControlGroups = [
   {
     title: { ko: "레벨", en: "Level" },
@@ -5902,6 +5919,17 @@ const graphEqPathD = (points) => points
   })
   .join(" ");
 
+const startGraphEqDrag = (layerId, pointId, event) => {
+  if (!pointId || draftEditLocked()) return;
+  event.preventDefault();
+  state.graphEqSelectedPointIds[layerId] = pointId;
+  state.graphEqDrag = { layerId, pointId, pointerId: event.pointerId };
+  const svg = $("graphEqSvg");
+  svg?.classList.add("drag-active");
+  svg?.setPointerCapture?.(event.pointerId);
+  renderGraphEqPointControls(graphEqForLayer(state.draft, layerId), layerId);
+};
+
 const renderGraphEqLayerTabs = () => {
   const container = $("graphEqLayerTabs");
   if (!container) return;
@@ -5932,13 +5960,29 @@ const renderGraphEqEditor = (eq, layerId) => {
   const responsePath = graphEqPathD(graphEqVisualResponsePoints(eq, 96));
   const zeroY = graphEqGainToY(0) * 360;
   svg.innerHTML = `
+    <rect
+      class="graph-eq-hit-surface"
+      data-graph-eq-hit-surface="true"
+      x="0"
+      y="0"
+      width="1000"
+      height="360"
+    ></rect>
     <line class="graph-eq-zero-line" x1="0" y1="${zeroY}" x2="1000" y2="${zeroY}" />
-    <path class="graph-eq-curve" d="${responsePath}" />
+    <path class="graph-eq-curve" data-graph-eq-curve="true" d="${responsePath}" />
     ${eq.points.map((point) => {
       const x = graphEqFrequencyToX(point.frequency_hz) * 1000;
       const y = graphEqGainToY(point.gain_db) * 360;
       const selected = point.id === selectedId;
       return `
+        <circle
+          class="graph-eq-point-hit"
+          data-graph-eq-point="${escapeHtml(point.id)}"
+          cx="${x.toFixed(1)}"
+          cy="${y.toFixed(1)}"
+          r="16"
+          aria-hidden="true"
+        ></circle>
         <circle
           class="graph-eq-point ${selected ? "selected" : ""}"
           data-graph-eq-point="${escapeHtml(point.id)}"
@@ -5956,24 +6000,36 @@ const renderGraphEqEditor = (eq, layerId) => {
     const pointId = pointNode.dataset.graphEqPoint;
     pointNode.addEventListener("click", () => setSelectedGraphEqPoint(layerId, pointId));
     pointNode.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      setSelectedGraphEqPoint(layerId, pointId);
-      state.graphEqDrag = { layerId, pointId, pointerId: event.pointerId };
-      pointNode.setPointerCapture?.(event.pointerId);
+      event.stopPropagation();
+      startGraphEqDrag(layerId, pointId, event);
     });
   });
+  svg.onpointerdown = (event) => {
+    const target = event.target;
+    if (!target?.closest?.("[data-graph-eq-hit-surface], [data-graph-eq-curve]")) return;
+    const pointer = graphEqPointerRatioFromPointerEvent(event);
+    if (!pointer) return;
+    const pointId = graphEqNearestPointId(eq, pointer);
+    startGraphEqDrag(layerId, pointId, event);
+    if (!pointId) return;
+    updateDraftGraphEqPoint(layerId, pointId, graphEqPointFromPointerRatio(pointer));
+    syncDraftSnapshot();
+    renderGraphEqWorkspace();
+  };
 };
 
-const graphEqPointFromPointerEvent = (event) => {
+const graphEqPointerRatioFromPointerEvent = (event) => {
   const svg = $("graphEqSvg");
   const rect = svg?.getBoundingClientRect?.();
   if (!rect || rect.width <= 0 || rect.height <= 0) return null;
   const x = clampNumber((event.clientX - rect.left) / rect.width, 0, 1);
   const y = clampNumber((event.clientY - rect.top) / rect.height, 0, 1);
-  return {
-    frequency_hz: Math.round(graphEqXToFrequency(x)),
-    gain_db: Number(graphEqYToGain(y).toFixed(1)),
-  };
+  return { x, y };
+};
+
+const graphEqPointFromPointerEvent = (event) => {
+  const pointer = graphEqPointerRatioFromPointerEvent(event);
+  return pointer ? graphEqPointFromPointerRatio(pointer) : null;
 };
 
 const renderGraphEqPointControls = (eq, layerId) => {
@@ -6068,14 +6124,18 @@ const bindGraphEqControls = () => {
     const drag = state.graphEqDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
     state.graphEqDrag = null;
+    $("graphEqSvg").classList.remove("drag-active");
+    $("graphEqSvg").releasePointerCapture?.(event.pointerId);
     commitDraftChange(() => {}, {
       feedbackSurfaceId: `layer:${drag.layerId}`,
       feedbackControlIds: graphEqControlIds(drag.layerId, drag.pointId),
       afterSync: renderGraphEqWorkspace,
     });
   });
-  $("graphEqSvg").addEventListener("pointercancel", () => {
+  $("graphEqSvg").addEventListener("pointercancel", (event) => {
     state.graphEqDrag = null;
+    $("graphEqSvg").classList.remove("drag-active");
+    $("graphEqSvg").releasePointerCapture?.(event.pointerId);
   });
 };
 
