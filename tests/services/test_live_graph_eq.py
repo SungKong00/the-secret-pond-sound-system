@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.renderer import LiveEqSourceError
 from secret_pond.config import AppSettings, EqSettings
+from secret_pond.paths import ProjectPaths
 from secret_pond.services.live_graph_eq import (
     LIVE_EQ_APPLY_DEBOUNCE_MS,
     LIVE_EQ_SLOW_APPLY_MS,
     LIVE_GRAPH_EQ_FAILURE_WARNING,
     apply_live_graph_eq_render_result,
+    live_graph_eq_payload,
     live_graph_eq_state,
     mark_slow_live_graph_eq_requests,
     run_due_live_graph_eq_update,
@@ -34,6 +38,23 @@ class MissingSourceRendererSpy(RendererSpy):
     def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
         self.renders.append((layer_id, settings))
         raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
+
+
+class MissingVoiceStackSourceRendererSpy(RendererSpy):
+    def __init__(self, source_path: Path, fallback_path: Path) -> None:
+        super().__init__()
+        self.source_path = source_path
+        self.fallback_path = fallback_path
+
+    def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.renders.append((layer_id, settings))
+        raise LiveEqSourceError(
+            "voice",
+            self.source_path,
+            "selected Voice Stack source is missing and fallback is unavailable",
+            fallback_path=self.fallback_path,
+            fallback_available=False,
+        )
 
 
 class PlayerSpy:
@@ -178,3 +199,42 @@ def test_missing_live_eq_source_keeps_current_playback_and_sets_warning() -> Non
     assert live_state.pending_request is None
     assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+
+
+def test_missing_voice_stack_source_failure_payload_names_fallback(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    stale_source = paths.voice_stack_sources_dir / "VS0608_072702.wav"
+    fallback_source = paths.voice_stack_raw
+    runtime = RuntimeHarness()
+    runtime.paths = paths
+    runtime.renderer = MissingVoiceStackSourceRendererSpy(stale_source, fallback_source)
+
+    schedule_live_graph_eq_update(runtime, "voice", runtime.playback_render_settings, now_ms=0)
+    result = run_due_live_graph_eq_update(runtime, now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS)
+
+    expected_detail = (
+        "Voice Stack source가 없습니다: data/sources/voice/stack/VS0608_072702.wav "
+        "fallback 확인: data/voice/voice_stack_raw.wav "
+        "fallback도 없어서 Live 적용을 중단했습니다."
+    )
+    live_state = live_graph_eq_state(runtime)
+    payload = live_graph_eq_payload(runtime)
+    assert result is None
+    assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert live_state.failure_detail == expected_detail
+    assert payload["failure_warning"] == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert payload["failure_detail"] == expected_detail
+    assert runtime.logger.events[-1] == (
+        "settings.live_graph_eq_failed",
+        {
+            "layer_id": "voice",
+            "request_id": 1,
+            "error": (
+                f"Live Graph EQ source for voice is unavailable: {stale_source}. "
+                "selected Voice Stack source is missing and fallback is unavailable."
+                f" fallback={fallback_source} (unavailable)."
+            ),
+            "failure_detail": expected_detail,
+        },
+    )

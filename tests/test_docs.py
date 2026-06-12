@@ -84,6 +84,15 @@ def test_operator_guide_covers_required_operations() -> None:
         "Hold Space to Record",
         "active recording",
         "key-repeat start requests",
+        "Graph EQ workspace tab",
+        "drag point handles",
+        "graph background",
+        "Freq",
+        "Gain",
+        "Q",
+        "not a musical crossfade",
+        "selected timestamped stack source",
+        "playback cache",
     ]
     for phrase in required:
         assert phrase in guide
@@ -128,6 +137,10 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "file-locking",
         "spacebar does not scroll",
         "repeat start requests",
+        "curve/background drag",
+        "stale selected Voice Stack path",
+        "missing selected and missing fallback",
+        "Stable mode does not run the Live executor",
     ]
     for phrase in required:
         assert phrase in checklist

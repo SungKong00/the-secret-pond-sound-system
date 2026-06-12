@@ -671,6 +671,45 @@ const normalizeGraphEqSettings = (eq = {}) => {
   };
 };
 
+const graphEqLiveStatusCopy = (liveGraphEq = {}) => {
+  if (!liveGraphEq) return null;
+  if (liveGraphEq.status === "slow" || liveGraphEq.slow_caution) {
+    return {
+      label: "Live Graph EQ 적용이 지연되고 있습니다.",
+      detail: "재생은 이전 상태로 계속됩니다.",
+      className: "status-pill caution",
+    };
+  }
+  if (liveGraphEq.status === "failed" || liveGraphEq.failure_warning) {
+    return {
+      label: liveGraphEq.failure_warning || (
+        "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
+        + "필요하면 Stable Apply and Restart로 적용하세요."
+      ),
+      detail: [
+        liveGraphEq.failure_detail,
+        "현재 들리는 EQ는 마지막 성공 상태입니다.",
+      ].filter(Boolean).join(" "),
+      className: "status-pill caution",
+    };
+  }
+  if (liveGraphEq.status === "pending") {
+    return {
+      label: "Live Graph EQ 적용 대기 중",
+      detail: "약 1초 debounce 후 최신 곡선만 적용합니다.",
+      className: "status-pill caution",
+    };
+  }
+  if (liveGraphEq.status === "applied") {
+    return {
+      label: "Live Graph EQ 적용됨",
+      detail: "현재 들리는 EQ가 마지막 성공 상태입니다.",
+      className: "status-pill safe",
+    };
+  }
+  return null;
+};
+
 const graphEqFrequencyToX = (frequencyHz) => {
   const minLog = Math.log10(graphEqMinFrequencyHz);
   const maxLog = Math.log10(graphEqMaxFrequencyHz);
@@ -6092,6 +6131,10 @@ const renderGraphEqPointControls = (eq, layerId) => {
   const selected = selectedGraphEqPoint(eq, layerId);
   const controls = $("graphEqPointControls");
   const status = $("graphEqStatus");
+  const detail = $("graphEqStatusDetail");
+  const liveStatus = currentPlaybackApplyMode() === "live"
+    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
+    : null;
   if (!controls) return;
   controls.classList.toggle("empty", !selected);
   controls.querySelector(".graph-eq-empty-state").hidden = Boolean(selected);
@@ -6104,8 +6147,14 @@ const renderGraphEqPointControls = (eq, layerId) => {
   $("graphEqResetLayerButton").disabled = draftEditLocked();
   $("graphEqResetAllButton").disabled = draftEditLocked();
   if (status) {
-    status.textContent = selected ? `${graphEqPointTypes[selected.type]} 선택됨` : "점을 선택하세요";
-    status.className = `status-pill ${selected ? "safe" : "muted"}`;
+    status.textContent = liveStatus?.label || (
+      selected ? `${graphEqPointTypes[selected.type]} 선택됨` : "점을 선택하세요"
+    );
+    status.className = liveStatus?.className || `status-pill ${selected ? "safe" : "muted"}`;
+  }
+  if (detail) {
+    detail.textContent = liveStatus?.detail || "";
+    detail.hidden = !liveStatus?.detail;
   }
   if (!selected) return;
   $("graphEqPointType").value = selected.type;

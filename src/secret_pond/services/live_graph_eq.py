@@ -6,6 +6,7 @@ from typing import Any
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.layers import LayerId
+from secret_pond.audio.renderer import LiveEqSourceError
 from secret_pond.config import AppSettings, EqSettings
 from secret_pond.services.settings_store import SettingsState
 
@@ -35,6 +36,7 @@ class LiveGraphEqState:
     confirmed_eq: dict[LayerId, EqSettings] = field(default_factory=dict)
     slow_caution: bool = False
     failure_warning: str | None = None
+    failure_detail: str | None = None
     invalidation_reason: str | None = None
     last_applied_request_id: int | None = None
     last_applied_layer_id: LayerId | None = None
@@ -70,6 +72,7 @@ def schedule_live_graph_eq_update(
     )
     state.slow_caution = False
     state.failure_warning = None
+    state.failure_detail = None
     state.invalidation_reason = None
     return state
 
@@ -158,6 +161,7 @@ def apply_live_graph_eq_render_result(
     state.pending_request = None
     state.slow_caution = False
     state.failure_warning = None
+    state.failure_detail = None
     state.invalidation_reason = None
     state.last_applied_request_id = request.request_id
     state.last_applied_layer_id = normalized_layer_id
@@ -169,6 +173,8 @@ def invalidate_live_graph_eq_requests(runtime: Any, reason: str) -> None:
     state = live_graph_eq_state(runtime)
     state.pending_request = None
     state.slow_caution = False
+    state.failure_warning = None
+    state.failure_detail = None
     state.invalidation_reason = reason
     state.last_applied_request_id = None
     state.last_applied_layer_id = None
@@ -207,6 +213,7 @@ def live_graph_eq_payload(runtime: Any) -> dict[str, Any]:
         "apply_delay_ms": LIVE_EQ_APPLY_DEBOUNCE_MS,
         "slow_caution": state.slow_caution,
         "failure_warning": state.failure_warning,
+        "failure_detail": state.failure_detail,
         "invalidation_reason": state.invalidation_reason,
     }
 
@@ -246,19 +253,56 @@ def _record_failure(
 ) -> None:
     state.pending_request = None
     state.failure_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
+    state.failure_detail = _failure_detail(runtime, request, exc)
     state.slow_caution = False
     runtime.transition_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
     logger = getattr(runtime, "logger", None)
     log_event = getattr(logger, "log_event", None)
     if callable(log_event):
-        log_event(
-            "settings.live_graph_eq_failed",
-            {
-                "layer_id": request.layer_id,
-                "request_id": request.request_id,
-                "error": str(exc),
-            },
-        )
+        payload = {
+            "layer_id": request.layer_id,
+            "request_id": request.request_id,
+            "error": str(exc),
+        }
+        if state.failure_detail:
+            payload["failure_detail"] = state.failure_detail
+        log_event("settings.live_graph_eq_failed", payload)
+
+
+def _failure_detail(runtime: Any, request: LiveGraphEqRequest, exc: Exception) -> str | None:
+    if not isinstance(exc, LiveEqSourceError):
+        return None
+    source_label = _source_label(request.layer_id)
+    parts = []
+    if exc.source_path is not None:
+        parts.append(f"{source_label}가 없습니다: {_relative_path(runtime, exc.source_path)}")
+    else:
+        parts.append(f"{source_label}가 없습니다.")
+    if exc.fallback_path is not None:
+        fallback_path = _relative_path(runtime, exc.fallback_path)
+        parts.append(f"fallback 확인: {fallback_path}")
+        if exc.fallback_available:
+            parts.append(f"fallback 사용됨: {fallback_path}")
+        else:
+            parts.append("fallback도 없어서 Live 적용을 중단했습니다.")
+    return " ".join(parts)
+
+
+def _source_label(layer_id: LayerId) -> str:
+    if layer_id == "voice":
+        return "Voice Stack source"
+    return f"{layer_id.capitalize()} source"
+
+
+def _relative_path(runtime: Any, path: Any) -> str:
+    path_as_string = getattr(path, "as_posix", lambda: str(path))()
+    root = getattr(getattr(runtime, "paths", None), "root", None)
+    if root is None:
+        return path_as_string
+    try:
+        return path.relative_to(root).as_posix()
+    except (AttributeError, ValueError):
+        return path_as_string
 
 
 def _capture_player_snapshot(runtime: Any) -> Any:

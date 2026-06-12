@@ -451,7 +451,7 @@ def seek_playback(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 @router.post("/playback/live-graph-eq/tick")
 def tick_live_graph_eq(
     request: Request,
-    payload: LiveGraphEqTickRequest | None = Body(default=None),
+    payload: LiveGraphEqTickRequest | None = None,
 ) -> dict[str, Any]:
     runtime = _runtime(request)
     with runtime.operation_lock:

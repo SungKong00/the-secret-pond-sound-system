@@ -4,8 +4,8 @@ from typing import Any
 
 from secret_pond.config import AppSettings
 from secret_pond.services.controller import RecordingOutcome
-from secret_pond.services.loop_cycle import visible_loop_seconds
 from secret_pond.services.live_graph_eq import live_graph_eq_payload
+from secret_pond.services.loop_cycle import visible_loop_seconds
 from secret_pond.services.runtime import SecretPondRuntime
 from secret_pond.services.settings_changes import (
     SettingsChangePlan,

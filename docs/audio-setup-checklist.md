@@ -35,9 +35,13 @@ Use this checklist before rehearsal and before show operation.
 
 - [ ] Default flat Graph EQ points do not audibly color Low, Mid, or Voice when `Filter Range` is open.
 - [ ] Low, Mid, and Voice Graph EQ layer tabs each update their own layer without changing the other layers.
+- [ ] Graph EQ curve/background drag moves the nearest point and point handles remain easy to grab.
 - [ ] Stable mode Graph EQ edits stay staged until `Apply and Restart`.
+- [ ] Stable mode does not run the Live executor.
 - [ ] Live mode Graph EQ edits apply after roughly 1 second debounce and are audible within the 3 second target on typical local source files.
 - [ ] Live Graph EQ failure shows a dashboard warning and keeps the previously audible playback state.
+- [ ] A stale selected Voice Stack path plus existing `voice_stack_raw.wav` does not fail Live mode.
+- [ ] A missing selected and missing fallback source shows a specific warning and keeps playback running.
 - [ ] Live Graph EQ renders from selected source material or `voice_stack_raw.wav`, not from already rendered `*_playback.wav` cache files.
 - [ ] Local hardware timing is checked with the actual exhibition source files and output device.
 

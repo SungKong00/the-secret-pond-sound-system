@@ -94,6 +94,65 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     ]
 
 
+def test_graph_eq_workspace_does_not_overlap_source_library_in_desktop_viewport() -> None:
+    chrome = _chrome_binary()
+    if chrome is None:
+        pytest.skip("Google Chrome or Chromium is required for rendered dashboard verification")
+
+    with tempfile.TemporaryDirectory(prefix="secret-pond-graph-eq-ui-") as temp_dir:
+        dashboard_path = _write_rendered_dashboard(
+            Path(temp_dir),
+            after_app_script="""
+const openGraphEqFixture = () => {
+  if (!state.snapshot?.settings?.active) {
+    requestAnimationFrame(openGraphEqFixture);
+    return;
+  }
+  setWorkspaceTab("graph-eq");
+};
+requestAnimationFrame(openGraphEqFixture);
+""",
+        )
+        with tempfile.TemporaryDirectory(prefix="secret-pond-chrome-") as profile_dir:
+            remote_debugging_port = _free_port()
+            process = subprocess.Popen(
+                [
+                    chrome,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={profile_dir}",
+                    f"--remote-debugging-port={remote_debugging_port}",
+                    "--window-size=1440,1000",
+                    dashboard_path.as_uri(),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                page = _connect_to_first_page(remote_debugging_port)
+                page.send("Runtime.enable")
+                rendered = page.wait_for_graph_eq_workspace()
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    assert rendered["viewportWidth"] == 1440
+    assert rendered["bodyWidth"] <= rendered["viewportWidth"]
+    assert rendered["graphEqVisible"] is True
+    assert rendered["visibleText"] is True
+    assert rendered["svgRect"]["width"] > 420
+    assert min(rendered["pointHitRadii"]) >= 16
+    assert rendered["pointControlsRect"]["right"] <= rendered["mainPanelRect"]["right"]
+    assert rendered["pointControlsRect"]["right"] <= rendered["rightPanelRect"]["x"]
+    assert rendered["filterRect"]["right"] <= rendered["mainPanelRect"]["right"]
+
+
 def test_rendered_dashboard_verification_output_records_desktop_behavior_notes() -> None:
     output = _record_desktop_behavior_notes(
         {
@@ -676,6 +735,68 @@ class _CdpPage:
                 return last_value
             time.sleep(0.1)
         raise AssertionError(f"Live dashboard did not render in time: {last_value!r}")
+
+    def wait_for_graph_eq_workspace(self) -> dict[str, Any]:
+        expression = """
+(() => {
+  const rect = (element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      right: bounds.right,
+      bottom: bounds.bottom,
+    };
+  };
+  const pane = document.getElementById("workspacePaneGraphEq");
+  const mainPanel = document.querySelector(".main-workspace-panel");
+  const rightPanel = document.querySelector(".right-stack-panel");
+  const svg = document.getElementById("graphEqSvg");
+  const pointControls = document.getElementById("graphEqPointControls");
+  const filter = document.getElementById("graphEqFilterRange");
+  if (!pane || pane.hidden || !mainPanel || !rightPanel || !svg || !pointControls || !filter) {
+    return {
+      ready: false,
+      graphEqVisible: Boolean(pane && !pane.hidden),
+    };
+  }
+  return {
+    ready: true,
+    viewportWidth: window.innerWidth,
+    bodyWidth: document.body.scrollWidth,
+    graphEqVisible: true,
+    visibleText: (
+      document.body.innerText.includes("Graph EQ") &&
+      document.body.innerText.includes("Freq") &&
+      document.body.innerText.includes("Gain") &&
+      document.body.innerText.includes("Q") &&
+      document.body.innerText.includes("Low Cut") &&
+      document.body.innerText.includes("High Cut")
+    ),
+    svgRect: rect(svg),
+    pointControlsRect: rect(pointControls),
+    filterRect: rect(filter),
+    mainPanelRect: rect(mainPanel),
+    rightPanelRect: rect(rightPanel),
+    pointHitRadii: Array.from(svg.querySelectorAll(".graph-eq-point-hit"))
+      .map((element) => Number(element.getAttribute("r"))),
+  };
+})()
+"""
+        deadline = time.monotonic() + 10
+        last_value: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            result = self.send(
+                "Runtime.evaluate",
+                {"expression": expression, "returnByValue": True},
+            )
+            last_value = result["result"].get("value")
+            if last_value and last_value.get("ready"):
+                return last_value
+            time.sleep(0.1)
+        raise AssertionError(f"Graph EQ workspace did not render in time: {last_value!r}")
 
     def wait_for_feedback_spinner_overlay(self) -> dict[str, Any]:
         expression = """

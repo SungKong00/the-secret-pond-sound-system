@@ -2136,6 +2136,7 @@ def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
     assert 'id="graphEqEditor"' in response.text
     assert 'id="graphEqPointControls"' in response.text
     assert 'id="graphEqFilterRange"' in response.text
+    assert 'id="graphEqStatusDetail"' in response.text
     assert "Graph EQ" in response.text
     assert "Bell / Peak" in response.text
     assert "Low Shelf" in response.text
@@ -2231,6 +2232,43 @@ assert.deepStrictEqual(legacyPoints.map((point) => [point.id, point.frequency_hz
   ["legacy-mid", 1000, -2],
   ["legacy-high", 2000, 1],
 ]);
+""",
+    )
+
+
+def test_static_graph_eq_live_status_copy_describes_slow_and_failed_states(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ graphEqLiveStatusCopy }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const slow = helpers.graphEqLiveStatusCopy({
+  status: "slow",
+  slow_caution: true,
+});
+assert.strictEqual(slow.label, "Live Graph EQ 적용이 지연되고 있습니다.");
+assert.strictEqual(slow.detail, "재생은 이전 상태로 계속됩니다.");
+assert.strictEqual(slow.className, "status-pill caution");
+
+const failureWarning = "Live Graph EQ 적용을 완료하지 못했습니다. "
+  + "기존 재생 상태를 유지합니다. "
+  + "필요하면 Stable Apply and Restart로 적용하세요.";
+const failureDetail = "Voice Stack source가 없습니다: "
+  + "data/sources/voice/stack/VS0608_072702.wav "
+  + "fallback 확인: data/voice/voice_stack_raw.wav "
+  + "fallback도 없어서 Live 적용을 중단했습니다.";
+const failed = helpers.graphEqLiveStatusCopy({
+  status: "failed",
+  failure_warning: failureWarning,
+  failure_detail: failureDetail,
+});
+assert.strictEqual(failed.label, failureWarning);
+assert(failed.detail.includes("Voice Stack source가 없습니다"));
+assert(failed.detail.includes("fallback 확인: data/voice/voice_stack_raw.wav"));
+assert(failed.detail.includes("현재 들리는 EQ는 마지막 성공 상태입니다."));
+assert.strictEqual(failed.className, "status-pill caution");
 """,
     )
 

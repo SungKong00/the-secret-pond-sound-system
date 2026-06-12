@@ -142,11 +142,12 @@ The header shows `Error None` during normal operation and `Error Active` wheneve
 
 Sliders edit pending settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show current values and changed values. The Loop Mixer panel contains the Low and Mid supporting layers; the Voice Stack panel contains the voice playback layer EQ/filter controls.
 
-Graph EQ는 Graph EQ workspace tab에서 Low, Mid, Voice layer별로 조절합니다. 점을 움직이면 해당 layer의 `Bell / Peak`, `Low Shelf`, `High Shelf`, `Q`, `Filter Range` 설정이 pending settings로 저장됩니다.
+Graph EQ는 Graph EQ workspace tab에서 Low, Mid, Voice layer별로 조절합니다. You can drag point handles, curve, or graph background to move the nearest editable point. 점을 움직이면 해당 layer의 `Bell / Peak`, `Low Shelf`, `High Shelf`, `Freq`, `Gain`, `Q`, `Filter Range` 설정이 pending settings로 저장됩니다.
 
 - Stable mode에서는 Graph EQ 점 편집이 바로 들리지 않습니다. 변경한 곡선은 staged 상태로 남고, `Apply and Restart`를 눌렀을 때 rendered playback cache를 다시 만든 뒤 적용됩니다.
-- Live mode에서는 Graph EQ 점 편집이 약 1초 debounce 뒤 최신 변경만 렌더링됩니다. 일반적인 source file에서는 3초 안에 재생 중인 layer buffer가 빠르게 교체되는 것을 목표로 합니다.
-- Live Graph EQ 적용에 실패하면 재생은 기존 audible state를 유지하고, dashboard warning에 실패 안내가 표시됩니다. 이때 Stable `Apply and Restart`는 fallback으로 계속 사용할 수 있습니다.
+- Live mode에서는 Graph EQ 점 편집이 약 1초 debounce 뒤 server-owned executor에서 최신 변경만 렌더링됩니다. 일반적인 source file에서는 3초 안에 재생 중인 layer buffer가 빠르게 교체되는 것을 목표로 합니다. Live replacement is fast, not a musical crossfade.
+- Live Graph EQ 적용에 실패하면 재생은 기존 audible state를 유지하고, dashboard warning에 실패 안내가 표시됩니다. 현재 들리는 EQ는 마지막 성공 상태이며, Stable `Apply and Restart`는 fallback으로 계속 사용할 수 있습니다.
+- Voice가 `live_ephemeral`이고 selected timestamped stack source가 사라졌다면 Live Graph EQ는 `data/voice/voice_stack_raw.wav`를 EQ-free fallback source로 사용할 수 있습니다. 둘 다 없으면 missing source와 fallback 경로를 warning에 표시하고 기존 재생을 유지합니다.
 - Live Graph EQ는 `low_playback.wav`, `mid_playback.wav`, `voice_playback.wav` 같은 이미 EQ가 baked 된 playback cache를 다시 EQ하지 않습니다. Low/Mid selected source, Voice Stack selected source 또는 `voice_stack_raw.wav` 같은 EQ-free source material에서만 새 buffer를 렌더링합니다.
 
 The Voice Stack panel also includes `Voice loop` for the voice stack loop length. This is not a real-time control. Changing Voice loop is staged as a pending setting like the layer sliders.

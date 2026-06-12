@@ -2734,7 +2734,25 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-panel {
-  min-width: 760px;
+  min-width: 0;
+}
+
+#graphEqStatus {
+  max-width: min(62ch, 100%);
+  height: auto;
+  min-height: 24px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.graph-eq-status-detail {
+  margin: -6px 0 10px;
+  max-width: 92ch;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .graph-eq-layer-tabs {
@@ -2760,7 +2778,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-workbench {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(220px, 0.34fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -2864,7 +2882,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-point-controls {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
   align-content: start;
   border: 1px solid rgba(223, 213, 191, 0.14);
@@ -2891,11 +2909,13 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-empty-state {
+  grid-column: 1 / -1;
   color: var(--muted);
   font-size: 13px;
 }
 
 .graph-eq-actions {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
