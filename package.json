@@ -2,6 +2,7 @@
   "private": true,
   "scripts": {
     "build:graph-eq": "esbuild src/secret_pond/web/frontend/graph_eq_inline.js --bundle --format=iife --global-name=SecretPondGraphEqBundle --outfile=src/secret_pond/web/static/graph_eq_inline.bundle.js",
+    "build:graph-eq-dsssp": "esbuild src/secret_pond/web/frontend/graph_eq_inline.jsx --bundle --format=iife --global-name=SecretPondDssspGraphEqBundle --jsx=automatic --outfile=src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js",
     "test:e2e": "playwright test tests/web/graph_eq_inline.spec.js --project=chromium"
   },
   "dependencies": {

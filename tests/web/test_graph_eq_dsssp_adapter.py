@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER = ROOT / "src/secret_pond/web/frontend/graph_eq_dsssp_adapter.mjs"
+DSSSP_ENTRY = ROOT / "src/secret_pond/web/frontend/graph_eq_inline.jsx"
+DSSSP_BUNDLE = ROOT / "src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js"
+WEQ8C_BUNDLE = ROOT / "src/secret_pond/web/static/graph_eq_inline.bundle.js"
 PACKAGE_JSON = ROOT / "package.json"
 PACKAGE_LOCK = ROOT / "package-lock.json"
 
@@ -91,3 +94,47 @@ console.log(JSON.stringify({{
     assert output["mapped"]["point"]["gain_db"] == 6
     assert output["mapped"]["point"]["q"] == 2
     assert output["hasNotch"] is False
+
+
+def test_dsssp_react_island_source_and_build_script_keep_weq8c_runtime_path() -> None:
+    package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+    source = DSSSP_ENTRY.read_text(encoding="utf-8")
+    weq8c_bundle = WEQ8C_BUNDLE.read_text(encoding="utf-8")
+
+    assert "graph_eq_inline.js" in package["scripts"]["build:graph-eq"]
+    assert "graph_eq_inline.bundle.js" in package["scripts"]["build:graph-eq"]
+    assert "build:graph-eq-dsssp" in package["scripts"]
+    assert "graph_eq_inline.jsx" in package["scripts"]["build:graph-eq-dsssp"]
+    assert "graph_eq_dsssp_island.bundle.js" in package["scripts"]["build:graph-eq-dsssp"]
+
+    assert "FrequencyResponseGraph" in source
+    assert "mountEditor" in source
+    assert "syncEditor" in source
+    assert "unmountEditor" in source
+    assert "data-graph-eq-dsssp-root" in source
+    assert "weq8c" not in source.lower()
+    assert "weq8c" in weq8c_bundle.lower()
+    assert "weq8-ui" in weq8c_bundle
+
+
+def test_dsssp_island_bundle_exposes_mount_contract_without_weq8c() -> None:
+    bundle = DSSSP_BUNDLE.read_text(encoding="utf-8")
+    output = run_node(
+        f"""
+globalThis.window = globalThis;
+await import({json.dumps(DSSSP_BUNDLE.as_uri())});
+console.log(JSON.stringify({{
+  hasGlobal: Boolean(globalThis.secretPondGraphEq),
+  keys: Object.keys(globalThis.secretPondGraphEq || {{}}),
+  hasDssspAlias: Boolean(globalThis.secretPondDssspGraphEq)
+}}));
+"""
+    )
+
+    assert output["hasGlobal"] is True
+    assert output["hasDssspAlias"] is True
+    assert {"mountEditor", "syncEditor", "unmountEditor"}.issubset(output["keys"])
+    assert "FrequencyResponseGraph" in bundle
+    assert "toDssspFilters" in bundle
+    assert "weq8c" not in bundle.lower()
+    assert "weq8-ui" not in bundle
