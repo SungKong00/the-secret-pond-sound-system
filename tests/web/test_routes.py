@@ -1273,8 +1273,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "text-overflow: ellipsis;" in last_event_badge_rule
     assert "white-space: nowrap;" in last_event_badge_rule
     assert (
-        "grid-template-columns: minmax(300px, 0.82fr) minmax(620px, 1.7fr) "
-        "minmax(300px, 0.84fr);"
+        "grid-template-columns: minmax(330px, 0.75fr) minmax(770px, 1.95fr) "
+        "minmax(280px, 0.7fr);"
         in normalized_styles
     )
     assert (
@@ -1891,14 +1891,15 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "await requestState({ syncDraft: false }).catch(" in refresh_all_body
     operation_lock_body = slice_between(
         script.text,
-        "const renderOperationLockSurfaces = () => {",
+        "const renderOperationLockSurfaces = ({ preserveControls = false } = {}) => {",
         "};\n\nconst renderLayerControls",
     )
     assert "const setOperationLockFlag = (key, inFlight) => {" in script.text
     assert "if (!operationFlagKeys.includes(key))" in script.text
     assert "state[key] = Boolean(inFlight)" in script.text
+    assert "graphEqInlineEditorMountShouldBePreserved" in script.text
     assert "renderState();" in operation_lock_body
-    assert "renderControls();" in operation_lock_body
+    assert "if (!preserveControls) renderControls();" in operation_lock_body
     assert "renderDevices();" in operation_lock_body
     assert "renderSourceLibrary();" in operation_lock_body
     apply_body = slice_between(
@@ -2163,7 +2164,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert "const graphEqGainToY = " in script.text
     assert "const commitInlineGraphEqPoints = " in script.text
     assert ".graph-eq-inline-editor" in styles.text
-    assert ".graph-eq-mini-preview" in styles.text
+    assert ".graph-eq-collapsed-summary" in styles.text
     assert ".graph-eq-step-button" in styles.text
 
 
@@ -2206,8 +2207,8 @@ assert.strictEqual(eq.lowpass_hz, 20000);
 assert(Math.abs(helpers.graphEqFrequencyToX(20) - 0) < 0.001);
 assert(Math.abs(helpers.graphEqFrequencyToX(20000) - 1) < 0.001);
 assert(Math.abs(helpers.graphEqXToFrequency(helpers.graphEqFrequencyToX(1000)) - 1000) < 0.001);
-assert.strictEqual(helpers.graphEqGainToY(18), 0);
-assert.strictEqual(helpers.graphEqGainToY(-18), 1);
+assert.strictEqual(helpers.graphEqGainToY(15), 0);
+assert.strictEqual(helpers.graphEqGainToY(-15), 1);
 assert(Math.abs(helpers.graphEqYToGain(helpers.graphEqGainToY(6)) - 6) < 0.001);
 const response = helpers.graphEqVisualResponsePoints({
   points: [{ id: "mid", type: "bell", frequency_hz: 1000, gain_db: 6, q: 2 }],
@@ -2229,7 +2230,7 @@ assert.strictEqual(helpers.graphEqNearestPointId(dragEq, { x: 0.56, y: 0.28 }), 
 assert.strictEqual(helpers.graphEqNearestPointId(dragEq, { x: 0.90, y: 0.44 }), "high");
 assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
   frequency_hz: 20,
-  gain_db: -18,
+  gain_db: -15,
 });
 const lowScreen = helpers.graphEqPointScreenPosition(dragEq.points[0]);
 const midScreen = helpers.graphEqPointScreenPosition(dragEq.points[1]);

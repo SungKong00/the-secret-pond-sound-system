@@ -60,6 +60,7 @@ const state = {
   coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
+  graphEqInlinePreserveMountLayerId: null,
   liveApplyFeedback: null,
   stableApplyCoveredFeedbackSurfaceIds: [],
   stableApplyCoveredFeedbackControlSnapshots: [],
@@ -542,8 +543,8 @@ const zeroCenteredDbMarks = (min, max) => [
 
 const graphEqMinFrequencyHz = 20;
 const graphEqMaxFrequencyHz = 20000;
-const graphEqMinGainDb = -18;
-const graphEqMaxGainDb = 18;
+const graphEqMinGainDb = -15;
+const graphEqMaxGainDb = 15;
 const graphEqMaxPoints = 6;
 
 const graphEqPointTypes = Object.freeze({
@@ -2333,7 +2334,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
   if (shouldSyncDraft) {
     rememberConfirmedSettingsDraft(nextSettings, state.draft);
     rememberConfirmedActiveSettings(nextSettings);
-    if (renderControlsOnSync) renderControls();
+    if (renderControlsOnSync && !graphEqInlineEditorMountShouldBePreserved()) renderControls();
   } else {
     syncDraftSnapshot();
   }
@@ -5161,9 +5162,15 @@ const refreshCoveredFeedbackVisualStates = () => {
   );
 };
 
-const renderOperationLockSurfaces = () => {
+const graphEqInlineEditorMountShouldBePreserved = () => {
+  const layerId = state.graphEqInlinePreserveMountLayerId;
+  if (!layerId) return false;
+  return Boolean(document.querySelector(`[data-graph-eq-inline-editor="${layerId}"]`));
+};
+
+const renderOperationLockSurfaces = ({ preserveControls = false } = {}) => {
   renderState();
-  renderControls();
+  if (!preserveControls) renderControls();
   renderDevices();
   renderSourceLibrary();
 };
@@ -5179,7 +5186,9 @@ const renderDraftSaveFeedbackSurfaces = () => {
   ) {
     return;
   }
-  renderOperationLockSurfaces();
+  renderOperationLockSurfaces({
+    preserveControls: graphEqInlineEditorMountShouldBePreserved(),
+  });
   refreshCoveredFeedbackVisualStates();
 };
 
@@ -5992,10 +6001,11 @@ const commitGraphEqPointEdit = (layerId, pointId, updates) => {
   );
 };
 
-const commitInlineGraphEqPoints = (layerId, points, selectedPointId = null) => {
+const commitInlineGraphEqPoints = (layerId, points, selectedPointId = null, options = {}) => {
   if (!layerIds.includes(layerId)) return false;
   const eq = graphEqForLayer(state.draft, layerId);
   const normalized = normalizeGraphEqSettings({ ...eq, points });
+  const renderAfterSync = options.renderAfterSync ?? true;
   const committed = commitDraftChange(
     () => {
       updateDraftGraphEq(layerId, normalized);
@@ -6006,7 +6016,14 @@ const commitInlineGraphEqPoints = (layerId, points, selectedPointId = null) => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlIds: graphEqControlIds(layerId, selectedPointId),
-      afterSync: renderLayerControls,
+      afterSync: () => {
+        if (renderAfterSync) {
+          renderLayerControls();
+          return;
+        }
+        refreshCoveredFeedbackVisualStates();
+        options.afterSync?.(normalized);
+      },
     },
   );
   return committed;
@@ -6114,12 +6131,34 @@ const graphEqSafeToken = (value) => String(value || "")
   .replace(/[^a-zA-Z0-9_-]/g, "-")
   .replace(/-+/g, "-");
 
-const renderGraphEqMiniPreviewSvg = (eq) => {
-  const path = graphEqPathD(graphEqVisualResponsePoints(eq, 48));
+const graphEqFrequencyLabel = (frequencyHz) => {
+  const rounded = Math.round(Number(frequencyHz) || 0);
+  if (rounded >= 1000) {
+    return `${Number((rounded / 1000).toFixed(1)).toString()} kHz`;
+  }
+  return `${rounded} Hz`;
+};
+
+const graphEqGainLabel = (gainDb) => dbMarkLabel(Number(gainDb.toFixed(1)));
+
+const renderGraphEqCollapsedSummary = (eq) => {
+  const normalized = normalizeGraphEqSettings(eq);
+  const gains = normalized.points.map((point) => Number(point.gain_db) || 0);
+  const hasGainChange = gains.some((gain) => Math.abs(gain) >= 0.05);
+  const gainSummary = hasGainChange
+    ? `${graphEqGainLabel(Math.min(...gains))} ~ ${graphEqGainLabel(Math.max(...gains))}`
+    : "0 dB";
+  const frequencySummary = normalized.points
+    .map((point) => `${graphEqPointTypes[point.type]} ${graphEqFrequencyLabel(point.frequency_hz)}`)
+    .join(" · ");
   return `
-    <svg class="graph-eq-mini-preview" viewBox="0 0 1000 360" aria-hidden="true" preserveAspectRatio="none">
-      <path class="graph-eq-mini-curve" d="${path}"></path>
-    </svg>
+    <div class="graph-eq-collapsed-summary" aria-label="Graph EQ summary">
+      <div>
+        <strong>${normalized.points.length} Points</strong>
+        <span>${escapeHtml(frequencySummary)}</span>
+      </div>
+      <p>Gain ${escapeHtml(gainSummary)}</p>
+    </div>
   `;
 };
 
@@ -6242,7 +6281,7 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
       <div class="graph-eq-inline-controls-head">
         <div>
           <h5>Selected Point <small lang="ko">선택한 점</small></h5>
-          <p>${selected ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz` : "점을 추가하세요"}</p>
+          <p data-graph-eq-selected-summary>${selected ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz` : "점을 추가하세요"}</p>
         </div>
         <button
           class="button"
@@ -6316,7 +6355,7 @@ const renderLayerGraphEqSection = (layerId) => {
         </button>
       </div>
       ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
-      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqMiniPreviewSvg(eq)}
+      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqCollapsedSummary(eq)}
     </section>
   `;
 };
@@ -6324,6 +6363,39 @@ const renderLayerGraphEqSection = (layerId) => {
 const selectedOrFirstGraphEqPointId = (layerId, eq) => (
   selectedGraphEqPointId(layerId) || eq.points[0]?.id || null
 );
+
+const inlineGraphEqRuntimePointsWithStableIds = (layerId, points) => {
+  const currentPoints = graphEqForLayer(state.draft, layerId).points;
+  return points.map((point, index) => ({
+    ...point,
+    id: point.id || currentPoints[index]?.id,
+  }));
+};
+
+const syncInlineGraphEqPointControls = (container, points, selectedPointId) => {
+  const rows = Array.from(container.querySelectorAll?.("[data-graph-eq-point-row]") || []);
+  const summary = container.querySelector?.("[data-graph-eq-selected-summary]");
+  const selected = points.find((point) => point.id === selectedPointId) || points[0] || null;
+  if (summary) {
+    summary.textContent = selected
+      ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz`
+      : "점을 추가하세요";
+  }
+  points.forEach((point) => {
+    const row = rows.find((candidate) => candidate.dataset.graphEqPointId === point.id);
+    if (!row) return;
+    row.classList.toggle("selected", point.id === selected?.id);
+    const type = row.querySelector('[data-graph-eq-point-control="type"]');
+    if (type && document.activeElement !== type) type.value = point.type;
+    const syncValue = (name, value) => {
+      const control = row.querySelector(`[data-graph-eq-point-control="${name}"]`);
+      if (control && document.activeElement !== control) control.value = String(value);
+    };
+    syncValue("freq", Math.round(point.frequency_hz));
+    syncValue("gain", Number(point.gain_db.toFixed(1)));
+    syncValue("q", Number(point.q.toFixed(2)));
+  });
+};
 
 const inlineGraphEqPointsWithUpdate = (eq, pointId, updates) => (
   eq.points.map((point) => (
@@ -6425,6 +6497,36 @@ const bindInlineGraphEqControls = (card, layerId) => {
   });
 };
 
+const configureInlineGraphEqWeq8cUi = (weq) => {
+  const applyShadowPatch = () => {
+    const root = weq?.shadowRoot;
+    if (!root) {
+      requestAnimationFrame(applyShadowPatch);
+      return;
+    }
+    if (root.querySelector("style[data-secret-pond-graph-eq-layout]")) return;
+    const style = document.createElement("style");
+    style.dataset.secretPondGraphEqLayout = "true";
+    style.textContent = `
+      :host {
+        gap: 0 !important;
+        padding: 12px !important;
+      }
+
+      .filters {
+        display: none !important;
+      }
+
+      .visualisation {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+    `;
+    root.appendChild(style);
+  };
+  applyShadowPatch();
+};
+
 const initializeInlineGraphEqEditors = () => {
   document.querySelectorAll("[data-graph-eq-inline-editor]").forEach((container) => {
     const layerId = container.dataset.graphEqInlineEditor;
@@ -6436,10 +6538,19 @@ const initializeInlineGraphEqEditors = () => {
     if (!runtime) return;
     weq.dataset.secretPondBound = "true";
     weq.runtime = runtime;
+    configureInlineGraphEqWeq8cUi(weq);
     runtime.on?.("filtersChanged", (filters) => {
-      const nextPoints = adapter.toSecretPondEqPoints?.(filters) || [];
+      state.graphEqInlinePreserveMountLayerId = layerId;
+      const nextPoints = inlineGraphEqRuntimePointsWithStableIds(
+        layerId,
+        adapter.toSecretPondEqPoints?.(filters) || [],
+      );
       if (!nextPoints.length) return;
-      commitInlineGraphEqPoints(layerId, nextPoints, selectedOrFirstGraphEqPointId(layerId, { points: nextPoints }));
+      const selectedPointId = selectedOrFirstGraphEqPointId(layerId, { points: nextPoints });
+      commitInlineGraphEqPoints(layerId, nextPoints, selectedPointId, {
+        renderAfterSync: false,
+        afterSync: () => syncInlineGraphEqPointControls(container, nextPoints, selectedPointId),
+      });
     });
   });
 };
@@ -7233,6 +7344,7 @@ const clearDraftSaveTimer = () => {
 const invalidatePendingDraftSaves = () => {
   clearDraftSaveTimer();
   state.draftSaveRequestId += 1;
+  state.graphEqInlinePreserveMountLayerId = null;
   if (state.liveApplyFeedback) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(state.liveApplyFeedback, {
       type: "mode_changed",
@@ -7342,6 +7454,7 @@ const saveDraft = async () => {
   } catch (error) {
     if (isCurrentDraftSave(request)) {
       updateLiveApplyFeedbackForRequestFailure(request);
+      state.graphEqInlinePreserveMountLayerId = null;
       rollbackDraftCoveredControlsFromActive(request.coveredFeedbackControlIds);
       showSettingsApplyFailureCaution(error.message);
       throw error;
@@ -7349,6 +7462,7 @@ const saveDraft = async () => {
     return null;
   } finally {
     if (isCurrentDraftSave(request)) {
+      const preservedGraphEqLayerId = state.graphEqInlinePreserveMountLayerId;
       state.draftSaveInFlight = false;
       state.pendingCoveredFeedbackSurfaceId = undefined;
       state.coveredFeedbackSurfaceId = undefined;
@@ -7357,6 +7471,13 @@ const saveDraft = async () => {
       state.pendingCoveredFeedbackControlIds = [];
       state.coveredFeedbackControlIds = [];
       renderDraftSaveFeedbackSurfaces();
+      if (preservedGraphEqLayerId) {
+        setTimeout(() => {
+          if (state.graphEqInlinePreserveMountLayerId === preservedGraphEqLayerId) {
+            state.graphEqInlinePreserveMountLayerId = null;
+          }
+        }, 700);
+      }
     }
   }
 };

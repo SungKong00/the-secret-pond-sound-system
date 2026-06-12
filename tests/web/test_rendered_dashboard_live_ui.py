@@ -152,16 +152,76 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["inlineGraphEqSections"] == 3
     assert rendered["expandedGraphEqEditors"] in {0, 1}
     assert rendered["visibleText"] is True
-    assert rendered["miniPreviewCount"] >= 2
+    assert rendered["miniPreviewCount"] == 0
     if rendered["expandedGraphEqEditors"]:
-        assert rendered["editorRect"]["width"] > 420
-        assert rendered["weqHostRect"]["width"] > 200
-        assert rendered["weqHostRect"]["height"] > 160
+        assert rendered["editorRect"]["width"] > 700
+        assert rendered["weqHostRect"]["width"] > 700
+        assert rendered["weqHostRect"]["height"] > 440
     assert rendered["stepButtonCount"] >= 6
     for button in rendered["stepButtons"]:
-        assert button["width"] >= 32
-        assert button["height"] >= 32
+        assert button["width"] >= 40
+        assert button["height"] >= 38
     assert rendered["mainPanelRect"]["right"] <= rendered["rightPanelRect"]["x"]
+    assert rendered["rightPanelRect"]["width"] >= 280
+
+
+def test_inline_graph_eq_default_desktop_width_has_no_horizontal_overflow() -> None:
+    chrome = _chrome_binary()
+    if chrome is None:
+        pytest.skip("Google Chrome or Chromium is required for rendered dashboard verification")
+
+    with tempfile.TemporaryDirectory(prefix="secret-pond-graph-eq-default-ui-") as temp_dir:
+        dashboard_path = _write_rendered_dashboard(
+            Path(temp_dir),
+            after_app_script="""
+const openGraphEqFixture = () => {
+  if (!state.snapshot?.settings?.active) {
+    requestAnimationFrame(openGraphEqFixture);
+    return;
+  }
+  setWorkspaceTab("mixer");
+  if (typeof toggleExpandedGraphEqLayer === "function") {
+    toggleExpandedGraphEqLayer("mid");
+  }
+};
+requestAnimationFrame(openGraphEqFixture);
+""",
+        )
+        with tempfile.TemporaryDirectory(prefix="secret-pond-chrome-") as profile_dir:
+            remote_debugging_port = _free_port()
+            process = subprocess.Popen(
+                [
+                    chrome,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={profile_dir}",
+                    f"--remote-debugging-port={remote_debugging_port}",
+                    "--window-size=1280,900",
+                    dashboard_path.as_uri(),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                page = _connect_to_first_page(remote_debugging_port)
+                page.send("Runtime.enable")
+                rendered = page.wait_for_inline_graph_eq_sections()
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    assert rendered["viewportWidth"] == 1280
+    assert rendered["bodyWidth"] <= rendered["viewportWidth"]
+    assert rendered["expandedGraphEqEditors"] == 1
+    assert rendered["weqHostRect"]["width"] > 640
+    assert rendered["weqHostRect"]["height"] > 440
+    assert rendered["rightPanelRect"]["width"] >= 280
 
 
 def test_rendered_dashboard_verification_output_records_desktop_behavior_notes() -> None:

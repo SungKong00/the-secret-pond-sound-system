@@ -15,6 +15,8 @@ const WEQ8C_TO_SECRET_POND_TYPES = Object.freeze({
   highshelf12: "high_shelf",
   highshelf24: "high_shelf",
 });
+const WEQ8C_GAIN_MIN_DB = -15;
+const WEQ8C_GAIN_MAX_DB = 15;
 const NOOP_FILTER = Object.freeze({
   type: "noop",
   frequency: 350,
@@ -31,7 +33,7 @@ const normalizeSecretPondPoint = (point, index = 0) => {
     id: String(point?.id || `point-${index + 1}`),
     type,
     frequency_hz: Math.round(clamp(point?.frequency_hz ?? point?.frequency ?? 1000, 20, 20000)),
-    gain_db: Number(clamp(point?.gain_db ?? point?.gain ?? 0, -18, 18).toFixed(1)),
+    gain_db: Number(clamp(point?.gain_db ?? point?.gain ?? 0, WEQ8C_GAIN_MIN_DB, WEQ8C_GAIN_MAX_DB).toFixed(1)),
     q: Number(clamp(point?.q ?? point?.Q ?? 1, 0.1, 18).toFixed(2)),
   };
 };
@@ -85,6 +87,8 @@ const syncRuntime = (runtime, points = []) => {
 
 window.secretPondGraphEq = Object.freeze({
   MAX_SECRET_POND_EQ_POINTS,
+  WEQ8C_GAIN_MIN_DB,
+  WEQ8C_GAIN_MAX_DB,
   SUPPORTED_SECRET_POND_TYPES,
   createRuntime,
   syncRuntime,

@@ -475,7 +475,7 @@ input[type="range"]:focus-visible {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 0.82fr) minmax(620px, 1.7fr) minmax(300px, 0.84fr);
+  grid-template-columns: minmax(330px, 0.75fr) minmax(770px, 1.95fr) minmax(280px, 0.7fr);
   grid-template-areas: "ops main side";
   align-items: start;
   gap: 12px;
@@ -1288,7 +1288,7 @@ input[type="range"]:focus-visible {
   display: grid;
   gap: 6px;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 9px 6px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.018);
@@ -2777,33 +2777,58 @@ section.control-group .control-group-head h4::before {
   font-size: 11px;
 }
 
-.graph-eq-mini-preview {
-  display: block;
-  width: 100%;
-  height: 72px;
+.graph-eq-collapsed-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
   margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(223, 213, 191, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.022);
 }
 
-.graph-eq-mini-curve {
-  fill: none;
-  stroke: #d6a84d;
-  stroke-width: 10;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+.graph-eq-collapsed-summary div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.graph-eq-collapsed-summary strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.graph-eq-collapsed-summary span,
+.graph-eq-collapsed-summary p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-eq-collapsed-summary p {
+  color: var(--amber);
+  font-weight: 760;
 }
 
 .graph-eq-inline-editor {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 260px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  min-height: 360px;
+  min-height: 0;
   margin-top: 10px;
 }
 
 .graph-eq-weq8c-host {
   min-width: 0;
-  min-height: 340px;
+  min-height: 470px;
   overflow: hidden;
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
@@ -2812,7 +2837,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-inline-editor weq8-ui {
   width: 100%;
-  min-height: 340px;
+  min-height: 470px;
 }
 
 .graph-eq-inline-controls {
@@ -2833,6 +2858,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-point-rows {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3092,19 +3118,19 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-stepper {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 34px;
-  gap: 5px;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  gap: 7px;
   align-items: center;
 }
 
 .graph-eq-step-button {
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 42px;
+  min-height: 40px;
   border: 1px solid rgba(223, 213, 191, 0.16);
   border-radius: 7px;
   background: rgba(223, 213, 191, 0.1);
   color: var(--text);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
@@ -3371,6 +3397,15 @@ input[type="checkbox"] {
   accent-color: var(--green);
 }
 
+@media (max-width: 1360px) and (min-width: 1121px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(300px, 0.86fr) minmax(760px, 1.64fr);
+    grid-template-areas:
+      "ops main"
+      "side main";
+  }
+}
+
 @media (max-width: 1120px) {
   .topbar,
   .dashboard-grid {
@@ -3403,7 +3438,7 @@ input[type="checkbox"] {
     grid-template-columns: 1fr;
     grid-template-areas:
       "level"
-      "eq"
+      "graph-eq"
       "filter";
   }
 
