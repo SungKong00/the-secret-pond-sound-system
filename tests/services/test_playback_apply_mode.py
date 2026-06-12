@@ -5,8 +5,14 @@ from collections.abc import Callable
 import numpy as np
 
 from secret_pond.audio.buffers import AudioBuffer
-from secret_pond.audio.renderer import LiveEqSourceError
-from secret_pond.config import AppSettings, EqSettings
+from secret_pond.audio.file_io import write_wav_atomic
+from secret_pond.audio.renderer import LayerRenderer, LiveEqSourceError
+from secret_pond.config import (
+    AppSettings,
+    AudioFormatSettings,
+    EqSettings,
+    SourceSelectionSettings,
+)
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.live_graph_eq import (
     LIVE_GRAPH_EQ_FAILURE_WARNING,
@@ -242,6 +248,49 @@ def test_stable_to_live_mode_missing_live_source_rolls_back_to_stable_state() ->
     assert runtime.playback_render_settings == stable
     assert runtime.player.layer_buffer_updates == []
     assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+
+
+def test_stable_to_live_mode_uses_voice_stack_raw_when_selected_stack_is_stale(
+    tmp_path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    stable = AppSettings().model_copy(
+        update={
+            "audio": AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+            "sources": SourceSelectionSettings(
+                voice_stack_path="data/sources/voice/stack/VS0608_072702.wav",
+            ),
+            "layers": {
+                **AppSettings().layers,
+                "voice": AppSettings().layers["voice"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(AppSettings().layers["voice"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+    state = SettingsState(active=stable, draft=stable)
+    runtime = RuntimeHarness(
+        state,
+        AudioBuffer(samples=np.zeros((8_000, 2), dtype=np.float32), sample_rate=8_000),
+        paths=paths,
+    )
+    runtime.renderer = LayerRenderer(paths)
+
+    result = apply_playback_apply_mode(runtime, "live")  # type: ignore[arg-type]
+
+    assert result.active.playback.apply_mode == "live"
+    assert runtime.transition_warning is None
+    assert runtime.player.layer_buffer_updates
+    assert runtime.player.layer_buffer_updates[-1][0] == "voice"
+    assert [event_type for event_type, _payload in runtime.logger.events] == [
+        "settings.playback_apply_mode_applied"
+    ]
 
 
 def test_live_to_stable_mode_restores_rendered_cache_paths_without_live_eq_render(

@@ -39,11 +39,22 @@ class LiveEqSourceError(FileNotFoundError):
         layer_id: str,
         source_path: Path | None,
         reason: str = "EQ-free source is unavailable",
+        *,
+        fallback_path: Path | None = None,
+        fallback_available: bool | None = None,
     ) -> None:
         self.layer_id = layer_id
         self.source_path = source_path
+        self.fallback_path = fallback_path
+        self.fallback_available = fallback_available
         source = f": {source_path}" if source_path is not None else ""
-        super().__init__(f"Live Graph EQ source for {layer_id} is unavailable{source}. {reason}")
+        fallback = ""
+        if fallback_path is not None:
+            fallback_status = "available" if fallback_available else "unavailable"
+            fallback = f" fallback={fallback_path} ({fallback_status})."
+        super().__init__(
+            f"Live Graph EQ source for {layer_id} is unavailable{source}. {reason}.{fallback}"
+        )
 
 
 @dataclass
@@ -196,9 +207,26 @@ class LayerRenderer:
                 source_path,
                 "playback cache is not an EQ-free source",
             )
+        if layer_id == "voice":
+            return self._voice_live_eq_source_path(settings, source_path)
         if not source_path.exists():
             raise LiveEqSourceError(layer_id, source_path)
         return source_path
+
+    def _voice_live_eq_source_path(self, settings: AppSettings, source_path: Path) -> Path:
+        if source_path.exists():
+            return source_path
+        fallback_path = self._paths.voice_stack_raw
+        fallback_available = fallback_path.exists()
+        if settings.voice_stack.mode == "live_ephemeral" and fallback_available:
+            return fallback_path
+        raise LiveEqSourceError(
+            "voice",
+            source_path,
+            "selected Voice Stack source is missing and fallback is unavailable",
+            fallback_path=fallback_path,
+            fallback_available=fallback_available,
+        )
 
     def _output_path(self, layer_id: LayerId) -> Path:
         if layer_id == "low":

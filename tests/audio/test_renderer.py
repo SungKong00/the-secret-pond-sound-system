@@ -182,6 +182,33 @@ def test_live_eq_render_uses_voice_stack_source_not_voice_playback_cache(
     )
 
 
+def test_live_eq_render_uses_voice_stack_raw_when_selected_live_ephemeral_stack_is_stale(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    raw_frequency = 500.0
+    stale_selected = paths.voice_stack_sources_dir / "VS0608_072702.wav"
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=sine_wave(raw_frequency) * 0.25, sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(samples=sine_wave(2_500.0) * 0.25, sample_rate=8_000),
+    )
+    settings.sources = SourceSelectionSettings(
+        voice_stack_path=stale_selected.relative_to(paths.root).as_posix(),
+    )
+
+    rendered = LayerRenderer(paths).render_live_eq_layer_buffer("voice", settings)
+
+    assert tone_magnitude(rendered.samples, 8_000, raw_frequency) > (
+        tone_magnitude(rendered.samples, 8_000, 2_500.0) * 4.0
+    )
+
+
 def test_live_eq_render_reports_missing_eq_free_source_explicitly(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     paths.ensure_directories()
