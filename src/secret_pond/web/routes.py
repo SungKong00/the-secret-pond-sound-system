@@ -19,6 +19,11 @@ from secret_pond.services.device_switcher import (
     device_settings_from_payload,
 )
 from secret_pond.services.diagnostics import diagnostics_payload
+from secret_pond.services.live_graph_eq import (
+    live_graph_eq_state,
+    mark_slow_live_graph_eq_requests,
+    run_due_live_graph_eq_update,
+)
 from secret_pond.services.playback_apply_mode import (
     PlaybackApplyMode,
     StagedGraphEqChoice,
@@ -82,6 +87,10 @@ SOURCE_MUTATION_ERRORS = (
 class PlaybackApplyModeRequest(BaseModel):
     mode: PlaybackApplyMode
     staged_graph_eq: StagedGraphEqChoice = "discard"
+
+
+class LiveGraphEqTickRequest(BaseModel):
+    now_ms: int | None = None
 
 
 @router.get("/state")
@@ -437,6 +446,32 @@ def seek_playback(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         )
         runtime.mark_state_changed()
         return {"state": _state_payload(runtime)}
+
+
+@router.post("/playback/live-graph-eq/tick")
+def tick_live_graph_eq(
+    request: Request,
+    payload: LiveGraphEqTickRequest | None = Body(default=None),
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        if runtime.controller.settings.playback.apply_mode != "live":
+            return {"applied": False, "state": _state_payload(runtime)}
+        applied_request = run_due_live_graph_eq_update(
+            runtime,
+            now_ms=payload.now_ms if payload is not None else None,
+        )
+        slow = mark_slow_live_graph_eq_requests(
+            runtime,
+            now_ms=payload.now_ms if payload is not None else None,
+        )
+        live_state = live_graph_eq_state(runtime)
+        if applied_request is not None or slow or live_state.failure_warning:
+            runtime.mark_state_changed()
+        return {
+            "applied": applied_request is not None,
+            "state": _state_payload(runtime),
+        }
 
 
 @router.put("/playback/apply-mode")

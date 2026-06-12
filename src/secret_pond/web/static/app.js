@@ -117,6 +117,8 @@ const state = {
   deferredInteractiveRenders: {},
 };
 
+let liveGraphEqTickTimer = null;
+
 const $ = (id) => document.getElementById(id);
 
 const containsKorean = (message) => /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(message);
@@ -2216,7 +2218,21 @@ const applyState = (payload, options = {}) => {
   renderState();
   renderSystemPanel();
   clearVoiceRawSelectionAfterPreviewStop(currentSnapshot, state.snapshot);
+  scheduleLiveGraphEqTick(state.snapshot?.playback?.live_graph_eq);
   return true;
+};
+
+const scheduleLiveGraphEqTick = (liveGraphEq) => {
+  if (liveGraphEqTickTimer) {
+    (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
+    liveGraphEqTickTimer = null;
+  }
+  if (currentPlaybackApplyMode() !== "live" || !liveGraphEq?.pending) return;
+  const delayMs = Math.max(100, Number(liveGraphEq.apply_delay_ms || 1000));
+  liveGraphEqTickTimer = (window.setTimeout || setTimeout)(async () => {
+    liveGraphEqTickTimer = null;
+    await control("/api/playback/live-graph-eq/tick", { syncDraft: false }).catch(() => {});
+  }, delayMs);
 };
 
 const syncDraftSnapshot = () => {

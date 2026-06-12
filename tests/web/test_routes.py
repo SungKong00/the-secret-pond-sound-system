@@ -11535,6 +11535,159 @@ def test_api_stable_eq_draft_change_marks_settings_pending(tmp_path: Path) -> No
     }
 
 
+def test_api_live_graph_eq_tick_runs_due_request_under_runtime_lock(tmp_path: Path) -> None:
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    active = runtime.settings_store.load().active.model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    draft_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    draft_points[1]["gain_db"] = 6.0
+    draft = active.model_copy(
+        update={
+            "layers": {
+                **active.layers,
+                "mid": active.layers["mid"].model_copy(
+                    update={"eq": EqSettings(points=draft_points)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    active_state = runtime.settings_store.save(SettingsState(active=active, draft=active))
+    runtime.apply_settings_state(active_state)
+
+    draft_response = client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
+    pending_request = live_graph_eq_state(runtime).pending_request
+    assert pending_request is not None
+    tick_response = client.post(
+        "/api/playback/live-graph-eq/tick",
+        json={"now_ms": pending_request.due_at_ms},
+    )
+
+    assert draft_response.status_code == 200
+    assert tick_response.status_code == 200
+    payload = tick_response.json()
+    assert payload["applied"] is True
+    assert payload["state"]["playback"]["live_graph_eq"]["status"] == "applied"
+    assert payload["state"]["playback"]["live_graph_eq"]["pending"] is False
+
+
+def test_api_live_graph_eq_tick_applies_only_latest_pending_request(tmp_path: Path) -> None:
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    active = runtime.settings_store.load().active.model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    active_state = runtime.settings_store.save(SettingsState(active=active, draft=active))
+    runtime.apply_settings_state(active_state)
+
+    first_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    first_points[1]["gain_db"] = 3.0
+    first_draft = active.model_copy(
+        update={
+            "layers": {
+                **active.layers,
+                "mid": active.layers["mid"].model_copy(
+                    update={"eq": EqSettings(points=first_points)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    first_response = client.put("/api/settings/draft", json=first_draft.model_dump(mode="json"))
+    first_request = live_graph_eq_state(runtime).pending_request
+    assert first_response.status_code == 200
+    assert first_request is not None
+
+    second_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    second_points[1]["gain_db"] = 6.0
+    second_draft = active.model_copy(
+        update={
+            "layers": {
+                **active.layers,
+                "mid": active.layers["mid"].model_copy(
+                    update={"eq": EqSettings(points=second_points)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    second_response = client.put("/api/settings/draft", json=second_draft.model_dump(mode="json"))
+    second_request = live_graph_eq_state(runtime).pending_request
+    assert second_response.status_code == 200
+    assert second_request is not None
+    assert second_request.request_id != first_request.request_id
+
+    early_tick = client.post(
+        "/api/playback/live-graph-eq/tick",
+        json={"now_ms": first_request.due_at_ms},
+    )
+
+    assert early_tick.status_code == 200
+    assert early_tick.json()["applied"] is False
+    assert live_graph_eq_state(runtime).pending_request == second_request
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 0.0
+
+    due_tick = client.post(
+        "/api/playback/live-graph-eq/tick",
+        json={"now_ms": second_request.due_at_ms},
+    )
+
+    assert due_tick.status_code == 200
+    assert due_tick.json()["applied"] is True
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 6.0
+
+
+def test_api_live_graph_eq_tick_does_not_execute_after_switching_to_stable(
+    tmp_path: Path,
+) -> None:
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    client = create_test_client(tmp_path, with_sources=True)
+    runtime = client.app.state.runtime
+    active = runtime.settings_store.load().active.model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    active_state = runtime.settings_store.save(SettingsState(active=active, draft=active))
+    runtime.apply_settings_state(active_state)
+    draft_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    draft_points[1]["gain_db"] = 6.0
+    draft = active.model_copy(
+        update={
+            "layers": {
+                **active.layers,
+                "mid": active.layers["mid"].model_copy(
+                    update={"eq": EqSettings(points=draft_points)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    client.put("/api/settings/draft", json=draft.model_dump(mode="json"))
+    pending_request = live_graph_eq_state(runtime).pending_request
+    assert pending_request is not None
+
+    stable_response = client.put("/api/playback/apply-mode", json={"mode": "stable"})
+    tick_response = client.post(
+        "/api/playback/live-graph-eq/tick",
+        json={"now_ms": pending_request.due_at_ms},
+    )
+
+    assert stable_response.status_code == 200
+    assert tick_response.status_code == 200
+    assert tick_response.json()["applied"] is False
+    assert live_graph_eq_state(runtime).pending_request is None
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 0.0
+
+
 def test_api_state_payload_reads_settings_without_refreshing_runtime_cache(
     tmp_path: Path,
 ) -> None:

@@ -36,6 +36,8 @@ class LiveGraphEqState:
     slow_caution: bool = False
     failure_warning: str | None = None
     invalidation_reason: str | None = None
+    last_applied_request_id: int | None = None
+    last_applied_layer_id: LayerId | None = None
 
 
 def live_graph_eq_state(runtime: Any) -> LiveGraphEqState:
@@ -157,6 +159,8 @@ def apply_live_graph_eq_render_result(
     state.slow_caution = False
     state.failure_warning = None
     state.invalidation_reason = None
+    state.last_applied_request_id = request.request_id
+    state.last_applied_layer_id = normalized_layer_id
     _persist_confirmed_eq_if_available(runtime, normalized_layer_id, eq)
     return True
 
@@ -166,6 +170,8 @@ def invalidate_live_graph_eq_requests(runtime: Any, reason: str) -> None:
     state.pending_request = None
     state.slow_caution = False
     state.invalidation_reason = reason
+    state.last_applied_request_id = None
+    state.last_applied_layer_id = None
 
 
 def confirmed_live_graph_eq(runtime: Any, layer_id: str) -> EqSettings:
@@ -180,6 +186,29 @@ def confirmed_live_graph_eq(runtime: Any, layer_id: str) -> EqSettings:
     if settings is not None:
         return settings.layers[normalized_layer_id].eq.model_copy(deep=True)
     return EqSettings()
+
+
+def live_graph_eq_payload(runtime: Any) -> dict[str, Any]:
+    state = live_graph_eq_state(runtime)
+    request = state.pending_request
+    status = "idle"
+    if request is not None:
+        status = "slow" if state.slow_caution else "pending"
+    elif state.failure_warning:
+        status = "failed"
+    elif state.last_applied_request_id is not None:
+        status = "applied"
+    return {
+        "status": status,
+        "pending": request is not None,
+        "layer_id": request.layer_id if request is not None else state.last_applied_layer_id,
+        "request_id": request.request_id if request is not None else state.last_applied_request_id,
+        "due_at_ms": request.due_at_ms if request is not None else None,
+        "apply_delay_ms": LIVE_EQ_APPLY_DEBOUNCE_MS,
+        "slow_caution": state.slow_caution,
+        "failure_warning": state.failure_warning,
+        "invalidation_reason": state.invalidation_reason,
+    }
 
 
 def _persist_confirmed_eq_if_available(runtime: Any, layer_id: LayerId, eq: EqSettings) -> None:
