@@ -74,6 +74,47 @@ console.log(JSON.stringify({{ filters, roundTrip, positions }}));
     assert 0 < output["positions"][1]["x"] < 1
 
 
+def test_dsssp_adapter_locks_endpoint_role_even_with_custom_ids() -> None:
+    output = run_node(
+        f"""
+import {{
+  displayPositionForPoint,
+  graphEqDisplayConfig,
+  isLockedEndpointPoint,
+  toDssspFilters,
+  toSecretPondPoints
+}} from {json.dumps(ADAPTER.as_uri())};
+
+const points = [
+  {{ id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 }},
+  {{ id: "custom-mid", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 }},
+  {{ id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 }},
+];
+const displayFilters = toDssspFilters(points);
+const filters = displayFilters.map((filter) => ({{ ...filter }}));
+filters[0].freq = 1800;
+filters[2].freq = 1200;
+const roundTrip = toSecretPondPoints(filters, points);
+const locked = points.map((point, index) => isLockedEndpointPoint(point, index, points));
+const positions = points.map((point, index) => displayPositionForPoint(
+  point,
+  graphEqDisplayConfig,
+  index,
+  points,
+));
+console.log(JSON.stringify({{ displayFilters, roundTrip, locked, positions }}));
+"""
+    )
+
+    assert output["locked"] == [True, False, True]
+    assert output["displayFilters"][0]["freq"] == 20
+    assert output["displayFilters"][2]["freq"] == 20000
+    assert output["roundTrip"][0]["frequency_hz"] == 280
+    assert output["roundTrip"][2]["frequency_hz"] == 6400
+    assert output["positions"][0]["x"] == 0
+    assert output["positions"][2]["x"] == 1
+
+
 def test_dsssp_adapter_marks_drag_end_and_rejects_notch() -> None:
     output = run_node(
         f"""

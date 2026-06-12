@@ -2267,6 +2267,41 @@ const midDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
 assert(!Object.hasOwn(lowDragUpdates, "frequency_hz"));
 assert(!Object.hasOwn(highDragUpdates, "frequency_hz"));
 assert(Object.hasOwn(midDragUpdates, "frequency_hz"));
+const customEndpointEq = {
+  points: [
+    { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
+    { id: "custom-mid", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 },
+    { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
+  ],
+  highpass_hz: 20,
+  lowpass_hz: 20000,
+};
+const customLowScreen = helpers.graphEqPointScreenPosition(
+  customEndpointEq.points[0],
+  0,
+  customEndpointEq.points,
+);
+const customHighScreen = helpers.graphEqPointScreenPosition(
+  customEndpointEq.points[2],
+  2,
+  customEndpointEq.points,
+);
+const customLowDrag = helpers.graphEqPointUpdatesFromPointerRatio(
+  customEndpointEq.points[0],
+  { x: 0.7, y: 0.2 },
+  0,
+  customEndpointEq.points,
+);
+const customHighDrag = helpers.graphEqPointUpdatesFromPointerRatio(
+  customEndpointEq.points[2],
+  { x: 0.3, y: 0.8 },
+  2,
+  customEndpointEq.points,
+);
+assert.strictEqual(customLowScreen.x, 0);
+assert.strictEqual(customHighScreen.x, 1);
+assert(!Object.hasOwn(customLowDrag, "frequency_hz"));
+assert(!Object.hasOwn(customHighDrag, "frequency_hz"));
 """,
     )
 

@@ -750,28 +750,38 @@ const graphEqPointResponseGain = (frequencyHz, point) => {
   return 0;
 };
 
-const graphEqLockedEndpointX = (point) => {
+const graphEqLockedEndpointX = (point, index = null, points = []) => {
   if (!point) return null;
-  if ((point.id === "low" || point.id === "legacy-low") && point.type === "low_shelf") {
+  const firstEndpoint = Number(index) === 0;
+  const lastEndpoint = Array.isArray(points) &&
+    points.length > 0 &&
+    Number(index) === points.length - 1;
+  if (
+    point.type === "low_shelf" &&
+    (point.id === "low" || point.id === "legacy-low" || firstEndpoint)
+  ) {
     return 0;
   }
-  if ((point.id === "high" || point.id === "legacy-high") && point.type === "high_shelf") {
+  if (
+    point.type === "high_shelf" &&
+    (point.id === "high" || point.id === "legacy-high" || lastEndpoint)
+  ) {
     return 1;
   }
   return null;
 };
 
-const graphEqPointScreenGain = (point) => {
-  const lockedX = graphEqLockedEndpointX(point);
+const graphEqPointScreenGain = (point, index = null, points = []) => {
+  const lockedX = graphEqLockedEndpointX(point, index, points);
   if (lockedX === null) return Number(point.gain_db) || 0;
   return graphEqPointResponseGain(graphEqXToFrequency(lockedX), point);
 };
 
-const graphEqPointScreenPosition = (point) => {
-  const lockedX = graphEqLockedEndpointX(point);
+const graphEqPointScreenPosition = (point, index = null, points = []) => {
+  const lockedX = graphEqLockedEndpointX(point, index, points);
   return {
     x: lockedX ?? graphEqFrequencyToX(point.frequency_hz),
-    y: graphEqGainToY(graphEqPointScreenGain(point)),
+    y: graphEqGainToY(graphEqPointScreenGain(point, index, points)),
   };
 };
 
@@ -805,8 +815,8 @@ const graphEqNearestPointId = (eq, pointer) => {
   const normalized = normalizeGraphEqSettings(eq);
   if (!normalized.points.length) return null;
   return normalized.points
-    .map((point) => {
-      const position = graphEqPointScreenPosition(point);
+    .map((point, index) => {
+      const position = graphEqPointScreenPosition(point, index, normalized.points);
       const dx = position.x - clampNumber(pointer?.x ?? 0, 0, 1);
       const dy = position.y - clampNumber(pointer?.y ?? 0, 0, 1);
       return { id: point.id, distance: Math.hypot(dx * 1.25, dy) };
@@ -831,9 +841,9 @@ const graphEqPointGainForScreenGain = (point, screenGainDb, lockedX) => {
   return clampNumber(screenGainDb / responseFactor, graphEqMinGainDb, graphEqMaxGainDb);
 };
 
-const graphEqPointUpdatesFromPointerRatio = (point, pointer) => {
+const graphEqPointUpdatesFromPointerRatio = (point, pointer, index = null, points = []) => {
   const updates = graphEqPointFromPointerRatio(pointer);
-  const lockedX = graphEqLockedEndpointX(point);
+  const lockedX = graphEqLockedEndpointX(point, index, points);
   if (lockedX === null) return updates;
   return {
     gain_db: Number(graphEqPointGainForScreenGain(point, updates.gain_db, lockedX).toFixed(1)),
@@ -6214,9 +6224,17 @@ const renderInlineGraphEqStepper = ({ inputId, controlName, pointId, value, min,
   </div>
 `;
 
-const renderInlineGraphEqPointRow = (layerId, point, selected, disabled, pointCount) => {
+const renderInlineGraphEqPointRow = (
+  layerId,
+  point,
+  selected,
+  disabled,
+  pointCount,
+  pointIndex,
+  points,
+) => {
   const token = `${graphEqSafeToken(layerId)}-${graphEqSafeToken(point.id)}`;
-  const frequencyLocked = graphEqLockedEndpointX(point) !== null;
+  const frequencyLocked = graphEqLockedEndpointX(point, pointIndex, points) !== null;
   return `
     <div
       class="graph-eq-point-row ${selected ? "selected" : ""}"
@@ -6308,12 +6326,14 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
         </button>
       </div>
       <div class="graph-eq-point-rows">
-        ${eq.points.map((point) => renderInlineGraphEqPointRow(
+        ${eq.points.map((point, index) => renderInlineGraphEqPointRow(
           layerId,
           point,
           selected?.id === point.id,
           disabled,
           eq.points.length,
+          index,
+          eq.points,
         )).join("")}
       </div>
       <div class="graph-eq-inline-actions">
@@ -6417,11 +6437,17 @@ const inlineGraphEqPointsWithUpdate = (eq, pointId, updates) => (
 
 const commitInlineGraphEqPointControl = (layerId, pointId, controlName, value) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const point = eq.points.find((candidate) => candidate.id === pointId);
+  const pointIndex = eq.points.findIndex((candidate) => candidate.id === pointId);
+  const point = eq.points[pointIndex];
   if (!point) return;
   const updates = {};
   if (controlName === "type") updates.type = value;
-  if (controlName === "freq" && graphEqLockedEndpointX(point) === null) updates.frequency_hz = Number(value);
+  if (
+    controlName === "freq" &&
+    graphEqLockedEndpointX(point, pointIndex, eq.points) === null
+  ) {
+    updates.frequency_hz = Number(value);
+  }
   if (controlName === "gain") updates.gain_db = Number(value);
   if (controlName === "q") updates.q = Number(value);
   if (!Object.keys(updates).length) return;
@@ -6614,10 +6640,10 @@ const renderGraphEqEditor = (eq, layerId) => {
     <line class="graph-eq-zero-line" x1="0" y1="${zeroY}" x2="1000" y2="${zeroY}" />
     <path class="graph-eq-curve" data-graph-eq-curve="true" d="${responsePath}" />
   `;
-  overlay.innerHTML = eq.points.map((point) => {
-      const position = graphEqPointScreenPosition(point);
+  overlay.innerHTML = eq.points.map((point, index) => {
+      const position = graphEqPointScreenPosition(point, index, eq.points);
       const selected = point.id === selectedId;
-      const lockedX = graphEqLockedEndpointX(point);
+      const lockedX = graphEqLockedEndpointX(point, index, eq.points);
       const edgeClass = lockedX === 0 ? "edge-left" : lockedX === 1 ? "edge-right" : "";
       return `
         <button
@@ -6649,8 +6675,13 @@ const renderGraphEqEditor = (eq, layerId) => {
     const pointId = graphEqNearestPointId(eq, pointer);
     startGraphEqDrag(layerId, pointId, event);
     if (!pointId) return;
-    const point = eq.points.find((item) => item.id === pointId);
-    updateDraftGraphEqPoint(layerId, pointId, graphEqPointUpdatesFromPointerRatio(point, pointer));
+    const pointIndex = eq.points.findIndex((item) => item.id === pointId);
+    const point = eq.points[pointIndex];
+    updateDraftGraphEqPoint(
+      layerId,
+      pointId,
+      graphEqPointUpdatesFromPointerRatio(point, pointer, pointIndex, eq.points),
+    );
     syncDraftSnapshot();
     renderGraphEqWorkspace();
   };
@@ -6665,9 +6696,9 @@ const graphEqPointerRatioFromPointerEvent = (event) => {
   return { x, y };
 };
 
-const graphEqPointFromPointerEvent = (event, point) => {
+const graphEqPointFromPointerEvent = (event, point, index = null, points = []) => {
   const pointer = graphEqPointerRatioFromPointerEvent(event);
-  return pointer ? graphEqPointUpdatesFromPointerRatio(point, pointer) : null;
+  return pointer ? graphEqPointUpdatesFromPointerRatio(point, pointer, index, points) : null;
 };
 
 const setGraphEqStepButtonsDisabled = (controlId, disabled) => {
@@ -6678,6 +6709,9 @@ const setGraphEqStepButtonsDisabled = (controlId, disabled) => {
 
 const renderGraphEqPointControls = (eq, layerId) => {
   const selected = selectedGraphEqPoint(eq, layerId);
+  const selectedIndex = selected
+    ? eq.points.findIndex((point) => point.id === selected.id)
+    : -1;
   const controls = $("graphEqPointControls");
   const status = $("graphEqStatus");
   const detail = $("graphEqStatusDetail");
@@ -6687,7 +6721,8 @@ const renderGraphEqPointControls = (eq, layerId) => {
   if (!controls) return;
   controls.classList.toggle("empty", !selected);
   controls.querySelector(".graph-eq-empty-state").hidden = Boolean(selected);
-  const selectedLockedEndpoint = selected && graphEqLockedEndpointX(selected) !== null;
+  const selectedLockedEndpoint = selected &&
+    graphEqLockedEndpointX(selected, selectedIndex, eq.points) !== null;
   ["graphEqPointType", "graphEqPointFreq", "graphEqPointGain", "graphEqPointQ"].forEach((id) => {
     const input = $(id);
     input.disabled = !selected || draftEditLocked() || (id === "graphEqPointFreq" && selectedLockedEndpoint);
@@ -6709,7 +6744,7 @@ const renderGraphEqPointControls = (eq, layerId) => {
   }
   if (!selected) return;
   $("graphEqPointType").value = selected.type;
-  const lockedEndpointX = graphEqLockedEndpointX(selected);
+  const lockedEndpointX = graphEqLockedEndpointX(selected, selectedIndex, eq.points);
   $("graphEqPointFreq").value = String(Math.round(
     lockedEndpointX === null ? selected.frequency_hz : graphEqXToFrequency(lockedEndpointX),
   ));
@@ -6748,8 +6783,17 @@ const commitGraphEqSelectedControl = (controlId) => {
   const layerId = currentGraphEqLayerId();
   const pointId = selectedGraphEqPointId(layerId);
   if (!pointId) return;
-  const selected = selectedGraphEqPoint(graphEqForLayer(state.draft, layerId), layerId);
-  if (controlId === "graphEqPointFreq" && graphEqLockedEndpointX(selected) !== null) return;
+  const eq = graphEqForLayer(state.draft, layerId);
+  const selected = selectedGraphEqPoint(eq, layerId);
+  const selectedIndex = selected
+    ? eq.points.findIndex((point) => point.id === selected.id)
+    : -1;
+  if (
+    controlId === "graphEqPointFreq" &&
+    graphEqLockedEndpointX(selected, selectedIndex, eq.points) !== null
+  ) {
+    return;
+  }
   const updates = {};
   if (controlId === "graphEqPointType") updates.type = $("graphEqPointType").value;
   if (controlId === "graphEqPointFreq") updates.frequency_hz = Number($("graphEqPointFreq").value);
@@ -6799,8 +6843,9 @@ const bindGraphEqControls = () => {
     const drag = state.graphEqDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const eq = graphEqForLayer(state.draft, drag.layerId);
-    const point = eq.points.find((item) => item.id === drag.pointId);
-    const updates = graphEqPointFromPointerEvent(event, point);
+    const pointIndex = eq.points.findIndex((item) => item.id === drag.pointId);
+    const point = eq.points[pointIndex];
+    const updates = graphEqPointFromPointerEvent(event, point, pointIndex, eq.points);
     if (!updates) return;
     updateDraftGraphEqPoint(drag.layerId, drag.pointId, updates);
     syncDraftSnapshot();

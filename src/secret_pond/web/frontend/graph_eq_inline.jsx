@@ -103,6 +103,7 @@ function GraphEqDssspEditor({
   const [localPoints, setLocalPoints] = useState(normalizedPoints);
   const [dragging, setDragging] = useState(false);
   const latestPointsRef = useRef(localPoints);
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     latestPointsRef.current = localPoints;
@@ -133,8 +134,7 @@ function GraphEqDssspEditor({
       const nextPoints = toSecretPondPoints(nextFilters, previousPoints);
       const nextPoint = nextPoints[event.index] || null;
       latestPointsRef.current = nextPoints;
-      setLocalPoints(nextPoints);
-      if (nextPoint) onSelect?.(nextPoint.id);
+      if (event.ended || !draggingRef.current) setLocalPoints(nextPoints);
       onChange?.({
         layerId,
         points: nextPoints,
@@ -147,6 +147,7 @@ function GraphEqDssspEditor({
 
   const handleDrag = useCallback(
     (active) => {
+      draggingRef.current = active;
       setDragging(active);
       onDragState?.({ layerId, dragging: active });
     },
@@ -175,7 +176,7 @@ function GraphEqDssspEditor({
               filter={filter}
               index={index}
               active={index === selectedIndex}
-              dragX={!isLockedEndpointPoint(point)}
+              dragX={!isLockedEndpointPoint(point, index, localPoints)}
               dragY={!disabled}
               wheelQ={!disabled}
               label={String(index + 1)}

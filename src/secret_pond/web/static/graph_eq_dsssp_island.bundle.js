@@ -25937,10 +25937,16 @@ var SecretPondDssspGraphEqBundle = (() => {
     return Math.min(max, Math.max(min, numericValue));
   };
   var normalizedSecretPondType = (type) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, type) ? type : "bell";
-  var isLockedEndpointPoint = (point) => point?.type === "low_shelf" && lockedLowIds.has(point?.id) || point?.type === "high_shelf" && lockedHighIds.has(point?.id);
-  var displayFrequencyForPoint = (point, config = graphEqDisplayConfig) => {
-    if (point?.type === "low_shelf" && lockedLowIds.has(point?.id)) return config.minFreq;
-    if (point?.type === "high_shelf" && lockedHighIds.has(point?.id)) return config.maxFreq;
+  var isFirstPoint = (index) => Number(index) === 0;
+  var isLastPoint = (index, points) => Array.isArray(points) && points.length > 0 && Number(index) === points.length - 1;
+  var isLockedEndpointPoint = (point, index = null, points = []) => point?.type === "low_shelf" && (lockedLowIds.has(point?.id) || isFirstPoint(index)) || point?.type === "high_shelf" && (lockedHighIds.has(point?.id) || isLastPoint(index, points));
+  var displayFrequencyForPoint = (point, config = graphEqDisplayConfig, index = null, points = []) => {
+    if (point?.type === "low_shelf" && (lockedLowIds.has(point?.id) || isFirstPoint(index))) {
+      return config.minFreq;
+    }
+    if (point?.type === "high_shelf" && (lockedHighIds.has(point?.id) || isLastPoint(index, points))) {
+      return config.maxFreq;
+    }
     return clamp(point?.frequency_hz ?? point?.freq ?? 1e3, config.minFreq, config.maxFreq);
   };
   var toDssspFilters = (points = [], config = graphEqDisplayConfig) => points.map((point, index) => {
@@ -25948,7 +25954,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     return {
       id: String(point?.id || `point-${index + 1}`),
       type: secretPondToDssspType[type],
-      freq: displayFrequencyForPoint(point, config),
+      freq: displayFrequencyForPoint(point, config, index, points),
       gain: clamp(point?.gain_db ?? point?.gain ?? 0, config.minGain, config.maxGain),
       q: clamp(point?.q ?? 1, 0.1, 18)
     };
@@ -25957,7 +25963,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     const previous = previousPoints[index] || {};
     const fallbackType = normalizedSecretPondType(previous.type);
     const type = dssspToSecretPondType[filter?.type] || fallbackType;
-    const locked = isLockedEndpointPoint(previous);
+    const locked = isLockedEndpointPoint(previous, index, previousPoints);
     const previousFrequency = Number(previous.frequency_hz);
     const nextFrequency = locked && Number.isFinite(previousFrequency) ? previousFrequency : Math.round(clamp(filter?.freq ?? previous.frequency_hz ?? 1e3, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq));
     return {
@@ -26058,6 +26064,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     const [localPoints, setLocalPoints] = (0, import_react2.useState)(normalizedPoints);
     const [dragging, setDragging] = (0, import_react2.useState)(false);
     const latestPointsRef = (0, import_react2.useRef)(localPoints);
+    const draggingRef = (0, import_react2.useRef)(false);
     (0, import_react2.useEffect)(() => {
       latestPointsRef.current = localPoints;
     }, [localPoints]);
@@ -26084,8 +26091,7 @@ var SecretPondDssspGraphEqBundle = (() => {
         const nextPoints = toSecretPondPoints(nextFilters, previousPoints);
         const nextPoint = nextPoints[event.index] || null;
         latestPointsRef.current = nextPoints;
-        setLocalPoints(nextPoints);
-        if (nextPoint) onSelect?.(nextPoint.id);
+        if (event.ended || !draggingRef.current) setLocalPoints(nextPoints);
         onChange?.({
           layerId,
           points: nextPoints,
@@ -26097,6 +26103,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     );
     const handleDrag = (0, import_react2.useCallback)(
       (active) => {
+        draggingRef.current = active;
         setDragging(active);
         onDragState?.({ layerId, dragging: active });
       },
@@ -26126,7 +26133,7 @@ var SecretPondDssspGraphEqBundle = (() => {
                     filter,
                     index,
                     active: index === selectedIndex,
-                    dragX: !isLockedEndpointPoint(point),
+                    dragX: !isLockedEndpointPoint(point, index, localPoints),
                     dragY: !disabled,
                     wheelQ: !disabled,
                     label: String(index + 1),

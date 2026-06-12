@@ -35,14 +35,39 @@ const normalizedSecretPondType = (type) => (
   Object.prototype.hasOwnProperty.call(secretPondToDssspType, type) ? type : "bell"
 );
 
-export const isLockedEndpointPoint = (point) => (
-  (point?.type === "low_shelf" && lockedLowIds.has(point?.id)) ||
-  (point?.type === "high_shelf" && lockedHighIds.has(point?.id))
+const isFirstPoint = (index) => Number(index) === 0;
+
+const isLastPoint = (index, points) => (
+  Array.isArray(points) &&
+  points.length > 0 &&
+  Number(index) === points.length - 1
 );
 
-export const displayFrequencyForPoint = (point, config = graphEqDisplayConfig) => {
-  if (point?.type === "low_shelf" && lockedLowIds.has(point?.id)) return config.minFreq;
-  if (point?.type === "high_shelf" && lockedHighIds.has(point?.id)) return config.maxFreq;
+export const isLockedEndpointPoint = (point, index = null, points = []) => (
+  point?.type === "low_shelf" &&
+    (lockedLowIds.has(point?.id) || isFirstPoint(index)) ||
+  point?.type === "high_shelf" &&
+    (lockedHighIds.has(point?.id) || isLastPoint(index, points))
+);
+
+export const displayFrequencyForPoint = (
+  point,
+  config = graphEqDisplayConfig,
+  index = null,
+  points = [],
+) => {
+  if (
+    point?.type === "low_shelf" &&
+    (lockedLowIds.has(point?.id) || isFirstPoint(index))
+  ) {
+    return config.minFreq;
+  }
+  if (
+    point?.type === "high_shelf" &&
+    (lockedHighIds.has(point?.id) || isLastPoint(index, points))
+  ) {
+    return config.maxFreq;
+  }
   return clamp(point?.frequency_hz ?? point?.freq ?? 1000, config.minFreq, config.maxFreq);
 };
 
@@ -58,8 +83,13 @@ export const gainToY = (gainDb, config = graphEqDisplayConfig) => (
   (config.maxGain - config.minGain)
 );
 
-export const displayPositionForPoint = (point, config = graphEqDisplayConfig) => ({
-  x: frequencyToX(displayFrequencyForPoint(point, config), config),
+export const displayPositionForPoint = (
+  point,
+  config = graphEqDisplayConfig,
+  index = null,
+  points = [],
+) => ({
+  x: frequencyToX(displayFrequencyForPoint(point, config, index, points), config),
   y: gainToY(point?.gain_db ?? point?.gain ?? 0, config),
 });
 
@@ -68,7 +98,7 @@ export const toDssspFilters = (points = [], config = graphEqDisplayConfig) => po
   return {
     id: String(point?.id || `point-${index + 1}`),
     type: secretPondToDssspType[type],
-    freq: displayFrequencyForPoint(point, config),
+    freq: displayFrequencyForPoint(point, config, index, points),
     gain: clamp(point?.gain_db ?? point?.gain ?? 0, config.minGain, config.maxGain),
     q: clamp(point?.q ?? 1, 0.1, 18),
   };
@@ -79,7 +109,7 @@ export const toSecretPondPoints = (filters = [], previousPoints = []) => filters
     const previous = previousPoints[index] || {};
     const fallbackType = normalizedSecretPondType(previous.type);
     const type = dssspToSecretPondType[filter?.type] || fallbackType;
-    const locked = isLockedEndpointPoint(previous);
+    const locked = isLockedEndpointPoint(previous, index, previousPoints);
     const previousFrequency = Number(previous.frequency_hz);
     const nextFrequency = locked && Number.isFinite(previousFrequency)
       ? previousFrequency
