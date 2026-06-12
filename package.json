@@ -5,6 +5,9 @@
     "test:e2e": "playwright test tests/web/graph_eq_inline.spec.js --project=chromium"
   },
   "dependencies": {
+    "dsssp": "0.6.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "weq8c": "0.3.5"
   },
   "devDependencies": {
