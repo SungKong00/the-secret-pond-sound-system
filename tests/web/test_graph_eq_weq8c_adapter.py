@@ -1,5 +1,6 @@
-from pathlib import Path
+from __future__ import annotations
 
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ENTRY = ROOT / "src/secret_pond/web/frontend/graph_eq_inline.js"

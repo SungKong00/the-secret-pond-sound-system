@@ -933,7 +933,10 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
     assert 'href="/static/styles.css?v=20260612-graph-eq-inline-weq8c"' in response.text
-    assert 'src="/static/graph_eq_inline.bundle.js?v=20260612-graph-eq-inline-weq8c"' in response.text
+    assert (
+        'src="/static/graph_eq_inline.bundle.js?v=20260612-graph-eq-inline-weq8c"'
+        in response.text
+    )
     assert 'src="/static/app.js?v=20260612-graph-eq-inline-weq8c"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
@@ -1541,7 +1544,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const translateUiErrorMessage = (message)" in script.text
     assert "translateUiErrorMessage(error.message)" in script.text
     assert "translateUiErrorMessage(messages.join" not in script.text
-    assert 'const workspaceTabNames = ["treatment", "stack", "mixer", "graph-eq"]' in script.text
+    assert 'const workspaceTabNames = ["treatment", "stack", "mixer"]' in script.text
     assert "const workspaceTabFromUrl = () => {" in script.text
     assert "workspaceTab: workspaceTabFromUrl()" in script.text
     assert "const workspaceTabs = () =>" in script.text

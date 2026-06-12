@@ -6393,7 +6393,7 @@ const stepInlineGraphEqNumericControl = (button) => {
 };
 
 const bindInlineGraphEqControls = (card, layerId) => {
-  card.querySelectorAll("[data-graph-eq-point-control]").forEach((control) => {
+  (card.querySelectorAll?.("[data-graph-eq-point-control]") || []).forEach((control) => {
     const commit = () => commitInlineGraphEqPointControl(
       layerId,
       control.dataset.graphEqPointId,
@@ -6411,10 +6411,10 @@ const bindInlineGraphEqControls = (card, layerId) => {
     });
     control.addEventListener("blur", commit);
   });
-  card.querySelectorAll("[data-graph-eq-step-target]").forEach((button) => {
+  (card.querySelectorAll?.("[data-graph-eq-step-target]") || []).forEach((button) => {
     button.addEventListener("click", () => stepInlineGraphEqNumericControl(button));
   });
-  card.querySelectorAll("[data-graph-eq-action]").forEach((button) => {
+  (card.querySelectorAll?.("[data-graph-eq-action]") || []).forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.graphEqAction === "add-point") addInlineGraphEqPoint(layerId);
       if (button.dataset.graphEqAction === "delete-point") {
