@@ -932,12 +932,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260612-graph-eq-inline-weq8c"' in response.text
+    assert 'href="/static/styles.css?v=20260613-graph-eq-dsssp-island"' in response.text
     assert (
-        'src="/static/graph_eq_inline.bundle.js?v=20260612-graph-eq-inline-weq8c"'
+        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260613-graph-eq-dsssp-island"'
         in response.text
     )
-    assert 'src="/static/app.js?v=20260612-graph-eq-inline-weq8c"' in response.text
+    assert 'src="/static/graph_eq_inline.bundle.js?v=' not in response.text
+    assert 'src="/static/app.js?v=20260613-graph-eq-dsssp-island"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert "No Rendered Cache" in response.text
@@ -2138,7 +2139,8 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in response.text
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
-    assert "20260612-graph-eq-inline-weq8c" in response.text
+    assert "20260613-graph-eq-dsssp-island" in response.text
+    assert "20260612-graph-eq-inline-weq8c" not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text
     assert "Loop Mixer" in response.text
@@ -2158,28 +2160,40 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert "const graphEqPointTypes" in script.text
     assert "graph-eq-layer-card-section" in script.text
     assert "renderLayerGraphEqSection" in script.text
-    assert "toggleExpandedGraphEqLayer" in script.text
+    assert "openExpandedGraphEqLayer" in script.text
+    assert "closeExpandedGraphEqLayer" in script.text
+    assert "toggleExpandedGraphEqLayer" not in script.text
     assert "initializeInlineGraphEqEditors" in script.text
+    assert "mountInlineGraphEqEditor" in script.text
+    assert "configureInlineGraphEqWeq8cUi" not in script.text
+    assert "<weq8-ui" not in script.text
+    assert "graph-eq-dsssp-root" in script.text
     assert "const graphEqFrequencyToX = " in script.text
     assert "const graphEqGainToY = " in script.text
     assert "const commitInlineGraphEqPoints = " in script.text
     assert ".graph-eq-inline-editor" in styles.text
+    assert ".graph-eq-dsssp-host" in styles.text
+    assert ".graph-eq-weq8c-host" not in styles.text
     assert ".graph-eq-collapsed-summary" in styles.text
     assert ".graph-eq-step-button" in styles.text
 
 
-def test_static_inline_graph_eq_tracks_one_expanded_layer(tmp_path: Path) -> None:
+def test_static_inline_graph_eq_open_is_idempotent_and_close_is_explicit(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ toggleExpandedGraphEqLayer, expandedGraphEqLayerId }",
+        exports="{ openExpandedGraphEqLayer, closeExpandedGraphEqLayer, expandedGraphEqLayerId }",
         body="""
 const helpers = globalThis.__secretPondTest;
 assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
-helpers.toggleExpandedGraphEqLayer("low");
+helpers.openExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
-helpers.toggleExpandedGraphEqLayer("mid");
+helpers.openExpandedGraphEqLayer("low");
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
+helpers.openExpandedGraphEqLayer("mid");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
-helpers.toggleExpandedGraphEqLayer("mid");
+helpers.closeExpandedGraphEqLayer("low");
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
+helpers.closeExpandedGraphEqLayer("mid");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
 """,
     )

@@ -2826,18 +2826,30 @@ section.control-group .control-group-head h4::before {
   margin-top: 10px;
 }
 
-.graph-eq-weq8c-host {
+.graph-eq-dsssp-host {
   min-width: 0;
-  min-height: 470px;
+  min-height: 390px;
   overflow: hidden;
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.18);
 }
 
-.graph-eq-inline-editor weq8-ui {
+.graph-eq-dsssp-root,
+.graph-eq-dsssp-surface {
   width: 100%;
-  min-height: 470px;
+  min-height: 390px;
+}
+
+.graph-eq-dsssp-surface {
+  display: block;
+  padding: 10px;
+}
+
+.graph-eq-dsssp-surface svg {
+  display: block;
+  width: 100%;
+  min-height: 360px;
 }
 
 .graph-eq-inline-controls {

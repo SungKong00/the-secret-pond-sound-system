@@ -5841,7 +5841,12 @@ const renderLayerCard = (layerId) => {
     );
   }
   card.querySelector("[data-graph-eq-toggle]")?.addEventListener("click", (event) => {
-    toggleExpandedGraphEqLayer(event.currentTarget.dataset.graphEqToggle);
+    const layerId = event.currentTarget.dataset.graphEqToggle;
+    if (expandedGraphEqLayerId() === layerId) {
+      closeExpandedGraphEqLayer(layerId);
+    } else {
+      openExpandedGraphEqLayer(layerId);
+    }
   });
   bindInlineGraphEqControls(card, layerId);
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
@@ -5952,9 +5957,19 @@ const selectedGraphEqPoint = (eq, layerId = currentGraphEqLayerId()) => {
   return eq.points.find((point) => point.id === pointId) || null;
 };
 
-const toggleExpandedGraphEqLayer = (layerId) => {
+const openExpandedGraphEqLayer = (layerId) => {
   if (!layerIds.includes(layerId)) return;
-  state.expandedGraphEqLayer = expandedGraphEqLayerId() === layerId ? null : layerId;
+  if (expandedGraphEqLayerId() === layerId) {
+    initializeInlineGraphEqEditors();
+    return;
+  }
+  state.expandedGraphEqLayer = layerId;
+  renderLayerControls();
+};
+
+const closeExpandedGraphEqLayer = (layerId) => {
+  if (expandedGraphEqLayerId() !== layerId) return;
+  state.expandedGraphEqLayer = null;
   renderLayerControls();
 };
 
@@ -6320,8 +6335,13 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
     class="graph-eq-inline-editor expanded"
     data-graph-eq-inline-editor="${escapeHtml(layerId)}"
   >
-    <div class="graph-eq-weq8c-host">
-      <weq8-ui aria-label="${escapeHtml(labelText(layerLabels[layerId]))} Graph EQ"></weq8-ui>
+    <div class="graph-eq-dsssp-host">
+      <div
+        class="graph-eq-dsssp-root"
+        data-graph-eq-dsssp-root-shell="true"
+        data-graph-eq-layer-id="${escapeHtml(layerId)}"
+        aria-label="${escapeHtml(labelText(layerLabels[layerId]))} Graph EQ"
+      ></div>
     </div>
     ${renderInlineGraphEqPointControls(layerId, eq)}
   </div>
@@ -6363,14 +6383,6 @@ const renderLayerGraphEqSection = (layerId) => {
 const selectedOrFirstGraphEqPointId = (layerId, eq) => (
   selectedGraphEqPointId(layerId) || eq.points[0]?.id || null
 );
-
-const inlineGraphEqRuntimePointsWithStableIds = (layerId, points) => {
-  const currentPoints = graphEqForLayer(state.draft, layerId).points;
-  return points.map((point, index) => ({
-    ...point,
-    id: point.id || currentPoints[index]?.id,
-  }));
-};
 
 const syncInlineGraphEqPointControls = (container, points, selectedPointId) => {
   const rows = Array.from(container.querySelectorAll?.("[data-graph-eq-point-row]") || []);
@@ -6497,61 +6509,55 @@ const bindInlineGraphEqControls = (card, layerId) => {
   });
 };
 
-const configureInlineGraphEqWeq8cUi = (weq) => {
-  const applyShadowPatch = () => {
-    const root = weq?.shadowRoot;
-    if (!root) {
-      requestAnimationFrame(applyShadowPatch);
-      return;
-    }
-    if (root.querySelector("style[data-secret-pond-graph-eq-layout]")) return;
-    const style = document.createElement("style");
-    style.dataset.secretPondGraphEqLayout = "true";
-    style.textContent = `
-      :host {
-        gap: 0 !important;
-        padding: 12px !important;
-      }
+const graphEqIslandApi = () => window.secretPondDssspGraphEq || window.secretPondGraphEq || null;
 
-      .filters {
-        display: none !important;
-      }
+const syncInlineGraphEqSelection = (container, layerId, pointId) => {
+  if (!pointId) return;
+  state.graphEqSelectedPointIds[layerId] = pointId;
+  const eq = graphEqForLayer(state.draft, layerId);
+  syncInlineGraphEqPointControls(container, eq.points, pointId);
+  const root = container.querySelector("[data-graph-eq-dsssp-root-shell]");
+  graphEqIslandApi()?.syncEditor?.(root, { selectedPointId: pointId });
+};
 
-      .visualisation {
-        width: 100% !important;
-        min-width: 0 !important;
-      }
-    `;
-    root.appendChild(style);
-  };
-  applyShadowPatch();
+const mountInlineGraphEqEditor = (container, layerId) => {
+  const root = container.querySelector("[data-graph-eq-dsssp-root-shell]");
+  const api = graphEqIslandApi();
+  if (!layerIds.includes(layerId) || !root || !api?.mountEditor) return;
+  const eq = graphEqForLayer(state.draft, layerId);
+  const selectedPointId = selectedOrFirstGraphEqPointId(layerId, eq);
+  api.mountEditor(root, {
+    layerId,
+    points: eq.points,
+    selectedPointId,
+    disabled: draftEditLocked(),
+    onSelect: (pointId) => syncInlineGraphEqSelection(container, layerId, pointId),
+    onDragState: ({ dragging }) => {
+      if (dragging) state.graphEqInlinePreserveMountLayerId = layerId;
+    },
+    onChange: (payload) => {
+      state.graphEqInlinePreserveMountLayerId = layerId;
+      const nextPoints = payload?.points || [];
+      if (!nextPoints.length) return;
+      const nextSelectedPointId = payload.selectedPointId || selectedOrFirstGraphEqPointId(layerId, {
+        points: nextPoints,
+      });
+      commitInlineGraphEqPoints(layerId, nextPoints, nextSelectedPointId, {
+        renderAfterSync: false,
+        afterSync: () => syncInlineGraphEqPointControls(
+          container,
+          nextPoints,
+          nextSelectedPointId,
+        ),
+      });
+    },
+  });
 };
 
 const initializeInlineGraphEqEditors = () => {
   document.querySelectorAll("[data-graph-eq-inline-editor]").forEach((container) => {
     const layerId = container.dataset.graphEqInlineEditor;
-    const weq = container.querySelector("weq8-ui");
-    const adapter = window.secretPondGraphEq;
-    if (!layerIds.includes(layerId) || !weq || !adapter || weq.dataset.secretPondBound === "true") return;
-    const eq = graphEqForLayer(state.draft, layerId);
-    const runtime = adapter.createRuntime?.(eq.points);
-    if (!runtime) return;
-    weq.dataset.secretPondBound = "true";
-    weq.runtime = runtime;
-    configureInlineGraphEqWeq8cUi(weq);
-    runtime.on?.("filtersChanged", (filters) => {
-      state.graphEqInlinePreserveMountLayerId = layerId;
-      const nextPoints = inlineGraphEqRuntimePointsWithStableIds(
-        layerId,
-        adapter.toSecretPondEqPoints?.(filters) || [],
-      );
-      if (!nextPoints.length) return;
-      const selectedPointId = selectedOrFirstGraphEqPointId(layerId, { points: nextPoints });
-      commitInlineGraphEqPoints(layerId, nextPoints, selectedPointId, {
-        renderAfterSync: false,
-        afterSync: () => syncInlineGraphEqPointControls(container, nextPoints, selectedPointId),
-      });
-    });
+    mountInlineGraphEqEditor(container, layerId);
   });
 };
 

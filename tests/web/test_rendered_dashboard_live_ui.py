@@ -110,8 +110,8 @@ const openGraphEqFixture = () => {
     return;
   }
   setWorkspaceTab("mixer");
-  if (typeof toggleExpandedGraphEqLayer === "function") {
-    toggleExpandedGraphEqLayer("low");
+  if (typeof openExpandedGraphEqLayer === "function") {
+    openExpandedGraphEqLayer("low");
   }
 };
 requestAnimationFrame(openGraphEqFixture);
@@ -155,8 +155,11 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["miniPreviewCount"] == 0
     if rendered["expandedGraphEqEditors"]:
         assert rendered["editorRect"]["width"] > 700
-        assert rendered["weqHostRect"]["width"] > 700
-        assert rendered["weqHostRect"]["height"] > 440
+        assert rendered["graphHostRect"]["width"] > 700
+        assert rendered["graphHostRect"]["height"] > 340
+        assert rendered["dssspRootCount"] == 1
+        assert rendered["dssspSvgCount"] == 1
+        assert rendered["weqUiCount"] == 0
     assert rendered["stepButtonCount"] >= 6
     for button in rendered["stepButtons"]:
         assert button["width"] >= 40
@@ -180,8 +183,8 @@ const openGraphEqFixture = () => {
     return;
   }
   setWorkspaceTab("mixer");
-  if (typeof toggleExpandedGraphEqLayer === "function") {
-    toggleExpandedGraphEqLayer("mid");
+  if (typeof openExpandedGraphEqLayer === "function") {
+    openExpandedGraphEqLayer("mid");
   }
 };
 requestAnimationFrame(openGraphEqFixture);
@@ -219,8 +222,11 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["viewportWidth"] == 1280
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
     assert rendered["expandedGraphEqEditors"] == 1
-    assert rendered["weqHostRect"]["width"] > 640
-    assert rendered["weqHostRect"]["height"] > 440
+    assert rendered["graphHostRect"]["width"] > 640
+    assert rendered["graphHostRect"]["height"] > 340
+    assert rendered["dssspRootCount"] == 1
+    assert rendered["dssspSvgCount"] == 1
+    assert rendered["weqUiCount"] == 0
     assert rendered["rightPanelRect"]["width"] >= 280
 
 
@@ -502,7 +508,7 @@ def _free_port() -> int:
 def _write_rendered_dashboard(temp_dir: Path, *, after_app_script: str = "") -> Path:
     html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
     styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
-    graph_eq_bundle = (STATIC_ROOT / "graph_eq_inline.bundle.js").read_text(encoding="utf-8")
+    graph_eq_bundle = (STATIC_ROOT / "graph_eq_dsssp_island.bundle.js").read_text(encoding="utf-8")
     app_script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
     bootstrap = f"""
 <script>
@@ -536,7 +542,7 @@ window.fetch = async (url) => {{
         count=1,
     )
     rendered = re.sub(
-        r'<script src="/static/graph_eq_inline\.bundle\.js\?v=[^"]+" defer></script>',
+        r'<script src="/static/graph_eq_dsssp_island\.bundle\.js\?v=[^"]+" defer></script>',
         lambda _match: f"<script>\n{graph_eq_bundle}\n</script>",
         rendered,
         count=1,
@@ -839,7 +845,7 @@ class _CdpPage:
   const sections = Array.from(document.querySelectorAll(".graph-eq-layer-card-section"));
   const expandedEditors = Array.from(document.querySelectorAll(".graph-eq-inline-editor.expanded"));
   const editor = expandedEditors[0] || null;
-  const weqHost = editor?.querySelector("weq8-ui, .graph-eq-weq8c-host") || null;
+  const graphHost = editor?.querySelector(".graph-eq-dsssp-host") || null;
   const missingGraphEqNode = !mainPanel || !rightPanel || sections.length !== 3;
   if (missingGraphEqNode) {
     return {
@@ -874,7 +880,10 @@ class _CdpPage:
       document.body.innerText.includes("High Cut")
     ),
     editorRect: editor ? rect(editor) : null,
-    weqHostRect: weqHost ? rect(weqHost) : null,
+    graphHostRect: graphHost ? rect(graphHost) : null,
+    dssspRootCount: document.querySelectorAll('[data-graph-eq-dsssp-root="true"]').length,
+    dssspSvgCount: document.querySelectorAll(".graph-eq-dsssp-surface svg").length,
+    weqUiCount: document.querySelectorAll("weq8-ui").length,
     mainPanelRect: rect(mainPanel),
     rightPanelRect: rect(rightPanel),
     stepButtonCount: stepButtons.length,
