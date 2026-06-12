@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import socket
 import struct
@@ -94,7 +95,7 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     ]
 
 
-def test_graph_eq_workspace_does_not_overlap_source_library_in_desktop_viewport() -> None:
+def test_inline_graph_eq_sections_render_inside_layer_cards_in_desktop_viewport() -> None:
     chrome = _chrome_binary()
     if chrome is None:
         pytest.skip("Google Chrome or Chromium is required for rendered dashboard verification")
@@ -108,7 +109,10 @@ const openGraphEqFixture = () => {
     requestAnimationFrame(openGraphEqFixture);
     return;
   }
-  setWorkspaceTab("graph-eq");
+  setWorkspaceTab("mixer");
+  if (typeof toggleExpandedGraphEqLayer === "function") {
+    toggleExpandedGraphEqLayer("low");
+  }
 };
 requestAnimationFrame(openGraphEqFixture);
 """,
@@ -134,7 +138,7 @@ requestAnimationFrame(openGraphEqFixture);
             try:
                 page = _connect_to_first_page(remote_debugging_port)
                 page.send("Runtime.enable")
-                rendered = page.wait_for_graph_eq_workspace()
+                rendered = page.wait_for_inline_graph_eq_sections()
             finally:
                 process.terminate()
                 try:
@@ -144,13 +148,20 @@ requestAnimationFrame(openGraphEqFixture);
 
     assert rendered["viewportWidth"] == 1440
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
-    assert rendered["graphEqVisible"] is True
+    assert rendered["graphEqWorkspaceVisible"] is False
+    assert rendered["inlineGraphEqSections"] == 3
+    assert rendered["expandedGraphEqEditors"] in {0, 1}
     assert rendered["visibleText"] is True
-    assert rendered["svgRect"]["width"] > 420
-    assert min(rendered["pointHitRadii"]) >= 16
-    assert rendered["pointControlsRect"]["right"] <= rendered["mainPanelRect"]["right"]
-    assert rendered["pointControlsRect"]["right"] <= rendered["rightPanelRect"]["x"]
-    assert rendered["filterRect"]["right"] <= rendered["mainPanelRect"]["right"]
+    assert rendered["miniPreviewCount"] >= 2
+    if rendered["expandedGraphEqEditors"]:
+        assert rendered["editorRect"]["width"] > 420
+        assert rendered["weqHostRect"]["width"] > 200
+        assert rendered["weqHostRect"]["height"] > 160
+    assert rendered["stepButtonCount"] >= 6
+    for button in rendered["stepButtons"]:
+        assert button["width"] >= 32
+        assert button["height"] >= 32
+    assert rendered["mainPanelRect"]["right"] <= rendered["rightPanelRect"]["x"]
 
 
 def test_rendered_dashboard_verification_output_records_desktop_behavior_notes() -> None:
@@ -431,6 +442,7 @@ def _free_port() -> int:
 def _write_rendered_dashboard(temp_dir: Path, *, after_app_script: str = "") -> Path:
     html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
     styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    graph_eq_bundle = (STATIC_ROOT / "graph_eq_inline.bundle.js").read_text(encoding="utf-8")
     app_script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
     bootstrap = f"""
 <script>
@@ -457,13 +469,23 @@ window.fetch = async (url) => {{
 }};
 </script>
 """
-    rendered = html.replace(
-        '<link rel="stylesheet" href="/static/styles.css?v=20260608-voice-loop-timeline" />',
-        f"<style>\n{styles}\n</style>",
+    rendered = re.sub(
+        r'<link rel="stylesheet" href="/static/styles\.css\?v=[^"]+" />',
+        lambda _match: f"<style>\n{styles}\n</style>",
+        html,
+        count=1,
     )
-    rendered = rendered.replace(
-        '<script src="/static/app.js?v=20260608-voice-loop-timeline" defer></script>',
-        f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
+    rendered = re.sub(
+        r'<script src="/static/graph_eq_inline\.bundle\.js\?v=[^"]+" defer></script>',
+        lambda _match: f"<script>\n{graph_eq_bundle}\n</script>",
+        rendered,
+        count=1,
+    )
+    rendered = re.sub(
+        r'<script src="/static/app\.js\?v=[^"]+" defer></script>',
+        lambda _match: f"{bootstrap}\n<script>\n{app_script}\n{after_app_script}\n</script>",
+        rendered,
+        count=1,
     )
     path = temp_dir / "rendered-live-dashboard.html"
     path.write_text(rendered, encoding="utf-8")
@@ -736,7 +758,7 @@ class _CdpPage:
             time.sleep(0.1)
         raise AssertionError(f"Live dashboard did not render in time: {last_value!r}")
 
-    def wait_for_graph_eq_workspace(self) -> dict[str, Any]:
+    def wait_for_inline_graph_eq_sections(self) -> dict[str, Any]:
         expression = """
 (() => {
   const rect = (element) => {
@@ -750,23 +772,39 @@ class _CdpPage:
       bottom: bounds.bottom,
     };
   };
+  const graphEqTab = document.querySelector('[data-workspace-tab="graph-eq"]');
   const pane = document.getElementById("workspacePaneGraphEq");
   const mainPanel = document.querySelector(".main-workspace-panel");
   const rightPanel = document.querySelector(".right-stack-panel");
-  const svg = document.getElementById("graphEqSvg");
-  const pointControls = document.getElementById("graphEqPointControls");
-  const filter = document.getElementById("graphEqFilterRange");
-  if (!pane || pane.hidden || !mainPanel || !rightPanel || !svg || !pointControls || !filter) {
+  const sections = Array.from(document.querySelectorAll(".graph-eq-layer-card-section"));
+  const expandedEditors = Array.from(document.querySelectorAll(".graph-eq-inline-editor.expanded"));
+  const editor = expandedEditors[0] || null;
+  const weqHost = editor?.querySelector("weq8-ui, .graph-eq-weq8c-host") || null;
+  const missingGraphEqNode = !mainPanel || !rightPanel || sections.length !== 3;
+  if (missingGraphEqNode) {
     return {
       ready: false,
-      graphEqVisible: Boolean(pane && !pane.hidden),
+      graphEqWorkspaceVisible: Boolean(graphEqTab || pane),
+      inlineGraphEqSections: sections.length,
+      expandedGraphEqEditors: expandedEditors.length,
     };
   }
+  const stepButtons = Array.from(document.querySelectorAll(".graph-eq-step-button"))
+    .map((button) => {
+      const bounds = button.getBoundingClientRect();
+      return {
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height),
+      };
+    });
   return {
     ready: true,
     viewportWidth: window.innerWidth,
     bodyWidth: document.body.scrollWidth,
-    graphEqVisible: true,
+    graphEqWorkspaceVisible: Boolean(graphEqTab || pane),
+    inlineGraphEqSections: sections.length,
+    expandedGraphEqEditors: expandedEditors.length,
+    miniPreviewCount: document.querySelectorAll(".graph-eq-mini-preview").length,
     visibleText: (
       document.body.innerText.includes("Graph EQ") &&
       document.body.innerText.includes("Freq") &&
@@ -775,13 +813,12 @@ class _CdpPage:
       document.body.innerText.includes("Low Cut") &&
       document.body.innerText.includes("High Cut")
     ),
-    svgRect: rect(svg),
-    pointControlsRect: rect(pointControls),
-    filterRect: rect(filter),
+    editorRect: editor ? rect(editor) : null,
+    weqHostRect: weqHost ? rect(weqHost) : null,
     mainPanelRect: rect(mainPanel),
     rightPanelRect: rect(rightPanel),
-    pointHitRadii: Array.from(svg.querySelectorAll(".graph-eq-point-hit"))
-      .map((element) => Number(element.getAttribute("r"))),
+    stepButtonCount: stepButtons.length,
+    stepButtons,
   };
 })()
 """
@@ -796,7 +833,7 @@ class _CdpPage:
             if last_value and last_value.get("ready"):
                 return last_value
             time.sleep(0.1)
-        raise AssertionError(f"Graph EQ workspace did not render in time: {last_value!r}")
+        raise AssertionError(f"Inline Graph EQ sections did not render in time: {last_value!r}")
 
     def wait_for_feedback_spinner_overlay(self) -> dict[str, Any]:
         expression = """

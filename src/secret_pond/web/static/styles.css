@@ -2678,7 +2678,10 @@ section.control-group .control-group-head h4::before {
 .layer-controls {
   display: grid;
   grid-template-columns: minmax(170px, 1fr);
-  grid-template-areas: "level";
+  grid-template-areas:
+    "level"
+    "graph-eq"
+    "filter";
   gap: 10px;
   align-items: start;
   padding: 10px;
@@ -2694,6 +2697,10 @@ section.control-group .control-group-head h4::before {
 
 .layer-controls .filter-group {
   grid-area: filter;
+}
+
+.layer-controls .graph-eq-layer-card-section {
+  grid-area: graph-eq;
 }
 
 .layer-controls .filter-group .control-group-head {
@@ -2731,6 +2738,147 @@ section.control-group .control-group-head h4::before {
 .layer-controls .filter-group .control-description,
 .layer-controls .filter-group .range-context {
   display: none;
+}
+
+.graph-eq-layer-card-section {
+  border: 1px solid rgba(223, 213, 191, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  min-width: 0;
+}
+
+.graph-eq-layer-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.graph-eq-layer-card-head h4,
+.graph-eq-inline-controls-head h5 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.graph-eq-layer-card-head small,
+.graph-eq-inline-controls-head small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.graph-eq-layer-card-status,
+.graph-eq-layer-card-detail,
+.graph-eq-inline-controls-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-eq-mini-preview {
+  display: block;
+  width: 100%;
+  height: 72px;
+  margin-top: 8px;
+}
+
+.graph-eq-mini-curve {
+  fill: none;
+  stroke: #d6a84d;
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-eq-inline-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 260px);
+  gap: 12px;
+  min-height: 360px;
+  margin-top: 10px;
+}
+
+.graph-eq-weq8c-host {
+  min-width: 0;
+  min-height: 340px;
+  overflow: hidden;
+  border: 1px solid rgba(223, 213, 191, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.graph-eq-inline-editor weq8-ui {
+  width: 100%;
+  min-height: 340px;
+}
+
+.graph-eq-inline-controls {
+  min-width: 0;
+  border: 1px solid rgba(223, 213, 191, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 10px;
+}
+
+.graph-eq-inline-controls-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.graph-eq-point-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.graph-eq-point-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(223, 213, 191, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.graph-eq-point-row.selected {
+  border-color: rgba(214, 168, 77, 0.48);
+  background: rgba(214, 168, 77, 0.08);
+}
+
+.graph-eq-point-row label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.graph-eq-point-row input,
+.graph-eq-point-row select {
+  min-width: 0;
+  border: 1px solid rgba(223, 213, 191, 0.13);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  padding: 7px 8px;
+}
+
+.graph-eq-row-delete {
+  width: 100%;
+}
+
+.graph-eq-inline-actions {
+  margin-top: 10px;
+}
+
+.graph-eq-inline-actions .button {
+  width: 100%;
 }
 
 .graph-eq-panel {
@@ -2809,6 +2957,13 @@ section.control-group .control-group-head h4::before {
   touch-action: none;
 }
 
+.graph-eq-point-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .graph-eq-hit-surface {
   fill: transparent;
   cursor: grab;
@@ -2836,29 +2991,56 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-point-hit {
-  fill: transparent;
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   cursor: grab;
-  pointer-events: all;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translate(-50%, -50%);
 }
 
-.graph-eq-point {
-  fill: #d6a84d;
-  stroke: rgba(14, 17, 22, 0.95);
-  stroke-width: 4;
-  cursor: grab;
-  pointer-events: all;
+.graph-eq-point-hit.edge-left {
+  transform: translate(0, -50%);
 }
 
-.graph-eq-point.selected {
-  fill: #ff4fd8;
-  stroke: #f4ead8;
+.graph-eq-point-hit.edge-right {
+  transform: translate(-100%, -50%);
 }
 
-.graph-eq-svg.drag-active,
-.graph-eq-svg.drag-active .graph-eq-hit-surface,
-.graph-eq-svg.drag-active .graph-eq-curve,
-.graph-eq-svg.drag-active .graph-eq-point,
-.graph-eq-svg.drag-active .graph-eq-point-hit {
+.graph-eq-point-marker {
+  width: 18px;
+  height: 18px;
+  border: 4px solid rgba(14, 17, 22, 0.95);
+  border-radius: 999px;
+  background: #d6a84d;
+  box-shadow: 0 0 0 1px rgba(244, 234, 216, 0.28), 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.graph-eq-point-hit.selected .graph-eq-point-marker {
+  width: 22px;
+  height: 22px;
+  border-color: #f4ead8;
+  background: #ff4fd8;
+}
+
+.graph-eq-point-hit.locked-x .graph-eq-point-marker {
+  box-shadow:
+    0 0 0 1px rgba(244, 234, 216, 0.34),
+    0 0 0 5px rgba(214, 168, 77, 0.14),
+    0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.graph-eq-canvas.drag-active,
+.graph-eq-canvas.drag-active .graph-eq-hit-surface,
+.graph-eq-canvas.drag-active .graph-eq-curve,
+.graph-eq-canvas.drag-active .graph-eq-point-hit {
   cursor: grabbing;
 }
 
@@ -2906,6 +3088,36 @@ section.control-group .control-group-head h4::before {
   background: var(--control);
   color: var(--text);
   padding: 8px 9px;
+}
+
+.graph-eq-stepper {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  gap: 5px;
+  align-items: center;
+}
+
+.graph-eq-step-button {
+  min-width: 34px;
+  min-height: 34px;
+  border: 1px solid rgba(223, 213, 191, 0.16);
+  border-radius: 7px;
+  background: rgba(223, 213, 191, 0.1);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.graph-eq-step-button:hover:not(:disabled) {
+  border-color: rgba(214, 168, 77, 0.62);
+  background: rgba(214, 168, 77, 0.18);
+}
+
+.graph-eq-step-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .graph-eq-empty-state {

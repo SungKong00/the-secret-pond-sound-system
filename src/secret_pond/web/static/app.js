@@ -23,7 +23,7 @@ const api = async (path, options = {}) => {
   return payload;
 };
 
-const workspaceTabNames = ["treatment", "stack", "mixer", "graph-eq"];
+const workspaceTabNames = ["treatment", "stack", "mixer"];
 const sideTabNames = ["library", "system"];
 
 const workspaceTabFromUrl = () => {
@@ -105,7 +105,7 @@ const state = {
     layers: {},
     recording: null,
   },
-  graphEqLayer: "low",
+  expandedGraphEqLayer: null,
   graphEqSelectedPointIds: {
     low: null,
     mid: null,
@@ -749,6 +749,31 @@ const graphEqPointResponseGain = (frequencyHz, point) => {
   return 0;
 };
 
+const graphEqLockedEndpointX = (point) => {
+  if (!point) return null;
+  if ((point.id === "low" || point.id === "legacy-low") && point.type === "low_shelf") {
+    return 0;
+  }
+  if ((point.id === "high" || point.id === "legacy-high") && point.type === "high_shelf") {
+    return 1;
+  }
+  return null;
+};
+
+const graphEqPointScreenGain = (point) => {
+  const lockedX = graphEqLockedEndpointX(point);
+  if (lockedX === null) return Number(point.gain_db) || 0;
+  return graphEqPointResponseGain(graphEqXToFrequency(lockedX), point);
+};
+
+const graphEqPointScreenPosition = (point) => {
+  const lockedX = graphEqLockedEndpointX(point);
+  return {
+    x: lockedX ?? graphEqFrequencyToX(point.frequency_hz),
+    y: graphEqGainToY(graphEqPointScreenGain(point)),
+  };
+};
+
 const graphEqVisualResponsePoints = (eq, width = 96) => {
   const normalized = normalizeGraphEqSettings(eq);
   const sampleCount = Math.max(2, width);
@@ -780,8 +805,9 @@ const graphEqNearestPointId = (eq, pointer) => {
   if (!normalized.points.length) return null;
   return normalized.points
     .map((point) => {
-      const dx = graphEqFrequencyToX(point.frequency_hz) - clampNumber(pointer?.x ?? 0, 0, 1);
-      const dy = graphEqGainToY(point.gain_db) - clampNumber(pointer?.y ?? 0, 0, 1);
+      const position = graphEqPointScreenPosition(point);
+      const dx = position.x - clampNumber(pointer?.x ?? 0, 0, 1);
+      const dy = position.y - clampNumber(pointer?.y ?? 0, 0, 1);
       return { id: point.id, distance: Math.hypot(dx * 1.25, dy) };
     })
     .sort((a, b) => a.distance - b.distance)[0].id;
@@ -791,6 +817,27 @@ const graphEqPointFromPointerRatio = (pointer) => ({
   frequency_hz: Math.round(graphEqXToFrequency(pointer?.x ?? 0)),
   gain_db: Number(graphEqYToGain(pointer?.y ?? 0).toFixed(1)),
 });
+
+const graphEqPointGainForScreenGain = (point, screenGainDb, lockedX) => {
+  const frequencyHz = graphEqXToFrequency(lockedX);
+  const responseFactor = graphEqPointResponseGain(frequencyHz, {
+    ...point,
+    gain_db: 1,
+  });
+  if (!Number.isFinite(responseFactor) || Math.abs(responseFactor) < 0.0001) {
+    return screenGainDb;
+  }
+  return clampNumber(screenGainDb / responseFactor, graphEqMinGainDb, graphEqMaxGainDb);
+};
+
+const graphEqPointUpdatesFromPointerRatio = (point, pointer) => {
+  const updates = graphEqPointFromPointerRatio(pointer);
+  const lockedX = graphEqLockedEndpointX(point);
+  if (lockedX === null) return updates;
+  return {
+    gain_db: Number(graphEqPointGainForScreenGain(point, updates.gain_db, lockedX).toFixed(1)),
+  };
+};
 
 const layerControlGroups = [
   {
@@ -5060,7 +5107,6 @@ const renderControls = () => {
   renderPlaybackTransitionControls();
   renderLayerControls();
   renderVoiceStackControls();
-  renderGraphEqWorkspace();
   renderRecordingPresets();
   renderRecordingControls();
 };
@@ -5140,6 +5186,7 @@ const renderDraftSaveFeedbackSurfaces = () => {
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
+  initializeInlineGraphEqEditors();
 };
 
 const currentPlaybackApplyMode = (snapshot = state.snapshot) => {
@@ -5657,6 +5704,7 @@ const setStorageMode = async (mode) => {
 
 const renderLayerGroup = (containerId, layerIds) => {
   const container = $(containerId);
+  if (!container) return;
   container.innerHTML = "";
   layerIds.forEach((layerId) => {
     container.appendChild(renderLayerCard(layerId));
@@ -5739,7 +5787,9 @@ const renderLayerCard = (layerId) => {
   });
 
   const controls = card.querySelector(".layer-controls");
-  layerControlGroups.filter((group) => group.action !== "reset-filter").forEach((group) => {
+  const levelGroups = layerControlGroups.filter((group) => group.action !== "reset-filter");
+  const filterGroup = layerControlGroups.find((group) => group.action === "reset-filter");
+  levelGroups.forEach((group) => {
     controls.appendChild(
       controlGroup(
         group,
@@ -5761,6 +5811,30 @@ const renderLayerCard = (layerId) => {
       ),
     );
   });
+  if (typeof controls.insertAdjacentHTML === "function") {
+    controls.insertAdjacentHTML("beforeend", renderLayerGraphEqSection(layerId));
+  } else {
+    const graphEqSection = document.createElement("section");
+    graphEqSection.className = "graph-eq-layer-card-section";
+    graphEqSection.setAttribute("data-graph-eq-layer-card", layerId);
+    graphEqSection.innerHTML = renderLayerGraphEqSection(layerId);
+    controls.appendChild(graphEqSection);
+  }
+  if (filterGroup) {
+    controls.appendChild(
+      controlGroup(
+        filterGroup,
+        layer,
+        activeLayer,
+        (control, value) => commitGraphEqFilterEdit(layerId, control, value),
+        () => resetLayerFilter(layerId),
+      ),
+    );
+  }
+  card.querySelector("[data-graph-eq-toggle]")?.addEventListener("click", (event) => {
+    toggleExpandedGraphEqLayer(event.currentTarget.dataset.graphEqToggle);
+  });
+  bindInlineGraphEqControls(card, layerId);
   card.querySelectorAll?.(".layer-preset-button")?.forEach((button) => {
     button.addEventListener("click", () => applyLayerPreset(layerId, button.dataset.layerPreset));
   });
@@ -5850,9 +5924,11 @@ const resetLayerFilter = (layerId) => {
   );
 };
 
-const currentGraphEqLayerId = () => (
-  layerIds.includes(state.graphEqLayer) ? state.graphEqLayer : "low"
+const expandedGraphEqLayerId = () => (
+  layerIds.includes(state.expandedGraphEqLayer) ? state.expandedGraphEqLayer : null
 );
+
+const currentGraphEqLayerId = () => expandedGraphEqLayerId() || "low";
 
 const graphEqForLayer = (settings, layerId = currentGraphEqLayerId()) => (
   normalizeGraphEqSettings(settings?.layers?.[layerId]?.eq || {})
@@ -5867,15 +5943,15 @@ const selectedGraphEqPoint = (eq, layerId = currentGraphEqLayerId()) => {
   return eq.points.find((point) => point.id === pointId) || null;
 };
 
-const setGraphEqLayer = (layerId) => {
+const toggleExpandedGraphEqLayer = (layerId) => {
   if (!layerIds.includes(layerId)) return;
-  state.graphEqLayer = layerId;
-  renderGraphEqWorkspace();
+  state.expandedGraphEqLayer = expandedGraphEqLayerId() === layerId ? null : layerId;
+  renderLayerControls();
 };
 
 const setSelectedGraphEqPoint = (layerId, pointId) => {
   state.graphEqSelectedPointIds[layerId] = pointId || null;
-  renderGraphEqWorkspace();
+  renderLayerControls();
 };
 
 const updateDraftGraphEq = (layerId, nextEq) => {
@@ -5911,9 +5987,29 @@ const commitGraphEqPointEdit = (layerId, pointId, updates) => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlIds: graphEqControlIds(layerId, pointId),
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
+};
+
+const commitInlineGraphEqPoints = (layerId, points, selectedPointId = null) => {
+  if (!layerIds.includes(layerId)) return false;
+  const eq = graphEqForLayer(state.draft, layerId);
+  const normalized = normalizeGraphEqSettings({ ...eq, points });
+  const committed = commitDraftChange(
+    () => {
+      updateDraftGraphEq(layerId, normalized);
+      if (selectedPointId !== undefined) {
+        state.graphEqSelectedPointIds[layerId] = selectedPointId;
+      }
+    },
+    {
+      feedbackSurfaceId: `layer:${layerId}`,
+      feedbackControlIds: graphEqControlIds(layerId, selectedPointId),
+      afterSync: renderLayerControls,
+    },
+  );
+  return committed;
 };
 
 const commitGraphEqFilterEdit = (layerId, control, value) => {
@@ -5924,7 +6020,7 @@ const commitGraphEqFilterEdit = (layerId, control, value) => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlId: `layers.${layerId}.${control.path}`,
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
 };
@@ -5949,7 +6045,7 @@ const addGraphEqPoint = () => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlIds: graphEqControlIds(layerId, id),
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
 };
@@ -5970,7 +6066,7 @@ const deleteSelectedGraphEqPoint = () => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlIds: graphEqControlIds(layerId, pointId),
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
 };
@@ -5984,7 +6080,7 @@ const resetGraphEqLayer = (layerId = currentGraphEqLayerId()) => {
     {
       feedbackSurfaceId: `layer:${layerId}`,
       feedbackControlIds: graphEqControlIds(layerId),
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
 };
@@ -6001,7 +6097,7 @@ const resetAllGraphEqLayers = () => {
     {
       feedbackSurfaceId: "layer:mid",
       feedbackControlIds: layerIds.flatMap((layerId) => graphEqControlIds(layerId)),
-      afterSync: renderGraphEqWorkspace,
+      afterSync: renderLayerControls,
     },
   );
 };
@@ -6014,14 +6110,348 @@ const graphEqPathD = (points) => points
   })
   .join(" ");
 
+const graphEqSafeToken = (value) => String(value || "")
+  .replace(/[^a-zA-Z0-9_-]/g, "-")
+  .replace(/-+/g, "-");
+
+const renderGraphEqMiniPreviewSvg = (eq) => {
+  const path = graphEqPathD(graphEqVisualResponsePoints(eq, 48));
+  return `
+    <svg class="graph-eq-mini-preview" viewBox="0 0 1000 360" aria-hidden="true" preserveAspectRatio="none">
+      <path class="graph-eq-mini-curve" d="${path}"></path>
+    </svg>
+  `;
+};
+
+const inlineGraphEqSelectedPoint = (eq, layerId) => {
+  const selected = selectedGraphEqPoint(eq, layerId);
+  return selected || eq.points[0] || null;
+};
+
+const renderInlineGraphEqStepper = ({ inputId, controlName, pointId, value, min, max, step, disabled }) => `
+  <div class="graph-eq-stepper">
+    <button
+      class="graph-eq-step-button"
+      type="button"
+      data-graph-eq-step-target="${escapeHtml(inputId)}"
+      data-graph-eq-step-direction="-1"
+      aria-label="${escapeHtml(controlName)} 낮추기"
+      ${disabled ? "disabled" : ""}
+    >-</button>
+    <input
+      id="${escapeHtml(inputId)}"
+      data-graph-eq-point-id="${escapeHtml(pointId)}"
+      data-graph-eq-point-control="${escapeHtml(controlName)}"
+      type="number"
+      min="${min}"
+      max="${max}"
+      step="${step}"
+      value="${escapeHtml(String(value))}"
+      ${disabled ? "disabled" : ""}
+    />
+    <button
+      class="graph-eq-step-button"
+      type="button"
+      data-graph-eq-step-target="${escapeHtml(inputId)}"
+      data-graph-eq-step-direction="1"
+      aria-label="${escapeHtml(controlName)} 높이기"
+      ${disabled ? "disabled" : ""}
+    >+</button>
+  </div>
+`;
+
+const renderInlineGraphEqPointRow = (layerId, point, selected, disabled, pointCount) => {
+  const token = `${graphEqSafeToken(layerId)}-${graphEqSafeToken(point.id)}`;
+  const frequencyLocked = graphEqLockedEndpointX(point) !== null;
+  return `
+    <div
+      class="graph-eq-point-row ${selected ? "selected" : ""}"
+      data-graph-eq-point-row
+      data-graph-eq-point-id="${escapeHtml(point.id)}"
+    >
+      <label>
+        Type
+        <select
+          data-graph-eq-point-type
+          data-graph-eq-point-id="${escapeHtml(point.id)}"
+          data-graph-eq-point-control="type"
+          ${disabled ? "disabled" : ""}
+        >
+          ${Object.entries(graphEqPointTypes).map(([value, label]) => `
+            <option value="${value}" ${point.type === value ? "selected" : ""}>${label}</option>
+          `).join("")}
+        </select>
+      </label>
+      <label>
+        Freq
+        ${renderInlineGraphEqStepper({
+          inputId: `graph-eq-${token}-freq`,
+          controlName: "freq",
+          pointId: point.id,
+          value: Math.round(point.frequency_hz),
+          min: graphEqMinFrequencyHz,
+          max: graphEqMaxFrequencyHz,
+          step: 1,
+          disabled: disabled || frequencyLocked,
+        })}
+      </label>
+      <label>
+        Gain
+        ${renderInlineGraphEqStepper({
+          inputId: `graph-eq-${token}-gain`,
+          controlName: "gain",
+          pointId: point.id,
+          value: Number(point.gain_db.toFixed(1)),
+          min: graphEqMinGainDb,
+          max: graphEqMaxGainDb,
+          step: 0.1,
+          disabled,
+        })}
+      </label>
+      <label>
+        Q
+        ${renderInlineGraphEqStepper({
+          inputId: `graph-eq-${token}-q`,
+          controlName: "q",
+          pointId: point.id,
+          value: Number(point.q.toFixed(2)),
+          min: 0.1,
+          max: 18,
+          step: 0.1,
+          disabled,
+        })}
+      </label>
+      <button
+        class="button danger graph-eq-row-delete"
+        type="button"
+        data-graph-eq-action="delete-point"
+        data-graph-eq-point-id="${escapeHtml(point.id)}"
+        ${disabled || pointCount <= 1 ? "disabled" : ""}
+      >
+        Delete
+      </button>
+    </div>
+  `;
+};
+
+const renderInlineGraphEqPointControls = (layerId, eq) => {
+  const disabled = draftEditLocked();
+  const selected = inlineGraphEqSelectedPoint(eq, layerId);
+  return `
+    <div class="graph-eq-inline-controls" aria-label="Selected Graph EQ point">
+      <div class="graph-eq-inline-controls-head">
+        <div>
+          <h5>Selected Point <small lang="ko">선택한 점</small></h5>
+          <p>${selected ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz` : "점을 추가하세요"}</p>
+        </div>
+        <button
+          class="button"
+          type="button"
+          data-graph-eq-action="add-point"
+          ${disabled || eq.points.length >= graphEqMaxPoints ? "disabled" : ""}
+        >
+          + Point
+        </button>
+      </div>
+      <div class="graph-eq-point-rows">
+        ${eq.points.map((point) => renderInlineGraphEqPointRow(
+          layerId,
+          point,
+          selected?.id === point.id,
+          disabled,
+          eq.points.length,
+        )).join("")}
+      </div>
+      <div class="graph-eq-inline-actions">
+        <button
+          class="button"
+          type="button"
+          data-graph-eq-action="reset-layer"
+          ${disabled ? "disabled" : ""}
+        >
+          Layer Reset
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+const renderExpandedGraphEqEditorShell = (layerId, eq) => `
+  <div
+    class="graph-eq-inline-editor expanded"
+    data-graph-eq-inline-editor="${escapeHtml(layerId)}"
+  >
+    <div class="graph-eq-weq8c-host">
+      <weq8-ui aria-label="${escapeHtml(labelText(layerLabels[layerId]))} Graph EQ"></weq8-ui>
+    </div>
+    ${renderInlineGraphEqPointControls(layerId, eq)}
+  </div>
+`;
+
+const renderLayerGraphEqSection = (layerId) => {
+  const eq = graphEqForLayer(state.draft, layerId);
+  const expanded = expandedGraphEqLayerId() === layerId;
+  const liveStatus = currentPlaybackApplyMode() === "live"
+    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
+    : null;
+  return `
+    <section
+      class="graph-eq-layer-card-section ${expanded ? "expanded" : "collapsed"}"
+      data-graph-eq-layer-card="${escapeHtml(layerId)}"
+    >
+      <div class="graph-eq-layer-card-head">
+        <div>
+          <h4>Graph EQ <small lang="ko">곡선 EQ</small></h4>
+          <p class="graph-eq-layer-card-status">
+            ${liveStatus?.label || (expanded ? "편집 중" : "현재 곡선")}
+          </p>
+        </div>
+        <button
+          class="button graph-eq-edit-button"
+          type="button"
+          data-graph-eq-toggle="${escapeHtml(layerId)}"
+          aria-expanded="${expanded ? "true" : "false"}"
+        >
+          ${expanded ? "Close" : "Edit"}
+        </button>
+      </div>
+      ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
+      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqMiniPreviewSvg(eq)}
+    </section>
+  `;
+};
+
+const selectedOrFirstGraphEqPointId = (layerId, eq) => (
+  selectedGraphEqPointId(layerId) || eq.points[0]?.id || null
+);
+
+const inlineGraphEqPointsWithUpdate = (eq, pointId, updates) => (
+  eq.points.map((point) => (
+    point.id === pointId ? normalizeGraphEqPoint({ ...point, ...updates }) : point
+  ))
+);
+
+const commitInlineGraphEqPointControl = (layerId, pointId, controlName, value) => {
+  const eq = graphEqForLayer(state.draft, layerId);
+  const point = eq.points.find((candidate) => candidate.id === pointId);
+  if (!point) return;
+  const updates = {};
+  if (controlName === "type") updates.type = value;
+  if (controlName === "freq" && graphEqLockedEndpointX(point) === null) updates.frequency_hz = Number(value);
+  if (controlName === "gain") updates.gain_db = Number(value);
+  if (controlName === "q") updates.q = Number(value);
+  if (!Object.keys(updates).length) return;
+  commitInlineGraphEqPoints(
+    layerId,
+    inlineGraphEqPointsWithUpdate(eq, pointId, updates),
+    pointId,
+  );
+};
+
+const addInlineGraphEqPoint = (layerId) => {
+  const eq = graphEqForLayer(state.draft, layerId);
+  if (eq.points.length >= graphEqMaxPoints || draftEditLocked()) return;
+  const id = `point-${Date.now().toString(36)}`;
+  const nextPoint = normalizeGraphEqPoint({
+    id,
+    type: "bell",
+    frequency_hz: 1000,
+    gain_db: 0,
+    q: 1,
+  });
+  commitInlineGraphEqPoints(layerId, [...eq.points, nextPoint], id);
+};
+
+const deleteInlineGraphEqPoint = (layerId, pointId) => {
+  const eq = graphEqForLayer(state.draft, layerId);
+  if (!pointId || eq.points.length <= 1 || draftEditLocked()) return;
+  const nextPoints = eq.points.filter((point) => point.id !== pointId);
+  commitInlineGraphEqPoints(layerId, nextPoints, nextPoints[0]?.id || null);
+};
+
+const resetInlineGraphEqLayer = (layerId) => {
+  if (draftEditLocked()) return;
+  commitInlineGraphEqPoints(layerId, defaultGraphEqPoints(), null);
+};
+
+const stepInlineGraphEqNumericControl = (button) => {
+  const input = $(button.dataset.graphEqStepTarget);
+  if (!input || input.disabled) return;
+  const direction = Number(button.dataset.graphEqStepDirection || 0);
+  const step = Number(input.step) || 1;
+  const min = Number(input.min);
+  const max = Number(input.max);
+  const current = Number(input.value || 0);
+  const next = clampNumber(current + direction * step, min, max);
+  input.value = String(Number(next.toFixed(graphEqStepDecimalPlaces(input))));
+  commitInlineGraphEqPointControl(
+    button.closest("[data-graph-eq-layer-card]")?.dataset.graphEqLayerCard,
+    input.dataset.graphEqPointId,
+    input.dataset.graphEqPointControl,
+    input.value,
+  );
+};
+
+const bindInlineGraphEqControls = (card, layerId) => {
+  card.querySelectorAll("[data-graph-eq-point-control]").forEach((control) => {
+    const commit = () => commitInlineGraphEqPointControl(
+      layerId,
+      control.dataset.graphEqPointId,
+      control.dataset.graphEqPointControl,
+      control.value,
+    );
+    if (control.tagName === "SELECT") {
+      control.addEventListener("change", commit);
+      return;
+    }
+    control.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      commit();
+    });
+    control.addEventListener("blur", commit);
+  });
+  card.querySelectorAll("[data-graph-eq-step-target]").forEach((button) => {
+    button.addEventListener("click", () => stepInlineGraphEqNumericControl(button));
+  });
+  card.querySelectorAll("[data-graph-eq-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.graphEqAction === "add-point") addInlineGraphEqPoint(layerId);
+      if (button.dataset.graphEqAction === "delete-point") {
+        deleteInlineGraphEqPoint(layerId, button.dataset.graphEqPointId);
+      }
+      if (button.dataset.graphEqAction === "reset-layer") resetInlineGraphEqLayer(layerId);
+    });
+  });
+};
+
+const initializeInlineGraphEqEditors = () => {
+  document.querySelectorAll("[data-graph-eq-inline-editor]").forEach((container) => {
+    const layerId = container.dataset.graphEqInlineEditor;
+    const weq = container.querySelector("weq8-ui");
+    const adapter = window.secretPondGraphEq;
+    if (!layerIds.includes(layerId) || !weq || !adapter || weq.dataset.secretPondBound === "true") return;
+    const eq = graphEqForLayer(state.draft, layerId);
+    const runtime = adapter.createRuntime?.(eq.points);
+    if (!runtime) return;
+    weq.dataset.secretPondBound = "true";
+    weq.runtime = runtime;
+    runtime.on?.("filtersChanged", (filters) => {
+      const nextPoints = adapter.toSecretPondEqPoints?.(filters) || [];
+      if (!nextPoints.length) return;
+      commitInlineGraphEqPoints(layerId, nextPoints, selectedOrFirstGraphEqPointId(layerId, { points: nextPoints }));
+    });
+  });
+};
+
 const startGraphEqDrag = (layerId, pointId, event) => {
   if (!pointId || draftEditLocked()) return;
   event.preventDefault();
   state.graphEqSelectedPointIds[layerId] = pointId;
   state.graphEqDrag = { layerId, pointId, pointerId: event.pointerId };
-  const svg = $("graphEqSvg");
-  svg?.classList.add("drag-active");
-  svg?.setPointerCapture?.(event.pointerId);
+  const canvas = $("graphEqCanvas");
+  canvas?.classList.add("drag-active");
+  canvas?.setPointerCapture?.(event.pointerId);
   renderGraphEqPointControls(graphEqForLayer(state.draft, layerId), layerId);
 };
 
@@ -6050,7 +6480,8 @@ const renderGraphEqLayerTabs = () => {
 
 const renderGraphEqEditor = (eq, layerId) => {
   const svg = $("graphEqSvg");
-  if (!svg) return;
+  const overlay = $("graphEqPointOverlay");
+  if (!svg || !overlay) return;
   const selectedId = selectedGraphEqPointId(layerId);
   const responsePath = graphEqPathD(graphEqVisualResponsePoints(eq, 96));
   const zeroY = graphEqGainToY(0) * 360;
@@ -6065,33 +6496,27 @@ const renderGraphEqEditor = (eq, layerId) => {
     ></rect>
     <line class="graph-eq-zero-line" x1="0" y1="${zeroY}" x2="1000" y2="${zeroY}" />
     <path class="graph-eq-curve" data-graph-eq-curve="true" d="${responsePath}" />
-    ${eq.points.map((point) => {
-      const x = graphEqFrequencyToX(point.frequency_hz) * 1000;
-      const y = graphEqGainToY(point.gain_db) * 360;
-      const selected = point.id === selectedId;
-      return `
-        <circle
-          class="graph-eq-point-hit"
-          data-graph-eq-point="${escapeHtml(point.id)}"
-          cx="${x.toFixed(1)}"
-          cy="${y.toFixed(1)}"
-          r="16"
-          aria-hidden="true"
-        ></circle>
-        <circle
-          class="graph-eq-point ${selected ? "selected" : ""}"
-          data-graph-eq-point="${escapeHtml(point.id)}"
-          cx="${x.toFixed(1)}"
-          cy="${y.toFixed(1)}"
-          r="${selected ? 12 : 9}"
-          tabindex="0"
-          role="button"
-          aria-label="${graphEqPointTypes[point.type]} ${Math.round(point.frequency_hz)} Hz"
-        ></circle>
-      `;
-    }).join("")}
   `;
-  (svg.querySelectorAll?.("[data-graph-eq-point]") || []).forEach((pointNode) => {
+  overlay.innerHTML = eq.points.map((point) => {
+      const position = graphEqPointScreenPosition(point);
+      const selected = point.id === selectedId;
+      const lockedX = graphEqLockedEndpointX(point);
+      const edgeClass = lockedX === 0 ? "edge-left" : lockedX === 1 ? "edge-right" : "";
+      return `
+        <button
+          class="graph-eq-point-hit ${selected ? "selected" : ""} ${lockedX !== null ? "locked-x" : ""} ${edgeClass}"
+          data-graph-eq-point="${escapeHtml(point.id)}"
+          style="left: ${(position.x * 100).toFixed(3)}%; top: ${(position.y * 100).toFixed(3)}%;"
+          type="button"
+          role="button"
+          aria-pressed="${selected ? "true" : "false"}"
+          aria-label="${graphEqPointTypes[point.type]} ${Math.round(point.frequency_hz)} Hz"
+        >
+          <span class="graph-eq-point-marker" aria-hidden="true"></span>
+        </button>
+      `;
+    }).join("");
+  (overlay.querySelectorAll?.("[data-graph-eq-point]") || []).forEach((pointNode) => {
     const pointId = pointNode.dataset.graphEqPoint;
     pointNode.addEventListener("click", () => setSelectedGraphEqPoint(layerId, pointId));
     pointNode.addEventListener("pointerdown", (event) => {
@@ -6107,24 +6532,31 @@ const renderGraphEqEditor = (eq, layerId) => {
     const pointId = graphEqNearestPointId(eq, pointer);
     startGraphEqDrag(layerId, pointId, event);
     if (!pointId) return;
-    updateDraftGraphEqPoint(layerId, pointId, graphEqPointFromPointerRatio(pointer));
+    const point = eq.points.find((item) => item.id === pointId);
+    updateDraftGraphEqPoint(layerId, pointId, graphEqPointUpdatesFromPointerRatio(point, pointer));
     syncDraftSnapshot();
     renderGraphEqWorkspace();
   };
 };
 
 const graphEqPointerRatioFromPointerEvent = (event) => {
-  const svg = $("graphEqSvg");
-  const rect = svg?.getBoundingClientRect?.();
+  const canvas = $("graphEqCanvas") || $("graphEqSvg");
+  const rect = canvas?.getBoundingClientRect?.();
   if (!rect || rect.width <= 0 || rect.height <= 0) return null;
   const x = clampNumber((event.clientX - rect.left) / rect.width, 0, 1);
   const y = clampNumber((event.clientY - rect.top) / rect.height, 0, 1);
   return { x, y };
 };
 
-const graphEqPointFromPointerEvent = (event) => {
+const graphEqPointFromPointerEvent = (event, point) => {
   const pointer = graphEqPointerRatioFromPointerEvent(event);
-  return pointer ? graphEqPointFromPointerRatio(pointer) : null;
+  return pointer ? graphEqPointUpdatesFromPointerRatio(point, pointer) : null;
+};
+
+const setGraphEqStepButtonsDisabled = (controlId, disabled) => {
+  document.querySelectorAll?.(`[data-graph-eq-step-target="${controlId}"]`).forEach((button) => {
+    button.disabled = disabled;
+  });
 };
 
 const renderGraphEqPointControls = (eq, layerId) => {
@@ -6138,9 +6570,11 @@ const renderGraphEqPointControls = (eq, layerId) => {
   if (!controls) return;
   controls.classList.toggle("empty", !selected);
   controls.querySelector(".graph-eq-empty-state").hidden = Boolean(selected);
+  const selectedLockedEndpoint = selected && graphEqLockedEndpointX(selected) !== null;
   ["graphEqPointType", "graphEqPointFreq", "graphEqPointGain", "graphEqPointQ"].forEach((id) => {
     const input = $(id);
-    input.disabled = !selected || draftEditLocked();
+    input.disabled = !selected || draftEditLocked() || (id === "graphEqPointFreq" && selectedLockedEndpoint);
+    setGraphEqStepButtonsDisabled(id, input.disabled);
   });
   $("graphEqDeletePointButton").disabled = !selected || draftEditLocked() || eq.points.length <= 1;
   $("graphEqAddPointButton").disabled = draftEditLocked() || eq.points.length >= graphEqMaxPoints;
@@ -6158,7 +6592,10 @@ const renderGraphEqPointControls = (eq, layerId) => {
   }
   if (!selected) return;
   $("graphEqPointType").value = selected.type;
-  $("graphEqPointFreq").value = String(Math.round(selected.frequency_hz));
+  const lockedEndpointX = graphEqLockedEndpointX(selected);
+  $("graphEqPointFreq").value = String(Math.round(
+    lockedEndpointX === null ? selected.frequency_hz : graphEqXToFrequency(lockedEndpointX),
+  ));
   $("graphEqPointGain").value = String(Number(selected.gain_db.toFixed(1)));
   $("graphEqPointQ").value = String(Number(selected.q.toFixed(2)));
 };
@@ -6194,12 +6631,34 @@ const commitGraphEqSelectedControl = (controlId) => {
   const layerId = currentGraphEqLayerId();
   const pointId = selectedGraphEqPointId(layerId);
   if (!pointId) return;
+  const selected = selectedGraphEqPoint(graphEqForLayer(state.draft, layerId), layerId);
+  if (controlId === "graphEqPointFreq" && graphEqLockedEndpointX(selected) !== null) return;
   const updates = {};
   if (controlId === "graphEqPointType") updates.type = $("graphEqPointType").value;
   if (controlId === "graphEqPointFreq") updates.frequency_hz = Number($("graphEqPointFreq").value);
   if (controlId === "graphEqPointGain") updates.gain_db = Number($("graphEqPointGain").value);
   if (controlId === "graphEqPointQ") updates.q = Number($("graphEqPointQ").value);
   commitGraphEqPointEdit(layerId, pointId, updates);
+};
+
+const graphEqStepDecimalPlaces = (input) => {
+  const step = String(input.step || "");
+  const decimalIndex = step.indexOf(".");
+  return decimalIndex >= 0 ? step.length - decimalIndex - 1 : 0;
+};
+
+const stepGraphEqNumericControl = (button) => {
+  const input = $(button.dataset.graphEqStepTarget);
+  if (!input || input.disabled) return;
+  const direction = Number(button.dataset.graphEqStepDirection || 0);
+  if (!direction) return;
+  const step = Number(input.step) || 1;
+  const min = Number(input.min);
+  const max = Number(input.max);
+  const current = Number(input.value || 0);
+  const next = clampNumber(current + direction * step, min, max);
+  input.value = String(Number(next.toFixed(graphEqStepDecimalPlaces(input))));
+  commitGraphEqSelectedControl(input.id);
 };
 
 const bindGraphEqControls = () => {
@@ -6211,36 +6670,41 @@ const bindGraphEqControls = () => {
     });
     $(id).addEventListener("blur", () => commitGraphEqSelectedControl(id));
   });
+  document.querySelectorAll("[data-graph-eq-step-target]").forEach((button) => {
+    button.addEventListener("click", () => stepGraphEqNumericControl(button));
+  });
   $("graphEqPointType").addEventListener("change", () => commitGraphEqSelectedControl("graphEqPointType"));
   $("graphEqAddPointButton").addEventListener("click", addGraphEqPoint);
   $("graphEqDeletePointButton").addEventListener("click", deleteSelectedGraphEqPoint);
   $("graphEqResetLayerButton").addEventListener("click", () => resetGraphEqLayer());
   $("graphEqResetAllButton").addEventListener("click", resetAllGraphEqLayers);
-  $("graphEqSvg").addEventListener("pointermove", (event) => {
+  $("graphEqCanvas").addEventListener("pointermove", (event) => {
     const drag = state.graphEqDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const updates = graphEqPointFromPointerEvent(event);
+    const eq = graphEqForLayer(state.draft, drag.layerId);
+    const point = eq.points.find((item) => item.id === drag.pointId);
+    const updates = graphEqPointFromPointerEvent(event, point);
     if (!updates) return;
     updateDraftGraphEqPoint(drag.layerId, drag.pointId, updates);
     syncDraftSnapshot();
     renderGraphEqWorkspace();
   });
-  $("graphEqSvg").addEventListener("pointerup", (event) => {
+  $("graphEqCanvas").addEventListener("pointerup", (event) => {
     const drag = state.graphEqDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
     state.graphEqDrag = null;
-    $("graphEqSvg").classList.remove("drag-active");
-    $("graphEqSvg").releasePointerCapture?.(event.pointerId);
+    $("graphEqCanvas").classList.remove("drag-active");
+    $("graphEqCanvas").releasePointerCapture?.(event.pointerId);
     commitDraftChange(() => {}, {
       feedbackSurfaceId: `layer:${drag.layerId}`,
       feedbackControlIds: graphEqControlIds(drag.layerId, drag.pointId),
       afterSync: renderGraphEqWorkspace,
     });
   });
-  $("graphEqSvg").addEventListener("pointercancel", (event) => {
+  $("graphEqCanvas").addEventListener("pointercancel", (event) => {
     state.graphEqDrag = null;
-    $("graphEqSvg").classList.remove("drag-active");
-    $("graphEqSvg").releasePointerCapture?.(event.pointerId);
+    $("graphEqCanvas").classList.remove("drag-active");
+    $("graphEqCanvas").releasePointerCapture?.(event.pointerId);
   });
 };
 
@@ -7444,7 +7908,6 @@ const bindEvents = () => {
   document.querySelectorAll("[data-playback-apply-mode]").forEach((button) => {
     button.addEventListener("click", () => setPlaybackApplyMode(button.dataset.playbackApplyMode));
   });
-  bindGraphEqControls();
   document.addEventListener("pointerdown", trackSettingsInteractiveControl);
   document.addEventListener("focusin", trackSettingsInteractiveControl);
   document.addEventListener("focusout", releaseSettingsInteractiveControl);

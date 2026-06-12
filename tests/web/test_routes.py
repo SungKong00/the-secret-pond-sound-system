@@ -932,8 +932,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260608-voice-loop-timeline"' in response.text
-    assert 'src="/static/app.js?v=20260608-voice-loop-timeline"' in response.text
+    assert 'href="/static/styles.css?v=20260612-graph-eq-inline-weq8c"' in response.text
+    assert 'src="/static/graph_eq_inline.bundle.js?v=20260612-graph-eq-inline-weq8c"' in response.text
+    assert 'src="/static/app.js?v=20260612-graph-eq-inline-weq8c"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert "No Rendered Cache" in response.text
@@ -1093,9 +1094,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="workspaceTabMixer"' in main_workspace
     assert 'data-workspace-tab="mixer"' in main_workspace
     assert 'aria-controls="workspacePaneMixer"' in main_workspace
-    assert 'id="workspaceTabGraphEq"' in main_workspace
-    assert 'data-workspace-tab="graph-eq"' in main_workspace
-    assert 'aria-controls="workspacePaneGraphEq"' in main_workspace
+    assert 'id="workspaceTabGraphEq"' not in main_workspace
+    assert 'data-workspace-tab="graph-eq"' not in main_workspace
+    assert 'aria-controls="workspacePaneGraphEq"' not in main_workspace
     assert 'class="settings-library"' in main_workspace
     assert 'id="settingsSnapshotSaveButton"' in main_workspace
     assert 'id="settingsSnapshotSelect"' in main_workspace
@@ -1108,8 +1109,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'data-workspace-pane="stack"' in main_workspace
     assert 'id="workspacePaneMixer"' in main_workspace
     assert 'data-workspace-pane="mixer"' in main_workspace
-    assert 'id="workspacePaneGraphEq"' in main_workspace
-    assert 'data-workspace-pane="graph-eq"' in main_workspace
+    assert 'id="workspacePaneGraphEq"' not in main_workspace
+    assert 'data-workspace-pane="graph-eq"' not in main_workspace
     stack_pane_start = (
         'id="workspacePaneStack"\n'
         '            class="workspace-pane"\n'
@@ -1118,7 +1119,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert stack_pane_start in main_workspace
     assert 'data-workspace-pane="stack"\n            hidden' in main_workspace
     assert 'data-workspace-pane="mixer"\n            hidden' in main_workspace
-    assert 'data-workspace-pane="graph-eq"\n            hidden' in main_workspace
+    assert 'data-workspace-pane="graph-eq"\n            hidden' not in main_workspace
     assert 'class="workspace-section voice-panel"' in response.text
     assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
     settings_panel = slice_between(
@@ -1134,11 +1135,10 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     mixer_panel = slice_between(
         main_workspace,
         '<section class="workspace-section mixer-panel"',
-        "\n          </div>\n        </section>",
+        "\n          </div>\n\n        </section>",
     )
     assert main_workspace.index("Voice Treatment") < main_workspace.index("Voice Stack")
     assert main_workspace.index("Voice Stack") < main_workspace.index("Loop Mixer")
-    assert main_workspace.index("Loop Mixer") < main_workspace.index("Graph EQ")
     assert "Voice Treatment" in settings_panel
     assert 'id="layerControls"' in mixer_panel
     assert 'id="voiceLayerControls"' not in mixer_panel
@@ -2120,7 +2120,7 @@ assert.strictEqual(
     )
 
 
-def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
+def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
     response = client.get("/")
@@ -2130,39 +2130,55 @@ def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert script.status_code == 200
     assert styles.status_code == 200
-    assert 'id="workspaceTabGraphEq"' in response.text
-    assert "20260612-graph-eq-completion" in response.text
+    assert 'data-workspace-tab="graph-eq"' not in response.text
+    assert 'id="workspaceTabGraphEq"' not in response.text
+    assert 'id="workspacePaneGraphEq"' not in response.text
+    assert 'id="graphEqLayerTabs"' not in response.text
+    assert "20260612-graph-eq-inline-weq8c" in response.text
     assert "20260608-voice-loop-timeline" not in response.text
-    assert 'id="workspacePaneGraphEq"' in response.text
-    assert 'id="graphEqLayerTabs"' in response.text
-    assert 'id="graphEqEditor"' in response.text
-    assert 'id="graphEqPointControls"' in response.text
-    assert 'id="graphEqFilterRange"' in response.text
-    assert 'id="graphEqStatusDetail"' in response.text
-    assert "Graph EQ" in response.text
-    assert "Bell / Peak" in response.text
-    assert "Low Shelf" in response.text
-    assert "High Shelf" in response.text
-    assert "Freq" in response.text
-    assert "Gain" in response.text
-    assert 'id="graphEqPointQ"' in response.text
-    assert "Low Cut" in response.text
-    assert "High Cut" in response.text
-    assert "점을 선택하세요" in response.text
+    assert "Graph EQ" in script.text
+    assert "Loop Mixer" in response.text
+    assert "Voice Treatment" in response.text
+    assert "Voice Stack" in response.text
+    assert "Bell / Peak" in script.text
+    assert "Low Shelf" in script.text
+    assert "High Shelf" in script.text
+    assert "Freq" in script.text
+    assert "Gain" in script.text
+    assert "Q" in script.text
+    assert "Low Cut" in script.text
+    assert "High Cut" in script.text
     assert 'path: "eq.low_gain_db"' not in script.text
     assert 'path: "eq.mid_gain_db"' not in script.text
     assert 'path: "eq.high_gain_db"' not in script.text
     assert "const graphEqPointTypes" in script.text
-    assert "const renderGraphEqWorkspace = () => {" in script.text
+    assert "graph-eq-layer-card-section" in script.text
+    assert "renderLayerGraphEqSection" in script.text
+    assert "toggleExpandedGraphEqLayer" in script.text
+    assert "initializeInlineGraphEqEditors" in script.text
     assert "const graphEqFrequencyToX = " in script.text
     assert "const graphEqGainToY = " in script.text
-    assert "const commitGraphEqPointEdit = " in script.text
-    assert "data-graph-eq-hit-surface" in script.text
-    assert "data-graph-eq-curve" in script.text
-    assert ".graph-eq-svg.drag-active" in styles.text
-    assert ".graph-eq-hit-surface" in styles.text
-    assert ".graph-eq-curve:hover" in styles.text
-    assert "cursor: grabbing" in styles.text
+    assert "const commitInlineGraphEqPoints = " in script.text
+    assert ".graph-eq-inline-editor" in styles.text
+    assert ".graph-eq-mini-preview" in styles.text
+    assert ".graph-eq-step-button" in styles.text
+
+
+def test_static_inline_graph_eq_tracks_one_expanded_layer(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ toggleExpandedGraphEqLayer, expandedGraphEqLayerId }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+helpers.toggleExpandedGraphEqLayer("low");
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
+helpers.toggleExpandedGraphEqLayer("mid");
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
+helpers.toggleExpandedGraphEqLayer("mid");
+assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+""",
+    )
 
 
 def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) -> None:
@@ -2171,7 +2187,8 @@ def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) ->
         exports=(
             "{ defaultGraphEqPoints, normalizeGraphEqSettings, graphEqFrequencyToX, "
             "graphEqXToFrequency, graphEqGainToY, graphEqYToGain, graphEqVisualResponsePoints, "
-            "graphEqNearestPointId, graphEqPointFromPointerRatio }"
+            "graphEqNearestPointId, graphEqPointFromPointerRatio, graphEqPointScreenPosition, "
+            "graphEqPointUpdatesFromPointerRatio }"
         ),
         body="""
 const helpers = globalThis.__secretPondTest;
@@ -2211,6 +2228,27 @@ assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
   frequency_hz: 20,
   gain_db: -18,
 });
+const lowScreen = helpers.graphEqPointScreenPosition(dragEq.points[0]);
+const midScreen = helpers.graphEqPointScreenPosition(dragEq.points[1]);
+const highScreen = helpers.graphEqPointScreenPosition(dragEq.points[2]);
+assert.strictEqual(lowScreen.x, 0);
+assert.strictEqual(highScreen.x, 1);
+assert(Math.abs(midScreen.x - helpers.graphEqFrequencyToX(1000)) < 0.001);
+const lowDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
+  dragEq.points[0],
+  { x: 0.75, y: 0.1 },
+);
+const highDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
+  dragEq.points[2],
+  { x: 0.25, y: 0.9 },
+);
+const midDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
+  dragEq.points[1],
+  { x: 0.75, y: 0.1 },
+);
+assert(!Object.hasOwn(lowDragUpdates, "frequency_hz"));
+assert(!Object.hasOwn(highDragUpdates, "frequency_hz"));
+assert(Object.hasOwn(midDragUpdates, "frequency_hz"));
 """,
     )
 

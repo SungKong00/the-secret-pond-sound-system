@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>비밀의 연못 사운드 시스템</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260612-graph-eq-completion" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260612-graph-eq-inline-weq8c" />
   </head>
   <body>
     <canvas id="pondCanvas" aria-hidden="true"></canvas>
@@ -267,17 +267,6 @@
             >
               Loop Mixer <small lang="ko">루프 믹서</small>
             </button>
-            <button
-              id="workspaceTabGraphEq"
-              class="workspace-tab"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="workspacePaneGraphEq"
-              data-workspace-tab="graph-eq"
-            >
-              Graph EQ <small lang="ko">곡선 EQ</small>
-            </button>
           </div>
 
           <section class="settings-library" aria-label="세팅 스냅샷">
@@ -400,104 +389,6 @@
             </section>
           </div>
 
-          <div
-            id="workspacePaneGraphEq"
-            class="workspace-pane"
-            role="tabpanel"
-            aria-labelledby="workspaceTabGraphEq"
-            data-workspace-pane="graph-eq"
-            hidden
-          >
-            <section class="workspace-section graph-eq-panel" aria-labelledby="graphEqPanelTitle">
-              <div class="panel-heading inline">
-                <div>
-                  <p class="eyebrow">레이어 EQ</p>
-                  <h2 id="graphEqPanelTitle">Graph EQ <small lang="ko">곡선 EQ</small></h2>
-                </div>
-                <span id="graphEqStatus" class="status-pill muted" role="status" aria-live="polite">
-                  점을 선택하세요
-                </span>
-              </div>
-              <p id="graphEqStatusDetail" class="graph-eq-status-detail" hidden></p>
-              <div
-                id="graphEqLayerTabs"
-                class="graph-eq-layer-tabs"
-                role="tablist"
-                aria-label="Graph EQ layer"
-              ></div>
-              <div class="graph-eq-workbench">
-                <div id="graphEqEditor" class="graph-eq-editor" aria-label="Graph EQ editor">
-                  <div class="graph-eq-scale graph-eq-scale-y" aria-hidden="true">
-                    <span>+18 dB</span>
-                    <span>0 dB</span>
-                    <span>-18 dB</span>
-                  </div>
-                  <div id="graphEqCanvas" class="graph-eq-canvas">
-                    <svg
-                      id="graphEqSvg"
-                      class="graph-eq-svg"
-                      viewBox="0 0 1000 360"
-                      role="img"
-                      aria-label="Graph EQ curve"
-                      preserveAspectRatio="none"
-                    ></svg>
-                  </div>
-                  <div class="graph-eq-scale graph-eq-scale-x" aria-hidden="true">
-                    <span>20 Hz</span>
-                    <span>100 Hz</span>
-                    <span>1 kHz</span>
-                    <span>10 kHz</span>
-                    <span>20 kHz</span>
-                  </div>
-                </div>
-                <aside
-                  id="graphEqPointControls"
-                  class="graph-eq-point-controls"
-                  aria-label="Selected Graph EQ point"
-                >
-                  <div class="graph-eq-empty-state">점을 선택하세요</div>
-                  <label>
-                    Type
-                    <select id="graphEqPointType">
-                      <option value="bell">Bell / Peak</option>
-                      <option value="low_shelf">Low Shelf</option>
-                      <option value="high_shelf">High Shelf</option>
-                    </select>
-                  </label>
-                  <label>
-                    Freq
-                    <input id="graphEqPointFreq" type="number" min="20" max="20000" step="1" />
-                  </label>
-                  <label>
-                    Gain
-                    <input id="graphEqPointGain" type="number" min="-18" max="18" step="0.1" />
-                  </label>
-                  <label>
-                    Q
-                    <input id="graphEqPointQ" type="number" min="0.1" max="18" step="0.1" />
-                  </label>
-                  <div class="graph-eq-actions">
-                    <button id="graphEqAddPointButton" class="button" type="button">+ Point</button>
-                    <button id="graphEqDeletePointButton" class="button danger" type="button">
-                      Delete
-                    </button>
-                  </div>
-                  <div class="graph-eq-actions">
-                    <button id="graphEqResetLayerButton" class="button" type="button">
-                      Layer Reset
-                    </button>
-                    <button id="graphEqResetAllButton" class="button danger" type="button">
-                      All Reset
-                    </button>
-                  </div>
-                </aside>
-              </div>
-              <div id="graphEqFilterRange" class="graph-eq-filter-range" aria-label="Filter Range">
-                <h3>Filter Range <small lang="ko">Low Cut / High Cut</small></h3>
-                <div id="graphEqFilterControls" class="control-stack compact"></div>
-              </div>
-            </section>
-          </div>
         </section>
 
         <aside class="panel right-stack-panel" aria-label="오른쪽 정보 패널">
@@ -583,6 +474,7 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js?v=20260612-graph-eq-completion" defer></script>
+    <script src="/static/graph_eq_inline.bundle.js?v=20260612-graph-eq-inline-weq8c" defer></script>
+    <script src="/static/app.js?v=20260612-graph-eq-inline-weq8c" defer></script>
   </body>
 </html>
