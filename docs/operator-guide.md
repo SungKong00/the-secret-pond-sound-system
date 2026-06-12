@@ -142,6 +142,13 @@ The header shows `Error None` during normal operation and `Error Active` wheneve
 
 Sliders edit pending settings first. The Playback panel shows `Unsaved audio changes`. Layer rows also show current values and changed values. The Loop Mixer panel contains the Low and Mid supporting layers; the Voice Stack panel contains the voice playback layer EQ/filter controls.
 
+Graph EQ는 Graph EQ workspace tab에서 Low, Mid, Voice layer별로 조절합니다. 점을 움직이면 해당 layer의 `Bell / Peak`, `Low Shelf`, `High Shelf`, `Q`, `Filter Range` 설정이 pending settings로 저장됩니다.
+
+- Stable mode에서는 Graph EQ 점 편집이 바로 들리지 않습니다. 변경한 곡선은 staged 상태로 남고, `Apply and Restart`를 눌렀을 때 rendered playback cache를 다시 만든 뒤 적용됩니다.
+- Live mode에서는 Graph EQ 점 편집이 약 1초 debounce 뒤 최신 변경만 렌더링됩니다. 일반적인 source file에서는 3초 안에 재생 중인 layer buffer가 빠르게 교체되는 것을 목표로 합니다.
+- Live Graph EQ 적용에 실패하면 재생은 기존 audible state를 유지하고, dashboard warning에 실패 안내가 표시됩니다. 이때 Stable `Apply and Restart`는 fallback으로 계속 사용할 수 있습니다.
+- Live Graph EQ는 `low_playback.wav`, `mid_playback.wav`, `voice_playback.wav` 같은 이미 EQ가 baked 된 playback cache를 다시 EQ하지 않습니다. Low/Mid selected source, Voice Stack selected source 또는 `voice_stack_raw.wav` 같은 EQ-free source material에서만 새 buffer를 렌더링합니다.
+
 The Voice Stack panel also includes `Voice loop` for the voice stack loop length. This is not a real-time control. Changing Voice loop is staged as a pending setting like the layer sliders.
 
 `Apply and Restart` normalizes the selected voice stack source to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. Accepted recordings also save a timestamped processed voice raw snapshot under `data/sources/voice/raw/`. New voice stack outputs are saved as timestamped files under `data/sources/voice/stack/`, while `data/voice/voice_stack_raw.wav` remains as a legacy compatibility mirror. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.

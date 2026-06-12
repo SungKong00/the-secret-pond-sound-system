@@ -8,8 +8,8 @@ import pytest
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
 from secret_pond.audio.layers import LAYER_IDS
-from secret_pond.audio.renderer import LayerRenderer
-from secret_pond.config import AppSettings, AudioFormatSettings, SourceSelectionSettings
+from secret_pond.audio.renderer import LayerRenderer, LiveEqSourceError
+from secret_pond.config import AppSettings, AudioFormatSettings, EqSettings, SourceSelectionSettings
 from secret_pond.paths import ProjectPaths
 
 
@@ -108,6 +108,86 @@ def test_renderer_uses_selected_library_source_before_legacy_path(tmp_path: Path
     rendered = read_wav(result.output_path)
 
     assert rms(rendered.samples) > rms(legacy) * 3.0
+
+
+@pytest.mark.parametrize(
+    ("layer_id", "source_dir_name", "settings_field", "playback_path_name", "source_frequency"),
+    [
+        ("low", "low_sources_dir", "low_path", "low_playback", 500.0),
+        ("mid", "mid_sources_dir", "mid_path", "mid_playback", 1_000.0),
+    ],
+)
+def test_live_eq_render_uses_selected_low_mid_source_not_playback_cache(
+    tmp_path: Path,
+    layer_id: str,
+    source_dir_name: str,
+    settings_field: str,
+    playback_path_name: str,
+    source_frequency: float,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    selected_path = getattr(paths, source_dir_name) / f"selected-{layer_id}.wav"
+    playback_path = getattr(paths, playback_path_name)
+    write_wav_atomic(
+        selected_path,
+        AudioBuffer(samples=sine_wave(source_frequency) * 0.25, sample_rate=8_000),
+    )
+    write_wav_atomic(
+        playback_path,
+        AudioBuffer(samples=sine_wave(2_500.0) * 0.25, sample_rate=8_000),
+    )
+    settings.sources = SourceSelectionSettings(
+        **{settings_field: selected_path.relative_to(paths.root).as_posix()},
+    )
+
+    rendered = LayerRenderer(paths).render_live_eq_layer_buffer(layer_id, settings)
+
+    assert tone_magnitude(rendered.samples, 8_000, source_frequency) > (
+        tone_magnitude(rendered.samples, 8_000, 2_500.0) * 4.0
+    )
+
+
+def test_live_eq_render_uses_voice_stack_source_not_voice_playback_cache(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    selected_path = paths.voice_stack_sources_dir / "selected-stack.wav"
+    write_wav_atomic(
+        selected_path,
+        AudioBuffer(samples=sine_wave(700.0) * 0.25, sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_stack_raw,
+        AudioBuffer(samples=sine_wave(500.0) * 0.25, sample_rate=8_000),
+    )
+    write_wav_atomic(
+        paths.voice_playback,
+        AudioBuffer(samples=sine_wave(2_500.0) * 0.25, sample_rate=8_000),
+    )
+    settings.sources = SourceSelectionSettings(
+        voice_stack_path=selected_path.relative_to(paths.root).as_posix(),
+    )
+
+    rendered = LayerRenderer(paths).render_live_eq_layer_buffer("voice", settings)
+
+    assert tone_magnitude(rendered.samples, 8_000, 700.0) > (
+        tone_magnitude(rendered.samples, 8_000, 2_500.0) * 4.0
+    )
+    assert tone_magnitude(rendered.samples, 8_000, 700.0) > (
+        tone_magnitude(rendered.samples, 8_000, 500.0) * 4.0
+    )
+
+
+def test_live_eq_render_reports_missing_eq_free_source_explicitly(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+
+    with pytest.raises(LiveEqSourceError, match="Live Graph EQ"):
+        LayerRenderer(paths).render_live_eq_layer_buffer("voice", renderer_settings())
 
 
 def test_renderer_falls_back_to_legacy_source_when_no_library_selection(
@@ -256,6 +336,38 @@ def test_renderer_three_band_eq_boosts_target_band(
 
     assert tone_magnitude(boosted, 8_000, frequency) > (
         tone_magnitude(baseline, 8_000, frequency) * 1.5
+    )
+
+
+def test_renderer_applies_graph_eq_points(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    settings = renderer_settings()
+    settings.layers["low"].volume_db = 0.0
+    source = (sine_wave(100.0) + sine_wave(1_000.0)) * 0.1
+    write_wav_atomic(paths.low_source, AudioBuffer(samples=source, sample_rate=8_000))
+    baseline_result = LayerRenderer(paths).render_layer("low", settings)
+    baseline = read_wav(baseline_result.output_path).samples
+    settings.layers["low"].eq = EqSettings(
+        points=[
+            {
+                "id": "focus",
+                "type": "bell",
+                "frequency_hz": 1_000.0,
+                "gain_db": 6.0,
+                "q": 2.0,
+            }
+        ],
+    )
+
+    boosted_result = LayerRenderer(paths).render_layer("low", settings)
+    boosted = read_wav(boosted_result.output_path).samples
+
+    assert tone_magnitude(boosted, 8_000, 1_000.0) > (
+        tone_magnitude(baseline, 8_000, 1_000.0) * 1.8
+    )
+    assert tone_magnitude(boosted, 8_000, 100.0) < (
+        tone_magnitude(baseline, 8_000, 100.0) * 1.3
     )
 
 

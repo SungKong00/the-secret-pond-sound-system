@@ -42,6 +42,41 @@ def test_lowpass_must_be_greater_than_highpass() -> None:
         EqSettings(highpass_hz=5_000.0, lowpass_hz=1_000.0)
 
 
+def test_graph_eq_defaults_define_three_flat_points() -> None:
+    eq = EqSettings()
+
+    assert [(point.type, point.frequency_hz, point.gain_db) for point in eq.points] == [
+        ("low_shelf", 120.0, 0.0),
+        ("bell", 1_000.0, 0.0),
+        ("high_shelf", 8_000.0, 0.0),
+    ]
+    assert eq.highpass_hz == 20.0
+    assert eq.lowpass_hz == 20_000.0
+
+
+def test_graph_eq_rejects_more_than_six_points() -> None:
+    point = EqSettings().points[1]
+
+    with pytest.raises(ValidationError):
+        EqSettings(
+            points=[
+                point.model_copy(update={"id": str(index)})
+                for index in range(7)
+            ],
+        )
+
+
+def test_graph_eq_validates_frequency_gain_and_q() -> None:
+    point = EqSettings().points[1]
+
+    with pytest.raises(ValidationError):
+        EqSettings(points=[{**point.model_dump(), "frequency_hz": 10.0}])
+    with pytest.raises(ValidationError):
+        EqSettings(points=[{**point.model_dump(), "gain_db": 24.0}])
+    with pytest.raises(ValidationError):
+        EqSettings(points=[{**point.model_dump(), "q": 0.0}])
+
+
 def test_recording_maximum_must_be_greater_than_minimum() -> None:
     with pytest.raises(ValidationError):
         InputControlSettings(minimum_recording_seconds=3.0, maximum_recording_seconds=3.0)

@@ -11,13 +11,11 @@ from scipy.signal import butter, sosfilt
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
+from secret_pond.audio.graph_eq import apply_graph_eq
 from secret_pond.audio.layers import LAYER_IDS, LayerId
 from secret_pond.audio.source_library import render_source_path
-from secret_pond.config import AppSettings, EqSettings, LayerSettings
+from secret_pond.config import AppSettings, LayerSettings
 from secret_pond.paths import ProjectPaths
-
-_LOW_BAND_HZ = 250.0
-_HIGH_BAND_HZ = 2_000.0
 
 
 @dataclass(frozen=True)
@@ -33,6 +31,19 @@ class RenderResult:
 class _RenderedAudio:
     samples: np.ndarray
     sample_rate: int
+
+
+class LiveEqSourceError(FileNotFoundError):
+    def __init__(
+        self,
+        layer_id: str,
+        source_path: Path | None,
+        reason: str = "EQ-free source is unavailable",
+    ) -> None:
+        self.layer_id = layer_id
+        self.source_path = source_path
+        source = f": {source_path}" if source_path is not None else ""
+        super().__init__(f"Live Graph EQ source for {layer_id} is unavailable{source}. {reason}")
 
 
 @dataclass
@@ -99,9 +110,10 @@ class LayerRenderer:
         return guarded
 
     def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
-        """Render a live replacement from the configured source, not playback cache."""
+        """Render a live replacement from EQ-free source material, never playback cache."""
         normalized_layer_id = _validate_layer_id(layer_id)
-        rendered_audio = self._render_audio(normalized_layer_id, settings)
+        source_path = self._live_eq_source_path(normalized_layer_id, settings)
+        rendered_audio = self._render_audio(normalized_layer_id, settings, source_path=source_path)
         _result, guarded = _guard_rendered_buffer(
             normalized_layer_id,
             self._output_path(normalized_layer_id),
@@ -142,8 +154,14 @@ class LayerRenderer:
                 _safe_unlink(path)
             raise
 
-    def _render_audio(self, layer_id: LayerId, settings: AppSettings) -> _RenderedAudio:
-        source_path = self._source_path(layer_id, settings)
+    def _render_audio(
+        self,
+        layer_id: LayerId,
+        settings: AppSettings,
+        *,
+        source_path: Path | None = None,
+    ) -> _RenderedAudio:
+        source_path = source_path or self._source_path(layer_id, settings)
         if not source_path.exists():
             msg = f"{layer_id} source file does not exist: {source_path}"
             raise FileNotFoundError(msg)
@@ -156,12 +174,31 @@ class LayerRenderer:
         source = source.to_frame_count(target_frames)
         layer_settings = settings.layers[layer_id]
         samples = _apply_playback_filters(source.samples, source.sample_rate, layer_settings)
-        samples = _apply_three_band_eq(samples, source.sample_rate, layer_settings.eq)
+        samples = apply_graph_eq(samples, source.sample_rate, layer_settings.eq)
         samples = _apply_gain(samples, layer_settings.volume_db)
         return _RenderedAudio(samples=samples, sample_rate=source.sample_rate)
 
     def _source_path(self, layer_id: LayerId, settings: AppSettings) -> Path:
         return render_source_path(self._paths, settings, layer_id)
+
+    def _live_eq_source_path(self, layer_id: LayerId, settings: AppSettings) -> Path:
+        try:
+            source_path = self._source_path(layer_id, settings)
+        except FileNotFoundError as exc:
+            raise LiveEqSourceError(layer_id, None, str(exc)) from exc
+        if source_path in {
+            self._paths.low_playback,
+            self._paths.mid_playback,
+            self._paths.voice_playback,
+        }:
+            raise LiveEqSourceError(
+                layer_id,
+                source_path,
+                "playback cache is not an EQ-free source",
+            )
+        if not source_path.exists():
+            raise LiveEqSourceError(layer_id, source_path)
+        return source_path
 
     def _output_path(self, layer_id: LayerId) -> Path:
         if layer_id == "low":
@@ -188,20 +225,6 @@ def _apply_playback_filters(
     if layer_settings.eq.lowpass_hz >= nyquist:
         return filtered
     return _apply_filter(filtered, sample_rate, layer_settings.eq.lowpass_hz, "lowpass")
-
-
-def _apply_three_band_eq(samples: np.ndarray, sample_rate: int, eq: EqSettings) -> np.ndarray:
-    if eq.low_gain_db == 0.0 and eq.mid_gain_db == 0.0 and eq.high_gain_db == 0.0:
-        return samples.astype(np.float32, copy=True)
-
-    low = _apply_filter(samples, sample_rate, _LOW_BAND_HZ, "lowpass")
-    high = _apply_filter(samples, sample_rate, _HIGH_BAND_HZ, "highpass")
-    mid = samples - low - high
-    return (
-        _apply_gain(low, eq.low_gain_db)
-        + _apply_gain(mid, eq.mid_gain_db)
-        + _apply_gain(high, eq.high_gain_db)
-    ).astype(np.float32)
 
 
 def _apply_filter(

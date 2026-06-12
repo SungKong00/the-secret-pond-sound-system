@@ -9,6 +9,7 @@ from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
     DeviceSettings,
+    EqSettings,
     SourceSelectionSettings,
     VoiceStackSettings,
 )
@@ -378,6 +379,37 @@ def test_stable_apply_renders_cache_content_with_draft_eq_settings(tmp_path) -> 
     assert rms(rendered.samples[:, 0]) > rms(baseline.samples[:, 0]) * 1.5
 
 
+def test_stable_apply_renders_cache_content_with_draft_graph_eq_points(tmp_path) -> None:
+    settings = service_settings()
+    paths = ProjectPaths(tmp_path)
+    runtime = build_service_runtime(tmp_path, settings)
+    write_required_sources(paths, settings)
+    write_tone_source(paths.mid_source, settings, frequency_hz=1_000.0)
+    player = ApplyRestartPlayerSpy()
+    runtime.player = player
+
+    baseline = runtime.renderer.render_layer_buffer("mid", settings)
+    draft_layers = {
+        **settings.layers,
+        "mid": settings.layers["mid"].model_copy(
+            update={"eq": graph_eq_with_mid_gain(settings.layers["mid"].eq, 12.0)},
+        ),
+    }
+    draft = settings.model_copy(update={"layers": draft_layers}, deep=True)
+    runtime.settings_store.set_draft(draft)
+
+    apply_draft_settings(runtime)
+
+    stored = runtime.settings_store.load()
+    rendered = read_wav(paths.mid_playback)
+    assert stored.active.layers["mid"].eq.points[1].gain_db == 12.0
+    assert stored.draft.layers["mid"].eq.points[1].gain_db == 12.0
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 12.0
+    assert player.reload_paths == []
+    assert len(player.load_paths) == 1
+    assert rms(rendered.samples[:, 0]) > rms(baseline.samples[:, 0]) * 1.5
+
+
 def test_apply_draft_settings_service_rejects_runtime_config_change(tmp_path) -> None:
     settings = service_settings()
     runtime = build_service_runtime(tmp_path, settings)
@@ -477,3 +509,9 @@ def test_live_mode_apply_keeps_sample_rate_pending_until_restart(tmp_path) -> No
     assert restarted_runtime.settings_state.active.playback.apply_mode == "live"
     assert restarted_runtime.settings_state.active.audio.sample_rate == 44_100
     assert restarted_runtime.controller.settings.audio.sample_rate == 44_100
+
+
+def graph_eq_with_mid_gain(eq: EqSettings, gain_db: float) -> EqSettings:
+    points = [point.model_dump() for point in eq.points]
+    points[1]["gain_db"] = gain_db
+    return EqSettings(points=points, highpass_hz=eq.highpass_hz, lowpass_hz=eq.lowpass_hz)

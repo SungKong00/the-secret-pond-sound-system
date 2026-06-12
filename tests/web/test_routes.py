@@ -31,6 +31,7 @@ from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
     DeviceSettings,
+    EqSettings,
     InputControlSettings,
     PlaybackSettings,
     RecordingProcessingSettings,
@@ -1092,6 +1093,9 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="workspaceTabMixer"' in main_workspace
     assert 'data-workspace-tab="mixer"' in main_workspace
     assert 'aria-controls="workspacePaneMixer"' in main_workspace
+    assert 'id="workspaceTabGraphEq"' in main_workspace
+    assert 'data-workspace-tab="graph-eq"' in main_workspace
+    assert 'aria-controls="workspacePaneGraphEq"' in main_workspace
     assert 'class="settings-library"' in main_workspace
     assert 'id="settingsSnapshotSaveButton"' in main_workspace
     assert 'id="settingsSnapshotSelect"' in main_workspace
@@ -1104,6 +1108,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'data-workspace-pane="stack"' in main_workspace
     assert 'id="workspacePaneMixer"' in main_workspace
     assert 'data-workspace-pane="mixer"' in main_workspace
+    assert 'id="workspacePaneGraphEq"' in main_workspace
+    assert 'data-workspace-pane="graph-eq"' in main_workspace
     stack_pane_start = (
         'id="workspacePaneStack"\n'
         '            class="workspace-pane"\n'
@@ -1112,6 +1118,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert stack_pane_start in main_workspace
     assert 'data-workspace-pane="stack"\n            hidden' in main_workspace
     assert 'data-workspace-pane="mixer"\n            hidden' in main_workspace
+    assert 'data-workspace-pane="graph-eq"\n            hidden' in main_workspace
     assert 'class="workspace-section voice-panel"' in response.text
     assert 'aria-labelledby="voiceStackPanelTitle"' in response.text
     settings_panel = slice_between(
@@ -1131,6 +1138,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     )
     assert main_workspace.index("Voice Treatment") < main_workspace.index("Voice Stack")
     assert main_workspace.index("Voice Stack") < main_workspace.index("Loop Mixer")
+    assert main_workspace.index("Loop Mixer") < main_workspace.index("Graph EQ")
     assert "Voice Treatment" in settings_panel
     assert 'id="layerControls"' in mixer_panel
     assert 'id="voiceLayerControls"' not in mixer_panel
@@ -1533,7 +1541,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "const translateUiErrorMessage = (message)" in script.text
     assert "translateUiErrorMessage(error.message)" in script.text
     assert "translateUiErrorMessage(messages.join" not in script.text
-    assert 'const workspaceTabNames = ["treatment", "stack", "mixer"]' in script.text
+    assert 'const workspaceTabNames = ["treatment", "stack", "mixer", "graph-eq"]' in script.text
     assert "const workspaceTabFromUrl = () => {" in script.text
     assert "workspaceTab: workspaceTabFromUrl()" in script.text
     assert "const workspaceTabs = () =>" in script.text
@@ -2104,13 +2112,78 @@ assert.strictEqual(
   "voice_stack",
 );
 
-const eqGroup = helpers.layerControlGroups.find((group) => group.className === "eq-group");
-for (const path of ["eq.low_gain_db", "eq.mid_gain_db", "eq.high_gain_db"]) {
-  const control = byPath(eqGroup.controls, path);
-  assert.strictEqual(control.min, -12);
-  assert.strictEqual(control.max, 12);
-  assert.strictEqual(control.scale, undefined);
-}
+assert.strictEqual(
+  helpers.layerControlGroups.some((group) => group.className === "eq-group"),
+  false,
+);
+""",
+    )
+
+
+def test_graph_eq_workspace_static_structure(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    response = client.get("/")
+    script = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    assert script.status_code == 200
+    assert 'id="workspaceTabGraphEq"' in response.text
+    assert 'id="workspacePaneGraphEq"' in response.text
+    assert 'id="graphEqLayerTabs"' in response.text
+    assert 'id="graphEqEditor"' in response.text
+    assert 'id="graphEqPointControls"' in response.text
+    assert 'id="graphEqFilterRange"' in response.text
+    assert "Graph EQ" in response.text
+    assert "Bell / Peak" in response.text
+    assert "Low Shelf" in response.text
+    assert "High Shelf" in response.text
+    assert "Freq" in response.text
+    assert "Gain" in response.text
+    assert 'id="graphEqPointQ"' in response.text
+    assert "Low Cut" in response.text
+    assert "High Cut" in response.text
+    assert "점을 선택하세요" in response.text
+    assert 'path: "eq.low_gain_db"' not in script.text
+    assert 'path: "eq.mid_gain_db"' not in script.text
+    assert 'path: "eq.high_gain_db"' not in script.text
+    assert "const graphEqPointTypes" in script.text
+    assert "const renderGraphEqWorkspace = () => {" in script.text
+    assert "const graphEqFrequencyToX = " in script.text
+    assert "const graphEqGainToY = " in script.text
+    assert "const commitGraphEqPointEdit = " in script.text
+
+
+def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ defaultGraphEqPoints, normalizeGraphEqSettings, graphEqFrequencyToX, "
+            "graphEqXToFrequency, graphEqGainToY, graphEqYToGain, graphEqVisualResponsePoints }"
+        ),
+        body="""
+const helpers = globalThis.__secretPondTest;
+const eq = helpers.normalizeGraphEqSettings({});
+assert.deepStrictEqual(eq.points.map((point) => [point.type, point.frequency_hz, point.gain_db]), [
+  ["low_shelf", 120, 0],
+  ["bell", 1000, 0],
+  ["high_shelf", 8000, 0],
+]);
+assert.strictEqual(eq.highpass_hz, 20);
+assert.strictEqual(eq.lowpass_hz, 20000);
+assert(Math.abs(helpers.graphEqFrequencyToX(20) - 0) < 0.001);
+assert(Math.abs(helpers.graphEqFrequencyToX(20000) - 1) < 0.001);
+assert(Math.abs(helpers.graphEqXToFrequency(helpers.graphEqFrequencyToX(1000)) - 1000) < 0.001);
+assert.strictEqual(helpers.graphEqGainToY(18), 0);
+assert.strictEqual(helpers.graphEqGainToY(-18), 1);
+assert(Math.abs(helpers.graphEqYToGain(helpers.graphEqGainToY(6)) - 6) < 0.001);
+const response = helpers.graphEqVisualResponsePoints({
+  points: [{ id: "mid", type: "bell", frequency_hz: 1000, gain_db: 6, q: 2 }],
+  highpass_hz: 20,
+  lowpass_hz: 20000,
+}, 9);
+assert.strictEqual(response.length, 9);
+assert(response.some((point) => point.gain_db > 5));
 """,
     )
 
@@ -2304,7 +2377,8 @@ const selectedLayer = helpers.reversiblePresetDraft(
   "Warm Bed",
   null,
 );
-assert.deepStrictEqual(selectedLayer.draft.eq, helpers.layerPresetDefs["Warm Bed"].eq);
+assert.strictEqual(selectedLayer.draft.volume_db, helpers.layerPresetDefs["Warm Bed"].volume_db);
+assert.deepStrictEqual(selectedLayer.draft.eq, customLayer.eq);
 assert.strictEqual(selectedLayer.selection.name, "Warm Bed");
 assert.deepStrictEqual(selectedLayer.selection.previousDraft, customLayer);
 assert.strictEqual(
@@ -2317,7 +2391,7 @@ assert.strictEqual(
 );
 
 const editedLayer = helpers.clone(selectedLayer.draft);
-editedLayer.eq.highpass_hz = 70;
+editedLayer.volume_db = -11;
 assert.strictEqual(
   helpers.presetSelectionMatches(editedLayer, helpers.layerPresetDefs, selectedLayer.selection),
   false,
@@ -11031,6 +11105,8 @@ def test_api_playback_apply_mode_request_contract_names_supported_modes(
     schema = openapi["components"]["schemas"]["PlaybackApplyModeRequest"]
 
     assert schema["properties"]["mode"]["enum"] == ["stable", "live"]
+    assert schema["properties"]["staged_graph_eq"]["enum"] == ["apply", "discard"]
+    assert schema["properties"]["staged_graph_eq"]["default"] == "discard"
     assert schema["required"] == ["mode"]
 
 
@@ -11047,6 +11123,27 @@ def test_api_playback_apply_mode_rejects_invalid_mode_with_validation_error(
     assert error["loc"] == ["body", "mode"]
     assert "stable" in error["msg"]
     assert "live" in error["msg"]
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert stored.active.playback.apply_mode == "stable"
+    assert stored.draft.playback.apply_mode == "stable"
+
+
+def test_api_playback_apply_mode_rejects_invalid_staged_graph_eq_choice(
+    tmp_path: Path,
+) -> None:
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.put(
+        "/api/playback/apply-mode",
+        json={"mode": "live", "staged_graph_eq": "preview"},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["type"] == "literal_error"
+    assert error["loc"] == ["body", "staged_graph_eq"]
+    assert "apply" in error["msg"]
+    assert "discard" in error["msg"]
     stored = SettingsStore(ProjectPaths(tmp_path)).load()
     assert stored.active.playback.apply_mode == "stable"
     assert stored.draft.playback.apply_mode == "stable"
@@ -11075,6 +11172,40 @@ def test_api_playback_apply_mode_switch_updates_runtime_state_between_supported_
     assert stored_after_stable.active.playback.apply_mode == "stable"
     assert stored_after_stable.draft.playback.apply_mode == "stable"
     assert client.app.state.runtime.controller.settings.playback.apply_mode == "stable"
+
+
+def test_api_playback_apply_mode_stable_to_live_can_apply_staged_graph_eq(
+    tmp_path: Path,
+) -> None:
+    from secret_pond.services.live_graph_eq import live_graph_eq_state
+
+    active = api_settings()
+    draft_points = [point.model_dump() for point in active.layers["mid"].eq.points]
+    draft_points[1]["gain_db"] = 6.0
+    draft_layers = dict(active.layers)
+    draft_layers["mid"] = active.layers["mid"].model_copy(
+        update={"eq": EqSettings(points=draft_points)},
+    )
+    draft = active.model_copy(update={"layers": draft_layers}, deep=True)
+    paths = ProjectPaths(tmp_path)
+    client = create_test_client(tmp_path)
+    client.app.state.runtime.settings_store.save(SettingsState(active=active, draft=draft))
+
+    response = client.put(
+        "/api/playback/apply-mode",
+        json={"mode": "live", "staged_graph_eq": "apply"},
+    )
+
+    assert response.status_code == 200
+    stored = SettingsStore(paths).load()
+    assert stored.active.playback.apply_mode == "live"
+    assert stored.draft.playback.apply_mode == "live"
+    assert stored.active.layers["mid"].eq == active.layers["mid"].eq
+    assert stored.draft.layers["mid"].eq == draft.layers["mid"].eq
+    pending_request = live_graph_eq_state(client.app.state.runtime).pending_request
+    assert pending_request is not None
+    assert pending_request.layer_id == "mid"
+    assert pending_request.settings.layers["mid"].eq == draft.layers["mid"].eq
 
 
 def test_api_playback_apply_mode_switch_preserves_unrelated_playback_settings(

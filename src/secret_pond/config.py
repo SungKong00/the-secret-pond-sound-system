@@ -5,8 +5,51 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+EqPointType = Literal["bell", "low_shelf", "high_shelf"]
+
+GRAPH_EQ_MIN_HZ = 20.0
+GRAPH_EQ_MAX_HZ = 20_000.0
+GRAPH_EQ_MIN_GAIN_DB = -18.0
+GRAPH_EQ_MAX_GAIN_DB = 18.0
+GRAPH_EQ_MAX_POINTS = 6
+
+
+class EqPointSettings(BaseModel):
+    id: str = Field(min_length=1)
+    type: EqPointType
+    frequency_hz: float = Field(ge=GRAPH_EQ_MIN_HZ, le=GRAPH_EQ_MAX_HZ)
+    gain_db: float = Field(default=0.0, ge=GRAPH_EQ_MIN_GAIN_DB, le=GRAPH_EQ_MAX_GAIN_DB)
+    q: float = Field(default=1.0, ge=0.1, le=18.0)
+
+
+def default_graph_eq_points() -> list[EqPointSettings]:
+    return [
+        EqPointSettings(
+            id="low",
+            type="low_shelf",
+            frequency_hz=120.0,
+            gain_db=0.0,
+            q=0.7,
+        ),
+        EqPointSettings(
+            id="mid",
+            type="bell",
+            frequency_hz=1_000.0,
+            gain_db=0.0,
+            q=1.0,
+        ),
+        EqPointSettings(
+            id="high",
+            type="high_shelf",
+            frequency_hz=8_000.0,
+            gain_db=0.0,
+            q=0.7,
+        ),
+    ]
+
 
 class EqSettings(BaseModel):
+    points: list[EqPointSettings] = Field(default_factory=default_graph_eq_points)
     low_gain_db: float = Field(default=0.0, ge=-18.0, le=12.0)
     mid_gain_db: float = Field(default=0.0, ge=-18.0, le=12.0)
     high_gain_db: float = Field(default=0.0, ge=-18.0, le=12.0)
@@ -14,9 +57,16 @@ class EqSettings(BaseModel):
     lowpass_hz: float = Field(default=20_000.0, ge=1_000.0, le=20_000.0)
 
     @model_validator(mode="after")
-    def validate_filter_order(self) -> EqSettings:
+    def validate_graph_eq(self) -> EqSettings:
         if self.lowpass_hz <= self.highpass_hz:
             msg = "lowpass_hz must be greater than highpass_hz"
+            raise ValueError(msg)
+        if len(self.points) > GRAPH_EQ_MAX_POINTS:
+            msg = f"points must contain at most {GRAPH_EQ_MAX_POINTS} items"
+            raise ValueError(msg)
+        point_ids = [point.id for point in self.points]
+        if len(set(point_ids)) != len(point_ids):
+            msg = "point ids must be unique"
             raise ValueError(msg)
         return self
 

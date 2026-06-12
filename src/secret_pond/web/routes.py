@@ -21,6 +21,7 @@ from secret_pond.services.device_switcher import (
 from secret_pond.services.diagnostics import diagnostics_payload
 from secret_pond.services.playback_apply_mode import (
     PlaybackApplyMode,
+    StagedGraphEqChoice,
     apply_playback_apply_mode,
     parse_playback_apply_mode,
 )
@@ -80,6 +81,7 @@ SOURCE_MUTATION_ERRORS = (
 
 class PlaybackApplyModeRequest(BaseModel):
     mode: PlaybackApplyMode
+    staged_graph_eq: StagedGraphEqChoice = "discard"
 
 
 @router.get("/state")
@@ -450,7 +452,11 @@ def update_playback_apply_mode(
 
     with runtime.operation_lock:
         try:
-            settings_state = apply_playback_apply_mode(runtime, mode)
+            settings_state = apply_playback_apply_mode(
+                runtime,
+                mode,
+                staged_graph_eq=payload.staged_graph_eq,
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         runtime.mark_state_changed()

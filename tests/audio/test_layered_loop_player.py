@@ -79,6 +79,43 @@ def test_player_start_and_next_block_advances_cursor(tmp_path: Path) -> None:
     np.testing.assert_allclose(block.samples, np.ones((3, 2), dtype=np.float32) * 0.6, atol=1e-6)
 
 
+def test_player_set_layer_buffer_preserves_cursor_for_next_block() -> None:
+    low = np.column_stack(
+        [
+            np.arange(10, dtype=np.float32) / 100,
+            np.arange(10, dtype=np.float32) / 100,
+        ],
+    )
+    updated_low = np.column_stack(
+        [
+            np.arange(40, 50, dtype=np.float32) / 100,
+            np.arange(40, 50, dtype=np.float32) / 100,
+        ],
+    )
+    silence = np.zeros((10, 2), dtype=np.float32)
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers(
+        {
+            "low": AudioBuffer(samples=low, sample_rate=8_000),
+            "mid": AudioBuffer(samples=silence, sample_rate=8_000),
+            "voice": AudioBuffer(samples=silence, sample_rate=8_000),
+        },
+        loop_frames=10,
+    )
+    player.start()
+    player.next_block(4)
+
+    player.set_layer_buffer(
+        "low",
+        AudioBuffer(samples=updated_low, sample_rate=8_000),
+    )
+    block = player.next_block(3)
+
+    assert player.frame_cursor == 7
+    assert block.next_frame_cursor == 7
+    np.testing.assert_allclose(block.samples[:, 0], [0.44, 0.45, 0.46], atol=1e-6)
+
+
 def test_player_first_start_reads_loaded_layers_from_frame_zero() -> None:
     low = np.column_stack(
         [
