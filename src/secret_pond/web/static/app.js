@@ -608,10 +608,61 @@ const normalizeGraphEqPoint = (point, index = 0) => {
   };
 };
 
-const normalizeGraphEqSettings = (eq = {}) => {
-  const points = Array.isArray(eq.points) && eq.points.length > 0
+const graphEqBasePoints = (eq = {}) => (
+  Array.isArray(eq.points) && eq.points.length > 0
     ? eq.points.slice(0, graphEqMaxPoints).map(normalizeGraphEqPoint)
-    : defaultGraphEqPoints();
+    : defaultGraphEqPoints()
+);
+
+const graphEqPointsMatchDefaults = (points) => {
+  const defaults = defaultGraphEqPoints();
+  return points.length === defaults.length && points.every((point, index) => (
+    point.id === defaults[index].id &&
+    point.type === defaults[index].type &&
+    Number(point.frequency_hz) === Number(defaults[index].frequency_hz) &&
+    Number(point.gain_db) === Number(defaults[index].gain_db) &&
+    Number(point.q) === Number(defaults[index].q)
+  ));
+};
+
+const graphEqUsesLegacyFields = (eq = {}) => (
+  graphEqPointsMatchDefaults(graphEqBasePoints(eq)) &&
+  (
+    Number(eq.low_gain_db || 0) !== 0 ||
+    Number(eq.mid_gain_db || 0) !== 0 ||
+    Number(eq.high_gain_db || 0) !== 0
+  )
+);
+
+const graphEqEffectivePoints = (eq = {}) => {
+  if (!graphEqUsesLegacyFields(eq)) return graphEqBasePoints(eq);
+  return [
+    {
+      id: "legacy-low",
+      type: "low_shelf",
+      frequency_hz: 250,
+      gain_db: Number(eq.low_gain_db || 0),
+      q: 0.7,
+    },
+    {
+      id: "legacy-mid",
+      type: "bell",
+      frequency_hz: 1000,
+      gain_db: Number(eq.mid_gain_db || 0),
+      q: 1,
+    },
+    {
+      id: "legacy-high",
+      type: "high_shelf",
+      frequency_hz: 2000,
+      gain_db: Number(eq.high_gain_db || 0),
+      q: 0.7,
+    },
+  ].map(normalizeGraphEqPoint);
+};
+
+const normalizeGraphEqSettings = (eq = {}) => {
+  const points = graphEqEffectivePoints(eq);
   return {
     ...eq,
     points,
@@ -5791,7 +5842,12 @@ const setSelectedGraphEqPoint = (layerId, pointId) => {
 const updateDraftGraphEq = (layerId, nextEq) => {
   const layer = state.draft?.layers?.[layerId];
   if (!layer) return;
-  layer.eq = normalizeGraphEqSettings(nextEq);
+  layer.eq = {
+    ...normalizeGraphEqSettings(nextEq),
+    low_gain_db: 0,
+    mid_gain_db: 0,
+    high_gain_db: 0,
+  };
 };
 
 const updateDraftGraphEqPoint = (layerId, pointId, updates) => {

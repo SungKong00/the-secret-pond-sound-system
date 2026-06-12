@@ -2211,6 +2211,30 @@ assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
 """,
     )
 
+
+def test_static_graph_eq_effective_points_reflect_legacy_gains(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ defaultGraphEqPoints, graphEqEffectivePoints }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const legacyPoints = helpers.graphEqEffectivePoints({
+  points: helpers.defaultGraphEqPoints(),
+  low_gain_db: 3,
+  mid_gain_db: -2,
+  high_gain_db: 1,
+  highpass_hz: 20,
+  lowpass_hz: 20000,
+});
+assert.deepStrictEqual(legacyPoints.map((point) => [point.id, point.frequency_hz, point.gain_db]), [
+  ["legacy-low", 250, 3],
+  ["legacy-mid", 1000, -2],
+  ["legacy-high", 2000, 1],
+]);
+""",
+    )
+
+
 def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
     tmp_path: Path,
 ) -> None:

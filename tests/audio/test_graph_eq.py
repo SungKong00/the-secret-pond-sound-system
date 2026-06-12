@@ -96,6 +96,20 @@ def test_graph_eq_response_points_cover_log_frequency_range() -> None:
     assert [gain_db for _frequency_hz, gain_db in response] == pytest.approx([0.0] * 5)
 
 
+def test_effective_graph_eq_points_reflect_legacy_gains_when_points_are_default() -> None:
+    from secret_pond.audio.graph_eq import effective_graph_eq_points
+
+    eq = EqSettings(low_gain_db=3.0, mid_gain_db=-2.0, high_gain_db=1.0)
+
+    points = effective_graph_eq_points(eq)
+
+    assert [(point.id, point.frequency_hz, point.gain_db) for point in points] == [
+        ("legacy-low", 250.0, 3.0),
+        ("legacy-mid", 1000.0, -2.0),
+        ("legacy-high", 2000.0, 1.0),
+    ]
+
+
 def test_graph_eq_filter_range_still_rejects_invalid_order() -> None:
     with pytest.raises(ValidationError):
         EqSettings(highpass_hz=5_000.0, lowpass_hz=1_000.0)

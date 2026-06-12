@@ -19,7 +19,7 @@ _LEGACY_HIGH_SHELF_HZ = 2_000.0
 
 
 def apply_graph_eq(samples: np.ndarray, sample_rate: int, eq: EqSettings) -> np.ndarray:
-    points = _active_points(eq)
+    points = effective_graph_eq_points(eq)
     active_points = [point for point in points if point.gain_db != 0.0]
     if not active_points:
         return samples.astype(np.float32, copy=True)
@@ -36,7 +36,7 @@ def graph_eq_response_points(eq: EqSettings, *, width: int = 256) -> list[tuple[
 
     frequencies = np.geomspace(GRAPH_EQ_MIN_HZ, GRAPH_EQ_MAX_HZ, width, dtype=np.float64)
     gains = np.zeros_like(frequencies)
-    for point in _active_points(eq):
+    for point in effective_graph_eq_points(eq):
         gains += _response_for_point(frequencies, point)
     return [
         (float(frequency_hz), float(gain_db))
@@ -44,7 +44,7 @@ def graph_eq_response_points(eq: EqSettings, *, width: int = 256) -> list[tuple[
     ]
 
 
-def _active_points(eq: EqSettings) -> list[EqPointSettings]:
+def effective_graph_eq_points(eq: EqSettings) -> list[EqPointSettings]:
     if _uses_legacy_three_band_fields(eq):
         return _legacy_points(eq)
     return sorted(eq.points, key=lambda point: point.frequency_hz)
