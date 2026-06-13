@@ -2434,7 +2434,7 @@ var SecretPondDssspGraphEqBundle = (() => {
           var HostPortal = 4;
           var HostComponent = 5;
           var HostText = 6;
-          var Fragment2 = 7;
+          var Fragment3 = 7;
           var Mode = 8;
           var ContextConsumer = 9;
           var ContextProvider = 10;
@@ -3591,7 +3591,7 @@ var SecretPondDssspGraphEqBundle = (() => {
                 return "DehydratedFragment";
               case ForwardRef:
                 return getWrappedName$1(type, type.render, "ForwardRef");
-              case Fragment2:
+              case Fragment3:
                 return "Fragment";
               case HostComponent:
                 return type;
@@ -12020,7 +12020,7 @@ var SecretPondDssspGraphEqBundle = (() => {
               }
             }
             function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-              if (current2 === null || current2.tag !== Fragment2) {
+              if (current2 === null || current2.tag !== Fragment3) {
                 var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
                 created.return = returnFiber;
                 return created;
@@ -12423,7 +12423,7 @@ var SecretPondDssspGraphEqBundle = (() => {
                 if (child.key === key) {
                   var elementType = element.type;
                   if (elementType === REACT_FRAGMENT_TYPE) {
-                    if (child.tag === Fragment2) {
+                    if (child.tag === Fragment3) {
                       deleteRemainingChildren(returnFiber, child.sibling);
                       var existing = useFiber(child, element.props.children);
                       existing.return = returnFiber;
@@ -17899,7 +17899,7 @@ var SecretPondDssspGraphEqBundle = (() => {
                 var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
                 return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
               }
-              case Fragment2:
+              case Fragment3:
                 return updateFragment(current2, workInProgress2, renderLanes2);
               case Mode:
                 return updateMode(current2, workInProgress2, renderLanes2);
@@ -18171,7 +18171,7 @@ var SecretPondDssspGraphEqBundle = (() => {
               case SimpleMemoComponent:
               case FunctionComponent:
               case ForwardRef:
-              case Fragment2:
+              case Fragment3:
               case Mode:
               case Profiler:
               case ContextConsumer:
@@ -22432,7 +22432,7 @@ var SecretPondDssspGraphEqBundle = (() => {
             return fiber;
           }
           function createFiberFromFragment(elements, mode, lanes, key) {
-            var fiber = createFiber(Fragment2, elements, key, mode);
+            var fiber = createFiber(Fragment3, elements, key, mode);
             fiber.lanes = lanes;
             return fiber;
           }
@@ -25309,7 +25309,6 @@ var SecretPondDssspGraphEqBundle = (() => {
     }
     return compositeMags;
   };
-  var limitRange = (value, min, max) => Math.min(Math.max(value, min), max);
   var getPointerPosition = (e) => {
     const CTM = e.target.getScreenCTM();
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
@@ -25321,49 +25320,6 @@ var SecretPondDssspGraphEqBundle = (() => {
       x: (clientX - CTM.e) / CTM.a,
       y: (clientY - CTM.f) / CTM.d
     };
-  };
-  var getZeroGain = (type) => [
-    "LOWPASS1",
-    "LOWPASS2",
-    "HIGHPASS1",
-    "HIGHPASS2",
-    "BANDPASS",
-    "BYPASS",
-    "NOTCH"
-  ].includes(type) || !type;
-  var getIconStyles = (type, gain = 0) => String(type).includes("SHELF") && gain > 0 || type === "PEAK" && gain < 0 || type === "GAIN" && gain < 0 ? {
-    transform: "scale(1, -1)",
-    transformBox: "fill-box",
-    // not a CSS style, but we forced return type
-    transformOrigin: "center"
-  } : {};
-  var getIconSymbol = (type) => {
-    switch (type) {
-      case "PEAK":
-        return "&#xE908;";
-      case "HIGHSHELF1":
-      case "HIGHSHELF2":
-        return "&#xE903;";
-      case "LOWSHELF1":
-      case "LOWSHELF2":
-        return "&#xE905;";
-      case "HIGHPASS1":
-      case "HIGHPASS2":
-        return "&#xE906;";
-      case "LOWPASS1":
-      case "LOWPASS2":
-        return "&#xE904;";
-      case "BANDPASS":
-        return "&#xE900;";
-      case "NOTCH":
-        return "&#xE907;";
-      case "GAIN":
-        return "&#xE902;";
-      case "BYPASS":
-      // EMPTY / VOID / NULL / UNDEFINED
-      default:
-        return "&#xE901;";
-    }
   };
   var getFilterKey = (filter) => `${filter.type}_${filter.freq}_${filter.q}_${filter.gain}`;
   var CompositeCurve = ({
@@ -25442,230 +25398,6 @@ var SecretPondDssspGraphEqBundle = (() => {
     easeIn: "0.42 0 1 1",
     easeOut: "0 0 0.58 1",
     easeInOut: "0.42 0 0.58 1"
-  };
-  var FilterPoint = ({
-    filter,
-    index = -1,
-    dragX = true,
-    dragY = true,
-    wheelQ = true,
-    active = false,
-    // manual `hovered` state
-    showIcon = false,
-    label = "",
-    labelFontSize,
-    labelFontFamily,
-    labelColor,
-    radius,
-    lineWidth,
-    color,
-    zeroColor,
-    dragColor,
-    activeColor,
-    background,
-    zeroBackground,
-    dragBackground,
-    activeBackground,
-    backgroundOpacity,
-    dragBackgroundOpacity,
-    activeBackgroundOpacity,
-    className,
-    style,
-    onChange,
-    onEnter,
-    onLeave,
-    onDrag
-  }) => {
-    const {
-      svgRef,
-      scale,
-      logScale,
-      height,
-      width,
-      theme: {
-        filters: { zeroPoint, colors, defaultColor, point }
-      }
-    } = useGraph();
-    const { minGain, maxGain, minFreq, maxFreq } = scale;
-    const { freq: filterFreq, gain: filterGain, q: filterQ, type } = filter;
-    const circleRef = (0, import_react.useRef)(null);
-    const labelRef = (0, import_react.useRef)(null);
-    const [hovered, setHovered] = (0, import_react.useState)(false);
-    const [dragging, setDragging] = (0, import_react.useState)(false);
-    const [zeroGain, passFilter] = (0, import_react.useMemo)(
-      () => [getZeroGain(type), type.includes("PASS") || type === "NOTCH"],
-      [type]
-    );
-    const x = logScale.x(filterFreq);
-    const centerY = getCenterLine(minGain, maxGain, height);
-    const y = !passFilter ? scaleMagnitude(filterGain, minGain, maxGain, height) : centerY;
-    let offset = { x: 0, y: 0 };
-    let cx;
-    let cy;
-    const moveFreq = (0, import_react.useRef)(filterFreq);
-    const moveGain = (0, import_react.useRef)(filterGain);
-    const dragMove = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!circleRef.current) return;
-      const svgBounds = svgRef.current?.getBoundingClientRect();
-      if (!svgBounds) return;
-      const { x: x2, y: y2 } = getPointerPosition(e);
-      const offsetX = x2 - (svgBounds.left ?? 0);
-      const offsetY = y2 - (svgBounds.top ?? 0);
-      if (dragX) {
-        cx = limitRange(offsetX - offset.x, 0, width);
-        circleRef.current.setAttributeNS(null, "cx", String(cx));
-        labelRef.current?.setAttributeNS(null, "x", String(cx));
-        moveFreq.current = stripTail(
-          limitRange(calcFrequency(cx, width, minFreq, maxFreq), minFreq, maxFreq)
-        );
-      }
-      if (dragY) {
-        if (zeroGain) {
-          cy = centerY;
-        } else {
-          cy = limitRange(offsetY - offset.y, 0, height);
-        }
-        circleRef.current.setAttributeNS(null, "cy", String(cy));
-        labelRef.current?.setAttributeNS(null, "y", String(cy));
-        const gain = stripTail(calcMagnitude(cy, minGain, maxGain, height));
-        moveGain.current = gain < 0.05 && gain > -0.05 ? 0 : gain;
-      }
-      onChange?.({
-        index,
-        ...filter,
-        freq: moveFreq.current,
-        ...!passFilter ? { gain: moveGain.current } : {}
-      });
-    };
-    const dragEnd = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const svg = svgRef.current;
-      const circleEl = circleRef.current;
-      if (!svg || !circleEl) return;
-      const touchEvent = "touches" in e;
-      circleEl.setAttribute(
-        "fill-opacity",
-        String(
-          touchEvent ? backgroundOpacity ?? point.backgroundOpacity.normal : activeBackgroundOpacity ?? point.backgroundOpacity.active
-        )
-      );
-      svg.removeEventListener("mousemove", dragMove);
-      svg.removeEventListener("mouseup", dragEnd);
-      svg.removeEventListener("mouseleave", dragEnd);
-      circleEl.removeEventListener("touchmove", dragMove);
-      circleEl.removeEventListener("touchend", dragEnd);
-      circleEl.removeEventListener("touchcancel", dragEnd);
-      setDragging(false);
-      onChange?.({
-        index,
-        ...filter,
-        freq: moveFreq.current,
-        gain: moveGain.current,
-        ended: true
-      });
-      onDrag?.(false);
-    };
-    const dragStart = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const svg = svgRef.current;
-      const circleEl = circleRef.current;
-      if (!svg || !circleEl) return;
-      setDragging(true);
-      const svgBounds = svg.getBoundingClientRect();
-      const { x: x2, y: y2 } = getPointerPosition(e);
-      const { left, top } = svgBounds;
-      offset = {
-        x: x2 - left - parseFloat(circleEl.getAttributeNS(null, "cx") || "0"),
-        y: y2 - top - parseFloat(circleEl.getAttributeNS(null, "cy") || "0")
-      };
-      circleEl.setAttribute(
-        "fill-opacity",
-        String(dragBackgroundOpacity || point.backgroundOpacity.drag)
-      );
-      svg.addEventListener("mousemove", dragMove);
-      svg.addEventListener("mouseup", dragEnd);
-      svg.addEventListener("mouseleave", dragEnd);
-      circleEl.addEventListener("touchmove", dragMove);
-      circleEl.addEventListener("touchend", dragEnd);
-      circleEl.addEventListener("touchcancel", dragEnd);
-      onDrag?.(true);
-    };
-    const handleMouseEnter = () => {
-      setHovered(true);
-      onEnter?.({ ...filter, index });
-    };
-    const handleMouseLeave = () => {
-      setHovered(false);
-      onLeave?.({ ...filter, index });
-    };
-    const scrollQ = (e) => {
-      e.preventDefault();
-      let newQ = filterQ;
-      newQ += e.deltaY > 0 ? 0.1 : -0.1;
-      newQ = stripTail(limitRange(newQ, 0.1, 20));
-      onChange?.({ index, ...filter, q: newQ, ended: true });
-    };
-    if (wheelQ) circleRef.current?.addEventListener("wheel", scrollQ);
-    if (type === "BYPASS") return null;
-    const strokeWidth = lineWidth || point.lineWidth;
-    const pointColor = color || colors?.[index]?.point || defaultColor;
-    const bgColor = background || colors?.[index]?.background || pointColor;
-    const zeroValue = filterGain === 0 && !zeroGain;
-    const strokeColor = zeroValue ? zeroColor || zeroPoint.color : dragging ? dragColor || colors?.[index]?.drag || pointColor : active || hovered ? activeColor || colors?.[index]?.active || pointColor : pointColor;
-    const fillColor = zeroValue ? zeroBackground || zeroPoint.background : dragging ? dragBackground || colors?.[index]?.dragBackground || bgColor : active || hovered ? activeBackground || colors?.[index]?.activeBackground || bgColor : bgColor;
-    const fillOpacity = active || hovered ? activeBackgroundOpacity ?? point.backgroundOpacity?.active : backgroundOpacity ?? point.backgroundOpacity?.normal;
-    if (label || showIcon) {
-      labelColor ||= point.label.color;
-      labelFontSize ||= point.label.fontSize;
-      labelFontFamily ||= point.label.fontFamily;
-      if (labelColor === "inherit") labelColor = strokeColor;
-    }
-    let labelStyle = {};
-    if (showIcon) {
-      label = getIconSymbol(type);
-      labelFontFamily = "dsssp";
-      labelStyle = getIconStyles(type, filterGain);
-    }
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "circle",
-        {
-          ref: circleRef,
-          cx: x,
-          cy: y,
-          r: radius || point.radius,
-          fill: fillColor,
-          fillOpacity,
-          stroke: strokeColor,
-          strokeWidth,
-          onMouseEnter: handleMouseEnter,
-          onMouseLeave: handleMouseLeave,
-          onMouseDown: (e) => dragStart(e),
-          onTouchStart: (e) => dragStart(e),
-          style: { cursor: "pointer", pointerEvents: "auto", ...style },
-          className
-        }
-      ),
-      Boolean(label) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "text",
-        {
-          ref: labelRef,
-          x,
-          y,
-          textAnchor: "middle",
-          dominantBaseline: "central",
-          fill: labelColor,
-          fontSize: labelFontSize,
-          fontFamily: labelFontFamily,
-          style: { ...labelStyle },
-          dangerouslySetInnerHTML: { __html: label }
-        }
-      )
-    ] });
   };
   var FrequencyResponseCurve = ({
     magnitudes,
@@ -25929,25 +25661,18 @@ var SecretPondDssspGraphEqBundle = (() => {
     HIGHSHELF1: "high_shelf",
     HIGHSHELF2: "high_shelf"
   });
-  var lockedLowIds = /* @__PURE__ */ new Set(["low", "legacy-low"]);
-  var lockedHighIds = /* @__PURE__ */ new Set(["high", "legacy-high"]);
   var clamp = (value, min, max) => {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue)) return min;
     return Math.min(max, Math.max(min, numericValue));
   };
   var normalizedSecretPondType = (type) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, type) ? type : "bell";
-  var isFirstPoint = (index) => Number(index) === 0;
-  var isLastPoint = (index, points) => Array.isArray(points) && points.length > 0 && Number(index) === points.length - 1;
-  var isLockedEndpointPoint = (point, index = null, points = []) => point?.type === "low_shelf" && (lockedLowIds.has(point?.id) || isFirstPoint(index)) || point?.type === "high_shelf" && (lockedHighIds.has(point?.id) || isLastPoint(index, points));
-  var displayFrequencyForPoint = (point, config = graphEqDisplayConfig, index = null, points = []) => {
-    if (point?.type === "low_shelf" && (lockedLowIds.has(point?.id) || isFirstPoint(index))) {
-      return config.minFreq;
-    }
-    if (point?.type === "high_shelf" && (lockedHighIds.has(point?.id) || isLastPoint(index, points))) {
-      return config.maxFreq;
-    }
-    return clamp(point?.frequency_hz ?? point?.freq ?? 1e3, config.minFreq, config.maxFreq);
+  var displayFrequencyForPoint = (point, config = graphEqDisplayConfig) => clamp(point?.frequency_hz ?? point?.freq ?? 1e3, config.minFreq, config.maxFreq);
+  var frequencyToX = (frequencyHz, config = graphEqDisplayConfig) => {
+    const minLog = Math.log10(config.minFreq);
+    const maxLog = Math.log10(config.maxFreq);
+    const clampedFrequency = clamp(frequencyHz, config.minFreq, config.maxFreq);
+    return (Math.log10(clampedFrequency) - minLog) / (maxLog - minLog);
   };
   var toDssspFilters = (points = [], config = graphEqDisplayConfig) => points.map((point, index) => {
     const type = normalizedSecretPondType(point?.type);
@@ -25963,9 +25688,9 @@ var SecretPondDssspGraphEqBundle = (() => {
     const previous = previousPoints[index] || {};
     const fallbackType = normalizedSecretPondType(previous.type);
     const type = dssspToSecretPondType[filter?.type] || fallbackType;
-    const locked = isLockedEndpointPoint(previous, index, previousPoints);
-    const previousFrequency = Number(previous.frequency_hz);
-    const nextFrequency = locked && Number.isFinite(previousFrequency) ? previousFrequency : Math.round(clamp(filter?.freq ?? previous.frequency_hz ?? 1e3, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq));
+    const nextFrequency = Math.round(
+      clamp(filter?.freq ?? previous.frequency_hz ?? 1e3, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq)
+    );
     return {
       id: String(previous.id || filter?.id || `point-${index + 1}`),
       type,
@@ -25979,6 +25704,26 @@ var SecretPondDssspGraphEqBundle = (() => {
   var import_jsx_runtime2 = __toESM(require_jsx_runtime());
   var mountedEditors = /* @__PURE__ */ new WeakMap();
   var emptyPoints = Object.freeze([]);
+  var graphWidth = 900;
+  var graphHeight = 320;
+  var clamp2 = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+  var gainToGraphY = (gain) => (graphEqDisplayConfig.maxGain - clamp2(gain, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain)) / (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain) * graphHeight;
+  var graphYToGain = (y) => Number((graphEqDisplayConfig.maxGain - clamp2(y, 0, graphHeight) / graphHeight * (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain)).toFixed(1));
+  var frequencyToGraphX = (frequency) => frequencyToX(frequency, graphEqDisplayConfig) * graphWidth;
+  var graphXToFrequency = (x) => {
+    const minLog = Math.log10(graphEqDisplayConfig.minFreq);
+    const maxLog = Math.log10(graphEqDisplayConfig.maxFreq);
+    const ratio = clamp2(x, 0, graphWidth) / graphWidth;
+    return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
+  };
+  var pointerToGraphPosition = (event, svg) => {
+    const rect = svg?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height) return null;
+    return {
+      x: clamp2((event.clientX - rect.left) / rect.width * graphWidth, 0, graphWidth),
+      y: clamp2((event.clientY - rect.top) / rect.height * graphHeight, 0, graphHeight)
+    };
+  };
   var graphTheme = {
     background: {
       grid: {
@@ -26051,6 +25796,124 @@ var SecretPondDssspGraphEqBundle = (() => {
     }
   };
   var normalizePoints = (points) => Array.isArray(points) ? points : emptyPoints;
+  function GraphEqFilterPoint({
+    filter,
+    index,
+    point,
+    active,
+    disabled,
+    label,
+    onChange,
+    onSelect,
+    onDrag
+  }) {
+    const [hovered, setHovered] = (0, import_react2.useState)(false);
+    const [dragging, setDragging] = (0, import_react2.useState)(false);
+    const filterRef = (0, import_react2.useRef)(filter);
+    (0, import_react2.useEffect)(() => {
+      filterRef.current = filter;
+    }, [filter]);
+    const x = frequencyToGraphX(filter.freq);
+    const y = gainToGraphY(filter.gain);
+    const color = graphTheme.filters.colors[index] || {};
+    const pointTheme = graphTheme.filters.point;
+    const pointColor = color.point || graphTheme.filters.defaultColor;
+    const fillColor = dragging ? color.dragBackground || pointColor : active || hovered ? color.activeBackground || pointColor : color.background || pointColor;
+    const strokeColor = dragging ? color.drag || pointColor : active || hovered ? color.active || pointColor : pointColor;
+    const emitChange = (0, import_react2.useCallback)(
+      (event, ended = false, svgOverride = null, offset = { x: 0, y: 0 }) => {
+        const currentTarget = event.currentTarget;
+        const target = event.target;
+        const svg = svgOverride || currentTarget?.ownerSVGElement || (String(currentTarget?.tagName || "").toLowerCase() === "svg" ? currentTarget : null) || target?.ownerSVGElement || (String(target?.tagName || "").toLowerCase() === "svg" ? target : null);
+        const position = pointerToGraphPosition(event, svg);
+        if (position === null) return;
+        const current = filterRef.current;
+        const nextX = position.x - offset.x;
+        const nextY = position.y - offset.y;
+        onChange?.({
+          index,
+          ...current,
+          freq: graphXToFrequency(nextX),
+          gain: graphYToGain(nextY),
+          ended
+        });
+      },
+      [index, onChange]
+    );
+    const handlePointerDown = (0, import_react2.useCallback)(
+      (event) => {
+        if (disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect?.(point?.id);
+        onDrag?.(true);
+        setDragging(true);
+        const svg = event.currentTarget.ownerSVGElement;
+        const dragWindow = svg?.ownerDocument?.defaultView || window;
+        const startPosition = pointerToGraphPosition(event, svg);
+        const offset = {
+          x: (startPosition?.x ?? x) - x,
+          y: (startPosition?.y ?? y) - y
+        };
+        emitChange(event, false, svg, offset);
+        const handlePointerMove = (moveEvent) => {
+          moveEvent.preventDefault();
+          emitChange(moveEvent, false, svg, offset);
+        };
+        const finishDrag = (upEvent) => {
+          upEvent.preventDefault();
+          dragWindow.removeEventListener("pointermove", handlePointerMove);
+          dragWindow.removeEventListener("pointerup", finishDrag);
+          dragWindow.removeEventListener("pointercancel", finishDrag);
+          emitChange(upEvent, true, svg, offset);
+          setDragging(false);
+          onDrag?.(false);
+        };
+        dragWindow.addEventListener("pointermove", handlePointerMove);
+        dragWindow.addEventListener("pointerup", finishDrag, { once: true });
+        dragWindow.addEventListener("pointercancel", finishDrag, { once: true });
+      },
+      [disabled, emitChange, onDrag, onSelect, point?.id, x, y]
+    );
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "circle",
+        {
+          cx: x,
+          cy: y,
+          r: pointTheme.radius,
+          fill: fillColor,
+          fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
+          stroke: strokeColor,
+          strokeWidth: pointTheme.lineWidth,
+          onPointerDown: handlePointerDown,
+          onMouseEnter: () => {
+            setHovered(true);
+            onSelect?.(point?.id);
+          },
+          onMouseLeave: () => setHovered(false),
+          style: {
+            cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+            pointerEvents: "auto"
+          }
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "text",
+        {
+          x,
+          y,
+          textAnchor: "middle",
+          dominantBaseline: "central",
+          fill: pointTheme.label.color,
+          fontSize: pointTheme.label.fontSize,
+          fontFamily: pointTheme.label.fontFamily,
+          style: { pointerEvents: "none", userSelect: "none" },
+          children: label
+        }
+      )
+    ] });
+  }
   function GraphEqDssspEditor({
     layerId,
     points = emptyPoints,
@@ -26091,7 +25954,7 @@ var SecretPondDssspGraphEqBundle = (() => {
         const nextPoints = toSecretPondPoints(nextFilters, previousPoints);
         const nextPoint = nextPoints[event.index] || null;
         latestPointsRef.current = nextPoints;
-        if (event.ended || !draggingRef.current) setLocalPoints(nextPoints);
+        setLocalPoints(nextPoints);
         onChange?.({
           layerId,
           points: nextPoints,
@@ -26099,7 +25962,7 @@ var SecretPondDssspGraphEqBundle = (() => {
           ended: Boolean(event.ended)
         });
       },
-      [disabled, layerId, onChange, onSelect]
+      [disabled, layerId, onChange]
     );
     const handleDrag = (0, import_react2.useCallback)(
       (active) => {
@@ -26118,8 +25981,8 @@ var SecretPondDssspGraphEqBundle = (() => {
         children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
           FrequencyResponseGraph,
           {
-            width: 900,
-            height: 320,
+            width: graphWidth,
+            height: graphHeight,
             scale: graphEqDisplayConfig,
             theme: graphTheme,
             style: { width: "100%", height: "100%" },
@@ -26128,18 +25991,17 @@ var SecretPondDssspGraphEqBundle = (() => {
               filters.map((filter, index) => {
                 const point = localPoints[index];
                 return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                  FilterPoint,
+                  GraphEqFilterPoint,
                   {
                     filter,
                     index,
+                    point,
                     active: index === selectedIndex,
-                    dragX: !isLockedEndpointPoint(point, index, localPoints),
-                    dragY: !disabled,
-                    wheelQ: !disabled,
+                    disabled,
                     label: String(index + 1),
                     onChange: handleChange,
-                    onDrag: handleDrag,
-                    onEnter: () => point && onSelect?.(point.id)
+                    onSelect,
+                    onDrag: handleDrag
                   },
                   point?.id || index
                 );

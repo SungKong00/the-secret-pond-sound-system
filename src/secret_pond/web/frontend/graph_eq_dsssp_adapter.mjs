@@ -22,9 +22,6 @@ export const dssspToSecretPondType = Object.freeze({
   HIGHSHELF2: "high_shelf",
 });
 
-const lockedLowIds = new Set(["low", "legacy-low"]);
-const lockedHighIds = new Set(["high", "legacy-high"]);
-
 const clamp = (value, min, max) => {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return min;
@@ -35,41 +32,12 @@ const normalizedSecretPondType = (type) => (
   Object.prototype.hasOwnProperty.call(secretPondToDssspType, type) ? type : "bell"
 );
 
-const isFirstPoint = (index) => Number(index) === 0;
-
-const isLastPoint = (index, points) => (
-  Array.isArray(points) &&
-  points.length > 0 &&
-  Number(index) === points.length - 1
-);
-
-export const isLockedEndpointPoint = (point, index = null, points = []) => (
-  point?.type === "low_shelf" &&
-    (lockedLowIds.has(point?.id) || isFirstPoint(index)) ||
-  point?.type === "high_shelf" &&
-    (lockedHighIds.has(point?.id) || isLastPoint(index, points))
-);
+export const isLockedEndpointPoint = () => false;
 
 export const displayFrequencyForPoint = (
   point,
   config = graphEqDisplayConfig,
-  index = null,
-  points = [],
-) => {
-  if (
-    point?.type === "low_shelf" &&
-    (lockedLowIds.has(point?.id) || isFirstPoint(index))
-  ) {
-    return config.minFreq;
-  }
-  if (
-    point?.type === "high_shelf" &&
-    (lockedHighIds.has(point?.id) || isLastPoint(index, points))
-  ) {
-    return config.maxFreq;
-  }
-  return clamp(point?.frequency_hz ?? point?.freq ?? 1000, config.minFreq, config.maxFreq);
-};
+) => clamp(point?.frequency_hz ?? point?.freq ?? 1000, config.minFreq, config.maxFreq);
 
 export const frequencyToX = (frequencyHz, config = graphEqDisplayConfig) => {
   const minLog = Math.log10(config.minFreq);
@@ -109,11 +77,9 @@ export const toSecretPondPoints = (filters = [], previousPoints = []) => filters
     const previous = previousPoints[index] || {};
     const fallbackType = normalizedSecretPondType(previous.type);
     const type = dssspToSecretPondType[filter?.type] || fallbackType;
-    const locked = isLockedEndpointPoint(previous, index, previousPoints);
-    const previousFrequency = Number(previous.frequency_hz);
-    const nextFrequency = locked && Number.isFinite(previousFrequency)
-      ? previousFrequency
-      : Math.round(clamp(filter?.freq ?? previous.frequency_hz ?? 1000, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq));
+    const nextFrequency = Math.round(
+      clamp(filter?.freq ?? previous.frequency_hz ?? 1000, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq),
+    );
 
     return {
       id: String(previous.id || filter?.id || `point-${index + 1}`),

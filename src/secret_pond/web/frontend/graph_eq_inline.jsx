@@ -2,19 +2,52 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import {
   CompositeCurve,
-  FilterPoint,
   FrequencyResponseGraph,
   PointerTracker,
 } from "dsssp";
 import {
+  frequencyToX,
   graphEqDisplayConfig,
-  isLockedEndpointPoint,
   toDssspFilters,
   toSecretPondPoints,
 } from "./graph_eq_dsssp_adapter.mjs";
 
 const mountedEditors = new WeakMap();
 const emptyPoints = Object.freeze([]);
+const graphWidth = 900;
+const graphHeight = 320;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+
+const gainToGraphY = (gain) => (
+  (graphEqDisplayConfig.maxGain - clamp(gain, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain)) /
+  (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain) *
+  graphHeight
+);
+
+const graphYToGain = (y) => Number((
+  graphEqDisplayConfig.maxGain -
+    (clamp(y, 0, graphHeight) / graphHeight) *
+      (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain)
+).toFixed(1));
+
+const frequencyToGraphX = (frequency) => frequencyToX(frequency, graphEqDisplayConfig) * graphWidth;
+
+const graphXToFrequency = (x) => {
+  const minLog = Math.log10(graphEqDisplayConfig.minFreq);
+  const maxLog = Math.log10(graphEqDisplayConfig.maxFreq);
+  const ratio = clamp(x, 0, graphWidth) / graphWidth;
+  return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
+};
+
+const pointerToGraphPosition = (event, svg) => {
+  const rect = svg?.getBoundingClientRect();
+  if (!rect?.width || !rect?.height) return null;
+  return {
+    x: clamp(((event.clientX - rect.left) / rect.width) * graphWidth, 0, graphWidth),
+    y: clamp(((event.clientY - rect.top) / rect.height) * graphHeight, 0, graphHeight),
+  };
+};
 
 const graphTheme = {
   background: {
@@ -90,6 +123,141 @@ const graphTheme = {
 
 const normalizePoints = (points) => (Array.isArray(points) ? points : emptyPoints);
 
+function GraphEqFilterPoint({
+  filter,
+  index,
+  point,
+  active,
+  disabled,
+  label,
+  onChange,
+  onSelect,
+  onDrag,
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const filterRef = useRef(filter);
+
+  useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
+
+  const x = frequencyToGraphX(filter.freq);
+  const y = gainToGraphY(filter.gain);
+  const color = graphTheme.filters.colors[index] || {};
+  const pointTheme = graphTheme.filters.point;
+  const pointColor = color.point || graphTheme.filters.defaultColor;
+  const fillColor = dragging
+    ? color.dragBackground || pointColor
+    : active || hovered
+      ? color.activeBackground || pointColor
+      : color.background || pointColor;
+  const strokeColor = dragging
+    ? color.drag || pointColor
+    : active || hovered
+      ? color.active || pointColor
+      : pointColor;
+
+  const emitChange = useCallback(
+    (event, ended = false, svgOverride = null, offset = { x: 0, y: 0 }) => {
+      const currentTarget = event.currentTarget;
+      const target = event.target;
+      const svg = svgOverride ||
+        currentTarget?.ownerSVGElement ||
+        (String(currentTarget?.tagName || "").toLowerCase() === "svg" ? currentTarget : null) ||
+        target?.ownerSVGElement ||
+        (String(target?.tagName || "").toLowerCase() === "svg" ? target : null);
+      const position = pointerToGraphPosition(event, svg);
+      if (position === null) return;
+      const current = filterRef.current;
+      const nextX = position.x - offset.x;
+      const nextY = position.y - offset.y;
+      onChange?.({
+        index,
+        ...current,
+        freq: graphXToFrequency(nextX),
+        gain: graphYToGain(nextY),
+        ended,
+      });
+    },
+    [index, onChange],
+  );
+
+  const handlePointerDown = useCallback(
+    (event) => {
+      if (disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onSelect?.(point?.id);
+      onDrag?.(true);
+      setDragging(true);
+
+      const svg = event.currentTarget.ownerSVGElement;
+      const dragWindow = svg?.ownerDocument?.defaultView || window;
+      const startPosition = pointerToGraphPosition(event, svg);
+      const offset = {
+        x: (startPosition?.x ?? x) - x,
+        y: (startPosition?.y ?? y) - y,
+      };
+      emitChange(event, false, svg, offset);
+      const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+        emitChange(moveEvent, false, svg, offset);
+      };
+      const finishDrag = (upEvent) => {
+        upEvent.preventDefault();
+        dragWindow.removeEventListener("pointermove", handlePointerMove);
+        dragWindow.removeEventListener("pointerup", finishDrag);
+        dragWindow.removeEventListener("pointercancel", finishDrag);
+        emitChange(upEvent, true, svg, offset);
+        setDragging(false);
+        onDrag?.(false);
+      };
+
+      dragWindow.addEventListener("pointermove", handlePointerMove);
+      dragWindow.addEventListener("pointerup", finishDrag, { once: true });
+      dragWindow.addEventListener("pointercancel", finishDrag, { once: true });
+    },
+    [disabled, emitChange, onDrag, onSelect, point?.id, x, y],
+  );
+
+  return (
+    <>
+      <circle
+        cx={x}
+        cy={y}
+        r={pointTheme.radius}
+        fill={fillColor}
+        fillOpacity={dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal}
+        stroke={strokeColor}
+        strokeWidth={pointTheme.lineWidth}
+        onPointerDown={handlePointerDown}
+        onMouseEnter={() => {
+          setHovered(true);
+          onSelect?.(point?.id);
+        }}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+          pointerEvents: "auto",
+        }}
+      />
+      <text
+        x={x}
+        y={y}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={pointTheme.label.color}
+        fontSize={pointTheme.label.fontSize}
+        fontFamily={pointTheme.label.fontFamily}
+        style={{ pointerEvents: "none", userSelect: "none" }}
+      >
+        {label}
+      </text>
+    </>
+  );
+}
+
 function GraphEqDssspEditor({
   layerId,
   points = emptyPoints,
@@ -134,7 +302,7 @@ function GraphEqDssspEditor({
       const nextPoints = toSecretPondPoints(nextFilters, previousPoints);
       const nextPoint = nextPoints[event.index] || null;
       latestPointsRef.current = nextPoints;
-      if (event.ended || !draggingRef.current) setLocalPoints(nextPoints);
+      setLocalPoints(nextPoints);
       onChange?.({
         layerId,
         points: nextPoints,
@@ -142,7 +310,7 @@ function GraphEqDssspEditor({
         ended: Boolean(event.ended),
       });
     },
-    [disabled, layerId, onChange, onSelect],
+    [disabled, layerId, onChange],
   );
 
   const handleDrag = useCallback(
@@ -161,8 +329,8 @@ function GraphEqDssspEditor({
       data-graph-eq-layer-id={layerId}
     >
       <FrequencyResponseGraph
-        width={900}
-        height={320}
+        width={graphWidth}
+        height={graphHeight}
         scale={graphEqDisplayConfig}
         theme={graphTheme}
         style={{ width: "100%", height: "100%" }}
@@ -171,18 +339,17 @@ function GraphEqDssspEditor({
         {filters.map((filter, index) => {
           const point = localPoints[index];
           return (
-            <FilterPoint
+            <GraphEqFilterPoint
               key={point?.id || index}
               filter={filter}
               index={index}
+              point={point}
               active={index === selectedIndex}
-              dragX={!isLockedEndpointPoint(point, index, localPoints)}
-              dragY={!disabled}
-              wheelQ={!disabled}
+              disabled={disabled}
               label={String(index + 1)}
               onChange={handleChange}
+              onSelect={onSelect}
               onDrag={handleDrag}
-              onEnter={() => point && onSelect?.(point.id)}
             />
           );
         })}

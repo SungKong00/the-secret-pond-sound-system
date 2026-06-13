@@ -2168,11 +2168,17 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert ("configureInlineGraphEqWeq" + "8cUi") not in script.text
     assert ("<weq" + "8-ui") not in script.text
     assert "graph-eq-dsssp-root" in script.text
+    assert "graph-eq-band-list" in script.text
+    assert "graph-eq-band-number" in script.text
+    assert "data-graph-eq-selected-inspector" in script.text
     assert "const graphEqFrequencyToX = " in script.text
     assert "const graphEqGainToY = " in script.text
     assert "const commitInlineGraphEqPoints = " in script.text
+    assert 'id === "graphEqPointFreq" && selectedLockedEndpoint' not in script.text
     assert ".graph-eq-inline-editor" in styles.text
     assert ".graph-eq-dsssp-host" in styles.text
+    assert ".graph-eq-band-list" in styles.text
+    assert ".graph-eq-selected-inspector" in styles.text
     assert (".graph-eq-weq" + "8c-host") not in styles.text
     assert ".graph-eq-collapsed-summary" in styles.text
     assert ".graph-eq-step-button" in styles.text
@@ -2249,8 +2255,8 @@ assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
 const lowScreen = helpers.graphEqPointScreenPosition(dragEq.points[0]);
 const midScreen = helpers.graphEqPointScreenPosition(dragEq.points[1]);
 const highScreen = helpers.graphEqPointScreenPosition(dragEq.points[2]);
-assert.strictEqual(lowScreen.x, 0);
-assert.strictEqual(highScreen.x, 1);
+assert(Math.abs(lowScreen.x - helpers.graphEqFrequencyToX(120)) < 0.001);
+assert(Math.abs(highScreen.x - helpers.graphEqFrequencyToX(8000)) < 0.001);
 assert(Math.abs(midScreen.x - helpers.graphEqFrequencyToX(1000)) < 0.001);
 const lowDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
   dragEq.points[0],
@@ -2264,9 +2270,11 @@ const midDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
   dragEq.points[1],
   { x: 0.75, y: 0.1 },
 );
-assert(!Object.hasOwn(lowDragUpdates, "frequency_hz"));
-assert(!Object.hasOwn(highDragUpdates, "frequency_hz"));
+assert(Object.hasOwn(lowDragUpdates, "frequency_hz"));
+assert(Object.hasOwn(highDragUpdates, "frequency_hz"));
 assert(Object.hasOwn(midDragUpdates, "frequency_hz"));
+assert(lowDragUpdates.frequency_hz > 1000);
+assert(highDragUpdates.frequency_hz < 1000);
 const customEndpointEq = {
   points: [
     { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
@@ -2298,10 +2306,12 @@ const customHighDrag = helpers.graphEqPointUpdatesFromPointerRatio(
   2,
   customEndpointEq.points,
 );
-assert.strictEqual(customLowScreen.x, 0);
-assert.strictEqual(customHighScreen.x, 1);
-assert(!Object.hasOwn(customLowDrag, "frequency_hz"));
-assert(!Object.hasOwn(customHighDrag, "frequency_hz"));
+assert(Math.abs(customLowScreen.x - helpers.graphEqFrequencyToX(280)) < 0.001);
+assert(Math.abs(customHighScreen.x - helpers.graphEqFrequencyToX(6400)) < 0.001);
+assert(Object.hasOwn(customLowDrag, "frequency_hz"));
+assert(Object.hasOwn(customHighDrag, "frequency_hz"));
+assert(customLowDrag.frequency_hz > 1000);
+assert(customHighDrag.frequency_hz < 1000);
 """,
     )
 

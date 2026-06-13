@@ -45,7 +45,7 @@ def test_dsssp_dependency_contract_replaces_legacy_runtime() -> None:
     assert not LEGACY_EQ_TEST.exists()
 
 
-def test_dsssp_adapter_maps_secret_pond_points_and_locks_endpoints() -> None:
+def test_dsssp_adapter_maps_secret_pond_points_without_endpoint_locks() -> None:
     output = run_node(
         f"""
 import {{
@@ -60,27 +60,33 @@ const points = [
   {{ id: "mid", type: "bell", frequency_hz: 1000, gain_db: -4, q: 1.2 }},
   {{ id: "high", type: "high_shelf", frequency_hz: 8000, gain_db: 5, q: 0.7 }},
 ];
-const filters = toDssspFilters(points);
+const displayFilters = toDssspFilters(points);
+const filters = displayFilters.map((filter) => ({{ ...filter }}));
 filters[0].freq = 320;
 filters[1].freq = 2400;
 filters[2].freq = 12000;
 const roundTrip = toSecretPondPoints(filters, points);
 const positions = points.map((point) => displayPositionForPoint(point, graphEqDisplayConfig));
-console.log(JSON.stringify({{ filters, roundTrip, positions }}));
+console.log(JSON.stringify({{ displayFilters, roundTrip, positions }}));
 """
     )
 
-    assert [item["type"] for item in output["filters"]] == ["LOWSHELF2", "PEAK", "HIGHSHELF2"]
-    assert output["filters"][0]["freq"] == 320
-    assert output["roundTrip"][0]["frequency_hz"] == 120
+    assert [item["type"] for item in output["displayFilters"]] == [
+        "LOWSHELF2",
+        "PEAK",
+        "HIGHSHELF2",
+    ]
+    assert output["displayFilters"][0]["freq"] == 120
+    assert output["displayFilters"][2]["freq"] == 8000
+    assert output["roundTrip"][0]["frequency_hz"] == 320
     assert output["roundTrip"][1]["frequency_hz"] == 2400
-    assert output["roundTrip"][2]["frequency_hz"] == 8000
-    assert output["positions"][0]["x"] == 0
-    assert output["positions"][2]["x"] == 1
+    assert output["roundTrip"][2]["frequency_hz"] == 12000
+    assert 0 < output["positions"][0]["x"] < 1
+    assert 0 < output["positions"][2]["x"] < 1
     assert 0 < output["positions"][1]["x"] < 1
 
 
-def test_dsssp_adapter_locks_endpoint_role_even_with_custom_ids() -> None:
+def test_dsssp_adapter_keeps_shelf_cutoff_frequency_even_with_custom_ids() -> None:
     output = run_node(
         f"""
 import {{
@@ -112,13 +118,13 @@ console.log(JSON.stringify({{ displayFilters, roundTrip, locked, positions }}));
 """
     )
 
-    assert output["locked"] == [True, False, True]
-    assert output["displayFilters"][0]["freq"] == 20
-    assert output["displayFilters"][2]["freq"] == 20000
-    assert output["roundTrip"][0]["frequency_hz"] == 280
-    assert output["roundTrip"][2]["frequency_hz"] == 6400
-    assert output["positions"][0]["x"] == 0
-    assert output["positions"][2]["x"] == 1
+    assert output["locked"] == [False, False, False]
+    assert output["displayFilters"][0]["freq"] == 280
+    assert output["displayFilters"][2]["freq"] == 6400
+    assert output["roundTrip"][0]["frequency_hz"] == 1800
+    assert output["roundTrip"][2]["frequency_hz"] == 1200
+    assert 0 < output["positions"][0]["x"] < 1
+    assert 0 < output["positions"][2]["x"] < 1
 
 
 def test_dsssp_adapter_marks_drag_end_and_rejects_notch() -> None:

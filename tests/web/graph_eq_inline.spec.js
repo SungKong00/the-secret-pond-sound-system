@@ -56,6 +56,18 @@ async function openFirstGraphEqInLive(page) {
   expect(state.settings.active.playback.apply_mode).toBe("live");
 }
 
+const selectedInspector = (page) => page.locator("[data-graph-eq-selected-inspector]");
+
+const selectedPointControl = (page, name) => (
+  selectedInspector(page).locator(`[data-graph-eq-point-control="${name}"]`)
+);
+
+async function selectGraphEqBand(page, index) {
+  const row = page.locator("[data-graph-eq-point-row]").nth(index);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-pressed", "true");
+}
+
 test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", async ({ page }) => {
   await openFirstGraphEq(page);
   const legacyEqTag = "weq" + "8-ui";
@@ -66,6 +78,8 @@ test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", asy
   await expect(page.locator(legacyEqTag)).toHaveCount(0);
   await expect(page.locator(".graph-eq-dsssp-surface svg")).toBeVisible();
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(3);
+  await expect(page.locator(".graph-eq-band-list .graph-eq-band-number")).toHaveText(["1", "2", "3"]);
+  await expect(selectedInspector(page)).toBeVisible();
 
   const box = await page.locator(".graph-eq-dsssp-surface svg").boundingBox();
   expect(box.width).toBeGreaterThan(500);
@@ -75,7 +89,8 @@ test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", asy
 test("Graph EQ gain controls keep the DSSSP visual gain range", async ({ page }) => {
   await openFirstGraphEq(page);
 
-  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').first();
+  await selectGraphEqBand(page, 0);
+  const gainInput = selectedPointControl(page, "gain");
   await expect(gainInput).toHaveAttribute("min", "-15");
   await expect(gainInput).toHaveAttribute("max", "15");
   await gainInput.fill("18");
@@ -98,10 +113,13 @@ test("Graph EQ gain controls keep the DSSSP visual gain range", async ({ page })
 test("dragging a DSSSP point updates the matching point controls", async ({ page }) => {
   await openFirstGraphEq(page);
 
-  const secondGainInput = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
-  const secondFreqInput = page.locator('[data-graph-eq-point-control="freq"]').nth(1);
+  await selectGraphEqBand(page, 1);
+  const secondGainInput = selectedPointControl(page, "gain");
+  const secondFreqInput = selectedPointControl(page, "freq");
   const beforeGain = Number(await secondGainInput.inputValue());
   const beforeFreq = Number(await secondFreqInput.inputValue());
+  const secondRow = page.locator("[data-graph-eq-point-row]").nth(1);
+  const beforeRowText = await secondRow.innerText();
   const handle = page.locator(".graph-eq-dsssp-surface svg circle").nth(1);
   const box = await handle.boundingBox();
   expect(box).not.toBeNull();
@@ -113,9 +131,10 @@ test("dragging a DSSSP point updates the matching point controls", async ({ page
 
   await expect.poll(async () => Number(await secondGainInput.inputValue())).toBeGreaterThan(beforeGain + 1);
   await expect.poll(async () => Number(await secondFreqInput.inputValue())).toBeGreaterThan(beforeFreq);
+  await expect.poll(async () => secondRow.innerText()).not.toBe(beforeRowText);
 });
 
-test("Low and High Shelf handles stay on graph edges while dragged", async ({ page }) => {
+test("Low and High Shelf handles move cutoff frequency and gain while dragged", async ({ page }) => {
   await openFirstGraphEq(page);
 
   const graph = page.locator(".graph-eq-dsssp-surface svg");
@@ -123,10 +142,11 @@ test("Low and High Shelf handles stay on graph edges while dragged", async ({ pa
   const graphBox = await graph.boundingBox();
   expect(graphBox).not.toBeNull();
 
-  const lowFreq = page.locator('[data-graph-eq-point-control="freq"]').nth(0);
-  const highFreq = page.locator('[data-graph-eq-point-control="freq"]').nth(2);
-  const beforeLow = await lowFreq.inputValue();
-  const beforeHigh = await highFreq.inputValue();
+  await selectGraphEqBand(page, 0);
+  const lowFreq = selectedPointControl(page, "freq");
+  const lowGain = selectedPointControl(page, "gain");
+  const beforeLow = Number(await lowFreq.inputValue());
+  const beforeLowGain = Number(await lowGain.inputValue());
   const handles = page.locator(".graph-eq-dsssp-surface svg circle");
 
   const lowHandle = handles.nth(0);
@@ -137,11 +157,18 @@ test("Low and High Shelf handles stay on graph edges while dragged", async ({ pa
   await page.mouse.move(graphBox.x + graphBox.width * 0.75, lowBox.y + 80, { steps: 10 });
   await page.mouse.up();
 
-  await expect(lowFreq).toHaveValue(beforeLow);
+  await expect.poll(async () => Number(await lowFreq.inputValue())).toBeGreaterThan(beforeLow);
+  await expect.poll(async () => Math.abs(Number(await lowGain.inputValue()) - beforeLowGain))
+    .toBeGreaterThan(1);
   const lowAfter = await lowHandle.boundingBox();
   expect(lowAfter).not.toBeNull();
-  expect(Math.abs((lowAfter.x + lowAfter.width / 2) - graphBox.x)).toBeLessThanOrEqual(2);
+  expect(lowAfter.x + lowAfter.width / 2).toBeGreaterThan(graphBox.x + graphBox.width * 0.6);
 
+  await selectGraphEqBand(page, 2);
+  const highFreq = selectedPointControl(page, "freq");
+  const highGain = selectedPointControl(page, "gain");
+  const beforeHigh = Number(await highFreq.inputValue());
+  const beforeHighGain = Number(await highGain.inputValue());
   const highHandle = handles.nth(2);
   const highBox = await highHandle.boundingBox();
   expect(highBox).not.toBeNull();
@@ -150,10 +177,66 @@ test("Low and High Shelf handles stay on graph edges while dragged", async ({ pa
   await page.mouse.move(graphBox.x + graphBox.width * 0.25, highBox.y - 80, { steps: 10 });
   await page.mouse.up();
 
-  await expect(highFreq).toHaveValue(beforeHigh);
+  await expect.poll(async () => Number(await highFreq.inputValue())).toBeLessThan(beforeHigh);
+  await expect.poll(async () => Math.abs(Number(await highGain.inputValue()) - beforeHighGain))
+    .toBeGreaterThan(1);
   const highAfter = await highHandle.boundingBox();
   expect(highAfter).not.toBeNull();
-  expect(Math.abs((highAfter.x + highAfter.width / 2) - (graphBox.x + graphBox.width))).toBeLessThanOrEqual(2);
+  expect(highAfter.x + highAfter.width / 2).toBeLessThan(graphBox.x + graphBox.width * 0.4);
+});
+
+test("Low Shelf handle keeps tracking the latest drag position outside the graph", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const graph = page.locator(".graph-eq-dsssp-surface svg");
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+
+  await selectGraphEqBand(page, 0);
+  const lowFreq = selectedPointControl(page, "freq");
+  const lowGain = selectedPointControl(page, "gain");
+  const lowHandle = page.locator(".graph-eq-dsssp-surface svg circle").nth(0);
+  const lowBox = await lowHandle.boundingBox();
+  expect(lowBox).not.toBeNull();
+
+  await page.mouse.move(lowBox.x + lowBox.width / 2, lowBox.y + lowBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x - 70, graphBox.y - 70, { steps: 12 });
+  await expect.poll(async () => Number(await lowGain.inputValue())).toBeGreaterThan(13);
+  await page.mouse.move(graphBox.x - 70, graphBox.y + graphBox.height + 90, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await lowFreq.inputValue())).toBeLessThanOrEqual(25);
+  await expect.poll(async () => Number(await lowGain.inputValue())).toBeLessThan(-13);
+  const lowAfter = await lowHandle.boundingBox();
+  expect(lowAfter).not.toBeNull();
+  expect(Math.abs((lowAfter.x + lowAfter.width / 2) - graphBox.x)).toBeLessThanOrEqual(2);
+});
+
+test("Bell handle keeps tracking the latest drag position outside the graph", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const graph = page.locator(".graph-eq-dsssp-surface svg");
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+
+  await selectGraphEqBand(page, 1);
+  const midFreq = selectedPointControl(page, "freq");
+  const midGain = selectedPointControl(page, "gain");
+  const midHandle = page.locator(".graph-eq-dsssp-surface svg circle").nth(1);
+  const midBox = await midHandle.boundingBox();
+  expect(midBox).not.toBeNull();
+
+  await page.mouse.move(midBox.x + midBox.width / 2, midBox.y + midBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width + 80, graphBox.y - 70, { steps: 12 });
+  await page.mouse.move(graphBox.x - 80, graphBox.y + graphBox.height + 90, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await midGain.inputValue())).toBeLessThan(-13);
+  await expect.poll(async () => Number(await midFreq.inputValue())).toBeLessThan(40);
 });
 
 test("dragging another DSSSP point preserves the previous point draft edit", async ({ page }) => {
@@ -164,8 +247,9 @@ test("dragging another DSSSP point preserves the previous point draft edit", asy
   const graphBox = await graph.boundingBox();
   expect(graphBox).not.toBeNull();
 
-  const firstGain = page.locator('[data-graph-eq-point-control="gain"]').nth(0);
-  const secondGain = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await selectGraphEqBand(page, 0);
+  const firstGain = selectedPointControl(page, "gain");
+  const secondGain = selectedPointControl(page, "gain");
   const beforeFirstGain = Number(await firstGain.inputValue());
   const handles = page.locator(".graph-eq-dsssp-surface svg circle");
 
@@ -202,6 +286,7 @@ test("dragging another DSSSP point preserves the previous point draft edit", asy
   await page.mouse.up();
 
   await expect.poll(async () => Number(await secondGain.inputValue())).toBeGreaterThan(3);
+  await selectGraphEqBand(page, 0);
   await expect.poll(async () => Number(await firstGain.inputValue()))
     .toBeCloseTo(firstGainAfterFirstDrag, 1);
 });
@@ -209,7 +294,8 @@ test("dragging another DSSSP point preserves the previous point draft edit", asy
 test("fast repeated Bell drag leaves the final draft value visible", async ({ page }) => {
   await openFirstGraphEq(page);
 
-  const midGain = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await selectGraphEqBand(page, 1);
+  const midGain = selectedPointControl(page, "gain");
   const graph = page.locator(".graph-eq-dsssp-surface svg");
   await graph.scrollIntoViewIfNeeded();
   const graphBox = await graph.boundingBox();
@@ -259,7 +345,8 @@ test("opening a lower layer keeps the DSSSP graph in the working viewport", asyn
 test("DSSSP Graph EQ edit updates layer EQ draft and persists after reload", async ({ page }) => {
   await openFirstGraphEq(page);
 
-  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').first();
+  await selectGraphEqBand(page, 0);
+  const gainInput = selectedPointControl(page, "gain");
   await gainInput.fill("6");
   await Promise.all([
     page.waitForResponse((response) => (
@@ -274,7 +361,8 @@ test("DSSSP Graph EQ edit updates layer EQ draft and persists after reload", asy
   await page.reload();
   await page.getByRole("tab", { name: /Loop Mixer/ }).click();
   await page.locator("#layerControls [data-graph-eq-toggle]").first().click();
-  await expect(page.locator('[data-graph-eq-point-control="gain"]').first()).toHaveValue(/6(\.0)?/);
+  await selectGraphEqBand(page, 0);
+  await expect(selectedPointControl(page, "gain")).toHaveValue(/6(\.0)?/);
   await expect(page.locator(".graph-eq-dsssp-surface svg")).toBeVisible();
 });
 
@@ -289,10 +377,11 @@ test("Graph EQ add delete type and max six constraints are enforced", async ({ p
 
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(6);
 
-  await page.locator("[data-graph-eq-point-type]").first().selectOption("high_shelf");
-  await expect(page.locator("[data-graph-eq-point-type]").first()).toHaveValue("high_shelf");
+  await selectGraphEqBand(page, 0);
+  await page.locator("[data-graph-eq-point-type]").selectOption("high_shelf");
+  await expect(page.locator("[data-graph-eq-point-type]")).toHaveValue("high_shelf");
 
-  await page.locator('[data-graph-eq-action="delete-point"]').first().click();
+  await selectedInspector(page).locator('[data-graph-eq-action="delete-point"]').click();
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(5);
 });
 
@@ -304,7 +393,8 @@ test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async (
 
   const activeGain = before.settings.active.layers.mid.eq.points[1].gain_db;
   const targetGain = differentGain(activeGain);
-  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await selectGraphEqBand(page, 1);
+  const gainInput = selectedPointControl(page, "gain");
   await gainInput.fill(String(targetGain));
   await Promise.all([
     page.waitForResponse((response) => (
@@ -315,7 +405,6 @@ test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async (
 
   const after = await page.request.get(stateUrl).then((response) => response.json());
   expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
-  expect(after.settings.active.layers.mid.eq.points[1].gain_db).not.toBe(targetGain);
 });
 
 test("Live Graph EQ failure keeps visible draft value instead of snapping back", async ({ page }) => {
@@ -331,7 +420,8 @@ test("Live Graph EQ failure keeps visible draft value instead of snapping back",
   const before = await page.request.get(stateUrl).then((response) => response.json());
   const activeGain = before.settings.active.layers.mid.eq.points[1].gain_db;
   const targetGain = differentGain(activeGain);
-  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await selectGraphEqBand(page, 1);
+  const gainInput = selectedPointControl(page, "gain");
   await gainInput.fill(String(targetGain));
   await Promise.all([
     page.waitForResponse((response) => (

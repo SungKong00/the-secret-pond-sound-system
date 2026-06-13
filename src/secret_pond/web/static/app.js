@@ -751,26 +751,7 @@ const graphEqPointResponseGain = (frequencyHz, point) => {
   return 0;
 };
 
-const graphEqLockedEndpointX = (point, index = null, points = []) => {
-  if (!point) return null;
-  const firstEndpoint = Number(index) === 0;
-  const lastEndpoint = Array.isArray(points) &&
-    points.length > 0 &&
-    Number(index) === points.length - 1;
-  if (
-    point.type === "low_shelf" &&
-    (point.id === "low" || point.id === "legacy-low" || firstEndpoint)
-  ) {
-    return 0;
-  }
-  if (
-    point.type === "high_shelf" &&
-    (point.id === "high" || point.id === "legacy-high" || lastEndpoint)
-  ) {
-    return 1;
-  }
-  return null;
-};
+const graphEqLockedEndpointX = () => null;
 
 const graphEqPointScreenGain = (point, index = null, points = []) => {
   const lockedX = graphEqLockedEndpointX(point, index, points);
@@ -6233,79 +6214,116 @@ const renderInlineGraphEqPointRow = (
   point,
   selected,
   disabled,
-  pointCount,
   pointIndex,
-  points,
 ) => {
-  const token = `${graphEqSafeToken(layerId)}-${graphEqSafeToken(point.id)}`;
-  const frequencyLocked = graphEqLockedEndpointX(point, pointIndex, points) !== null;
   return `
-    <div
+    <button
       class="graph-eq-point-row ${selected ? "selected" : ""}"
+      type="button"
       data-graph-eq-point-row
       data-graph-eq-point-id="${escapeHtml(point.id)}"
+      aria-pressed="${selected ? "true" : "false"}"
+      ${disabled ? "disabled" : ""}
     >
-      <label>
-        Type
-        <select
-          data-graph-eq-point-type
-          data-graph-eq-point-id="${escapeHtml(point.id)}"
-          data-graph-eq-point-control="type"
-          ${disabled ? "disabled" : ""}
+      ${renderInlineGraphEqPointRowContent(point, pointIndex)}
+    </button>
+  `;
+};
+
+const renderInlineGraphEqPointRowContent = (point, pointIndex) => `
+  <span class="graph-eq-band-number" aria-hidden="true">${pointIndex + 1}</span>
+  <span class="graph-eq-band-main">
+    <strong>${escapeHtml(graphEqPointTypes[point.type])}</strong>
+    <small>${escapeHtml(graphEqFrequencyLabel(point.frequency_hz))} · ${escapeHtml(graphEqGainLabel(point.gain_db))}</small>
+  </span>
+  <span class="graph-eq-band-q">Q ${Number(point.q.toFixed(2))}</span>
+`;
+
+const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, pointCount, pointIndex) => {
+  if (!selected) {
+    return `
+      <div class="graph-eq-selected-inspector empty" data-graph-eq-selected-inspector>
+        <p>점을 추가하세요</p>
+      </div>
+    `;
+  }
+  const token = `${graphEqSafeToken(layerId)}-${graphEqSafeToken(selected.id)}-selected`;
+  return `
+    <div
+      class="graph-eq-selected-inspector"
+      data-graph-eq-selected-inspector
+      data-graph-eq-point-id="${escapeHtml(selected.id)}"
+    >
+      <div class="graph-eq-selected-inspector-head">
+        <span class="graph-eq-band-number" aria-hidden="true">${pointIndex + 1}</span>
+        <div>
+          <h5>Band ${pointIndex + 1} <small lang="ko">선택한 점</small></h5>
+          <p data-graph-eq-selected-summary>${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz</p>
+        </div>
+        <button
+          class="button danger graph-eq-row-delete"
+          type="button"
+          data-graph-eq-action="delete-point"
+          data-graph-eq-point-id="${escapeHtml(selected.id)}"
+          ${disabled || pointCount <= 1 ? "disabled" : ""}
         >
-          ${Object.entries(graphEqPointTypes).map(([value, label]) => `
-            <option value="${value}" ${point.type === value ? "selected" : ""}>${label}</option>
-          `).join("")}
-        </select>
-      </label>
-      <label>
-        Freq
-        ${renderInlineGraphEqStepper({
-          inputId: `graph-eq-${token}-freq`,
-          controlName: "freq",
-          pointId: point.id,
-          value: Math.round(point.frequency_hz),
-          min: graphEqMinFrequencyHz,
-          max: graphEqMaxFrequencyHz,
-          step: 1,
-          disabled: disabled || frequencyLocked,
-        })}
-      </label>
-      <label>
-        Gain
-        ${renderInlineGraphEqStepper({
-          inputId: `graph-eq-${token}-gain`,
-          controlName: "gain",
-          pointId: point.id,
-          value: Number(point.gain_db.toFixed(1)),
-          min: graphEqMinGainDb,
-          max: graphEqMaxGainDb,
-          step: 0.1,
-          disabled,
-        })}
-      </label>
-      <label>
-        Q
-        ${renderInlineGraphEqStepper({
-          inputId: `graph-eq-${token}-q`,
-          controlName: "q",
-          pointId: point.id,
-          value: Number(point.q.toFixed(2)),
-          min: 0.1,
-          max: 18,
-          step: 0.1,
-          disabled,
-        })}
-      </label>
-      <button
-        class="button danger graph-eq-row-delete"
-        type="button"
-        data-graph-eq-action="delete-point"
-        data-graph-eq-point-id="${escapeHtml(point.id)}"
-        ${disabled || pointCount <= 1 ? "disabled" : ""}
-      >
-        Delete
-      </button>
+          Delete
+        </button>
+      </div>
+      <div class="graph-eq-selected-fields">
+        <label>
+          Type
+          <select
+            data-graph-eq-point-type
+            data-graph-eq-point-id="${escapeHtml(selected.id)}"
+            data-graph-eq-point-control="type"
+            ${disabled ? "disabled" : ""}
+          >
+            ${Object.entries(graphEqPointTypes).map(([value, label]) => `
+              <option value="${value}" ${selected.type === value ? "selected" : ""}>${label}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label>
+          Freq
+          ${renderInlineGraphEqStepper({
+            inputId: `graph-eq-${token}-freq`,
+            controlName: "freq",
+            pointId: selected.id,
+            value: Math.round(selected.frequency_hz),
+            min: graphEqMinFrequencyHz,
+            max: graphEqMaxFrequencyHz,
+            step: 1,
+            disabled,
+          })}
+        </label>
+        <label>
+          Gain
+          ${renderInlineGraphEqStepper({
+            inputId: `graph-eq-${token}-gain`,
+            controlName: "gain",
+            pointId: selected.id,
+            value: Number(selected.gain_db.toFixed(1)),
+            min: graphEqMinGainDb,
+            max: graphEqMaxGainDb,
+            step: 0.1,
+            disabled,
+          })}
+        </label>
+        <label>
+          Q
+          ${renderInlineGraphEqStepper({
+            inputId: `graph-eq-${token}-q`,
+            controlName: "q",
+            pointId: selected.id,
+            value: Number(selected.q.toFixed(2)),
+            min: 0.1,
+            max: 18,
+            step: 0.1,
+            disabled,
+          })}
+        </label>
+      </div>
     </div>
   `;
 };
@@ -6313,12 +6331,13 @@ const renderInlineGraphEqPointRow = (
 const renderInlineGraphEqPointControls = (layerId, eq) => {
   const disabled = draftEditLocked();
   const selected = inlineGraphEqSelectedPoint(eq, layerId);
+  const selectedIndex = Math.max(0, eq.points.findIndex((point) => point.id === selected?.id));
   return `
     <div class="graph-eq-inline-controls" aria-label="Selected Graph EQ point">
       <div class="graph-eq-inline-controls-head">
         <div>
-          <h5>Selected Point <small lang="ko">선택한 점</small></h5>
-          <p data-graph-eq-selected-summary>${selected ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz` : "점을 추가하세요"}</p>
+          <h5>Bands <small lang="ko">점 목록</small></h5>
+          <p>${eq.points.length}/${graphEqMaxPoints} Points</p>
         </div>
         <button
           class="button"
@@ -6329,17 +6348,16 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
           + Point
         </button>
       </div>
-      <div class="graph-eq-point-rows">
+      <div class="graph-eq-band-list">
         ${eq.points.map((point, index) => renderInlineGraphEqPointRow(
           layerId,
           point,
           selected?.id === point.id,
           disabled,
-          eq.points.length,
           index,
-          eq.points,
         )).join("")}
       </div>
+      ${renderInlineGraphEqSelectedInspector(layerId, selected, disabled, eq.points.length, selectedIndex)}
       <div class="graph-eq-inline-actions">
         <button
           class="button"
@@ -6408,29 +6426,28 @@ const selectedOrFirstGraphEqPointId = (layerId, eq) => (
   selectedGraphEqPointId(layerId) || eq.points[0]?.id || null
 );
 
-const syncInlineGraphEqPointControls = (container, points, selectedPointId) => {
+const syncInlineGraphEqPointControls = (container, layerId, points, selectedPointId) => {
   const rows = Array.from(container.querySelectorAll?.("[data-graph-eq-point-row]") || []);
-  const summary = container.querySelector?.("[data-graph-eq-selected-summary]");
   const selected = points.find((point) => point.id === selectedPointId) || points[0] || null;
-  if (summary) {
-    summary.textContent = selected
-      ? `${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz`
-      : "점을 추가하세요";
-  }
-  points.forEach((point) => {
-    const row = rows.find((candidate) => candidate.dataset.graphEqPointId === point.id);
-    if (!row) return;
+  const selectedIndex = Math.max(0, points.findIndex((point) => point.id === selected?.id));
+  rows.forEach((row, index) => {
+    const point = points.find((candidate) => candidate.id === row.dataset.graphEqPointId) || points[index];
+    if (!point) return;
     row.classList.toggle("selected", point.id === selected?.id);
-    const type = row.querySelector('[data-graph-eq-point-control="type"]');
-    if (type && document.activeElement !== type) type.value = point.type;
-    const syncValue = (name, value) => {
-      const control = row.querySelector(`[data-graph-eq-point-control="${name}"]`);
-      if (control && document.activeElement !== control) control.value = String(value);
-    };
-    syncValue("freq", Math.round(point.frequency_hz));
-    syncValue("gain", Number(point.gain_db.toFixed(1)));
-    syncValue("q", Number(point.q.toFixed(2)));
+    row.setAttribute("aria-pressed", point.id === selected?.id ? "true" : "false");
+    row.innerHTML = renderInlineGraphEqPointRowContent(point, index);
   });
+  const inspector = container.querySelector?.("[data-graph-eq-selected-inspector]");
+  if (inspector) {
+    inspector.outerHTML = renderInlineGraphEqSelectedInspector(
+      layerId,
+      selected,
+      draftEditLocked(),
+      points.length,
+      selectedIndex,
+    );
+  }
+  bindInlineGraphEqControls(container, layerId);
 };
 
 const inlineGraphEqPointsWithUpdate = (eq, pointId, updates) => (
@@ -6446,12 +6463,7 @@ const commitInlineGraphEqPointControl = (layerId, pointId, controlName, value) =
   if (!point) return;
   const updates = {};
   if (controlName === "type") updates.type = value;
-  if (
-    controlName === "freq" &&
-    graphEqLockedEndpointX(point, pointIndex, eq.points) === null
-  ) {
-    updates.frequency_hz = Number(value);
-  }
+  if (controlName === "freq") updates.frequency_hz = Number(value);
   if (controlName === "gain") updates.gain_db = Number(value);
   if (controlName === "q") updates.q = Number(value);
   if (!Object.keys(updates).length) return;
@@ -6466,10 +6478,25 @@ const addInlineGraphEqPoint = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
   if (eq.points.length >= graphEqMaxPoints || draftEditLocked()) return;
   const id = `point-${Date.now().toString(36)}`;
+  const sortedFrequencies = eq.points
+    .map((point) => clampNumber(point.frequency_hz, graphEqMinFrequencyHz, graphEqMaxFrequencyHz))
+    .sort((a, b) => a - b);
+  const boundaries = [graphEqMinFrequencyHz, ...sortedFrequencies, graphEqMaxFrequencyHz];
+  let widestGap = [120, 1000];
+  let widestLogSpan = -Infinity;
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const low = Math.max(boundaries[index], graphEqMinFrequencyHz);
+    const high = Math.min(boundaries[index + 1], graphEqMaxFrequencyHz);
+    const span = Math.log10(high) - Math.log10(low);
+    if (span > widestLogSpan) {
+      widestLogSpan = span;
+      widestGap = [low, high];
+    }
+  }
   const nextPoint = normalizeGraphEqPoint({
     id,
     type: "bell",
-    frequency_hz: 1000,
+    frequency_hz: Math.round(Math.sqrt(widestGap[0] * widestGap[1])),
     gain_db: 0,
     q: 1,
   });
@@ -6508,6 +6535,8 @@ const stepInlineGraphEqNumericControl = (button) => {
 
 const bindInlineGraphEqControls = (card, layerId) => {
   (card.querySelectorAll?.("[data-graph-eq-point-control]") || []).forEach((control) => {
+    if (control.dataset.graphEqBound === "true") return;
+    control.dataset.graphEqBound = "true";
     const commit = () => commitInlineGraphEqPointControl(
       layerId,
       control.dataset.graphEqPointId,
@@ -6526,9 +6555,20 @@ const bindInlineGraphEqControls = (card, layerId) => {
     control.addEventListener("blur", commit);
   });
   (card.querySelectorAll?.("[data-graph-eq-step-target]") || []).forEach((button) => {
+    if (button.dataset.graphEqBound === "true") return;
+    button.dataset.graphEqBound = "true";
     button.addEventListener("click", () => stepInlineGraphEqNumericControl(button));
   });
+  (card.querySelectorAll?.("[data-graph-eq-point-row]") || []).forEach((row) => {
+    if (row.dataset.graphEqBound === "true") return;
+    row.dataset.graphEqBound = "true";
+    row.addEventListener("click", () => {
+      syncInlineGraphEqSelection(card, layerId, row.dataset.graphEqPointId);
+    });
+  });
   (card.querySelectorAll?.("[data-graph-eq-action]") || []).forEach((button) => {
+    if (button.dataset.graphEqBound === "true") return;
+    button.dataset.graphEqBound = "true";
     button.addEventListener("click", () => {
       if (button.dataset.graphEqAction === "add-point") addInlineGraphEqPoint(layerId);
       if (button.dataset.graphEqAction === "delete-point") {
@@ -6545,7 +6585,7 @@ const syncInlineGraphEqSelection = (container, layerId, pointId) => {
   if (!pointId) return;
   state.graphEqSelectedPointIds[layerId] = pointId;
   const eq = graphEqForLayer(state.draft, layerId);
-  syncInlineGraphEqPointControls(container, eq.points, pointId);
+  syncInlineGraphEqPointControls(container, layerId, eq.points, pointId);
   const root = container.querySelector("[data-graph-eq-dsssp-root-shell]");
   graphEqIslandApi()?.syncEditor?.(root, { selectedPointId: pointId });
 };
@@ -6576,6 +6616,7 @@ const mountInlineGraphEqEditor = (container, layerId) => {
         renderAfterSync: false,
         afterSync: () => syncInlineGraphEqPointControls(
           container,
+          layerId,
           nextPoints,
           nextSelectedPointId,
         ),
@@ -6725,11 +6766,9 @@ const renderGraphEqPointControls = (eq, layerId) => {
   if (!controls) return;
   controls.classList.toggle("empty", !selected);
   controls.querySelector(".graph-eq-empty-state").hidden = Boolean(selected);
-  const selectedLockedEndpoint = selected &&
-    graphEqLockedEndpointX(selected, selectedIndex, eq.points) !== null;
   ["graphEqPointType", "graphEqPointFreq", "graphEqPointGain", "graphEqPointQ"].forEach((id) => {
     const input = $(id);
-    input.disabled = !selected || draftEditLocked() || (id === "graphEqPointFreq" && selectedLockedEndpoint);
+    input.disabled = !selected || draftEditLocked();
     setGraphEqStepButtonsDisabled(id, input.disabled);
   });
   $("graphEqDeletePointButton").disabled = !selected || draftEditLocked() || eq.points.length <= 1;
@@ -6748,10 +6787,7 @@ const renderGraphEqPointControls = (eq, layerId) => {
   }
   if (!selected) return;
   $("graphEqPointType").value = selected.type;
-  const lockedEndpointX = graphEqLockedEndpointX(selected, selectedIndex, eq.points);
-  $("graphEqPointFreq").value = String(Math.round(
-    lockedEndpointX === null ? selected.frequency_hz : graphEqXToFrequency(lockedEndpointX),
-  ));
+  $("graphEqPointFreq").value = String(Math.round(selected.frequency_hz));
   $("graphEqPointGain").value = String(Number(selected.gain_db.toFixed(1)));
   $("graphEqPointQ").value = String(Number(selected.q.toFixed(2)));
 };
@@ -6792,12 +6828,6 @@ const commitGraphEqSelectedControl = (controlId) => {
   const selectedIndex = selected
     ? eq.points.findIndex((point) => point.id === selected.id)
     : -1;
-  if (
-    controlId === "graphEqPointFreq" &&
-    graphEqLockedEndpointX(selected, selectedIndex, eq.points) !== null
-  ) {
-    return;
-  }
   const updates = {};
   if (controlId === "graphEqPointType") updates.type = $("graphEqPointType").value;
   if (controlId === "graphEqPointFreq") updates.frequency_hz = Number($("graphEqPointFreq").value);

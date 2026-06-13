@@ -2868,20 +2868,33 @@ section.control-group .control-group-head h4::before {
   margin-bottom: 10px;
 }
 
-.graph-eq-point-rows {
+.graph-eq-band-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
 }
 
 .graph-eq-point-row {
+  appearance: none;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  padding: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 8px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.025);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.graph-eq-point-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
 }
 
 .graph-eq-point-row.selected {
@@ -2889,7 +2902,81 @@ section.control-group .control-group-head h4::before {
   background: rgba(214, 168, 77, 0.08);
 }
 
-.graph-eq-point-row label {
+.graph-eq-band-number {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(223, 213, 191, 0.18);
+  border-radius: 999px;
+  background: rgba(226, 184, 79, 0.12);
+  color: #f1d887;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.graph-eq-band-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.graph-eq-band-main strong,
+.graph-eq-band-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-eq-band-main strong {
+  font-size: 11px;
+}
+
+.graph-eq-band-main small,
+.graph-eq-band-q {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.graph-eq-selected-inspector {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(223, 213, 191, 0.1);
+}
+
+.graph-eq-selected-inspector.empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-eq-selected-inspector-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.graph-eq-selected-inspector-head h5 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.graph-eq-selected-inspector-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-eq-selected-fields {
+  display: grid;
+  grid-template-columns: 1.1fr repeat(3, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.graph-eq-selected-fields label {
   display: grid;
   gap: 4px;
   color: var(--muted);
@@ -2897,8 +2984,8 @@ section.control-group .control-group-head h4::before {
   font-weight: 800;
 }
 
-.graph-eq-point-row input,
-.graph-eq-point-row select {
+.graph-eq-selected-fields input,
+.graph-eq-selected-fields select {
   min-width: 0;
   border: 1px solid rgba(223, 213, 191, 0.13);
   border-radius: 6px;
@@ -2908,7 +2995,7 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-row-delete {
-  width: 100%;
+  min-width: 0;
 }
 
 .graph-eq-inline-actions {
@@ -3500,6 +3587,20 @@ input[type="checkbox"] {
   .filter-pair-grid,
   .eq-band-grid {
     grid-template-columns: 1fr;
+  }
+
+  .graph-eq-band-list,
+  .graph-eq-selected-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .graph-eq-selected-inspector-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .graph-eq-selected-inspector-head .graph-eq-row-delete {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .capture-gate-switch {
