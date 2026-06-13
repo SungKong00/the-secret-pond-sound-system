@@ -2362,6 +2362,15 @@ assert(failed.detail.includes("Voice Stack source가 없습니다"));
 assert(failed.detail.includes("fallback 확인: data/voice/voice_stack_raw.wav"));
 assert(failed.detail.includes("현재 들리는 EQ는 마지막 성공 상태입니다."));
 assert.strictEqual(failed.className, "status-pill caution");
+
+const failedDefault = helpers.graphEqLiveStatusCopy({
+  status: "failed",
+  failure_warning: "",
+  failure_detail: "",
+});
+assert(failedDefault.label.includes("Stable Apply and Restart"));
+assert(failedDefault.detail.includes("기존 재생 상태를 유지합니다."));
+assert.strictEqual(failedDefault.className, "status-pill caution");
 """,
     )
 

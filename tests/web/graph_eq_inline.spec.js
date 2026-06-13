@@ -5,6 +5,12 @@ const stateUrl = new URL("/api/state", appUrl).toString();
 const draftUrl = new URL("/api/settings/draft", appUrl).toString();
 const applyModeUrl = new URL("/api/playback/apply-mode", appUrl).toString();
 
+function differentGain(value) {
+  const numeric = Number(value);
+  const base = Number.isFinite(numeric) ? numeric : 0;
+  return base >= 5 ? -4 : 6;
+}
+
 async function resetFirstGraphEqDraft(page) {
   await page.request.put(applyModeUrl, { data: { mode: "stable" } });
   const state = await page.request.get(stateUrl).then((response) => response.json());
@@ -27,12 +33,27 @@ async function openMixer(page) {
   await page.getByRole("tab", { name: /Loop Mixer/ }).click();
 }
 
-async function openFirstGraphEq(page) {
-  await resetFirstGraphEqDraft(page);
+async function openCurrentFirstGraphEq(page) {
   await openMixer(page);
   await page.locator("#layerControls [data-graph-eq-toggle]").first().click();
   await expect(page.locator(".graph-eq-inline-editor.expanded")).toHaveCount(1);
   await expect(page.locator('[data-graph-eq-dsssp-root="true"]')).toHaveCount(1);
+}
+
+async function openFirstGraphEq(page) {
+  await resetFirstGraphEqDraft(page);
+  await openCurrentFirstGraphEq(page);
+}
+
+async function openFirstGraphEqInLive(page) {
+  await resetFirstGraphEqDraft(page);
+  const response = await page.request.put(applyModeUrl, {
+    data: { mode: "live", staged_graph_eq: "discard" },
+  });
+  expect(response.ok()).toBeTruthy();
+  await openCurrentFirstGraphEq(page);
+  const state = await page.request.get(stateUrl).then((payload) => payload.json());
+  expect(state.settings.active.playback.apply_mode).toBe("live");
 }
 
 test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", async ({ page }) => {
@@ -209,4 +230,57 @@ test("Graph EQ add delete type and max six constraints are enforced", async ({ p
 
   await page.locator('[data-graph-eq-action="delete-point"]').first().click();
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(5);
+});
+
+test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  expect(before.settings.active.playback.apply_mode).toBe("stable");
+
+  const activeGain = before.settings.active.layers.mid.eq.points[1].gain_db;
+  const targetGain = differentGain(activeGain);
+  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await gainInput.fill(String(targetGain));
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    gainInput.blur(),
+  ]);
+
+  const after = await page.request.get(stateUrl).then((response) => response.json());
+  expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
+  expect(after.settings.active.layers.mid.eq.points[1].gain_db).not.toBe(targetGain);
+});
+
+test("Live Graph EQ failure keeps visible draft value instead of snapping back", async ({ page }) => {
+  await page.route("**/api/playback/live-graph-eq/tick", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "forced live graph eq failure" }),
+    });
+  });
+  await openFirstGraphEqInLive(page);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeGain = before.settings.active.layers.mid.eq.points[1].gain_db;
+  const targetGain = differentGain(activeGain);
+  const gainInput = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  await gainInput.fill(String(targetGain));
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    gainInput.blur(),
+  ]);
+
+  await expect.poll(async () => Number(await gainInput.inputValue())).toBe(targetGain);
+  await page.waitForTimeout(1300);
+  await expect.poll(async () => Number(await gainInput.inputValue())).toBe(targetGain);
+
+  const after = await page.request.get(stateUrl).then((response) => response.json());
+  expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
+  expect(after.settings.active.layers.mid.eq.points[1].gain_db).not.toBe(targetGain);
 });

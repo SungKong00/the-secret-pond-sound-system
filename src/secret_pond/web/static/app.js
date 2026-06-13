@@ -682,13 +682,14 @@ const graphEqLiveStatusCopy = (liveGraphEq = {}) => {
     };
   }
   if (liveGraphEq.status === "failed" || liveGraphEq.failure_warning) {
+    const failureDetail = liveGraphEq.failure_detail || "기존 재생 상태를 유지합니다.";
     return {
       label: liveGraphEq.failure_warning || (
         "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
         + "필요하면 Stable Apply and Restart로 적용하세요."
       ),
       detail: [
-        liveGraphEq.failure_detail,
+        failureDetail,
         "현재 들리는 EQ는 마지막 성공 상태입니다.",
       ].filter(Boolean).join(" "),
       className: "status-pill caution",
@@ -2287,9 +2288,6 @@ const syncLiveConfirmedCoveredDraftFields = (draft, settingsPayload, snapshot) =
     }
     if (live.volume_applies_immediately && hasOwnProperty(activeLayer, "volume_db")) {
       draftLayer.volume_db = clone(activeLayer.volume_db);
-    }
-    if (live.eq_applies_immediately && hasOwnProperty(activeLayer, "eq")) {
-      draftLayer.eq = clone(activeLayer.eq);
     }
   });
   if (
