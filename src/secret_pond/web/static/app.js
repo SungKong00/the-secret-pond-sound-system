@@ -5956,6 +5956,11 @@ const graphEqForLayer = (settings, layerId = currentGraphEqLayerId()) => (
   normalizeGraphEqSettings(settings?.layers?.[layerId]?.eq || {})
 );
 
+const scrollExpandedGraphEqLayerIntoView = (layerId) => {
+  const section = document.querySelector?.(`[data-graph-eq-layer-card="${layerId}"]`);
+  section?.scrollIntoView?.({ block: "start", inline: "nearest" });
+};
+
 const selectedGraphEqPointId = (layerId = currentGraphEqLayerId()) => (
   state.graphEqSelectedPointIds[layerId] || null
 );
@@ -5973,6 +5978,7 @@ const openExpandedGraphEqLayer = (layerId) => {
   }
   state.expandedGraphEqLayer = layerId;
   renderLayerControls();
+  scrollExpandedGraphEqLayerIntoView(layerId);
 };
 
 const closeExpandedGraphEqLayer = (layerId) => {

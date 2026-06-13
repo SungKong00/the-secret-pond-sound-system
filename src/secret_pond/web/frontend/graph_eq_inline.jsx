@@ -110,8 +110,8 @@ function GraphEqDssspEditor({
   }, [localPoints]);
 
   useEffect(() => {
-    if (!dragging) setLocalPoints(normalizedPoints);
-  }, [dragging, normalizedPoints]);
+    if (!draggingRef.current) setLocalPoints(normalizedPoints);
+  }, [normalizedPoints]);
 
   const filters = useMemo(() => toDssspFilters(localPoints), [localPoints]);
   const selectedIndex = Math.max(
@@ -162,7 +162,7 @@ function GraphEqDssspEditor({
     >
       <FrequencyResponseGraph
         width={900}
-        height={360}
+        height={320}
         scale={graphEqDisplayConfig}
         theme={graphTheme}
         style={{ width: "100%", height: "100%" }}

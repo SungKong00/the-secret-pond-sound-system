@@ -2828,7 +2828,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-dsssp-host {
   min-width: 0;
-  min-height: 390px;
+  min-height: 350px;
   overflow: hidden;
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
@@ -2838,7 +2838,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-root,
 .graph-eq-dsssp-surface {
   width: 100%;
-  min-height: 390px;
+  min-height: 350px;
 }
 
 .graph-eq-dsssp-surface {
@@ -2849,7 +2849,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-surface svg {
   display: block;
   width: 100%;
-  min-height: 360px;
+  min-height: 320px;
 }
 
 .graph-eq-inline-controls {

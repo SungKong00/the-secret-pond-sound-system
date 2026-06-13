@@ -26069,8 +26069,8 @@ var SecretPondDssspGraphEqBundle = (() => {
       latestPointsRef.current = localPoints;
     }, [localPoints]);
     (0, import_react2.useEffect)(() => {
-      if (!dragging) setLocalPoints(normalizedPoints);
-    }, [dragging, normalizedPoints]);
+      if (!draggingRef.current) setLocalPoints(normalizedPoints);
+    }, [normalizedPoints]);
     const filters = (0, import_react2.useMemo)(() => toDssspFilters(localPoints), [localPoints]);
     const selectedIndex = Math.max(
       0,
@@ -26119,7 +26119,7 @@ var SecretPondDssspGraphEqBundle = (() => {
           FrequencyResponseGraph,
           {
             width: 900,
-            height: 360,
+            height: 320,
             scale: graphEqDisplayConfig,
             theme: graphTheme,
             style: { width: "100%", height: "100%" },

@@ -156,6 +156,56 @@ test("Low and High Shelf handles stay on graph edges while dragged", async ({ pa
   expect(Math.abs((highAfter.x + highAfter.width / 2) - (graphBox.x + graphBox.width))).toBeLessThanOrEqual(2);
 });
 
+test("dragging another DSSSP point preserves the previous point draft edit", async ({ page }) => {
+  await openFirstGraphEqInLive(page);
+
+  const graph = page.locator(".graph-eq-dsssp-surface svg");
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+
+  const firstGain = page.locator('[data-graph-eq-point-control="gain"]').nth(0);
+  const secondGain = page.locator('[data-graph-eq-point-control="gain"]').nth(1);
+  const beforeFirstGain = Number(await firstGain.inputValue());
+  const handles = page.locator(".graph-eq-dsssp-surface svg circle");
+
+  const firstHandleBox = await handles.nth(0).boundingBox();
+  expect(firstHandleBox).not.toBeNull();
+  await page.mouse.move(
+    firstHandleBox.x + firstHandleBox.width / 2,
+    firstHandleBox.y + firstHandleBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    graphBox.x + graphBox.width * 0.7,
+    graphBox.y + graphBox.height * 0.78,
+    { steps: 10 },
+  );
+  await page.mouse.up();
+
+  await expect.poll(async () => Math.abs(Number(await firstGain.inputValue()) - beforeFirstGain))
+    .toBeGreaterThan(1);
+  const firstGainAfterFirstDrag = Number(await firstGain.inputValue());
+
+  const secondHandleBox = await handles.nth(1).boundingBox();
+  expect(secondHandleBox).not.toBeNull();
+  await page.mouse.move(
+    secondHandleBox.x + secondHandleBox.width / 2,
+    secondHandleBox.y + secondHandleBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    graphBox.x + graphBox.width * 0.58,
+    graphBox.y + graphBox.height * 0.25,
+    { steps: 10 },
+  );
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await secondGain.inputValue())).toBeGreaterThan(3);
+  await expect.poll(async () => Number(await firstGain.inputValue()))
+    .toBeCloseTo(firstGainAfterFirstDrag, 1);
+});
+
 test("fast repeated Bell drag leaves the final draft value visible", async ({ page }) => {
   await openFirstGraphEq(page);
 
@@ -191,6 +241,19 @@ test("opening another layer collapses the previous DSSSP Graph EQ editor", async
   await expect(page.locator(".graph-eq-inline-editor.expanded")).toHaveCount(1);
   await expect(page.locator('[data-graph-eq-layer-card].expanded')).toHaveCount(1);
   await expect(page.locator('[data-graph-eq-dsssp-root="true"]')).toHaveCount(1);
+});
+
+test("opening a lower layer keeps the DSSSP graph in the working viewport", async ({ page }) => {
+  await openMixer(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await page.locator("#layerControls [data-graph-eq-toggle]").nth(1).click();
+  await expect(page.locator(".graph-eq-inline-editor.expanded")).toHaveCount(1);
+  await expect(page.locator('[data-graph-eq-layer-card="low"].expanded')).toHaveCount(1);
+
+  const graphBox = await page.locator(".graph-eq-dsssp-surface svg").boundingBox();
+  expect(graphBox).not.toBeNull();
+  expect(graphBox.y).toBeLessThan(520);
 });
 
 test("DSSSP Graph EQ edit updates layer EQ draft and persists after reload", async ({ page }) => {
