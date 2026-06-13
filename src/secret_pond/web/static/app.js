@@ -2,6 +2,9 @@ const responseErrorMessage = (payload, status) => {
   const detail = payload?.detail;
   if (typeof detail === "string" && detail) return detail;
   if (detail && typeof detail === "object") {
+    if (Array.isArray(detail.missing_sources) && detail.missing_sources.length) {
+      return `프리셋 소스 파일을 찾을 수 없습니다: ${detail.missing_sources.join(", ")}`;
+    }
     return detail.message || detail.reason || detail.code || `Request failed: ${status}`;
   }
   return `Request failed: ${status}`;
@@ -44,6 +47,10 @@ const state = {
   deviceError: null,
   diagnosticsError: null,
   sourcesError: null,
+  settingsPresets: [],
+  settingsPresetsError: null,
+  settingsPresetActionInFlight: false,
+  settingsPresetRefreshRequestId: 0,
   appliedSourceSignature: null,
   serverStateSignature: null,
   acceptedStateEpoch: null,
@@ -2045,6 +2052,37 @@ const requestSources = async (options = {}) => {
   }
 };
 
+const beginSettingsPresetRefresh = () => {
+  state.settingsPresetRefreshRequestId += 1;
+  return state.settingsPresetRefreshRequestId;
+};
+
+const isCurrentSettingsPresetRefresh = (requestId) =>
+  requestId === state.settingsPresetRefreshRequestId;
+
+const requestSettingsPresets = async () => {
+  const requestId = beginSettingsPresetRefresh();
+  let shouldRender = false;
+  try {
+    const payload = await api("/api/settings/presets");
+    if (!isCurrentSettingsPresetRefresh(requestId)) return payload;
+    state.settingsPresets = payload.presets || [];
+    state.settingsPresetsError = null;
+    shouldRender = true;
+    return payload;
+  } catch (error) {
+    if (!isCurrentSettingsPresetRefresh(requestId)) return null;
+    state.settingsPresetsError = error.message;
+    shouldRender = true;
+    return null;
+  } finally {
+    if (shouldRender) {
+      renderSettingsPresets();
+      renderErrors();
+    }
+  }
+};
+
 const volatileServerStateFields = [
   "recording_elapsed_seconds",
   "recording_remaining_seconds",
@@ -2247,6 +2285,7 @@ const refreshAll = async () => {
   await requestDevices();
   await requestDiagnostics();
   await requestSources({ syncAppliedSourceSignature: true });
+  await requestSettingsPresets();
   if (!stateRefreshFailed) clearTransientError({ respectMinimumVisibleDuration: true });
   renderErrors();
 };
@@ -2416,6 +2455,7 @@ const operationLockMessages = {
   playbackControl: "출력 제어가 끝날 때까지 기다리세요.",
   recordingStop: "녹음 처리가 끝날 때까지 기다리세요.",
   resetParticipants: "참여자 초기화가 끝날 때까지 기다리세요.",
+  settingsPreset: "프리셋 작업이 끝날 때까지 기다리세요.",
   deviceLoading: "장치 목록을 불러오는 중입니다.",
   deviceApply: "설정 적용이 끝날 때까지 기다리세요.",
   deviceChange: "장치 변경을 적용하는 중입니다.",
@@ -2437,6 +2477,7 @@ const operationFlagKeys = [
   "applyAndRestartInFlight",
   "resetDraftInFlight",
   "resetParticipantsInFlight",
+  "settingsPresetActionInFlight",
   "deviceChangeInFlight",
 ];
 
@@ -2510,10 +2551,12 @@ const deriveDraftControlLockState = ({
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
 } = {}) => {
   const title = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.draftApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
+    [settingsPresetActionInFlight, operationLockMessages.settingsPreset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
@@ -2534,12 +2577,14 @@ const deriveOperationLocks = ({
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
   devicesLoaded = true,
   forceDeviceDisabled = false,
 } = {}) => {
   const sourceActionTitle = firstOperationLockTitle([
     [applyInFlight, operationLockMessages.sourceApply],
     [resetDraftInFlight, operationLockMessages.sourceReset],
+    [settingsPresetActionInFlight, operationLockMessages.settingsPreset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.sourceDeviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
@@ -2550,6 +2595,7 @@ const deriveOperationLocks = ({
     [!devicesLoaded, operationLockMessages.deviceLoading],
     [applyInFlight, operationLockMessages.deviceApply],
     [resetDraftInFlight, operationLockMessages.draftReset],
+    [settingsPresetActionInFlight, operationLockMessages.settingsPreset],
     [sourceMutationInFlight, operationLockMessages.sourceMutation],
     [deviceChangeInFlight, operationLockMessages.deviceChange],
     [recordingStopInFlight, operationLockMessages.recordingStop],
@@ -2565,6 +2611,7 @@ const deriveOperationLocks = ({
     recordingStopInFlight,
     playbackControlInFlight,
     resetParticipantsInFlight,
+    settingsPresetActionInFlight,
   });
   return {
     draftLocked: draftLock.disabled,
@@ -2574,6 +2621,7 @@ const deriveOperationLocks = ({
     deviceLocked: Boolean(
       forceDeviceDisabled || deviceChangeInFlight || applyInFlight || resetDraftInFlight ||
         sourceMutationInFlight ||
+        settingsPresetActionInFlight ||
         recordingStopInFlight ||
         playbackControlInFlight ||
         resetParticipantsInFlight ||
@@ -2751,6 +2799,7 @@ const deriveSettingsActionState = ({
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
@@ -2760,6 +2809,7 @@ const deriveSettingsActionState = ({
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
+  const settingsPresetBusy = Boolean(settingsPresetActionInFlight);
   const isRecording = Boolean(snapshot?.is_recording);
   const outputRunning = Boolean(snapshot?.playback?.output_running);
   const renderedCacheReady = Boolean(snapshot?.playback?.rendered_cache_ready);
@@ -2774,6 +2824,8 @@ const deriveSettingsActionState = ({
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetParticipantsBusy
       ? operationLockMessages.resetParticipants
+    : settingsPresetBusy
+      ? operationLockMessages.settingsPreset
     : resetBusy
       ? "설정 변경 취소가 끝날 때까지 기다리세요."
       : deviceChangeBusy
@@ -2813,6 +2865,8 @@ const deriveSettingsActionState = ({
       ? "녹음 처리가 끝날 때까지 기다리세요."
       : resetParticipantsBusy
         ? operationLockMessages.resetParticipants
+      : settingsPresetBusy
+        ? operationLockMessages.settingsPreset
       : applyInFlight
         ? "설정 적용이 끝날 때까지 기다리세요."
         : deviceChangeBusy
@@ -2834,6 +2888,7 @@ const deriveSettingsActionState = ({
       playbackControlBusy ||
       recordingStopBusy ||
       resetParticipantsBusy ||
+      settingsPresetBusy ||
       isRecording ||
       !pendingChanges,
   );
@@ -2846,6 +2901,7 @@ const deriveSettingsActionState = ({
         playbackControlBusy ||
         recordingStopBusy ||
         resetParticipantsBusy ||
+        settingsPresetBusy ||
         isRecording ||
         runtimeConfigChanged ||
         (!pendingChanges && !canApplyRenderedCache),
@@ -2868,6 +2924,7 @@ const deriveDashboardControlState = ({
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
   pendingChanges = false,
   runtimeConfigChanged = false,
 }) => {
@@ -2876,12 +2933,14 @@ const deriveDashboardControlState = ({
   const playbackControlBusy = Boolean(playbackControlInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
+  const settingsPresetBusy = Boolean(settingsPresetActionInFlight);
   const settingsOperationBusy = Boolean(
     applyInFlight ||
       resetDraftInFlight ||
       sourceMutationInFlight ||
       deviceChangeBusy ||
-      resetParticipantsBusy,
+      resetParticipantsBusy ||
+      settingsPresetBusy,
   );
   const captureOperationBusy = recordingStartBusy || recordingStopBusy || settingsOperationBusy;
   const outputControlBusy = Boolean(
@@ -2889,7 +2948,8 @@ const deriveDashboardControlState = ({
       recordingStopBusy ||
       playbackControlBusy ||
       deviceChangeBusy ||
-      resetParticipantsBusy,
+      resetParticipantsBusy ||
+      settingsPresetBusy,
   );
   const isRecording = Boolean(snapshot?.is_recording);
   const armed = Boolean(snapshot?.armed);
@@ -2910,11 +2970,14 @@ const deriveDashboardControlState = ({
     recordingStopInFlight,
     playbackControlInFlight,
     resetParticipantsInFlight,
+    settingsPresetActionInFlight,
     pendingChanges,
     runtimeConfigChanged,
   });
   const resetParticipantsTitle = resetParticipantsBusy
-    ? operationLockMessages.resetParticipants
+      ? operationLockMessages.resetParticipants
+    : settingsPresetBusy
+      ? operationLockMessages.settingsPreset
     : isRecording
       ? "참여자 수를 초기화하기 전에 녹음을 중지하세요."
       : recordingStopBusy
@@ -2945,8 +3008,8 @@ const deriveDashboardControlState = ({
     restartOutputDisabled: outputControlBusy || !outputRunning,
     ...settingsActionState,
     resetParticipantsDisabled: resetParticipantsBusy || applyInFlight || resetDraftInFlight ||
-      sourceMutationInFlight || deviceChangeBusy || recordingStopBusy || playbackControlBusy ||
-      isRecording,
+      settingsPresetBusy || sourceMutationInFlight || deviceChangeBusy || recordingStopBusy ||
+      playbackControlBusy || isRecording,
     resetParticipantsTitle,
   };
 };
@@ -3473,6 +3536,131 @@ const outputControlSummaryText = (
   return "준비된 오디오를 렌더링한 뒤 출력을 시작합니다.";
 };
 
+const settingsPresetLayerShortLabels = {
+  low: "Low",
+  mid: "Mid",
+  voice: "Voice",
+};
+
+const settingsPresetDbLabel = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "0.0dB";
+  return `${number.toFixed(1)}dB`;
+};
+
+const settingsPresetLayerSummary = (preset) => {
+  const layers = preset?.payload?.layers || {};
+  return ["low", "mid", "voice"]
+    .map((layerId) => {
+      const layer = layers[layerId];
+      if (!layer) return null;
+      const label = settingsPresetLayerShortLabels[layerId] || layerId;
+      const muted = layer.enabled === false ? " off" : "";
+      return `${label} ${settingsPresetDbLabel(layer.volume_db)}${muted}`;
+    })
+    .filter(Boolean);
+};
+
+const settingsPresetSourceSummary = (preset) => {
+  const sources = preset?.payload?.sources || {};
+  return Object.values(sources)
+    .filter(Boolean)
+    .map((path) => String(path).split("/").pop())
+    .slice(0, 3);
+};
+
+const settingsPresetSummary = (preset) => {
+  const layerSummary = settingsPresetLayerSummary(preset);
+  const sourceSummary = settingsPresetSourceSummary(preset);
+  if (layerSummary.length && sourceSummary.length) {
+    return `${layerSummary.join(" · ")} / ${sourceSummary.join(", ")}`;
+  }
+  if (layerSummary.length) return layerSummary.join(" · ");
+  if (sourceSummary.length) return sourceSummary.join(", ");
+  return "Graph EQ, mixer, source selection";
+};
+
+const settingsPresetLoadBlockedReason = () => {
+  if (!state.snapshot) return "상태를 불러온 뒤 사용할 수 있습니다.";
+  if (currentPlaybackApplyMode() !== "stable") {
+    return "Live 중에는 Stable로 전환한 뒤 불러오세요.";
+  }
+  if (state.settingsPresetActionInFlight) return "프리셋 작업 중입니다.";
+  return "";
+};
+
+const renderSettingsPresets = () => {
+  const list = $("settingsPresetList");
+  if (!list) return;
+  const input = $("settingsPresetNameInput");
+  const saveButton = $("settingsPresetSaveButton");
+  const loadBlockedReason = settingsPresetLoadBlockedReason();
+  const actionDisabled = state.settingsPresetActionInFlight || !state.snapshot;
+  if (input) input.disabled = state.settingsPresetActionInFlight;
+  if (saveButton) {
+    saveButton.disabled = actionDisabled;
+    saveButton.title = actionDisabled ? "상태를 불러온 뒤 저장할 수 있습니다." : "";
+  }
+  if (state.settingsPresetsError) {
+    list.innerHTML = `
+      <p class="settings-preset-empty">${escapeHtml(state.settingsPresetsError)}</p>
+    `;
+    return;
+  }
+  if (!state.settingsPresets?.length) {
+    list.innerHTML = `
+      <p class="settings-preset-empty">저장된 프리셋 없음</p>
+    `;
+    return;
+  }
+  const liveModeHint = loadBlockedReason && currentPlaybackApplyMode() !== "stable"
+    ? `<p class="settings-preset-mode-hint">${escapeHtml(loadBlockedReason)}</p>`
+    : "";
+  list.innerHTML = `
+    ${liveModeHint}
+    ${state.settingsPresets.map((preset) => {
+      const loadDisabled = Boolean(loadBlockedReason);
+      const commandDisabled = state.settingsPresetActionInFlight;
+      const title = loadDisabled ? ` title="${escapeHtml(loadBlockedReason)}"` : "";
+      return `
+        <article class="settings-preset-item" role="listitem">
+          <div class="settings-preset-main">
+            <strong>${escapeHtml(preset.name || "Untitled")}</strong>
+            <small>${escapeHtml(settingsPresetSummary(preset))}</small>
+          </div>
+          <div class="settings-preset-actions">
+            <button
+              class="settings-preset-action primary"
+              type="button"
+              data-settings-preset-load="${escapeHtml(preset.id)}"
+              ${loadDisabled ? "disabled" : ""}
+              ${title}
+            >
+              Load
+            </button>
+            <button
+              class="settings-preset-action"
+              type="button"
+              data-settings-preset-update="${escapeHtml(preset.id)}"
+              ${commandDisabled ? "disabled" : ""}
+            >
+              Update
+            </button>
+            <button
+              class="settings-preset-action danger"
+              type="button"
+              data-settings-preset-delete="${escapeHtml(preset.id)}"
+              ${commandDisabled ? "disabled" : ""}
+            >
+              Delete
+            </button>
+          </div>
+        </article>
+      `;
+    }).join("")}
+  `;
+};
+
 const renderState = () => {
   renderSyncBadge();
   const snapshot = state.snapshot;
@@ -3541,6 +3729,7 @@ const renderState = () => {
   $("resetParticipantsButton").disabled = controlState.resetParticipantsDisabled;
   $("resetParticipantsButton").title = controlState.resetParticipantsTitle;
   $("applyButton").title = controlState.applyTitle;
+  renderSettingsPresets();
   renderErrors();
 };
 
@@ -3631,6 +3820,7 @@ const currentErrorNotices = () => {
     state.deviceError,
     state.diagnosticsError,
     state.sourcesError,
+    state.settingsPresetsError,
   ].map((message) => noticeFromMessage(message, "error")).filter(Boolean);
 };
 
@@ -4587,6 +4777,7 @@ const renameSourceFile = async (category, path, stem) => {
     if (!isCurrentSourceMutation(requestId)) return payload;
     clearSourceRename(category, path);
     applySourceMutationPayload(payload);
+    await requestSettingsPresets().catch(() => {});
     await requestDiagnostics();
     return payload;
   } catch (error) {
@@ -4671,6 +4862,7 @@ const deriveSystemDeviceSelectState = ({
   recordingStopInFlight = false,
   playbackControlInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
 } = {}) => {
   const locks = deriveOperationLocks({
     applyInFlight,
@@ -4680,6 +4872,7 @@ const deriveSystemDeviceSelectState = ({
     recordingStopInFlight,
     playbackControlInFlight,
     resetParticipantsInFlight,
+    settingsPresetActionInFlight,
     devicesLoaded,
     forceDeviceDisabled: forceDisabled,
   });
@@ -4706,6 +4899,7 @@ const deriveStorageModeControlState = ({
   deviceChangeInFlight = false,
   recordingStopInFlight = false,
   resetParticipantsInFlight = false,
+  settingsPresetActionInFlight = false,
   storageModeInFlight = false,
   pendingMode = null,
 } = {}) => {
@@ -4719,6 +4913,7 @@ const deriveStorageModeControlState = ({
   const sourceMutationBusy = Boolean(sourceMutationInFlight);
   const deviceChangeBusy = Boolean(deviceChangeInFlight);
   const resetParticipantsBusy = Boolean(resetParticipantsInFlight);
+  const settingsPresetBusy = Boolean(settingsPresetActionInFlight);
   const storageModeBusy = Boolean(storageModeInFlight);
   const disabled =
     !ready ||
@@ -4729,6 +4924,7 @@ const deriveStorageModeControlState = ({
     deviceChangeBusy ||
     recordingStopInFlight ||
     resetParticipantsBusy ||
+    settingsPresetBusy ||
     Boolean(snapshot?.is_recording);
   return {
     active,
@@ -4746,7 +4942,9 @@ const deriveStorageModeControlState = ({
               ? operationLockMessages.deviceChange
               : resetParticipantsBusy
                 ? operationLockMessages.resetParticipants
-                : storageModeBusyTitle
+                : settingsPresetBusy
+                  ? operationLockMessages.settingsPreset
+                  : storageModeBusyTitle
       : modeDetails.idleTitle,
     canCommit: ready && !disabled,
   };
@@ -7709,6 +7907,163 @@ const saveDraft = async () => {
   }
 };
 
+const setSettingsPresetActionInFlight = (inFlight) => {
+  if (dashboardSnapshotRenderable(state.snapshot)) {
+    setOperationLockFlag("settingsPresetActionInFlight", inFlight);
+  } else {
+    state.settingsPresetActionInFlight = Boolean(inFlight);
+  }
+  renderSettingsPresets();
+};
+
+const flushPendingDraftBeforePresetAction = async () => {
+  if (!state.draft || (!state.saveTimer && !state.draftSaveInFlight)) return null;
+  return saveDraft();
+};
+
+const dashboardSnapshotRenderable = (snapshot) => (
+  Boolean(
+    snapshot?.playback &&
+      snapshot?.settings?.active?.input_control?.minimum_recording_seconds !== undefined &&
+      snapshot?.settings?.active?.input_control?.maximum_recording_seconds !== undefined,
+  )
+);
+
+const applySettingsPresetPayload = async (payload, options = {}) => {
+  if (payload?.state?.playback && payload?.state?.settings) {
+    await applyResponseState(payload, options);
+  } else if (payload?.settings) {
+    applySettingsPayload(payload.settings, {
+      renderControlsOnSync: false,
+      ...options,
+    });
+    if (dashboardSnapshotRenderable(state.snapshot)) {
+      renderState();
+      renderControls();
+    }
+  } else {
+    await requestState(options);
+  }
+  if (payload?.sources) {
+    state.sources = payload.sources;
+    renderSourceLibrary({ allowInteractiveDeferral: false });
+  }
+};
+
+const saveSettingsPreset = async () => {
+  const input = $("settingsPresetNameInput");
+  const name = String(input?.value || "").trim();
+  if (!name) {
+    showError("프리셋 이름을 입력하세요.");
+    return null;
+  }
+  let presetError = null;
+  setSettingsPresetActionInFlight(true);
+  try {
+    await flushPendingDraftBeforePresetAction();
+    const payload = await api("/api/settings/presets", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    state.settingsPresets = payload.presets || [];
+    state.settingsPresetsError = null;
+    if (input) input.value = "";
+    renderSettingsPresets();
+    clearTransientError({ respectMinimumVisibleDuration: true });
+    return payload;
+  } catch (error) {
+    presetError = error;
+    state.settingsPresetsError = null;
+    showError(error.message);
+    return null;
+  } finally {
+    setSettingsPresetActionInFlight(false);
+    if (presetError) await requestSettingsPresets().catch(() => {});
+  }
+};
+
+const updateSettingsPreset = async (presetId) => {
+  if (!presetId || state.settingsPresetActionInFlight) return null;
+  const preset = state.settingsPresets.find((item) => item.id === presetId);
+  const name = preset?.name || "이 프리셋";
+  if (window.confirm?.(`${name}을 현재 draft로 덮어쓸까요?`) === false) return null;
+  let presetError = null;
+  setSettingsPresetActionInFlight(true);
+  try {
+    await flushPendingDraftBeforePresetAction();
+    const payload = await api(`/api/settings/presets/${encodeURIComponent(presetId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    });
+    state.settingsPresets = payload.presets || [];
+    state.settingsPresetsError = null;
+    renderSettingsPresets();
+    clearTransientError({ respectMinimumVisibleDuration: true });
+    return payload;
+  } catch (error) {
+    presetError = error;
+    showError(error.message);
+    return null;
+  } finally {
+    setSettingsPresetActionInFlight(false);
+    if (presetError) await requestSettingsPresets().catch(() => {});
+  }
+};
+
+const deleteSettingsPreset = async (presetId) => {
+  if (!presetId || state.settingsPresetActionInFlight) return null;
+  const preset = state.settingsPresets.find((item) => item.id === presetId);
+  const name = preset?.name || "이 프리셋";
+  if (window.confirm?.(`${name}을 삭제할까요?`) === false) return null;
+  let presetError = null;
+  setSettingsPresetActionInFlight(true);
+  try {
+    const payload = await api(`/api/settings/presets/${encodeURIComponent(presetId)}`, {
+      method: "DELETE",
+    });
+    state.settingsPresets = payload.presets || [];
+    state.settingsPresetsError = null;
+    renderSettingsPresets();
+    clearTransientError({ respectMinimumVisibleDuration: true });
+    return payload;
+  } catch (error) {
+    presetError = error;
+    showError(error.message);
+    return null;
+  } finally {
+    setSettingsPresetActionInFlight(false);
+    if (presetError) await requestSettingsPresets().catch(() => {});
+  }
+};
+
+const loadSettingsPreset = async (presetId) => {
+  if (!presetId || state.settingsPresetActionInFlight) return null;
+  const blockedReason = settingsPresetLoadBlockedReason();
+  if (blockedReason) {
+    showError(blockedReason);
+    renderSettingsPresets();
+    return null;
+  }
+  let presetError = null;
+  setSettingsPresetActionInFlight(true);
+  try {
+    const payload = await api(`/api/settings/presets/${encodeURIComponent(presetId)}/load`, {
+      method: "POST",
+    });
+    await applySettingsPresetPayload(payload, { syncDraft: true });
+    clearTransientError({ respectMinimumVisibleDuration: true });
+    return payload;
+  } catch (error) {
+    presetError = error;
+    await requestState({ syncDraft: false }).catch(() => {});
+    showError(error.message);
+    return null;
+  } finally {
+    setSettingsPresetActionInFlight(false);
+    if (presetError) await requestSettingsPresets().catch(() => {});
+  }
+};
+
 const deriveDashboardControlStateForRequest = (currentState = state) =>
   deriveDashboardControlState({
     snapshot: currentState.snapshot,
@@ -8218,6 +8573,31 @@ const bindEvents = () => {
   $("playbackSeekSlider").addEventListener("change", seekPlayback);
   $("refreshButton").addEventListener("click", refreshAll);
   $("applyButton").addEventListener("click", applyAndRestart);
+  $("settingsPresetSaveButton").addEventListener("click", saveSettingsPreset);
+  $("settingsPresetNameInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveSettingsPreset();
+  });
+  $("settingsPresetList").addEventListener("click", (event) => {
+    const loadButton = event.target.closest("[data-settings-preset-load]");
+    if (loadButton) {
+      if (loadButton.disabled) return;
+      loadSettingsPreset(loadButton.dataset.settingsPresetLoad);
+      return;
+    }
+    const updateButton = event.target.closest("[data-settings-preset-update]");
+    if (updateButton) {
+      if (updateButton.disabled) return;
+      updateSettingsPreset(updateButton.dataset.settingsPresetUpdate);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-settings-preset-delete]");
+    if (deleteButton) {
+      if (deleteButton.disabled) return;
+      deleteSettingsPreset(deleteButton.dataset.settingsPresetDelete);
+    }
+  });
   $("resetButton").addEventListener("click", resetDraft);
   $("resetParticipantsButton").addEventListener("click", resetParticipants);
   document.querySelectorAll("#recordingPresets .preset-button").forEach((button) => {

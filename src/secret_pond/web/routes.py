@@ -47,6 +47,11 @@ from secret_pond.services.settings_draft import (
 from secret_pond.services.settings_draft import (
     update_draft_settings as save_draft_settings,
 )
+from secret_pond.services.settings_presets import (
+    PresetNotFoundError,
+    PresetSourceMissingError,
+    PresetStore,
+)
 from secret_pond.services.settings_store import SettingsState
 from secret_pond.services.source_library_mutations import (
     SourceLibraryMutationError,
@@ -91,6 +96,14 @@ class PlaybackApplyModeRequest(BaseModel):
 
 class LiveGraphEqTickRequest(BaseModel):
     now_ms: int | None = None
+
+
+class SettingsPresetCreateRequest(BaseModel):
+    name: str
+
+
+class SettingsPresetUpdateRequest(BaseModel):
+    name: str | None = None
 
 
 @router.get("/state")
@@ -300,6 +313,13 @@ def delete_source(
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
+            referencing_presets = PresetStore(runtime.paths).preset_names_referencing_source(path)
+            if referencing_presets:
+                names = ", ".join(referencing_presets)
+                raise PermissionError(
+                    f"source file is used by presets: {names}. "
+                    "Delete or update those presets first."
+                )
             delete_source_file_from_library(
                 runtime,
                 config.id,
@@ -328,13 +348,15 @@ def rename_source(
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
-            settings_state = rename_source_file_in_library(
+            result = rename_source_file_in_library(
                 runtime,
                 config.id,
                 relative_path,
                 stem,
                 settings_state=settings_state,
             )
+            PresetStore(runtime.paths).replace_source_path(relative_path, result.relative_path)
+            settings_state = result.settings_state
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
         runtime.mark_state_changed()
@@ -508,6 +530,101 @@ def get_settings(request: Request) -> dict[str, Any]:
         return {"settings": _settings_payload(runtime)}
 
 
+@router.get("/settings/presets")
+def list_settings_presets(request: Request) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        return _settings_presets_response(runtime)
+
+
+@router.post("/settings/presets", status_code=201)
+def create_settings_preset(
+    request: Request,
+    payload: SettingsPresetCreateRequest,
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        try:
+            preset = PresetStore(runtime.paths).create_from_draft(
+                payload.name,
+                _settings_state(runtime).draft,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "preset": preset.model_dump(mode="json"),
+            **_settings_presets_response(runtime),
+        }
+
+
+@router.patch("/settings/presets/{preset_id}")
+def update_settings_preset(
+    request: Request,
+    preset_id: str,
+    payload: SettingsPresetUpdateRequest,
+) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        try:
+            preset = PresetStore(runtime.paths).update_from_draft(
+                preset_id,
+                payload.name,
+                _settings_state(runtime).draft,
+            )
+        except PresetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "preset": preset.model_dump(mode="json"),
+            **_settings_presets_response(runtime),
+        }
+
+
+@router.delete("/settings/presets/{preset_id}")
+def delete_settings_preset(request: Request, preset_id: str) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        try:
+            PresetStore(runtime.paths).delete(preset_id)
+        except PresetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return _settings_presets_response(runtime)
+
+
+@router.post("/settings/presets/{preset_id}/load")
+def load_settings_preset(request: Request, preset_id: str) -> dict[str, Any]:
+    runtime = _runtime(request)
+    with runtime.operation_lock:
+        current = _settings_state(runtime)
+        if current.active.playback.apply_mode != "stable":
+            raise HTTPException(
+                status_code=409,
+                detail="presets can be loaded only in Stable mode",
+            )
+        try:
+            next_state = PresetStore(runtime.paths).load_to_draft(preset_id, current)
+            saved_state = runtime.settings_store.save(next_state)
+        except PresetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PresetSourceMissingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"missing_sources": exc.missing_sources},
+            ) from exc
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        runtime.settings_state = saved_state
+        runtime.mark_state_changed()
+        return _source_settings_payload(runtime, saved_state)
+
+
 @router.put("/settings/draft")
 def update_draft_settings(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime(request)
@@ -622,6 +739,16 @@ def _settings_response_payload(
     return {
         **state_version_payload(runtime),
         "settings": _settings_payload(runtime, settings_state),
+    }
+
+
+def _settings_presets_response(runtime: SecretPondRuntime) -> dict[str, Any]:
+    return {
+        **state_version_payload(runtime),
+        "presets": [
+            preset.model_dump(mode="json")
+            for preset in PresetStore(runtime.paths).list_presets()
+        ],
     }
 
 

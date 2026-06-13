@@ -27,6 +27,12 @@ class SourceUploadMutationResult:
     settings_state: SettingsState
 
 
+@dataclass(frozen=True)
+class SourceRenameMutationResult:
+    relative_path: str
+    settings_state: SettingsState
+
+
 def select_source_file_and_update_draft(
     runtime: SecretPondRuntime,
     category: str,
@@ -73,7 +79,7 @@ def rename_source_file_in_library(
     stem: str,
     *,
     settings_state: SettingsState,
-) -> SettingsState:
+) -> SourceRenameMutationResult:
     active_selected = source_file_is_selected(
         runtime.paths,
         settings_state.active,
@@ -101,7 +107,7 @@ def rename_source_file_in_library(
         SettingsState(active=next_active, draft=next_draft),
     )
     runtime.apply_settings_state(next_state)
-    return next_state
+    return SourceRenameMutationResult(relative_path=next_relative_path, settings_state=next_state)
 
 
 def upload_source_file_and_maybe_select(

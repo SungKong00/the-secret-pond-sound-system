@@ -40,6 +40,7 @@ from secret_pond.config import (
 )
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.runtime import PlaybackOutput, build_runtime
+from secret_pond.services.settings_presets import PresetStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 RUNTIME_CONFIG_FIELDS = [
@@ -932,15 +933,16 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260614-apply-mode-modal-v2"' in response.text
+    assert 'href="/static/styles.css?v=20260614-named-presets-v1"' in response.text
     assert (
-        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-apply-mode-modal-v2"'
+        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-named-presets-v1"'
         in response.text
     )
     assert 'src="/static/graph_eq_inline.bundle.js?v=' not in response.text
-    assert 'src="/static/app.js?v=20260614-apply-mode-modal-v2"' in response.text
+    assert 'src="/static/app.js?v=20260614-named-presets-v1"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
+    assert 'id="settingsPresetPanel"' in response.text
     assert "No Rendered Cache" in response.text
     assert "재생 준비 전" in response.text
     assert 'id="modeBadge"' not in response.text
@@ -2142,7 +2144,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in response.text
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
-    assert "20260614-apply-mode-modal-v2" in response.text
+    assert "20260614-named-presets-v1" in response.text
     assert ("20260612-graph-eq-inline-" + "weq" + "8c") not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text
@@ -2697,6 +2699,7 @@ const expectedOperationFlagKeys = [
   "applyAndRestartInFlight",
   "resetDraftInFlight",
   "resetParticipantsInFlight",
+  "settingsPresetActionInFlight",
   "deviceChangeInFlight",
 ];
 
@@ -2712,6 +2715,7 @@ assert.deepStrictEqual(
     applyAndRestartInFlight: false,
     resetDraftInFlight: true,
     resetParticipantsInFlight: false,
+    settingsPresetActionInFlight: true,
     deviceChangeInFlight: true,
     snapshot: "ignored",
   }}),
@@ -2725,6 +2729,7 @@ assert.deepStrictEqual(
     applyAndRestartInFlight: false,
     resetDraftInFlight: true,
     resetParticipantsInFlight: false,
+    settingsPresetActionInFlight: true,
     deviceChangeInFlight: true,
   }},
 );
@@ -2744,6 +2749,7 @@ assert.deepStrictEqual(helpers.currentOperationFlags(), {{
   applyAndRestartInFlight: true,
   resetDraftInFlight: false,
   resetParticipantsInFlight: true,
+  settingsPresetActionInFlight: false,
   deviceChangeInFlight: false,
 }});
 helpers.state.applyInFlight = false;
@@ -2926,6 +2932,18 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveLocks({{ settingsPresetActionInFlight: true }}),
+  {{
+    draftLocked: true,
+    sourceUiLocked: true,
+    sourceCommandBlocked: true,
+    sourceActionTitle: "프리셋 작업이 끝날 때까지 기다리세요.",
+    deviceLocked: true,
+    deviceTitle: "프리셋 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveLocks({{ devicesLoaded: false }}),
   {{
     draftLocked: false,
@@ -3002,6 +3020,14 @@ assert.deepStrictEqual(
 );
 
 assert.deepStrictEqual(
+  deriveDraftLock({{ settingsPresetActionInFlight: true }}),
+  {{
+    disabled: true,
+    title: "프리셋 작업이 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
   deriveDraftLock({{ applyInFlight: true, resetDraftInFlight: true }}),
   {{
     disabled: true,
@@ -3070,6 +3096,14 @@ assert.deepStrictEqual(
   {{
     disabled: true,
     title: "참여자 초기화가 끝날 때까지 기다리세요.",
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveDeviceSelect({{ devicesLoaded: true, settingsPresetActionInFlight: true }}),
+  {{
+    disabled: true,
+    title: "프리셋 작업이 끝날 때까지 기다리세요.",
   }},
 );
 
@@ -3212,6 +3246,23 @@ assert.deepStrictEqual(
     pendingActive: false,
     disabled: true,
     title: "참여자 초기화가 끝날 때까지 기다리세요.",
+    canCommit: false,
+  }},
+);
+
+assert.deepStrictEqual(
+  deriveStorageMode({{
+    snapshot: {{ settings }},
+    draft,
+    mode: "live_ephemeral",
+    settingsPresetActionInFlight: true,
+  }}),
+  {{
+    active: true,
+    ariaPressed: "true",
+    pendingActive: false,
+    disabled: true,
+    title: "프리셋 작업이 끝날 때까지 기다리세요.",
     canCommit: false,
   }},
 );
@@ -7813,6 +7864,12 @@ def test_static_ui_reset_participants_in_flight_blocks_duplicate_requests(
         json: async () => ({{ categories: [] }}),
       }});
     }}
+    if (path === "/api/settings/presets") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ presets: [] }}),
+      }});
+    }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
 
@@ -9455,6 +9512,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
         json: async () => ({{ categories: [] }}),
       }});
     }}
+    if (path === "/api/settings/presets") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ presets: [] }}),
+      }});
+    }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
   await globalThis.__secretPondTest.applyAndRestart();
@@ -9528,6 +9591,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
         json: async () => ({{ categories: [] }}),
       }});
     }}
+    if (path === "/api/settings/presets") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ presets: [] }}),
+      }});
+    }}
     throw new Error(`unexpected fetch ${{path}}`);
   }};
   await globalThis.__secretPondTest.refreshAll();
@@ -9570,6 +9639,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
       return Promise.resolve({{
         ok: true,
         json: async () => ({{ categories: [] }}),
+      }});
+    }}
+    if (path === "/api/settings/presets") {{
+      return Promise.resolve({{
+        ok: true,
+        json: async () => ({{ presets: [] }}),
       }});
     }}
     throw new Error(`unexpected fetch ${{path}}`);
@@ -10921,6 +10996,151 @@ def test_api_sources_rename_rejects_extension_edits(tmp_path: Path) -> None:
     assert response.status_code == 422
     assert "filename stem must not include an extension" in response.json()["detail"]
     assert original_path.exists() is True
+
+
+def test_api_settings_presets_create_list_load_and_delete_draft_subset(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    for relative_path in (
+        "data/sources/low/preset-low.wav",
+        "data/sources/mid/preset-mid.wav",
+        "data/sources/voice/stack/preset-voice.wav",
+    ):
+        write_wav_atomic(
+            tmp_path / relative_path,
+            AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+        )
+    active = api_settings_with_devices()
+    draft = active.model_copy(
+        update={
+            "playback": active.playback.model_copy(update={"master_volume_db": -3.0}),
+            "sources": SourceSelectionSettings(
+                low_path="data/sources/low/preset-low.wav",
+                mid_path="data/sources/mid/preset-mid.wav",
+                voice_stack_path="data/sources/voice/stack/preset-voice.wav",
+            ),
+            "layers": {
+                **active.layers,
+                "mid": active.layers["mid"].model_copy(update={"volume_db": -8.0}),
+            },
+        },
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=active)
+    assert client.put("/api/settings/draft", json=draft.model_dump(mode="json")).status_code == 200
+
+    create_response = client.post("/api/settings/presets", json={"name": "Opening"})
+    preset_id = create_response.json()["preset"]["id"]
+    list_response = client.get("/api/settings/presets")
+    assert client.put("/api/settings/draft", json=active.model_dump(mode="json")).status_code == 200
+    load_response = client.post(f"/api/settings/presets/{preset_id}/load")
+    delete_response = client.delete(f"/api/settings/presets/{preset_id}")
+
+    assert create_response.status_code == 201
+    assert create_response.json()["preset"]["name"] == "Opening"
+    assert create_response.json()["preset"]["payload"]["layers"]["mid"]["volume_db"] == -8.0
+    assert "devices" not in create_response.json()["preset"]["payload"]
+    assert list_response.status_code == 200
+    assert [preset["name"] for preset in list_response.json()["presets"]] == ["Opening"]
+    assert load_response.status_code == 200
+    assert load_response.json()["settings"]["active"]["devices"]["input_device_id"] == "mic-2"
+    assert load_response.json()["settings"]["draft"]["devices"]["input_device_id"] == "mic-2"
+    assert load_response.json()["settings"]["active"]["layers"]["mid"]["volume_db"] == -12.0
+    assert load_response.json()["settings"]["draft"]["layers"]["mid"]["volume_db"] == -8.0
+    assert load_response.json()["settings"]["draft"]["sources"]["low_path"] == (
+        "data/sources/low/preset-low.wav"
+    )
+    assert load_response.json()["settings"]["draft"]["playback"]["master_volume_db"] == -3.0
+    assert delete_response.status_code == 200
+    assert client.get("/api/settings/presets").json()["presets"] == []
+
+
+def test_api_settings_presets_load_rejects_missing_source(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = api_settings().model_copy(
+        update={
+            "sources": SourceSelectionSettings(low_path="data/sources/low/missing-low.wav"),
+        },
+        deep=True,
+    )
+    preset = PresetStore(paths).create_from_draft("Broken", settings)
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.post(f"/api/settings/presets/{preset.id}/load")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["missing_sources"] == ["data/sources/low/missing-low.wav"]
+    assert SettingsStore(paths).load().draft.sources.low_path is None
+
+
+def test_api_settings_presets_load_is_blocked_in_live_mode(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    preset = PresetStore(paths).create_from_draft("Opening", api_settings())
+    settings = api_settings().model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(tmp_path, settings=settings, raise_server_exceptions=False)
+
+    response = client.post(f"/api/settings/presets/{preset.id}/load")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "presets can be loaded only in Stable mode"
+
+
+def test_api_sources_rename_updates_preset_source_references(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/preset-low.wav"
+    renamed_relative = "data/sources/low/renamed-preset-low.wav"
+    write_wav_atomic(
+        tmp_path / original_relative,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    preset = PresetStore(paths).create_from_draft("Opening", settings)
+    client = create_test_client(tmp_path)
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-preset-low"},
+    )
+
+    assert response.status_code == 200
+    updated = PresetStore(paths).get(preset.id)
+    assert updated.payload.sources.low_path == renamed_relative
+    assert updated.source_refs["low_path"].path == renamed_relative
+
+
+def test_api_sources_delete_rejects_file_referenced_by_preset(tmp_path: Path) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    relative_path = "data/sources/low/preset-low.wav"
+    write_wav_atomic(
+        tmp_path / relative_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    PresetStore(paths).create_from_draft(
+        "Opening",
+        api_settings().model_copy(
+            update={"sources": SourceSelectionSettings(low_path=relative_path)},
+            deep=True,
+        ),
+    )
+    client = create_test_client(tmp_path, raise_server_exceptions=False)
+
+    response = client.delete("/api/sources/low/files", params={"path": relative_path})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "source file is used by presets: Opening. Delete or update those presets first."
+    )
+    assert (tmp_path / relative_path).exists() is True
 
 
 def test_api_apply_and_restart_renders_selected_library_source(tmp_path: Path) -> None:

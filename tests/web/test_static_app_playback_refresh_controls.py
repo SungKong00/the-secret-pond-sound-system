@@ -3233,6 +3233,165 @@ assert.strictEqual(state.draft.layers.mid.eq.points[1].gain_db, 6);
     )
 
 
+def test_settings_presets_render_and_save_current_draft() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  renderSettingsPresets,
+  saveSettingsPreset,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { renderSettingsPresets, saveSettingsPreset, state } = globalThis.__secretPond;
+state.settingsPresets = [
+  {
+    id: "preset-1",
+    name: "Opening",
+    updated_at: "2026-06-14T00:00:00+00:00",
+    payload: {
+      sources: { low_path: "data/sources/low/opening.wav" },
+      layers: {
+        low: { enabled: true, volume_db: -12, eq: {} },
+        mid: { enabled: true, volume_db: -8, eq: {} },
+        voice: { enabled: true, volume_db: -18, eq: {} },
+      },
+    },
+  },
+];
+state.snapshot = {
+  settings: {
+    active: { playback: { apply_mode: "stable" } },
+    draft: { playback: { apply_mode: "stable" } },
+  },
+};
+renderSettingsPresets();
+
+assert.match(document.getElementById("settingsPresetList").innerHTML, /Opening/);
+assert.match(
+  document.getElementById("settingsPresetList").innerHTML,
+  /data-settings-preset-load="preset-1"/,
+);
+assert.match(document.getElementById("settingsPresetList").innerHTML, /Mid -8\\.0dB/);
+
+const requests = [];
+globalThis.fetch = async (path, options = {}) => {
+  requests.push({ path, options });
+  return {
+    ok: true,
+    json: async () => ({
+      presets: [{ id: "preset-2", name: "Saved" }],
+      preset: { id: "preset-2", name: "Saved" },
+    }),
+  };
+};
+document.getElementById("settingsPresetNameInput").value = " Saved ";
+await saveSettingsPreset();
+
+assert.strictEqual(requests.length, 1);
+assert.strictEqual(requests[0].path, "/api/settings/presets");
+assert.strictEqual(requests[0].options.method, "POST");
+assert.deepStrictEqual(JSON.parse(requests[0].options.body), { name: "Saved" });
+assert.deepStrictEqual(state.settingsPresets, [{ id: "preset-2", name: "Saved" }]);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
+def test_settings_preset_load_syncs_draft_and_live_mode_disables_load() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  loadSettingsPreset,
+  renderSettingsPresets,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+(async () => {
+const { loadSettingsPreset, renderSettingsPresets, state } = globalThis.__secretPond;
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2, loop_seconds: 60 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  input_control: { armed: false },
+  playback: { apply_mode: "stable", master_volume_db: -6 },
+  sources: { low_path: null, mid_path: null, voice_raw_path: null, voice_stack_path: null },
+  voice_stack: {
+    mode: "live_ephemeral",
+    loop_seconds: 60,
+    transition_seconds: 3,
+    insert_gain_db: -12,
+  },
+  recording: {},
+  layers: {
+    low: { enabled: true, volume_db: -12, eq: {} },
+    mid: { enabled: true, volume_db: -12, eq: {} },
+    voice: { enabled: true, volume_db: -18, eq: {} },
+  },
+};
+const nextDraft = JSON.parse(JSON.stringify(activeSettings));
+nextDraft.layers.mid.volume_db = -8;
+nextDraft.sources.low_path = "data/sources/low/opening.wav";
+state.snapshot = {
+  settings: {
+    active: JSON.parse(JSON.stringify(activeSettings)),
+    draft: JSON.parse(JSON.stringify(activeSettings)),
+    change: { changed_sections: [], runtime_config_changed: false },
+  },
+  playback: {},
+};
+state.draft = JSON.parse(JSON.stringify(activeSettings));
+state.settingsPresets = [{ id: "preset-1", name: "Opening", payload: { sources: {} } }];
+
+const requests = [];
+globalThis.fetch = async (path, options = {}) => {
+  requests.push({ path, options });
+  return {
+    ok: true,
+    json: async () => ({
+      settings: {
+        active: JSON.parse(JSON.stringify(activeSettings)),
+        draft: nextDraft,
+        change: { changed_sections: ["layers", "sources"], runtime_config_changed: false },
+      },
+      state: {
+        settings: {
+          active: JSON.parse(JSON.stringify(activeSettings)),
+          draft: nextDraft,
+        },
+      },
+      sources: { categories: [] },
+    }),
+  };
+};
+
+await loadSettingsPreset("preset-1");
+assert.strictEqual(requests[0].path, "/api/settings/presets/preset-1/load");
+assert.strictEqual(requests[0].options.method, "POST");
+assert.strictEqual(state.draft.layers.mid.volume_db, -8);
+assert.strictEqual(state.draft.sources.low_path, "data/sources/low/opening.wav");
+
+state.snapshot.settings.active.playback.apply_mode = "live";
+renderSettingsPresets();
+assert.match(document.getElementById("settingsPresetList").innerHTML, /Live 중에는 Stable로 전환/);
+})();
+""",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+    )
+
+
 def test_playback_apply_mode_active_value_survives_state_refresh_while_interacting() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

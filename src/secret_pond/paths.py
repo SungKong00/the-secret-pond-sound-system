@@ -103,6 +103,10 @@ class ProjectPaths:
     def settings_file(self) -> Path:
         return self.config_dir / "settings.json"
 
+    @property
+    def presets_file(self) -> Path:
+        return self.config_dir / "presets.json"
+
     def ensure_directories(self) -> None:
         for directory in (
             self.sources_dir,

@@ -1585,6 +1585,196 @@ input[type="range"].playback-seek-slider:disabled::-moz-range-thumb {
   border-top: 1px solid rgba(223, 213, 191, 0.1);
 }
 
+.settings-preset-panel {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(223, 213, 191, 0.1);
+}
+
+.settings-preset-head {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.settings-preset-head .eyebrow {
+  margin-bottom: 2px;
+}
+
+.settings-preset-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.15;
+}
+
+.settings-preset-head h3 small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settings-preset-scope {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--subtle);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.settings-preset-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-preset-save input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 1px solid rgba(223, 213, 191, 0.13);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-preset-save input:focus-visible,
+.settings-preset-action:focus-visible,
+.settings-preset-save-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(214, 168, 77, 0.13);
+}
+
+.settings-preset-save-button,
+.settings-preset-action {
+  min-width: 0;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 1px solid rgba(223, 213, 191, 0.14);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.13)),
+    var(--control);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.settings-preset-save-button {
+  border-color: rgba(120, 179, 122, 0.42);
+  background:
+    linear-gradient(180deg, rgba(120, 179, 122, 0.13), rgba(0, 0, 0, 0.12)),
+    #1d2c23;
+  color: #dff3df;
+}
+
+.settings-preset-save-button:disabled,
+.settings-preset-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-preset-list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-preset-empty,
+.settings-preset-mode-hint {
+  margin: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(223, 213, 191, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-preset-mode-hint {
+  border-color: rgba(214, 168, 77, 0.24);
+  background: rgba(214, 168, 77, 0.07);
+  color: #e2cf9d;
+}
+
+.settings-preset-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(223, 213, 191, 0.11);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.08)),
+    rgba(255, 255, 255, 0.018);
+}
+
+.settings-preset-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-preset-main strong,
+.settings-preset-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-preset-main strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.settings-preset-main small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.settings-preset-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.settings-preset-action {
+  min-height: 29px;
+  padding: 6px 5px;
+  text-align: center;
+}
+
+.settings-preset-action.primary:not(:disabled) {
+  border-color: rgba(110, 167, 216, 0.46);
+  background:
+    linear-gradient(180deg, rgba(110, 167, 216, 0.15), rgba(0, 0, 0, 0.12)),
+    #172a3c;
+  color: #dceeff;
+}
+
+.settings-preset-action.danger:not(:disabled) {
+  border-color: rgba(191, 101, 92, 0.34);
+  color: #f1c8c3;
+}
+
 .preset-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3660,8 +3850,13 @@ input[type="checkbox"] {
   .capture-gate,
   .filter-pair-grid,
   .eq-band-grid,
+  .settings-preset-save,
   .playback-apply-mode-dialog-actions {
     grid-template-columns: 1fr;
+  }
+
+  .settings-preset-head {
+    align-items: start;
   }
 
   .graph-eq-band-list,

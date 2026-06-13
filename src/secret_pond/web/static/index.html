@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>비밀의 연못 사운드 시스템</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260614-apply-mode-modal-v2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260614-named-presets-v1" />
   </head>
   <body>
     <canvas id="pondCanvas" aria-hidden="true"></canvas>
@@ -147,6 +147,33 @@
                   변경사항 적용 후 재생
                 </button>
               </div>
+              <section
+                id="settingsPresetPanel"
+                class="settings-preset-panel"
+                aria-labelledby="settingsPresetPanelTitle"
+              >
+                <div class="settings-preset-head">
+                  <div>
+                    <p class="eyebrow">설정 저장</p>
+                    <h3 id="settingsPresetPanelTitle">Presets <small lang="ko">프리셋</small></h3>
+                  </div>
+                  <span class="settings-preset-scope">Graph EQ · Mixer · Source</span>
+                </div>
+                <div class="settings-preset-save">
+                  <input
+                    id="settingsPresetNameInput"
+                    type="text"
+                    autocomplete="off"
+                    maxlength="80"
+                    placeholder="예: Opening"
+                    aria-label="프리셋 이름"
+                  />
+                  <button id="settingsPresetSaveButton" class="settings-preset-save-button" type="button">
+                    Save Draft
+                  </button>
+                </div>
+                <div id="settingsPresetList" class="settings-preset-list" role="list"></div>
+              </section>
             </section>
 
             <section class="operation-card record-panel" aria-label="녹음 제어">
@@ -445,7 +472,7 @@
         </aside>
       </section>
     </main>
-    <script src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-apply-mode-modal-v2" defer></script>
-    <script src="/static/app.js?v=20260614-apply-mode-modal-v2" defer></script>
+    <script src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-named-presets-v1" defer></script>
+    <script src="/static/app.js?v=20260614-named-presets-v1" defer></script>
   </body>
 </html>
