@@ -65,6 +65,10 @@ const firstGraphEqGraph = (page) => firstGraphEqCard(page).locator(".graph-eq-ds
 
 const firstGraphEqHandles = (page) => firstGraphEqCard(page).locator(".graph-eq-dsssp-surface svg circle");
 
+const firstGraphEqPointLabels = (page) => (
+  firstGraphEqCard(page).locator('[data-graph-eq-filter-point-label="true"]')
+);
+
 const selectedInspector = (page) => firstGraphEqCard(page).locator("[data-graph-eq-selected-inspector]");
 
 const selectedPointControl = (page, name) => (
@@ -102,7 +106,7 @@ test("DSSSP Graph EQ is always visible inside layer cards and no fourth tab exis
   await expect(firstGraphEqGraph(page)).toBeVisible();
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(3);
   await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
-    .toHaveText(["1", "2", "3"]);
+    .toHaveText(["", "1", ""]);
   await expect(selectedInspector(page)).toBeVisible();
   await expect(firstGraphEqCard(page).locator(".graph-eq-selected-band-curve")).toHaveCount(1);
   await selectGraphEqBand(page, 1);
@@ -136,6 +140,94 @@ test("Graph EQ gain controls keep the DSSSP visual gain range", async ({ page })
   expect(editedPoint.gain_db).toBe(15);
 });
 
+test("clicking an existing DSSSP point selects it for inspector editing", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 0);
+  await expect(selectedPointControl(page, "freq")).toHaveValue("280");
+  await expect(selectedPointControl(page, "gain")).toHaveValue("4");
+  await expect(selectedPointControl(page, "q")).toHaveValue("0.7");
+  const firstRow = firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(0);
+  const secondRow = firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1);
+  const secondHandle = firstGraphEqHandles(page).nth(1);
+  const secondHandleBox = await viewportBox(secondHandle);
+  expect(secondHandleBox).not.toBeNull();
+
+  await page.mouse.move(
+    secondHandleBox.x + secondHandleBox.width / 2,
+    secondHandleBox.y + secondHandleBox.height / 2,
+  );
+  await expect(firstRow).toHaveAttribute("aria-pressed", "true");
+  await expect(secondRow).toHaveAttribute("aria-pressed", "false");
+
+  await page.mouse.down();
+  await page.mouse.up();
+
+  await expect(secondRow).toHaveAttribute("aria-pressed", "true");
+  await expect(selectedInspector(page)).toHaveAttribute("data-graph-eq-point-id", "custom-mid");
+  await expect(selectedPointControl(page, "freq")).toHaveAttribute("data-graph-eq-point-id", "custom-mid");
+  await expect(selectedPointControl(page, "freq")).toHaveValue("1200");
+  await expect(selectedPointControl(page, "gain")).toHaveValue("-2");
+  await expect(selectedPointControl(page, "q")).toHaveValue("1.1");
+});
+
+test("double-click delete eligibility excludes fixed shelf handles", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await firstGraphEqHandles(page).nth(0).dblclick();
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(3);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(0))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-low");
+
+  await firstGraphEqHandles(page).nth(2).dblclick();
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(3);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-high");
+
+  await firstGraphEqHandles(page).nth(1).dblclick();
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(2);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(0))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-low");
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-high");
+});
+
+test("DSSSP point drag starts only after pointer movement greater than four pixels", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const secondGainInput = selectedPointControl(page, "gain");
+  const beforeSecondGain = Number(await secondGainInput.inputValue());
+  await selectGraphEqBand(page, 0);
+  const firstRow = firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(0);
+  const secondRow = firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1);
+  const secondHandle = firstGraphEqHandles(page).nth(1);
+  const secondHandleBox = await viewportBox(secondHandle);
+  expect(secondHandleBox).not.toBeNull();
+  const handleCenter = {
+    x: secondHandleBox.x + secondHandleBox.width / 2,
+    y: secondHandleBox.y + secondHandleBox.height / 2,
+  };
+
+  await page.mouse.move(handleCenter.x, handleCenter.y);
+  await page.mouse.down();
+  await page.mouse.move(handleCenter.x + 4, handleCenter.y);
+  await page.mouse.up();
+
+  await expect(secondRow).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => Number(await secondGainInput.inputValue())).toBe(beforeSecondGain);
+
+  await selectGraphEqBand(page, 0);
+  await expect(firstRow).toHaveAttribute("aria-pressed", "true");
+  await page.mouse.move(handleCenter.x, handleCenter.y);
+  await page.mouse.down();
+  await page.mouse.move(handleCenter.x, handleCenter.y - 5);
+
+  await expect(secondRow).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => Number(await secondGainInput.inputValue())).toBeGreaterThan(beforeSecondGain);
+  await page.mouse.up();
+});
+
 test("dragging a DSSSP point updates the matching point controls", async ({ page }) => {
   await openFirstGraphEq(page);
 
@@ -160,7 +252,118 @@ test("dragging a DSSSP point updates the matching point controls", async ({ page
   await expect.poll(async () => secondRow.innerText()).not.toBe(beforeRowText);
 });
 
-test("Low and High Shelf handles move cutoff frequency and gain while dragged", async ({ page }) => {
+test("clicking the DSSSP Graph EQ curve creates a selected Bell band from the click position", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  const clickRatio = { x: 0.62, y: 0.28 };
+  const expectedFrequency = Math.round(20 * ((20000 / 20) ** clickRatio.x));
+  const expectedGain = Number((15 - clickRatio.y * 30).toFixed(1));
+  const clickX = graphBox.x + graphBox.width * clickRatio.x;
+  const clickY = graphBox.y + graphBox.height * clickRatio.y;
+
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    page.mouse.click(clickX, clickY),
+  ]);
+
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
+  await expect.poll(async () => Math.abs(Number(await selectedPointControl(page, "freq").inputValue()) - expectedFrequency))
+    .toBeLessThanOrEqual(12);
+  await expect.poll(async () => Math.abs(Number(await selectedPointControl(page, "gain").inputValue()) - expectedGain))
+    .toBeLessThanOrEqual(0.11);
+  await expect(selectedPointControl(page, "q")).toHaveValue("1");
+  await expect(selectedInspector(page).locator("[data-graph-eq-point-type]")).toHaveValue("bell");
+
+  const layerId = await firstGraphEqCard(page).getAttribute("data-graph-eq-layer-card");
+  const pointId = await selectedPointControl(page, "freq").getAttribute("data-graph-eq-point-id");
+  const stateAfterClick = await page.request.get(stateUrl).then((response) => response.json());
+  const createdPoint = stateAfterClick.settings.draft.layers[layerId].eq.points
+    .find((point) => point.id === pointId);
+  expect(createdPoint).toMatchObject({
+    type: "bell",
+    q: 1,
+  });
+  expect(Math.abs(createdPoint.frequency_hz - expectedFrequency)).toBeLessThanOrEqual(12);
+  expect(Math.abs(createdPoint.gain_db - expectedGain)).toBeLessThanOrEqual(0.11);
+});
+
+test("creating two Bell bands renders the newest as Band 1 and the older as Band 2", async ({ page }) => {
+  await setFirstGraphEqDraft(page, [
+    { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
+    { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
+  ]);
+  await openCurrentFirstGraphEq(page);
+
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    page.mouse.click(graphBox.x + graphBox.width * 0.35, graphBox.y + graphBox.height * 0.35),
+  ]);
+  const olderBellId = await selectedPointControl(page, "freq").getAttribute("data-graph-eq-point-id");
+
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    page.mouse.click(graphBox.x + graphBox.width * 0.65, graphBox.y + graphBox.height * 0.65),
+  ]);
+  const newestBellId = await selectedPointControl(page, "freq").getAttribute("data-graph-eq-point-id");
+
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1))
+    .toHaveAttribute("data-graph-eq-point-id", newestBellId);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
+    .toHaveAttribute("data-graph-eq-point-id", olderBellId);
+  await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
+    .toHaveText(["", "1", "2", ""]);
+  await expect(firstGraphEqPointLabels(page))
+    .toHaveText(["", "1", "2", ""]);
+  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("1");
+  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 1");
+});
+
+test("deleting a Bell band renumbers the remaining Bell bands sequentially", async ({ page }) => {
+  await setFirstGraphEqDraft(page, [
+    { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
+    { id: "custom-newest", type: "bell", frequency_hz: 3200, gain_db: 5, q: 1 },
+    { id: "custom-middle", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 },
+    { id: "custom-oldest", type: "bell", frequency_hz: 420, gain_db: 1, q: 1.2 },
+    { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
+  ]);
+  await openCurrentFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 2);
+  await selectedInspector(page).locator('[data-graph-eq-action="delete-point"]').click();
+
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-newest");
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-oldest");
+  await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
+    .toHaveText(["", "1", "2", ""]);
+  await expect(firstGraphEqPointLabels(page))
+    .toHaveText(["", "1", "2", ""]);
+
+  await selectGraphEqBand(page, 2);
+  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("2");
+  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 2");
+});
+
+test("Low and High Shelf handles stay pinned and drag gain only", async ({ page }) => {
   await openFirstGraphEq(page);
 
   await selectGraphEqBand(page, 0);
@@ -178,17 +381,18 @@ test("Low and High Shelf handles move cutoff frequency and gain while dragged", 
   const lowHandle = handles.nth(0);
   const lowBox = await viewportBox(lowHandle);
   expect(lowBox).not.toBeNull();
+  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(20);
   await page.mouse.move(lowBox.x + lowBox.width / 2, lowBox.y + lowBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(graphBox.x + graphBox.width * 0.75, lowBox.y + 80, { steps: 10 });
   await page.mouse.up();
 
-  await expect.poll(async () => Number(await lowFreq.inputValue())).toBeGreaterThan(beforeLow);
+  await expect.poll(async () => Number(await lowFreq.inputValue())).toBe(beforeLow);
   await expect.poll(async () => Math.abs(Number(await lowGain.inputValue()) - beforeLowGain))
     .toBeGreaterThan(1);
   const lowAfter = await viewportBox(lowHandle);
   expect(lowAfter).not.toBeNull();
-  expect(lowAfter.x + lowAfter.width / 2).toBeGreaterThan(graphBox.x + graphBox.width * 0.6);
+  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(20);
 
   await selectGraphEqBand(page, 2);
   await graph.scrollIntoViewIfNeeded();
@@ -201,20 +405,21 @@ test("Low and High Shelf handles move cutoff frequency and gain while dragged", 
   const highHandle = handles.nth(2);
   const highBox = await viewportBox(highHandle);
   expect(highBox).not.toBeNull();
+  expect((highGraphBox.x + highGraphBox.width) - (highBox.x + highBox.width / 2)).toBeLessThan(20);
   await page.mouse.move(highBox.x + highBox.width / 2, highBox.y + highBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(highGraphBox.x + highGraphBox.width * 0.25, highBox.y - 80, { steps: 10 });
   await page.mouse.up();
 
-  await expect.poll(async () => Number(await highFreq.inputValue())).toBeLessThan(beforeHigh);
+  await expect.poll(async () => Number(await highFreq.inputValue())).toBe(beforeHigh);
   await expect.poll(async () => Math.abs(Number(await highGain.inputValue()) - beforeHighGain))
     .toBeGreaterThan(1);
   const highAfter = await viewportBox(highHandle);
   expect(highAfter).not.toBeNull();
-  expect(highAfter.x + highAfter.width / 2).toBeLessThan(highGraphBox.x + highGraphBox.width * 0.4);
+  expect((highGraphBox.x + highGraphBox.width) - (highAfter.x + highAfter.width / 2)).toBeLessThan(20);
 });
 
-test("Low Shelf handle keeps tracking the latest drag position outside the graph", async ({ page }) => {
+test("Low Shelf handle keeps tracking outside-graph gain while pinned", async ({ page }) => {
   await openFirstGraphEq(page);
 
   await selectGraphEqBand(page, 0);
@@ -225,6 +430,7 @@ test("Low Shelf handle keeps tracking the latest drag position outside the graph
 
   const lowFreq = selectedPointControl(page, "freq");
   const lowGain = selectedPointControl(page, "gain");
+  const beforeLowFreq = Number(await lowFreq.inputValue());
   const lowHandle = firstGraphEqHandles(page).nth(0);
   const lowBox = await viewportBox(lowHandle);
   expect(lowBox).not.toBeNull();
@@ -236,15 +442,14 @@ test("Low Shelf handle keeps tracking the latest drag position outside the graph
   await page.mouse.move(graphBox.x - 70, graphBox.y + graphBox.height + 90, { steps: 12 });
   await page.mouse.up();
 
-  await expect.poll(async () => Number(await lowFreq.inputValue())).toBeLessThanOrEqual(25);
+  await expect.poll(async () => Number(await lowFreq.inputValue())).toBe(beforeLowFreq);
   await expect.poll(async () => Number(await lowGain.inputValue())).toBeLessThan(-13);
   const lowAfter = await viewportBox(lowHandle);
   expect(lowAfter).not.toBeNull();
-  expect(lowAfter.x).toBeGreaterThanOrEqual(graphBox.x);
-  expect(lowAfter.x + lowAfter.width).toBeLessThanOrEqual(graphBox.x + graphBox.width);
+  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(20);
 });
 
-test("edge Graph EQ handles stay fully visible inside the graph", async ({ page }) => {
+test("fixed shelf handles stay visually pinned to graph edges", async ({ page }) => {
   await setFirstGraphEqDraft(page, [
     { id: "edge-low", type: "low_shelf", frequency_hz: 20, gain_db: -15, q: 0.7 },
     { id: "edge-mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
@@ -263,12 +468,10 @@ test("edge Graph EQ handles stay fully visible inside the graph", async ({ page 
   expect(lowBox).not.toBeNull();
   expect(highBox).not.toBeNull();
 
-  for (const handleBox of [lowBox, highBox]) {
-    expect(handleBox.x).toBeGreaterThanOrEqual(graphBox.x);
-    expect(handleBox.y).toBeGreaterThanOrEqual(graphBox.y);
-    expect(handleBox.x + handleBox.width).toBeLessThanOrEqual(graphBox.x + graphBox.width);
-    expect(handleBox.y + handleBox.height).toBeLessThanOrEqual(graphBox.y + graphBox.height);
-  }
+  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(20);
+  expect((graphBox.x + graphBox.width) - (highBox.x + highBox.width / 2)).toBeLessThan(20);
+  expect(lowBox.y).toBeGreaterThanOrEqual(graphBox.y);
+  expect(highBox.y + highBox.height).toBeLessThanOrEqual(graphBox.y + graphBox.height);
 });
 
 test("Bell handle keeps tracking the latest drag position outside the graph", async ({ page }) => {
@@ -296,6 +499,123 @@ test("Bell handle keeps tracking the latest drag position outside the graph", as
   await expect.poll(async () => Number(await midFreq.inputValue())).toBeLessThan(40);
 });
 
+test("dragging a Bell band outside the graph clamps stored gain to the DSSSP range", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const layerId = await firstGraphEqCard(page).getAttribute("data-graph-eq-layer-card");
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  const midGain = selectedPointControl(page, "gain");
+  const pointId = await midGain.getAttribute("data-graph-eq-point-id");
+  const midHandle = firstGraphEqHandles(page).nth(1);
+
+  const dragBellTo = async (clientY) => {
+    const midBox = await viewportBox(midHandle);
+    expect(midBox).not.toBeNull();
+    await page.mouse.move(midBox.x + midBox.width / 2, midBox.y + midBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(graphBox.x + graphBox.width * 0.5, clientY, { steps: 12 });
+    await page.mouse.up();
+  };
+  const storedBellGain = async () => {
+    const stateAfterDrag = await page.request.get(stateUrl).then((response) => response.json());
+    const draggedPoint = stateAfterDrag.settings.draft.layers[layerId].eq.points
+      .find((point) => point.id === pointId);
+    return draggedPoint?.gain_db;
+  };
+
+  await dragBellTo(graphBox.y - 180);
+  await expect.poll(storedBellGain).toBe(15);
+
+  await dragBellTo(graphBox.y + graphBox.height + 180);
+  await expect.poll(storedBellGain).toBe(-15);
+});
+
+test("dragging a Bell band below 20 Hz stores exactly 20 Hz", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  const midFreq = selectedPointControl(page, "freq");
+  const midHandle = firstGraphEqHandles(page).nth(1);
+  const midBox = await viewportBox(midHandle);
+  expect(midBox).not.toBeNull();
+
+  await page.mouse.move(midBox.x + midBox.width / 2, midBox.y + midBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x - 180, graphBox.y + graphBox.height / 2, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await midFreq.inputValue())).toBe(20);
+});
+
+test("dragging a Bell band above 20000 Hz stores exactly 20000 Hz", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  const midFreq = selectedPointControl(page, "freq");
+  const midHandle = firstGraphEqHandles(page).nth(1);
+  const midBox = await viewportBox(midHandle);
+  expect(midBox).not.toBeNull();
+
+  await page.mouse.move(midBox.x + midBox.width / 2, midBox.y + midBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width + 180, graphBox.y + graphBox.height / 2, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await midFreq.inputValue())).toBe(20000);
+});
+
+test("dragging a Bell band within 20-20000 Hz stores the dragged frequency", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  const midFreq = selectedPointControl(page, "freq");
+  const midHandle = firstGraphEqHandles(page).nth(1);
+  const midBox = await viewportBox(midHandle);
+  expect(midBox).not.toBeNull();
+
+  const dragRatio = 0.74;
+  const expectedFrequency = Math.round(20 * ((20000 / 20) ** dragRatio));
+  await page.mouse.move(midBox.x + midBox.width / 2, midBox.y + midBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    graphBox.x + graphBox.width * dragRatio,
+    graphBox.y + graphBox.height * 0.5,
+    { steps: 12 },
+  );
+  await page.mouse.up();
+
+  await expect.poll(async () => Number(await midFreq.inputValue())).toBe(expectedFrequency);
+
+  const layerId = await firstGraphEqCard(page).getAttribute("data-graph-eq-layer-card");
+  const pointId = await midFreq.getAttribute("data-graph-eq-point-id");
+  await expect.poll(async () => {
+    const stateAfterDrag = await page.request.get(stateUrl).then((response) => response.json());
+    const draggedPoint = stateAfterDrag.settings.draft.layers[layerId].eq.points
+      .find((point) => point.id === pointId);
+    return draggedPoint?.frequency_hz;
+  }).toBe(expectedFrequency);
+});
+
 test("dragging another DSSSP point preserves the previous point draft edit", async ({ page }) => {
   await openFirstGraphEqInLive(page);
 
@@ -318,8 +638,8 @@ test("dragging another DSSSP point preserves the previous point draft edit", asy
   );
   await page.mouse.down();
   await page.mouse.move(
-    graphBox.x + graphBox.width * 0.7,
-    graphBox.y + graphBox.height * 0.78,
+    graphBox.x - 80,
+    graphBox.y + graphBox.height + 90,
     { steps: 10 },
   );
   await page.mouse.up();
@@ -421,6 +741,7 @@ test("always-open Graph EQ layout keeps desktop controls compact without horizon
 test("always-open Graph EQ layout stays usable at mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await openFirstGraphEq(page);
+  await selectGraphEqBand(page, 1);
   await firstGraphEqCard(page).evaluate((node) => node.scrollIntoView({ block: "start", inline: "nearest" }));
 
   const graphBox = await viewportBox(firstGraphEqGraph(page));
@@ -477,7 +798,55 @@ test("DSSSP Graph EQ edit updates layer EQ draft and persists after reload", asy
   await expect(firstGraphEqGraph(page)).toBeVisible();
 });
 
-test("Graph EQ add delete type and max six constraints are enforced", async ({ page }) => {
+test("stale Graph EQ save response does not overwrite the rendered selected band", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  await selectGraphEqBand(page, 1);
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeSettings = JSON.parse(JSON.stringify(before.settings.active));
+  const gainInput = selectedPointControl(page, "gain");
+  const freqInput = selectedPointControl(page, "freq");
+
+  const pendingDraftSaves = [];
+  await page.route("**/api/settings/draft", async (route) => {
+    const draft = route.request().postDataJSON();
+    await new Promise((resolve) => {
+      pendingDraftSaves.push({ draft, resolve });
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        settings: {
+          active: activeSettings,
+          draft,
+        },
+      }),
+    });
+  });
+
+  await gainInput.fill("1");
+  await gainInput.blur();
+  await expect.poll(() => pendingDraftSaves.length).toBe(1);
+
+  await gainInput.fill("7");
+  await gainInput.blur();
+  await expect.poll(() => pendingDraftSaves.length).toBe(2);
+
+  expect(pendingDraftSaves[0].draft.layers.mid.eq.points[1].gain_db).toBe(1);
+  expect(pendingDraftSaves[1].draft.layers.mid.eq.points[1].gain_db).toBe(7);
+
+  pendingDraftSaves[1].resolve();
+  await expect.poll(async () => Number(await gainInput.inputValue())).toBe(7);
+  await expect(freqInput).toHaveValue("1200");
+
+  pendingDraftSaves[0].resolve();
+  await expect.poll(async () => Number(await gainInput.inputValue())).toBe(7);
+  await expect(freqInput).toHaveValue("1200");
+  await expect(selectedInspector(page)).toHaveAttribute("data-graph-eq-point-id", "custom-mid");
+});
+
+test("Graph EQ add delete and max six constraints keep shelves fixed", async ({ page }) => {
   await openFirstGraphEq(page);
 
   for (let index = 0; index < 10; index += 1) {
@@ -489,11 +858,15 @@ test("Graph EQ add delete type and max six constraints are enforced", async ({ p
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(6);
 
   await selectGraphEqBand(page, 0);
-  await selectedInspector(page).locator("[data-graph-eq-point-type]").selectOption("high_shelf");
-  await expect(selectedInspector(page).locator("[data-graph-eq-point-type]")).toHaveValue("high_shelf");
+  await expect(selectedInspector(page).locator("[data-graph-eq-point-type]")).toBeDisabled();
+  await expect(selectedInspector(page).locator('[data-graph-eq-action="delete-point"]')).toHaveCount(0);
 
+  await selectGraphEqBand(page, 1);
+  await expect(selectedInspector(page).locator("[data-graph-eq-point-type]")).toHaveValue("bell");
   await selectedInspector(page).locator('[data-graph-eq-action="delete-point"]').click();
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(5);
+  await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
+    .toHaveText(["", "1", "2", "3", ""]);
 });
 
 test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async ({ page }) => {

@@ -399,7 +399,7 @@ def test_live_update_draft_settings_applies_low_eq_to_active_playback_without_re
         deep=True,
     )
     t = np.arange(8_000, dtype=np.float32) / 8_000
-    low_tone = (np.sin(2 * np.pi * 100.0 * t) * 0.05).astype(np.float32)
+    low_tone = (np.sin(2 * np.pi * 40.0 * t) * 0.05).astype(np.float32)
     low_samples = np.column_stack([low_tone, low_tone])
     silence = np.zeros((8_000, 2), dtype=np.float32)
     write_wav_atomic(paths.low_source, AudioBuffer(low_samples, sample_rate=8_000))

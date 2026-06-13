@@ -177,10 +177,379 @@ const nextPoint = { ...baseEq.points[1], gain_db: baseEq.points[1].gain_db + 3 }
 const committed = helpers.commitInlineGraphEqPoints("mid", [nextPoint], nextPoint.id);
 
 assert.strictEqual(committed, true);
-assert.strictEqual(helpers.state.draft.layers.mid.eq.points[0].gain_db, 3);
+assert.strictEqual(helpers.state.graphEqSelectedPointIds.mid, nextPoint.id);
+const committedBell = helpers.state.draft.layers.mid.eq.points
+  .find((point) => point.id === nextPoint.id);
+assert.strictEqual(committedBell.gain_db, 3);
 assert.strictEqual(helpers.state.snapshot.settings.active.layers.mid.eq.mid_gain_db, 0);
 assert.strictEqual(helpers.state.pendingCoveredFeedbackSurfaceId, "layer:mid");
 assert(helpers.state.pendingCoveredFeedbackControlIds.includes("layers.mid.eq.points"));
+""",
+    )
+
+
+def test_inline_graph_eq_sync_uses_updated_bell_number_for_existing_rows() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  syncInlineGraphEqPointControls,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const helpers = globalThis.__secretPond;
+helpers.state.draft = {
+  layers: {
+    mid: {
+      eq: {
+        points: [
+          { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
+          { id: "newest", type: "bell", frequency_hz: 2000, gain_db: 2, q: 1 },
+          { id: "older", type: "bell", frequency_hz: 1000, gain_db: -2, q: 1 },
+          { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+        ],
+      },
+    },
+  },
+};
+
+const makeRow = (pointId) => ({
+  dataset: { graphEqPointId: pointId },
+  _innerHTML: "",
+  classList: { toggle() {} },
+  setAttribute() {},
+  addEventListener() {},
+  get innerHTML() { return this._innerHTML; },
+  set innerHTML(value) { this._innerHTML = String(value); },
+});
+const rows = [makeRow("low"), makeRow("older"), makeRow("high")];
+const inspector = { outerHTML: "" };
+const container = {
+  querySelectorAll(selector) {
+    return selector === "[data-graph-eq-point-row]" ? rows : [];
+  },
+  querySelector(selector) {
+    return selector === "[data-graph-eq-selected-inspector]" ? inspector : null;
+  },
+};
+const points = helpers.state.draft.layers.mid.eq.points;
+
+helpers.syncInlineGraphEqPointControls(container, "mid", points, "older");
+
+assert(rows[1].innerHTML.includes('class="graph-eq-band-number" aria-hidden="true">2</span>'));
+assert(inspector.outerHTML.includes("Selected Band 2"));
+""",
+    )
+
+
+def test_inline_graph_eq_rapid_edits_keep_latest_in_memory_state() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitInlineGraphEqPoints,
+  normalizeGraphEqSettings,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const helpers = globalThis.__secretPond;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -6,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const changePayload = {
+  runtime_config_changed: false,
+  changed_sections: [],
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_field_names: [],
+};
+helpers.state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: clone(changePayload),
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live_graph_eq: { status: "idle" },
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: false,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+};
+helpers.state.draft = clone(activeSettings);
+
+const baseEq = helpers.normalizeGraphEqSettings({});
+const firstGesture = { ...baseEq.points[1], gain_db: 2 };
+helpers.commitInlineGraphEqPoints("mid", [firstGesture], firstGesture.id, { scheduleSave: false });
+
+let resolveStaleSave;
+globalThis.fetch = (path) => {
+  assert.strictEqual(path, "/api/settings/draft");
+  return new Promise((resolve) => {
+    resolveStaleSave = resolve;
+  });
+};
+const staleSave = helpers.saveDraft();
+
+const secondGesture = { ...firstGesture, gain_db: -6 };
+const finalGesture = { ...firstGesture, gain_db: 9 };
+helpers.commitInlineGraphEqPoints(
+  "mid",
+  [secondGesture],
+  secondGesture.id,
+  { scheduleSave: false },
+);
+helpers.commitInlineGraphEqPoints("mid", [finalGesture], finalGesture.id, { scheduleSave: false });
+
+const staleSettings = clone(activeSettings);
+staleSettings.layers.mid.eq = {
+  ...staleSettings.layers.mid.eq,
+  points: [firstGesture],
+};
+resolveStaleSave({
+  ok: true,
+  json: async () => ({
+    settings: {
+      active: clone(staleSettings),
+      draft: clone(staleSettings),
+      change: clone(changePayload),
+    },
+  }),
+});
+await staleSave;
+
+const draftBell = helpers.state.draft.layers.mid.eq.points
+  .find((point) => point.id === finalGesture.id);
+const snapshotBell = helpers.state.snapshot.settings.draft.layers.mid.eq.points
+  .find((point) => point.id === finalGesture.id);
+assert.strictEqual(draftBell.gain_db, 9);
+assert.strictEqual(snapshotBell.gain_db, 9);
+assert.strictEqual(helpers.state.graphEqSelectedPointIds.mid, finalGesture.id);
+assert.strictEqual(helpers.state.draftSaveInFlight, false);
+})();
+""",
+    )
+
+
+def test_inline_graph_eq_overlapping_saves_keep_newest_response_applied() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  commitInlineGraphEqPoints,
+  normalizeGraphEqSettings,
+  saveDraft,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+const helpers = globalThis.__secretPond;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  layers: {
+    low: {
+      enabled: true,
+      volume_db: -6,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    mid: {
+      enabled: true,
+      volume_db: -4,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+    voice: {
+      enabled: true,
+      volume_db: -5,
+      eq: { low_gain_db: 0, mid_gain_db: 0, high_gain_db: 0, highpass_hz: 20, lowpass_hz: 20000 },
+    },
+  },
+};
+const changePayload = {
+  runtime_config_changed: false,
+  changed_sections: [],
+  changed_runtime_fields: [],
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_field_names: [],
+};
+helpers.state.snapshot = {
+  armed: false,
+  is_recording: false,
+  participant_count: 0,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: clone(changePayload),
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    live_graph_eq: { status: "idle" },
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: false,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+};
+helpers.state.draft = clone(activeSettings);
+
+const baseEq = helpers.normalizeGraphEqSettings({});
+const oldGesture = { ...baseEq.points[1], gain_db: 2 };
+const newGesture = { ...baseEq.points[1], gain_db: 11 };
+helpers.commitInlineGraphEqPoints("mid", [oldGesture], oldGesture.id, { scheduleSave: false });
+
+const pendingSaves = [];
+globalThis.fetch = (path) => {
+  assert.strictEqual(path, "/api/settings/draft");
+  return new Promise((resolve) => {
+    pendingSaves.push(resolve);
+  });
+};
+
+const olderSave = helpers.saveDraft();
+helpers.commitInlineGraphEqPoints("mid", [newGesture], newGesture.id, { scheduleSave: false });
+const newerSave = helpers.saveDraft();
+
+assert.strictEqual(pendingSaves.length, 2);
+
+const newerSettings = clone(activeSettings);
+newerSettings.layers.mid.eq = {
+  ...newerSettings.layers.mid.eq,
+  points: [newGesture],
+};
+pendingSaves[1]({
+  ok: true,
+  json: async () => ({
+    state_revision: 1,
+    settings: {
+      active: clone(newerSettings),
+      draft: clone(newerSettings),
+      change: clone(changePayload),
+    },
+  }),
+});
+await newerSave;
+
+const olderSettings = clone(activeSettings);
+olderSettings.layers.mid.eq = {
+  ...olderSettings.layers.mid.eq,
+  points: [oldGesture],
+};
+pendingSaves[0]({
+  ok: true,
+  json: async () => ({
+    state_revision: 2,
+    settings: {
+      active: clone(olderSettings),
+      draft: clone(olderSettings),
+      change: clone(changePayload),
+    },
+  }),
+});
+await olderSave;
+
+const activeBell = helpers.state.snapshot.settings.active.layers.mid.eq.points
+  .find((point) => point.id === newGesture.id);
+const draftBell = helpers.state.draft.layers.mid.eq.points
+  .find((point) => point.id === newGesture.id);
+assert.strictEqual(activeBell.gain_db, 11);
+assert.strictEqual(draftBell.gain_db, 11);
+assert.strictEqual(helpers.state.graphEqSelectedPointIds.mid, newGesture.id);
+assert.strictEqual(helpers.state.draftSaveInFlight, false);
+})();
 """,
     )
 
@@ -268,7 +637,9 @@ const nextPoint = { ...baseEq.points[2], gain_db: -4 };
 const committed = helpers.commitInlineGraphEqPoints("low", [nextPoint], nextPoint.id);
 
 assert.strictEqual(committed, true);
-assert.strictEqual(helpers.state.draft.layers.low.eq.points[0].gain_db, -4);
+const committedHigh = helpers.state.draft.layers.low.eq.points
+  .find((point) => point.id === nextPoint.id);
+assert.strictEqual(committedHigh.gain_db, -4);
 assert.strictEqual(helpers.state.snapshot.settings.active.layers.low.eq.high_gain_db, 0);
 assert.strictEqual(helpers.state.pendingCoveredFeedbackSurfaceId, "layer:low");
 assert.strictEqual(helpers.state.liveApplyFeedback, null);
@@ -371,6 +742,136 @@ assert.deepStrictEqual(
   deriveLiveApplyFeedbackVisualState(rolledBack),
   { visual_state: "idle", show_spinner: false },
 );
+""",
+    )
+
+
+def test_inline_graph_eq_ignores_stale_live_render_completion_payload() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  applyState,
+  commitInlineGraphEqPoints,
+  normalizeGraphEqSettings,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const helpers = globalThis.__secretPond;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const activeSettings = {
+  audio: { sample_rate: 48000, channels: 2 },
+  devices: { input_device_id: "mic-1", output_device_id: "speaker-1" },
+  playback: { apply_mode: "live", master_volume_db: -9 },
+  voice_stack: { mode: "live_ephemeral", loop_seconds: 60, transition_seconds: 4 },
+  input_control: { minimum_recording_seconds: 3, maximum_recording_seconds: 120 },
+  recording: {
+    gain_db: 0,
+    normalize_peak: 0.35,
+    highpass_hz: 90,
+    lowpass_hz: 8000,
+    presence_gain_db: -3,
+    reverb_mix: 0.25,
+    delay_mix: 0,
+    fade_ms: 50,
+  },
+  sources: {
+    low_path: null,
+    mid_path: null,
+    voice_raw_path: null,
+    voice_stack_path: null,
+  },
+  layers: {
+    low: { enabled: true, volume_db: 0, eq: helpers.normalizeGraphEqSettings({}) },
+    mid: { enabled: true, volume_db: 0, eq: helpers.normalizeGraphEqSettings({}) },
+    voice: { enabled: true, volume_db: 0, eq: helpers.normalizeGraphEqSettings({}) },
+  },
+};
+const changePayload = {
+  changed_sections: [],
+  requires_restart: false,
+  runtime_config_changed: false,
+  runtime_config_fields: [
+    "audio.sample_rate",
+    "audio.channels",
+    "devices.input_device_id",
+    "devices.output_device_id",
+  ],
+  live_preview_reprocessable_field_names: [],
+};
+helpers.state.snapshot = {
+  state_revision: 1,
+  settings: {
+    active: clone(activeSettings),
+    draft: clone(activeSettings),
+    change: clone(changePayload),
+  },
+  playback: {
+    apply_mode: "live",
+    output_running: true,
+    rendered_cache_ready: true,
+    live_graph_eq: { status: "pending", pending: true, layer_id: "mid", request_id: 2 },
+    live: {
+      enabled: true,
+      volume_applies_immediately: true,
+      mute_applies_immediately: false,
+      eq_applies_immediately: true,
+      voice_stack_transition_applies_immediately: true,
+      voice_raw_preview_treatment_applies_immediately: true,
+    },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+};
+helpers.state.draft = clone(activeSettings);
+
+const baseEq = helpers.normalizeGraphEqSettings({});
+const oldGesture = { ...baseEq.points[1], gain_db: 2 };
+const newGesture = { ...baseEq.points[1], gain_db: 11 };
+helpers.commitInlineGraphEqPoints("mid", [newGesture], newGesture.id, { scheduleSave: false });
+helpers.state.snapshot.settings.active.layers.mid.eq = clone(helpers.state.draft.layers.mid.eq);
+
+const staleSettings = clone(activeSettings);
+staleSettings.layers.mid.eq = {
+  ...staleSettings.layers.mid.eq,
+  points: [oldGesture],
+};
+
+const applied = helpers.applyState({
+  state_revision: 3,
+  settings: {
+    active: clone(staleSettings),
+    draft: clone(staleSettings),
+    change: clone(changePayload),
+  },
+  playback: {
+    ...clone(helpers.state.snapshot.playback),
+    live_graph_eq: { status: "applied", pending: false, layer_id: "mid", request_id: 1 },
+  },
+  armed: false,
+  is_recording: false,
+  recording_elapsed_seconds: 0,
+  recording_remaining_seconds: 120,
+  participant_count: 0,
+}, { syncDraft: false });
+
+const activeBell = helpers.state.snapshot.settings.active.layers.mid.eq.points
+  .find((point) => point.id === newGesture.id);
+const draftBell = helpers.state.draft.layers.mid.eq.points
+  .find((point) => point.id === newGesture.id);
+assert.strictEqual(applied, false);
+assert.strictEqual(activeBell.gain_db, 11);
+assert.strictEqual(draftBell.gain_db, 11);
+assert.strictEqual(helpers.state.snapshot.playback.live_graph_eq.request_id, 2);
 """,
     )
 

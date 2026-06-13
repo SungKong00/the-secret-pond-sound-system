@@ -2223,9 +2223,9 @@ def test_static_graph_eq_helpers_map_points_and_reset_actions(tmp_path: Path) ->
 const helpers = globalThis.__secretPondTest;
 const eq = helpers.normalizeGraphEqSettings({});
 assert.deepStrictEqual(eq.points.map((point) => [point.type, point.frequency_hz, point.gain_db]), [
-  ["low_shelf", 120, 0],
+  ["low_shelf", 80, 0],
   ["bell", 1000, 0],
-  ["high_shelf", 8000, 0],
+  ["high_shelf", 10000, 0],
 ]);
 assert.strictEqual(eq.highpass_hz, 20);
 assert.strictEqual(eq.lowpass_hz, 20000);
@@ -2260,8 +2260,8 @@ assert.deepStrictEqual(helpers.graphEqPointFromPointerRatio({ x: 0, y: 1 }), {
 const lowScreen = helpers.graphEqPointScreenPosition(dragEq.points[0]);
 const midScreen = helpers.graphEqPointScreenPosition(dragEq.points[1]);
 const highScreen = helpers.graphEqPointScreenPosition(dragEq.points[2]);
-assert(Math.abs(lowScreen.x - helpers.graphEqFrequencyToX(120)) < 0.001);
-assert(Math.abs(highScreen.x - helpers.graphEqFrequencyToX(8000)) < 0.001);
+assert.strictEqual(lowScreen.x, 0);
+assert.strictEqual(highScreen.x, 1);
 assert(Math.abs(midScreen.x - helpers.graphEqFrequencyToX(1000)) < 0.001);
 const lowDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
   dragEq.points[0],
@@ -2275,11 +2275,11 @@ const midDragUpdates = helpers.graphEqPointUpdatesFromPointerRatio(
   dragEq.points[1],
   { x: 0.75, y: 0.1 },
 );
-assert(Object.hasOwn(lowDragUpdates, "frequency_hz"));
-assert(Object.hasOwn(highDragUpdates, "frequency_hz"));
+assert(!Object.hasOwn(lowDragUpdates, "frequency_hz"));
+assert(!Object.hasOwn(highDragUpdates, "frequency_hz"));
 assert(Object.hasOwn(midDragUpdates, "frequency_hz"));
-assert(lowDragUpdates.frequency_hz > 1000);
-assert(highDragUpdates.frequency_hz < 1000);
+assert.strictEqual(lowDragUpdates.gain_db, 12);
+assert.strictEqual(highDragUpdates.gain_db, -12);
 const customEndpointEq = {
   points: [
     { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
@@ -2311,12 +2311,129 @@ const customHighDrag = helpers.graphEqPointUpdatesFromPointerRatio(
   2,
   customEndpointEq.points,
 );
-assert(Math.abs(customLowScreen.x - helpers.graphEqFrequencyToX(280)) < 0.001);
-assert(Math.abs(customHighScreen.x - helpers.graphEqFrequencyToX(6400)) < 0.001);
-assert(Object.hasOwn(customLowDrag, "frequency_hz"));
-assert(Object.hasOwn(customHighDrag, "frequency_hz"));
-assert(customLowDrag.frequency_hz > 1000);
-assert(customHighDrag.frequency_hz < 1000);
+assert.strictEqual(customLowScreen.x, 0);
+assert.strictEqual(customHighScreen.x, 1);
+assert(!Object.hasOwn(customLowDrag, "frequency_hz"));
+assert(!Object.hasOwn(customHighDrag, "frequency_hz"));
+assert.strictEqual(customLowDrag.gain_db, 9);
+assert.strictEqual(customHighDrag.gain_db, -9);
+""",
+    )
+
+
+def test_static_graph_eq_shelf_rows_render_without_band_numbers(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ renderInlineGraphEqPointRowContent }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const points = [
+  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
+  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
+  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+];
+const lowRow = helpers.renderInlineGraphEqPointRowContent(points[0], 0, points);
+const bellRow = helpers.renderInlineGraphEqPointRowContent(points[1], 1, points);
+const highRow = helpers.renderInlineGraphEqPointRowContent(points[2], 2, points);
+assert.match(lowRow, /graph-eq-band-number[^>]*><\\/span>/);
+assert.match(bellRow, /graph-eq-band-number[^>]*>1<\\/span>/);
+assert.match(highRow, /graph-eq-band-number[^>]*><\\/span>/);
+""",
+    )
+
+
+def test_static_graph_eq_bell_numbers_follow_newest_first_order(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ renderInlineGraphEqPointRowContent, renderInlineGraphEqSelectedInspector }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const points = [
+  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
+  { id: "newest", type: "bell", frequency_hz: 4000, gain_db: 3, q: 1 },
+  { id: "older", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
+  { id: "oldest", type: "bell", frequency_hz: 250, gain_db: -3, q: 1 },
+  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+];
+const labels = points.map((point, index) => {
+  const row = helpers.renderInlineGraphEqPointRowContent(point, index, points);
+  return /graph-eq-band-number[^>]*>([^<]*)<\\/span>/.exec(row)[1];
+});
+assert.deepStrictEqual(labels, ["", "1", "2", "3", ""]);
+const inspector = helpers.renderInlineGraphEqSelectedInspector(
+  "mid",
+  points[1],
+  false,
+  points.length,
+  1,
+  points,
+);
+assert.match(inspector, /Selected Band 1/);
+""",
+    )
+
+
+def test_static_graph_eq_selected_inspector_fields_follow_selected_point(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ renderInlineGraphEqSelectedInspector }",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const points = [
+  { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
+  { id: "custom-mid", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 },
+  { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
+];
+const lowInspector = helpers.renderInlineGraphEqSelectedInspector(
+  "mid",
+  points[0],
+  false,
+  points.length,
+  0,
+  points,
+);
+assert.match(
+  lowInspector,
+  /data-graph-eq-selected-inspector[\\s\\S]*data-graph-eq-point-id="custom-low"/,
+);
+assert.match(lowInspector, /data-graph-eq-point-control="freq"[\\s\\S]*value="280"/);
+assert.match(lowInspector, /data-graph-eq-point-control="gain"[\\s\\S]*value="4"/);
+assert.match(lowInspector, /data-graph-eq-point-control="q"[\\s\\S]*value="0.7"/);
+assert.doesNotMatch(lowInspector, /data-graph-eq-action="delete-point"/);
+
+const highInspector = helpers.renderInlineGraphEqSelectedInspector(
+  "mid",
+  points[2],
+  false,
+  points.length,
+  2,
+  points,
+);
+assert.match(
+  highInspector,
+  /data-graph-eq-selected-inspector[\\s\\S]*data-graph-eq-point-id="custom-high"/,
+);
+assert.doesNotMatch(highInspector, /data-graph-eq-action="delete-point"/);
+
+const midInspector = helpers.renderInlineGraphEqSelectedInspector(
+  "mid",
+  points[1],
+  false,
+  points.length,
+  1,
+  points,
+);
+assert.match(
+  midInspector,
+  /data-graph-eq-selected-inspector[\\s\\S]*data-graph-eq-point-id="custom-mid"/,
+);
+assert.match(midInspector, /data-graph-eq-point-control="freq"[\\s\\S]*value="1200"/);
+assert.match(midInspector, /data-graph-eq-point-control="gain"[\\s\\S]*value="-2"/);
+assert.match(midInspector, /data-graph-eq-point-control="q"[\\s\\S]*value="1.1"/);
+assert.match(midInspector, /Selected Band 1/);
+assert.match(midInspector, /data-graph-eq-action="delete-point"/);
 """,
     )
 
@@ -2336,9 +2453,9 @@ const legacyPoints = helpers.graphEqEffectivePoints({
   lowpass_hz: 20000,
 });
 assert.deepStrictEqual(legacyPoints.map((point) => [point.id, point.frequency_hz, point.gain_db]), [
-  ["legacy-low", 250, 3],
+  ["legacy-low", 80, 3],
   ["legacy-mid", 1000, -2],
-  ["legacy-high", 2000, 1],
+  ["legacy-high", 10000, 1],
 ]);
 """,
     )
@@ -4890,6 +5007,113 @@ def test_static_ui_ignores_older_state_revision_payloads(tmp_path: Path) -> None
   assert.strictEqual(helpers.state.snapshot.participant_count, 4);
   assert.strictEqual(elements.participantCount.textContent, 4);
 })();
+""",
+    )
+
+
+def test_static_ui_ignores_stale_settings_load_graph_eq_payload(tmp_path: Path) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports="{ state, applyState, applySettingsPresetPayload, graphEqForLayer }",
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+(async () => {
+  const helpers = globalThis.__secretPondTest;
+  const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+  const eqWithBell = (frequencyHz, gainDb) => ({
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+    points: [
+      { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
+      { id: "band-a", type: "bell", frequency_hz: frequencyHz, gain_db: gainDb, q: 1 },
+      { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+    ],
+  });
+  const baseSettings = {
+    voice_stack: { mode: "live_ephemeral", loop_seconds: 60 },
+    input_control: {
+      minimum_recording_seconds: 3,
+      maximum_recording_seconds: 120,
+    },
+    recording: {
+      gain_db: 0,
+      normalize_peak: 0.35,
+      highpass_hz: 90,
+      lowpass_hz: 8000,
+      presence_gain_db: -3,
+      reverb_mix: 0.25,
+      delay_mix: 0,
+      fade_ms: 50,
+    },
+    audio: { sample_rate: 48000, channels: 2 },
+    devices: { input_device_id: null, output_device_id: null },
+    playback: { apply_mode: "live", master_volume_db: -9 },
+    sources: {
+      low_path: null,
+      mid_path: null,
+      voice_raw_path: null,
+      voice_stack_path: null,
+    },
+    layers: {
+      low: { enabled: true, volume_db: -12, eq: {} },
+      mid: { enabled: true, volume_db: -12, eq: eqWithBell(900, -3) },
+      voice: { enabled: true, volume_db: -18, eq: {} },
+    },
+  };
+  const latestSettings = cloneSettings(baseSettings);
+  latestSettings.layers.mid.eq = eqWithBell(3200, 7);
+  const olderSettings = cloneSettings(baseSettings);
+  olderSettings.layers.mid.eq = eqWithBell(900, -3);
+
+  assert.strictEqual(helpers.applyState({
+    state_epoch: 1,
+    state_revision: 2,
+    armed: false,
+    is_recording: false,
+    recording_elapsed_seconds: 0,
+    recording_remaining_seconds: 120,
+    participant_count: 0,
+    playback: {
+      output_running: true,
+      live_graph_eq: {
+        status: "applied",
+        pending: false,
+        layer_id: "mid",
+        request_id: 6,
+      },
+      live: { enabled: true, eq_applies_immediately: true },
+    },
+    settings: {
+      active: cloneSettings(latestSettings),
+      draft: cloneSettings(latestSettings),
+      change: { changed_sections: [], runtime_config_changed: false },
+    },
+  }), true);
+
+  helpers.state.sources = { categories: [{ id: "latest" }] };
+  const applied = await helpers.applySettingsPresetPayload({
+    state_epoch: 1,
+    state_revision: 1,
+    settings: {
+      active: cloneSettings(olderSettings),
+      draft: cloneSettings(olderSettings),
+      change: { changed_sections: [], runtime_config_changed: false },
+    },
+    sources: { categories: [{ id: "older-load" }] },
+  }, { syncDraft: true });
+
+  assert.strictEqual(applied, false);
+  const activeEq = helpers.graphEqForLayer(helpers.state.snapshot.settings.active, "mid");
+  const draftEq = helpers.graphEqForLayer(helpers.state.draft, "mid");
+  assert.strictEqual(activeEq.points[1].frequency_hz, 3200);
+  assert.strictEqual(activeEq.points[1].gain_db, 7);
+  assert.strictEqual(draftEq.points[1].frequency_hz, 3200);
+  assert.strictEqual(draftEq.points[1].gain_db, 7);
+  assert.deepStrictEqual(helpers.state.sources, { categories: [{ id: "latest" }] });
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 """,
     )
 
@@ -7929,7 +8153,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "connectStateSocket, showError, renderErrors, renderDevices, renderSourceLibrary, "
             "releaseInteractiveControl, refreshAll, requestDevices, requestSources, "
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
-            "renderLayerControls, syncAppliedSourceSignature, saveDraft, selectSourceFile, "
+            "renderLayerControls, syncAppliedSourceSignature, saveDraft, "
+            "commitInlineGraphEqPoints, graphEqBellBandNumber, graphEqForLayer, selectSourceFile, "
             "uploadSourceFile, applyAndRestart, resetDraft }"
         ),
     )
@@ -9690,6 +9915,181 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   }});
   await olderSave;
   assert.strictEqual(globalThis.__secretPondTest.state.draft.voice_stack.loop_seconds, 62);
+
+  const graphEqSaveResponses = [];
+  const graphEqStartingDraft = cloneSettings(activeSettings);
+  graphEqStartingDraft.layers.mid.eq = {{
+    ...graphEqStartingDraft.layers.mid.eq,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+    points: [
+      {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+      {{ id: "band-a", type: "bell", frequency_hz: 800, gain_db: -2, q: 1 }},
+      {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+    ],
+  }};
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(graphEqStartingDraft);
+  globalThis.__secretPondTest.state.draft = cloneSettings(graphEqStartingDraft);
+  globalThis.__secretPondTest.state.draftEditRevision = 0;
+  globalThis.fetch = (path, options = {{}}) =>
+    new Promise((resolve) => {{
+      graphEqSaveResponses.push({{ path, options, resolve }});
+    }});
+  const olderGraphEqPoints = [
+    {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+    {{ id: "band-a", type: "bell", frequency_hz: 900, gain_db: 1, q: 1 }},
+    {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+  ];
+  const newerGraphEqPoints = [
+    {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+    {{ id: "band-a", type: "bell", frequency_hz: 3200, gain_db: 7, q: 1 }},
+    {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+  ];
+  globalThis.__secretPondTest.commitInlineGraphEqPoints(
+    "mid",
+    olderGraphEqPoints,
+    "band-a",
+    {{ renderAfterSync: false }},
+  );
+  const olderGraphEqSave = globalThis.__secretPondTest.saveDraft();
+  globalThis.__secretPondTest.commitInlineGraphEqPoints(
+    "mid",
+    newerGraphEqPoints,
+    "band-a",
+    {{ renderAfterSync: false }},
+  );
+  const newerGraphEqSave = globalThis.__secretPondTest.saveDraft();
+  assert.strictEqual(graphEqSaveResponses.length, 2);
+  const olderGraphEqDraft = JSON.parse(graphEqSaveResponses[0].options.body);
+  const newerGraphEqDraft = JSON.parse(graphEqSaveResponses[1].options.body);
+  assert.strictEqual(olderGraphEqDraft.layers.mid.eq.points[1].frequency_hz, 900);
+  assert.strictEqual(newerGraphEqDraft.layers.mid.eq.points[1].frequency_hz, 3200);
+  graphEqSaveResponses[1].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(newerGraphEqDraft),
+      }},
+    }}),
+  }});
+  await newerGraphEqSave;
+  assert.strictEqual(
+    globalThis.__secretPondTest.graphEqForLayer(
+      globalThis.__secretPondTest.state.draft,
+      "mid",
+    ).points[1].frequency_hz,
+    3200,
+  );
+  graphEqSaveResponses[0].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(olderGraphEqDraft),
+      }},
+    }}),
+  }});
+  await olderGraphEqSave;
+  const reconciledGraphEq = globalThis.__secretPondTest.graphEqForLayer(
+    globalThis.__secretPondTest.state.draft,
+    "mid",
+  );
+  assert.strictEqual(reconciledGraphEq.points[1].frequency_hz, 3200);
+  assert.strictEqual(reconciledGraphEq.points[1].gain_db, 7);
+
+  const graphEqCreateDeleteResponses = [];
+  const graphEqCreateDeleteDraft = cloneSettings(activeSettings);
+  graphEqCreateDeleteDraft.layers.mid.eq = {{
+    ...graphEqCreateDeleteDraft.layers.mid.eq,
+    highpass_hz: 20,
+    lowpass_hz: 20000,
+    points: [
+      {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+      {{ id: "band-old", type: "bell", frequency_hz: 700, gain_db: -2, q: 1 }},
+      {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+    ],
+  }};
+  globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
+  globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(
+    graphEqCreateDeleteDraft,
+  );
+  globalThis.__secretPondTest.state.draft = cloneSettings(graphEqCreateDeleteDraft);
+  globalThis.fetch = (path, options = {{}}) =>
+    new Promise((resolve) => {{
+      graphEqCreateDeleteResponses.push({{ path, options, resolve }});
+    }});
+  const withNewestCreated = [
+    {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+    {{ id: "band-new", type: "bell", frequency_hz: 2000, gain_db: 4, q: 1 }},
+    {{ id: "band-old", type: "bell", frequency_hz: 700, gain_db: -2, q: 1 }},
+    {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+  ];
+  const withNewestDeleted = [
+    {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 }},
+    {{ id: "band-recent", type: "bell", frequency_hz: 1200, gain_db: 2, q: 1 }},
+    {{ id: "band-old", type: "bell", frequency_hz: 700, gain_db: -2, q: 1 }},
+    {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 }},
+  ];
+  globalThis.__secretPondTest.commitInlineGraphEqPoints(
+    "mid",
+    withNewestCreated,
+    "band-new",
+    {{ renderAfterSync: false }},
+  );
+  const createSave = globalThis.__secretPondTest.saveDraft();
+  globalThis.__secretPondTest.commitInlineGraphEqPoints(
+    "mid",
+    withNewestDeleted,
+    "band-recent",
+    {{ renderAfterSync: false }},
+  );
+  const deleteSave = globalThis.__secretPondTest.saveDraft();
+  assert.strictEqual(graphEqCreateDeleteResponses.length, 2);
+  const createdDraft = JSON.parse(graphEqCreateDeleteResponses[0].options.body);
+  const deletedDraft = JSON.parse(graphEqCreateDeleteResponses[1].options.body);
+  assert.deepStrictEqual(
+    createdDraft.layers.mid.eq.points.map((point) => point.id),
+    ["low", "band-new", "band-old", "high"],
+  );
+  assert.deepStrictEqual(
+    deletedDraft.layers.mid.eq.points.map((point) => point.id),
+    ["low", "band-recent", "band-old", "high"],
+  );
+  graphEqCreateDeleteResponses[1].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(deletedDraft),
+      }},
+    }}),
+  }});
+  await deleteSave;
+  graphEqCreateDeleteResponses[0].resolve({{
+    ok: true,
+    json: async () => ({{
+      settings: {{
+        active: cloneSettings(activeSettings),
+        draft: cloneSettings(createdDraft),
+      }},
+    }}),
+  }});
+  await createSave;
+  const reconciledCreateDeleteEq = globalThis.__secretPondTest.graphEqForLayer(
+    globalThis.__secretPondTest.state.draft,
+    "mid",
+  );
+  assert.deepStrictEqual(
+    reconciledCreateDeleteEq.points.map((point) => point.id),
+    ["low", "band-recent", "band-old", "high"],
+  );
+  assert.deepStrictEqual(
+    reconciledCreateDeleteEq.points.map((point, index, points) =>
+      globalThis.__secretPondTest.graphEqBellBandNumber(point, index, points)),
+    ["", "1", "2", ""],
+  );
 
   const inFlightEditSaveRequests = [];
   const inFlightOlderDraft = cloneSettings(activeSettings);

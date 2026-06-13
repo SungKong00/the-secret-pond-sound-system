@@ -27,9 +27,9 @@ def default_graph_eq_points() -> list[EqPointSettings]:
         EqPointSettings(
             id="low",
             type="low_shelf",
-            frequency_hz=120.0,
+            frequency_hz=80.0,
             gain_db=0.0,
-            q=0.7,
+            q=0.707,
         ),
         EqPointSettings(
             id="mid",
@@ -41,9 +41,9 @@ def default_graph_eq_points() -> list[EqPointSettings]:
         EqPointSettings(
             id="high",
             type="high_shelf",
-            frequency_hz=8_000.0,
+            frequency_hz=10_000.0,
             gain_db=0.0,
-            q=0.7,
+            q=0.707,
         ),
     ]
 

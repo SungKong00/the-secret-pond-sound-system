@@ -25797,6 +25797,10 @@ var SecretPondDssspGraphEqBundle = (() => {
     maxGain: 15,
     sampleRate: 48e3
   });
+  var fixedShelfDefaults = Object.freeze({
+    low_shelf: Object.freeze({ frequency_hz: 80, gain_db: 0, q: 0.707 }),
+    high_shelf: Object.freeze({ frequency_hz: 1e4, gain_db: 0, q: 0.707 })
+  });
   var supportedDssspTypes = Object.freeze(["LOWSHELF2", "PEAK", "HIGHSHELF2"]);
   var secretPondToDssspType = Object.freeze({
     low_shelf: "LOWSHELF2",
@@ -25816,6 +25820,11 @@ var SecretPondDssspGraphEqBundle = (() => {
     return Math.min(max, Math.max(min, numericValue));
   };
   var normalizedSecretPondType = (type) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, type) ? type : "bell";
+  var visualFrequencyForPoint = (point, config = graphEqDisplayConfig) => {
+    if (point?.type === "low_shelf") return config.minFreq;
+    if (point?.type === "high_shelf") return config.maxFreq;
+    return displayFrequencyForPoint(point, config);
+  };
   var displayFrequencyForPoint = (point, config = graphEqDisplayConfig) => clamp(point?.frequency_hz ?? point?.freq ?? 1e3, config.minFreq, config.maxFreq);
   var frequencyToX = (frequencyHz, config = graphEqDisplayConfig) => {
     const minLog = Math.log10(config.minFreq);
@@ -25828,24 +25837,26 @@ var SecretPondDssspGraphEqBundle = (() => {
     return {
       id: String(point?.id || `point-${index + 1}`),
       type: secretPondToDssspType[type],
-      freq: displayFrequencyForPoint(point, config, index, points),
+      freq: displayFrequencyForPoint({ ...point, type }, config, index, points),
       gain: clamp(point?.gain_db ?? point?.gain ?? 0, config.minGain, config.maxGain),
-      q: clamp(point?.q ?? 1, 0.1, 18)
+      q: clamp(point?.q ?? fixedShelfDefaults[type]?.q ?? 1, 0.1, 18)
     };
   });
   var toSecretPondPoints = (filters = [], previousPoints = []) => filters.map((filter, index) => {
     const previous = previousPoints[index] || {};
     const fallbackType = normalizedSecretPondType(previous.type);
     const type = dssspToSecretPondType[filter?.type] || fallbackType;
+    const shelfDefault = fixedShelfDefaults[type] || {};
+    const frequencySource = type === "bell" ? filter?.freq ?? previous.frequency_hz ?? 1e3 : previous.frequency_hz ?? shelfDefault.frequency_hz ?? 1e3;
     const nextFrequency = Math.round(
-      clamp(filter?.freq ?? previous.frequency_hz ?? 1e3, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq)
+      clamp(frequencySource, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq)
     );
     return {
       id: String(previous.id || filter?.id || `point-${index + 1}`),
       type,
       frequency_hz: nextFrequency,
       gain_db: Number(clamp(filter?.gain ?? previous.gain_db ?? 0, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain).toFixed(1)),
-      q: Number(clamp(filter?.q ?? previous.q ?? 1, 0.1, 18).toFixed(2))
+      q: Number(clamp(previous.q ?? filter?.q ?? shelfDefault.q ?? 1, 0.1, 18).toFixed(3))
     };
   }).filter((point) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, point.type));
 
@@ -25856,24 +25867,33 @@ var SecretPondDssspGraphEqBundle = (() => {
   var graphWidth = 900;
   var graphHeight = 320;
   var pointVisualInset = 15;
+  var maxGraphEqPoints = 6;
+  var movementThresholdPx = 4;
   var clamp2 = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
   var gainToGraphY = (gain) => (graphEqDisplayConfig.maxGain - clamp2(gain, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain)) / (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain) * graphHeight;
   var graphYToGain = (y) => Number((graphEqDisplayConfig.maxGain - clamp2(y, 0, graphHeight) / graphHeight * (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain)).toFixed(1));
-  var frequencyToGraphX = (frequency) => frequencyToX(frequency, graphEqDisplayConfig) * graphWidth;
+  var pointFrequencyToGraphX = (point, frequency) => frequencyToX(
+    point?.type === "bell" ? frequency : visualFrequencyForPoint(point, graphEqDisplayConfig),
+    graphEqDisplayConfig
+  ) * graphWidth;
   var graphXToFrequency = (x) => {
     const minLog = Math.log10(graphEqDisplayConfig.minFreq);
     const maxLog = Math.log10(graphEqDisplayConfig.maxFreq);
     const ratio = clamp2(x, 0, graphWidth) / graphWidth;
     return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
   };
-  var pointVisualX = (x) => clamp2(x, pointVisualInset, graphWidth - pointVisualInset);
+  var pointVisualX = (point, x) => {
+    if (point?.type === "low_shelf") return pointVisualInset;
+    if (point?.type === "high_shelf") return graphWidth - pointVisualInset;
+    return clamp2(x, pointVisualInset, graphWidth - pointVisualInset);
+  };
   var pointVisualY = (y) => clamp2(y, pointVisualInset, graphHeight - pointVisualInset);
   var pointerToGraphPosition = (event, svg) => {
     const rect = svg?.getBoundingClientRect();
     if (!rect?.width || !rect?.height) return null;
     return {
-      x: clamp2((event.clientX - rect.left) / rect.width * graphWidth, 0, graphWidth),
-      y: clamp2((event.clientY - rect.top) / rect.height * graphHeight, 0, graphHeight)
+      x: (event.clientX - rect.left) / rect.width * graphWidth,
+      y: (event.clientY - rect.top) / rect.height * graphHeight
     };
   };
   var graphTheme = {
@@ -25948,6 +25968,20 @@ var SecretPondDssspGraphEqBundle = (() => {
     }
   };
   var normalizePoints = (points) => Array.isArray(points) ? points : emptyPoints;
+  var isGraphEqPointDeletable = (point) => point?.type === "bell";
+  var graphEqBellBandNumber = (point, index, points) => {
+    if (point?.type !== "bell") return "";
+    const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
+    const bellIndex = sourcePoints.slice(0, index + 1).filter((candidate) => candidate?.type === "bell").length;
+    return String(bellIndex);
+  };
+  var graphEqWithNewestBell = (points, nextPoint) => {
+    const sourcePoints = normalizePoints(points);
+    const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
+    const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
+    const bells = sourcePoints.filter((point) => point?.type === "bell");
+    return [lowShelf, nextPoint, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
+  };
   function GraphEqFilterPoint({
     filter,
     index,
@@ -25957,6 +25991,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     label,
     onChange,
     onSelect,
+    onDelete,
     onDrag
   }) {
     const [hovered, setHovered] = (0, import_react2.useState)(false);
@@ -25965,9 +26000,9 @@ var SecretPondDssspGraphEqBundle = (() => {
     (0, import_react2.useEffect)(() => {
       filterRef.current = filter;
     }, [filter]);
-    const x = frequencyToGraphX(filter.freq);
+    const x = pointFrequencyToGraphX(point, filter.freq);
     const y = gainToGraphY(filter.gain);
-    const visualX = pointVisualX(x);
+    const visualX = pointVisualX(point, x);
     const visualY = pointVisualY(y);
     const color = graphTheme.filters.colors[index] || {};
     const pointTheme = graphTheme.filters.point;
@@ -25982,7 +26017,7 @@ var SecretPondDssspGraphEqBundle = (() => {
         const position = pointerToGraphPosition(event, svg);
         if (position === null) return;
         const current = filterRef.current;
-        const nextX = position.x - offset.x;
+        const nextX = point?.type === "bell" ? position.x - offset.x : visualX;
         const nextY = position.y - offset.y;
         onChange?.({
           index,
@@ -25992,26 +26027,41 @@ var SecretPondDssspGraphEqBundle = (() => {
           ended
         });
       },
-      [index, onChange]
+      [index, onChange, point?.type, visualX]
     );
     const handlePointerDown = (0, import_react2.useCallback)(
       (event) => {
         if (disabled) return;
         event.preventDefault();
         event.stopPropagation();
-        onSelect?.(point?.id);
-        onDrag?.(true);
-        setDragging(true);
         const svg = event.currentTarget.ownerSVGElement;
         const dragWindow = svg?.ownerDocument?.defaultView || window;
         const startPosition = pointerToGraphPosition(event, svg);
+        const startClient = { x: event.clientX, y: event.clientY };
+        let hasDragged = false;
         const offset = {
           x: (startPosition?.x ?? visualX) - visualX,
           y: (startPosition?.y ?? visualY) - visualY
         };
-        emitChange(event, false, svg, offset);
+        const startDrag = (dragEvent) => {
+          if (hasDragged) return;
+          hasDragged = true;
+          onSelect?.(point?.id);
+          onDrag?.(true);
+          setDragging(true);
+          emitChange(dragEvent, false, svg, offset);
+        };
         const handlePointerMove = (moveEvent) => {
           moveEvent.preventDefault();
+          const movement = Math.hypot(
+            moveEvent.clientX - startClient.x,
+            moveEvent.clientY - startClient.y
+          );
+          if (!hasDragged && movement <= movementThresholdPx) return;
+          if (!hasDragged) {
+            startDrag(moveEvent);
+            return;
+          }
           emitChange(moveEvent, false, svg, offset);
         };
         const finishDrag = (upEvent) => {
@@ -26019,9 +26069,13 @@ var SecretPondDssspGraphEqBundle = (() => {
           dragWindow.removeEventListener("pointermove", handlePointerMove);
           dragWindow.removeEventListener("pointerup", finishDrag);
           dragWindow.removeEventListener("pointercancel", finishDrag);
-          emitChange(upEvent, true, svg, offset);
-          setDragging(false);
-          onDrag?.(false);
+          if (hasDragged) {
+            emitChange(upEvent, true, svg, offset);
+            setDragging(false);
+            onDrag?.(false);
+            return;
+          }
+          onSelect?.(point?.id);
         };
         dragWindow.addEventListener("pointermove", handlePointerMove);
         dragWindow.addEventListener("pointerup", finishDrag, { once: true });
@@ -26029,10 +26083,32 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [disabled, emitChange, onDrag, onSelect, point?.id, visualX, visualY]
     );
+    const handleClick = (0, import_react2.useCallback)(
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.detail >= 2 && isGraphEqPointDeletable(point)) {
+          onDelete?.(point?.id);
+          return;
+        }
+        onSelect?.(point?.id);
+      },
+      [onDelete, onSelect, point]
+    );
+    const handleDoubleClick = (0, import_react2.useCallback)(
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!isGraphEqPointDeletable(point)) return;
+        onDelete?.(point?.id);
+      },
+      [onDelete, point]
+    );
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         "circle",
         {
+          "data-graph-eq-filter-point": "true",
           cx: visualX,
           cy: visualY,
           r: pointTheme.radius,
@@ -26041,10 +26117,9 @@ var SecretPondDssspGraphEqBundle = (() => {
           stroke: strokeColor,
           strokeWidth: pointTheme.lineWidth,
           onPointerDown: handlePointerDown,
-          onMouseEnter: () => {
-            setHovered(true);
-            onSelect?.(point?.id);
-          },
+          onClick: handleClick,
+          onDoubleClick: handleDoubleClick,
+          onMouseEnter: () => setHovered(true),
           onMouseLeave: () => setHovered(false),
           style: {
             cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
@@ -26055,6 +26130,7 @@ var SecretPondDssspGraphEqBundle = (() => {
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         "text",
         {
+          "data-graph-eq-filter-point-label": "true",
           x: visualX,
           y: visualY,
           textAnchor: "middle",
@@ -26075,6 +26151,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     disabled = false,
     onChange,
     onSelect,
+    onDelete,
     onDragState
   }) {
     const normalizedPoints = normalizePoints(points);
@@ -26128,6 +26205,56 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [layerId, onDragState]
     );
+    const handleSurfaceClick = (0, import_react2.useCallback)(
+      (event) => {
+        if (disabled || draggingRef.current) return;
+        if (latestPointsRef.current.length >= maxGraphEqPoints) return;
+        if (event.target?.closest?.("[data-graph-eq-filter-point]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const svg = event.target?.ownerSVGElement || event.currentTarget.querySelector?.("svg");
+        const position = pointerToGraphPosition(event, svg);
+        if (position === null) return;
+        const previousPoints = latestPointsRef.current;
+        const id = `point-${Date.now().toString(36)}`;
+        const nextPoint = {
+          id,
+          type: "bell",
+          frequency_hz: graphXToFrequency(position.x),
+          gain_db: graphYToGain(position.y),
+          q: 1
+        };
+        const nextPoints = graphEqWithNewestBell(previousPoints, nextPoint);
+        latestPointsRef.current = nextPoints;
+        setLocalPoints(nextPoints);
+        onChange?.({
+          layerId,
+          points: nextPoints,
+          selectedPointId: id,
+          ended: true
+        });
+      },
+      [disabled, layerId, onChange]
+    );
+    const handleDelete = (0, import_react2.useCallback)(
+      (pointId) => {
+        if (disabled) return;
+        const previousPoints = latestPointsRef.current;
+        const selected = previousPoints.find((point) => point.id === pointId);
+        if (!isGraphEqPointDeletable(selected)) return;
+        const nextPoints = previousPoints.filter((point) => point.id !== pointId);
+        const nextSelectedPointId = nextPoints.find((point) => point.type === "bell")?.id || null;
+        latestPointsRef.current = nextPoints;
+        setLocalPoints(nextPoints);
+        onDelete?.({
+          layerId,
+          pointId,
+          points: nextPoints,
+          selectedPointId: nextSelectedPointId
+        });
+      },
+      [disabled, layerId, onDelete]
+    );
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "div",
       {
@@ -26156,6 +26283,20 @@ var SecretPondDssspGraphEqBundle = (() => {
                 }
               ),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CompositeCurve, { filters }),
+              !dragging && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(PointerTracker, {}),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "rect",
+                {
+                  "data-graph-eq-surface-hit-area": "true",
+                  x: 0,
+                  y: 0,
+                  width: graphWidth,
+                  height: graphHeight,
+                  fill: "transparent",
+                  style: { pointerEvents: "all" },
+                  onClick: handleSurfaceClick
+                }
+              ),
               filters.map((filter, index) => {
                 const point = localPoints[index];
                 return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -26166,15 +26307,15 @@ var SecretPondDssspGraphEqBundle = (() => {
                     point,
                     active: index === selectedIndex,
                     disabled,
-                    label: String(index + 1),
+                    label: graphEqBellBandNumber(point, index, localPoints),
                     onChange: handleChange,
                     onSelect,
+                    onDelete: handleDelete,
                     onDrag: handleDrag
                   },
                   point?.id || index
                 );
-              }),
-              !dragging && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(PointerTracker, {})
+              })
             ]
           }
         )

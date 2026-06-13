@@ -3,6 +3,7 @@
   "scripts": {
     "build:graph-eq": "esbuild src/secret_pond/web/frontend/graph_eq_inline.jsx --bundle --format=iife --global-name=SecretPondDssspGraphEqBundle --jsx=automatic --outfile=src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js",
     "build:graph-eq-dsssp": "esbuild src/secret_pond/web/frontend/graph_eq_inline.jsx --bundle --format=iife --global-name=SecretPondDssspGraphEqBundle --jsx=automatic --outfile=src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js",
+    "test:graph-eq-bundle": "node scripts/check_graph_eq_bundle_fresh.mjs",
     "test:e2e": "playwright test tests/web/graph_eq_inline.spec.js --project=chromium"
   },
   "dependencies": {

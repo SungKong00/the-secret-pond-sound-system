@@ -45,7 +45,7 @@ def test_dsssp_dependency_contract_replaces_legacy_runtime() -> None:
     assert not LEGACY_EQ_TEST.exists()
 
 
-def test_dsssp_adapter_maps_secret_pond_points_without_endpoint_locks() -> None:
+def test_dsssp_adapter_maps_secret_pond_points_with_pinned_shelves() -> None:
     output = run_node(
         f"""
 import {{
@@ -56,9 +56,9 @@ import {{
 }} from {json.dumps(ADAPTER.as_uri())};
 
 const points = [
-  {{ id: "low", type: "low_shelf", frequency_hz: 120, gain_db: 3, q: 0.7 }},
+  {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 3, q: 0.707 }},
   {{ id: "mid", type: "bell", frequency_hz: 1000, gain_db: -4, q: 1.2 }},
-  {{ id: "high", type: "high_shelf", frequency_hz: 8000, gain_db: 5, q: 0.7 }},
+  {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 5, q: 0.707 }},
 ];
 const displayFilters = toDssspFilters(points);
 const filters = displayFilters.map((filter) => ({{ ...filter }}));
@@ -76,13 +76,13 @@ console.log(JSON.stringify({{ displayFilters, roundTrip, positions }}));
         "PEAK",
         "HIGHSHELF2",
     ]
-    assert output["displayFilters"][0]["freq"] == 120
-    assert output["displayFilters"][2]["freq"] == 8000
-    assert output["roundTrip"][0]["frequency_hz"] == 320
+    assert output["displayFilters"][0]["freq"] == 80
+    assert output["displayFilters"][2]["freq"] == 10000
+    assert output["roundTrip"][0]["frequency_hz"] == 80
     assert output["roundTrip"][1]["frequency_hz"] == 2400
-    assert output["roundTrip"][2]["frequency_hz"] == 12000
-    assert 0 < output["positions"][0]["x"] < 1
-    assert 0 < output["positions"][2]["x"] < 1
+    assert output["roundTrip"][2]["frequency_hz"] == 10000
+    assert output["positions"][0]["x"] == 0
+    assert output["positions"][2]["x"] == 1
     assert 0 < output["positions"][1]["x"] < 1
 
 
@@ -106,6 +106,7 @@ const displayFilters = toDssspFilters(points);
 const filters = displayFilters.map((filter) => ({{ ...filter }}));
 filters[0].freq = 1800;
 filters[2].freq = 1200;
+filters[2].gain = -6;
 const roundTrip = toSecretPondPoints(filters, points);
 const locked = points.map((point, index) => isLockedEndpointPoint(point, index, points));
 const positions = points.map((point, index) => displayPositionForPoint(
@@ -118,13 +119,14 @@ console.log(JSON.stringify({{ displayFilters, roundTrip, locked, positions }}));
 """
     )
 
-    assert output["locked"] == [False, False, False]
+    assert output["locked"] == [True, False, True]
     assert output["displayFilters"][0]["freq"] == 280
     assert output["displayFilters"][2]["freq"] == 6400
-    assert output["roundTrip"][0]["frequency_hz"] == 1800
-    assert output["roundTrip"][2]["frequency_hz"] == 1200
-    assert 0 < output["positions"][0]["x"] < 1
-    assert 0 < output["positions"][2]["x"] < 1
+    assert output["roundTrip"][0]["frequency_hz"] == 280
+    assert output["roundTrip"][2]["frequency_hz"] == 6400
+    assert output["roundTrip"][2]["gain_db"] == -6
+    assert output["positions"][0]["x"] == 0
+    assert output["positions"][2]["x"] == 1
 
 
 def test_dsssp_adapter_marks_drag_end_and_rejects_notch() -> None:
@@ -164,6 +166,45 @@ def test_dsssp_react_island_source_and_build_script_are_current_runtime_path() -
     assert "unmountEditor" in source
     assert "data-graph-eq-dsssp-root" in source
     assert ("weq" + "8c") not in source.lower()
+
+
+def test_dsssp_island_bundle_freshness_check_rebuilds_from_frontend_sources() -> None:
+    package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+
+    assert (
+        package["scripts"]["test:graph-eq-bundle"]
+        == "node scripts/check_graph_eq_bundle_fresh.mjs"
+    )
+
+    dependency_output = run_node(
+        f"""
+import * as esbuild from "esbuild";
+
+const result = await esbuild.build({{
+  absWorkingDir: {json.dumps(str(ROOT))},
+  bundle: true,
+  entryPoints: ["src/secret_pond/web/frontend/graph_eq_inline.jsx"],
+  format: "iife",
+  globalName: "SecretPondDssspGraphEqBundle",
+  jsx: "automatic",
+  metafile: true,
+  write: false,
+}});
+
+console.log(JSON.stringify({{
+  includesAdapter: Object.keys(result.metafile.inputs).includes(
+    "src/secret_pond/web/frontend/graph_eq_dsssp_adapter.mjs",
+  ),
+}}));
+"""
+    )
+    assert dependency_output["includesAdapter"] is True
+
+    subprocess.run(
+        ["npm", "run", "test:graph-eq-bundle", "--", "--quiet"],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 def test_dsssp_island_bundle_exposes_mount_contract_without_legacy_runtime() -> None:

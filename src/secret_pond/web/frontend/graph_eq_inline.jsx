@@ -11,6 +11,7 @@ import {
   graphEqDisplayConfig,
   toDssspFilters,
   toSecretPondPoints,
+  visualFrequencyForPoint,
 } from "./graph_eq_dsssp_adapter.mjs";
 
 const mountedEditors = new WeakMap();
@@ -18,6 +19,8 @@ const emptyPoints = Object.freeze([]);
 const graphWidth = 900;
 const graphHeight = 320;
 const pointVisualInset = 15;
+const maxGraphEqPoints = 6;
+const movementThresholdPx = 4;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
 
@@ -35,6 +38,13 @@ const graphYToGain = (y) => Number((
 
 const frequencyToGraphX = (frequency) => frequencyToX(frequency, graphEqDisplayConfig) * graphWidth;
 
+const pointFrequencyToGraphX = (point, frequency) => (
+  frequencyToX(
+    point?.type === "bell" ? frequency : visualFrequencyForPoint(point, graphEqDisplayConfig),
+    graphEqDisplayConfig,
+  ) * graphWidth
+);
+
 const graphXToFrequency = (x) => {
   const minLog = Math.log10(graphEqDisplayConfig.minFreq);
   const maxLog = Math.log10(graphEqDisplayConfig.maxFreq);
@@ -42,15 +52,19 @@ const graphXToFrequency = (x) => {
   return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
 };
 
-const pointVisualX = (x) => clamp(x, pointVisualInset, graphWidth - pointVisualInset);
+const pointVisualX = (point, x) => {
+  if (point?.type === "low_shelf") return pointVisualInset;
+  if (point?.type === "high_shelf") return graphWidth - pointVisualInset;
+  return clamp(x, pointVisualInset, graphWidth - pointVisualInset);
+};
 const pointVisualY = (y) => clamp(y, pointVisualInset, graphHeight - pointVisualInset);
 
 const pointerToGraphPosition = (event, svg) => {
   const rect = svg?.getBoundingClientRect();
   if (!rect?.width || !rect?.height) return null;
   return {
-    x: clamp(((event.clientX - rect.left) / rect.width) * graphWidth, 0, graphWidth),
-    y: clamp(((event.clientY - rect.top) / rect.height) * graphHeight, 0, graphHeight),
+    x: ((event.clientX - rect.left) / rect.width) * graphWidth,
+    y: ((event.clientY - rect.top) / rect.height) * graphHeight,
   };
 };
 
@@ -128,6 +142,23 @@ const graphTheme = {
 
 const normalizePoints = (points) => (Array.isArray(points) ? points : emptyPoints);
 
+const isGraphEqPointDeletable = (point) => point?.type === "bell";
+
+const graphEqBellBandNumber = (point, index, points) => {
+  if (point?.type !== "bell") return "";
+  const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
+  const bellIndex = sourcePoints.slice(0, index + 1).filter((candidate) => candidate?.type === "bell").length;
+  return String(bellIndex);
+};
+
+const graphEqWithNewestBell = (points, nextPoint) => {
+  const sourcePoints = normalizePoints(points);
+  const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
+  const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
+  const bells = sourcePoints.filter((point) => point?.type === "bell");
+  return [lowShelf, nextPoint, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
+};
+
 function GraphEqFilterPoint({
   filter,
   index,
@@ -137,6 +168,7 @@ function GraphEqFilterPoint({
   label,
   onChange,
   onSelect,
+  onDelete,
   onDrag,
 }) {
   const [hovered, setHovered] = useState(false);
@@ -147,9 +179,9 @@ function GraphEqFilterPoint({
     filterRef.current = filter;
   }, [filter]);
 
-  const x = frequencyToGraphX(filter.freq);
+  const x = pointFrequencyToGraphX(point, filter.freq);
   const y = gainToGraphY(filter.gain);
-  const visualX = pointVisualX(x);
+  const visualX = pointVisualX(point, x);
   const visualY = pointVisualY(y);
   const color = graphTheme.filters.colors[index] || {};
   const pointTheme = graphTheme.filters.point;
@@ -177,7 +209,7 @@ function GraphEqFilterPoint({
       const position = pointerToGraphPosition(event, svg);
       if (position === null) return;
       const current = filterRef.current;
-      const nextX = position.x - offset.x;
+      const nextX = point?.type === "bell" ? position.x - offset.x : visualX;
       const nextY = position.y - offset.y;
       onChange?.({
         index,
@@ -187,7 +219,7 @@ function GraphEqFilterPoint({
         ended,
       });
     },
-    [index, onChange],
+    [index, onChange, point?.type, visualX],
   );
 
   const handlePointerDown = useCallback(
@@ -195,20 +227,35 @@ function GraphEqFilterPoint({
       if (disabled) return;
       event.preventDefault();
       event.stopPropagation();
-      onSelect?.(point?.id);
-      onDrag?.(true);
-      setDragging(true);
 
       const svg = event.currentTarget.ownerSVGElement;
       const dragWindow = svg?.ownerDocument?.defaultView || window;
       const startPosition = pointerToGraphPosition(event, svg);
+      const startClient = { x: event.clientX, y: event.clientY };
+      let hasDragged = false;
       const offset = {
         x: (startPosition?.x ?? visualX) - visualX,
         y: (startPosition?.y ?? visualY) - visualY,
       };
-      emitChange(event, false, svg, offset);
+      const startDrag = (dragEvent) => {
+        if (hasDragged) return;
+        hasDragged = true;
+        onSelect?.(point?.id);
+        onDrag?.(true);
+        setDragging(true);
+        emitChange(dragEvent, false, svg, offset);
+      };
       const handlePointerMove = (moveEvent) => {
         moveEvent.preventDefault();
+        const movement = Math.hypot(
+          moveEvent.clientX - startClient.x,
+          moveEvent.clientY - startClient.y,
+        );
+        if (!hasDragged && movement <= movementThresholdPx) return;
+        if (!hasDragged) {
+          startDrag(moveEvent);
+          return;
+        }
         emitChange(moveEvent, false, svg, offset);
       };
       const finishDrag = (upEvent) => {
@@ -216,9 +263,13 @@ function GraphEqFilterPoint({
         dragWindow.removeEventListener("pointermove", handlePointerMove);
         dragWindow.removeEventListener("pointerup", finishDrag);
         dragWindow.removeEventListener("pointercancel", finishDrag);
-        emitChange(upEvent, true, svg, offset);
-        setDragging(false);
-        onDrag?.(false);
+        if (hasDragged) {
+          emitChange(upEvent, true, svg, offset);
+          setDragging(false);
+          onDrag?.(false);
+          return;
+        }
+        onSelect?.(point?.id);
       };
 
       dragWindow.addEventListener("pointermove", handlePointerMove);
@@ -228,9 +279,33 @@ function GraphEqFilterPoint({
     [disabled, emitChange, onDrag, onSelect, point?.id, visualX, visualY],
   );
 
+  const handleClick = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.detail >= 2 && isGraphEqPointDeletable(point)) {
+        onDelete?.(point?.id);
+        return;
+      }
+      onSelect?.(point?.id);
+    },
+    [onDelete, onSelect, point],
+  );
+
+  const handleDoubleClick = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isGraphEqPointDeletable(point)) return;
+      onDelete?.(point?.id);
+    },
+    [onDelete, point],
+  );
+
   return (
     <>
       <circle
+        data-graph-eq-filter-point="true"
         cx={visualX}
         cy={visualY}
         r={pointTheme.radius}
@@ -239,10 +314,9 @@ function GraphEqFilterPoint({
         stroke={strokeColor}
         strokeWidth={pointTheme.lineWidth}
         onPointerDown={handlePointerDown}
-        onMouseEnter={() => {
-          setHovered(true);
-          onSelect?.(point?.id);
-        }}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
           cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
@@ -250,6 +324,7 @@ function GraphEqFilterPoint({
         }}
       />
       <text
+        data-graph-eq-filter-point-label="true"
         x={visualX}
         y={visualY}
         textAnchor="middle"
@@ -272,6 +347,7 @@ function GraphEqDssspEditor({
   disabled = false,
   onChange,
   onSelect,
+  onDelete,
   onDragState,
 }) {
   const normalizedPoints = normalizePoints(points);
@@ -332,6 +408,58 @@ function GraphEqDssspEditor({
     [layerId, onDragState],
   );
 
+  const handleSurfaceClick = useCallback(
+    (event) => {
+      if (disabled || draggingRef.current) return;
+      if (latestPointsRef.current.length >= maxGraphEqPoints) return;
+      if (event.target?.closest?.("[data-graph-eq-filter-point]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const svg = event.target?.ownerSVGElement || event.currentTarget.querySelector?.("svg");
+      const position = pointerToGraphPosition(event, svg);
+      if (position === null) return;
+      const previousPoints = latestPointsRef.current;
+      const id = `point-${Date.now().toString(36)}`;
+      const nextPoint = {
+        id,
+        type: "bell",
+        frequency_hz: graphXToFrequency(position.x),
+        gain_db: graphYToGain(position.y),
+        q: 1,
+      };
+      const nextPoints = graphEqWithNewestBell(previousPoints, nextPoint);
+      latestPointsRef.current = nextPoints;
+      setLocalPoints(nextPoints);
+      onChange?.({
+        layerId,
+        points: nextPoints,
+        selectedPointId: id,
+        ended: true,
+      });
+    },
+    [disabled, layerId, onChange],
+  );
+
+  const handleDelete = useCallback(
+    (pointId) => {
+      if (disabled) return;
+      const previousPoints = latestPointsRef.current;
+      const selected = previousPoints.find((point) => point.id === pointId);
+      if (!isGraphEqPointDeletable(selected)) return;
+      const nextPoints = previousPoints.filter((point) => point.id !== pointId);
+      const nextSelectedPointId = nextPoints.find((point) => point.type === "bell")?.id || null;
+      latestPointsRef.current = nextPoints;
+      setLocalPoints(nextPoints);
+      onDelete?.({
+        layerId,
+        pointId,
+        points: nextPoints,
+        selectedPointId: nextSelectedPointId,
+      });
+    },
+    [disabled, layerId, onDelete],
+  );
+
   return (
     <div
       className="graph-eq-dsssp-surface"
@@ -357,6 +485,17 @@ function GraphEqDssspEditor({
           />
         )}
         <CompositeCurve filters={filters} />
+        {!dragging && <PointerTracker />}
+        <rect
+          data-graph-eq-surface-hit-area="true"
+          x={0}
+          y={0}
+          width={graphWidth}
+          height={graphHeight}
+          fill="transparent"
+          style={{ pointerEvents: "all" }}
+          onClick={handleSurfaceClick}
+        />
         {filters.map((filter, index) => {
           const point = localPoints[index];
           return (
@@ -367,14 +506,14 @@ function GraphEqDssspEditor({
               point={point}
               active={index === selectedIndex}
               disabled={disabled}
-              label={String(index + 1)}
+              label={graphEqBellBandNumber(point, index, localPoints)}
               onChange={handleChange}
               onSelect={onSelect}
+              onDelete={handleDelete}
               onDrag={handleDrag}
             />
           );
         })}
-        {!dragging && <PointerTracker />}
       </FrequencyResponseGraph>
     </div>
   );
