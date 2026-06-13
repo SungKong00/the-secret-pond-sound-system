@@ -1,15 +1,14 @@
 {
   "private": true,
   "scripts": {
-    "build:graph-eq": "esbuild src/secret_pond/web/frontend/graph_eq_inline.js --bundle --format=iife --global-name=SecretPondGraphEqBundle --outfile=src/secret_pond/web/static/graph_eq_inline.bundle.js",
+    "build:graph-eq": "esbuild src/secret_pond/web/frontend/graph_eq_inline.jsx --bundle --format=iife --global-name=SecretPondDssspGraphEqBundle --jsx=automatic --outfile=src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js",
     "build:graph-eq-dsssp": "esbuild src/secret_pond/web/frontend/graph_eq_inline.jsx --bundle --format=iife --global-name=SecretPondDssspGraphEqBundle --jsx=automatic --outfile=src/secret_pond/web/static/graph_eq_dsssp_island.bundle.js",
     "test:e2e": "playwright test tests/web/graph_eq_inline.spec.js --project=chromium"
   },
   "dependencies": {
     "dsssp": "0.6.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "weq8c": "0.3.5"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.0",

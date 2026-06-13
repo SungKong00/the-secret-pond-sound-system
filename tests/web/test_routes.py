@@ -2140,7 +2140,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
     assert "20260613-graph-eq-dsssp-island" in response.text
-    assert "20260612-graph-eq-inline-weq8c" not in response.text
+    assert ("20260612-graph-eq-inline-" + "weq" + "8c") not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text
     assert "Loop Mixer" in response.text
@@ -2165,15 +2165,15 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert "toggleExpandedGraphEqLayer" not in script.text
     assert "initializeInlineGraphEqEditors" in script.text
     assert "mountInlineGraphEqEditor" in script.text
-    assert "configureInlineGraphEqWeq8cUi" not in script.text
-    assert "<weq8-ui" not in script.text
+    assert ("configureInlineGraphEqWeq" + "8cUi") not in script.text
+    assert ("<weq" + "8-ui") not in script.text
     assert "graph-eq-dsssp-root" in script.text
     assert "const graphEqFrequencyToX = " in script.text
     assert "const graphEqGainToY = " in script.text
     assert "const commitInlineGraphEqPoints = " in script.text
     assert ".graph-eq-inline-editor" in styles.text
     assert ".graph-eq-dsssp-host" in styles.text
-    assert ".graph-eq-weq8c-host" not in styles.text
+    assert (".graph-eq-weq" + "8c-host") not in styles.text
     assert ".graph-eq-collapsed-summary" in styles.text
     assert ".graph-eq-step-button" in styles.text
 

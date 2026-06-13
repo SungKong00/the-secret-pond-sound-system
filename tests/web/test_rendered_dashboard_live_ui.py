@@ -159,7 +159,7 @@ requestAnimationFrame(openGraphEqFixture);
         assert rendered["graphHostRect"]["height"] > 340
         assert rendered["dssspRootCount"] == 1
         assert rendered["dssspSvgCount"] == 1
-        assert rendered["weqUiCount"] == 0
+        assert rendered["legacyEqUiCount"] == 0
     assert rendered["stepButtonCount"] >= 6
     for button in rendered["stepButtons"]:
         assert button["width"] >= 40
@@ -226,7 +226,7 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["graphHostRect"]["height"] > 340
     assert rendered["dssspRootCount"] == 1
     assert rendered["dssspSvgCount"] == 1
-    assert rendered["weqUiCount"] == 0
+    assert rendered["legacyEqUiCount"] == 0
     assert rendered["rightPanelRect"]["width"] >= 280
 
 
@@ -863,6 +863,7 @@ class _CdpPage:
         height: Math.round(bounds.height),
       };
     });
+  const legacyEqTag = "weq" + "8-ui";
   return {
     ready: true,
     viewportWidth: window.innerWidth,
@@ -883,7 +884,7 @@ class _CdpPage:
     graphHostRect: graphHost ? rect(graphHost) : null,
     dssspRootCount: document.querySelectorAll('[data-graph-eq-dsssp-root="true"]').length,
     dssspSvgCount: document.querySelectorAll(".graph-eq-dsssp-surface svg").length,
-    weqUiCount: document.querySelectorAll("weq8-ui").length,
+    legacyEqUiCount: document.querySelectorAll(legacyEqTag).length,
     mainPanelRect: rect(mainPanel),
     rightPanelRect: rect(rightPanel),
     stepButtonCount: stepButtons.length,

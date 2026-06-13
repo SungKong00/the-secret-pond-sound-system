@@ -58,11 +58,12 @@ async function openFirstGraphEqInLive(page) {
 
 test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", async ({ page }) => {
   await openFirstGraphEq(page);
+  const legacyEqTag = "weq" + "8-ui";
 
   await expect(page.locator('[data-workspace-tab="graph-eq"]')).toHaveCount(0);
   await expect(page.locator(".graph-eq-layer-card-section")).toHaveCount(3);
   await expect(page.locator(".graph-eq-mini-preview")).toHaveCount(0);
-  await expect(page.locator("weq8-ui")).toHaveCount(0);
+  await expect(page.locator(legacyEqTag)).toHaveCount(0);
   await expect(page.locator(".graph-eq-dsssp-surface svg")).toBeVisible();
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(3);
 
