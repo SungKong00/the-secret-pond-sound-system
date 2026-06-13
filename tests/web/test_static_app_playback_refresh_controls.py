@@ -3047,10 +3047,17 @@ applyState({
   participant_count: 0,
 });
 
-let confirmMessage = null;
-window.confirm = (message) => {
-  confirmMessage = message;
-  return false;
+document.body = createElement("body");
+const findChoiceButton = (node, choice) => {
+  if (node?.dataset?.playbackApplyModeChoice === choice) return node;
+  for (const child of node.children || []) {
+    const match = findChoiceButton(child, choice);
+    if (match) return match;
+  }
+  return null;
+};
+window.confirm = () => {
+  throw new Error("Live 전환 확인은 native confirm 대신 앱 모달로 받아야 합니다.");
 };
 const requests = [];
 globalThis.fetch = async (path, options = {}) => {
@@ -3058,11 +3065,15 @@ globalThis.fetch = async (path, options = {}) => {
   throw new Error("Live 전환 확인을 취소하면 요청을 보내면 안 됩니다.");
 };
 
-const result = await setPlaybackApplyMode("live");
+const pendingResult = setPlaybackApplyMode("live");
+await Promise.resolve();
+const cancelButton = findChoiceButton(document.body, "cancel");
+assert.notStrictEqual(cancelButton, null);
+cancelButton.listeners.click({ preventDefault() {} });
+const result = await pendingResult;
 
 assert.strictEqual(result, null);
-assert.match(confirmMessage, /적용하지 않은 변경사항/);
-assert.match(confirmMessage, /마지막으로 적용된 설정/);
+assert.strictEqual(document.body.children.length, 0);
 assert.strictEqual(requests.length, 0);
 assert.strictEqual(state.playbackApplyModeInFlight, false);
 assert.strictEqual(state.pendingPlaybackApplyMode, null);
@@ -3158,15 +3169,20 @@ applyState({
   participant_count: 0,
 });
 
-let promptMessage = null;
-let promptDefault = null;
-window.prompt = (message, defaultValue) => {
-  promptMessage = message;
-  promptDefault = defaultValue;
-  return "apply";
+document.body = createElement("body");
+const findChoiceButton = (node, choice) => {
+  if (node?.dataset?.playbackApplyModeChoice === choice) return node;
+  for (const child of node.children || []) {
+    const match = findChoiceButton(child, choice);
+    if (match) return match;
+  }
+  return null;
+};
+window.prompt = () => {
+  throw new Error("Graph EQ staged 선택은 native prompt 대신 앱 모달로 받아야 합니다.");
 };
 window.confirm = () => {
-  throw new Error("Graph EQ 변경은 confirm이 아니라 Apply/Discard 선택을 받아야 합니다.");
+  throw new Error("Graph EQ staged 선택은 native confirm 대신 앱 모달로 받아야 합니다.");
 };
 globalThis.fetch = async (path, options = {}) => {
   assert.strictEqual(path, "/api/playback/apply-mode");
@@ -3200,13 +3216,15 @@ globalThis.fetch = async (path, options = {}) => {
   };
 };
 
-const result = await setPlaybackApplyMode("live");
+const pendingResult = setPlaybackApplyMode("live");
+await Promise.resolve();
+const applyButton = findChoiceButton(document.body, "apply");
+assert.notStrictEqual(applyButton, null);
+applyButton.listeners.click({ preventDefault() {} });
+const result = await pendingResult;
 
 assert.notStrictEqual(result, null);
-assert.match(promptMessage, /Graph EQ/);
-assert.match(promptMessage, /Apply/);
-assert.match(promptMessage, /Discard/);
-assert.strictEqual(promptDefault, "apply");
+assert.strictEqual(document.body.children.length, 0);
 assert.strictEqual(state.snapshot.settings.active.playback.apply_mode, "live");
 assert.strictEqual(state.draft.layers.mid.eq.points[1].gain_db, 6);
 })();

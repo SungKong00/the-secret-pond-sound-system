@@ -932,13 +932,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260613-graph-eq-dsssp-island"' in response.text
+    assert 'href="/static/styles.css?v=20260614-apply-mode-modal-v2"' in response.text
     assert (
-        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260613-graph-eq-dsssp-island"'
+        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-apply-mode-modal-v2"'
         in response.text
     )
     assert 'src="/static/graph_eq_inline.bundle.js?v=' not in response.text
-    assert 'src="/static/app.js?v=20260613-graph-eq-dsssp-island"' in response.text
+    assert 'src="/static/app.js?v=20260614-apply-mode-modal-v2"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert "No Rendered Cache" in response.text
@@ -1101,12 +1101,12 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in main_workspace
     assert 'data-workspace-tab="graph-eq"' not in main_workspace
     assert 'aria-controls="workspacePaneGraphEq"' not in main_workspace
-    assert 'class="settings-library"' in main_workspace
-    assert 'id="settingsSnapshotSaveButton"' in main_workspace
-    assert 'id="settingsSnapshotSelect"' in main_workspace
-    assert "저장된 세팅 없음" in main_workspace
-    assert 'id="settingsSnapshotApplyButton"' in main_workspace
-    assert 'id="settingsSnapshotDeleteButton"' in main_workspace
+    assert 'class="settings-library"' not in main_workspace
+    assert 'id="settingsSnapshotSaveButton"' not in main_workspace
+    assert 'id="settingsSnapshotSelect"' not in main_workspace
+    assert "저장된 세팅 없음" not in main_workspace
+    assert 'id="settingsSnapshotApplyButton"' not in main_workspace
+    assert 'id="settingsSnapshotDeleteButton"' not in main_workspace
     assert 'id="workspacePaneTreatment"' in main_workspace
     assert 'data-workspace-pane="treatment"' in main_workspace
     assert 'id="workspacePaneStack"' in main_workspace
@@ -1299,8 +1299,11 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert ".workspace-tabs" in styles.text
     assert ".workspace-tab" in styles.text
     assert ".workspace-tab.active" in styles.text
-    assert ".settings-library" in styles.text
-    assert ".settings-library-controls" in styles.text
+    assert ".settings-library" not in styles.text
+    assert ".settings-library-controls" not in styles.text
+    assert ".sr-only" in styles.text
+    assert ".playback-apply-mode-dialog-backdrop" in styles.text
+    assert ".playback-apply-mode-dialog-actions" in styles.text
     assert ".workspace-pane[hidden]" in styles.text
     assert ".workspace-section" in styles.text
     assert ".right-stack-panel" in styles.text
@@ -2139,7 +2142,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in response.text
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
-    assert "20260613-graph-eq-dsssp-island" in response.text
+    assert "20260614-apply-mode-modal-v2" in response.text
     assert ("20260612-graph-eq-inline-" + "weq" + "8c") not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text

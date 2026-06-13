@@ -5461,6 +5461,60 @@ assert.strictEqual(document.getElementById("errorBadge").textContent, "주의 �
     )
 
 
+def test_stable_apply_source_file_failure_points_operator_to_source_library() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  renderErrors,
+  showSettingsApplyFailureCaution,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        dom_setup=STATIC_APP_RENDER_DOM_SETUP,
+        body="""
+const { renderErrors, showSettingsApplyFailureCaution, state } = globalThis.__secretPond;
+
+showSettingsApplyFailureCaution(
+  "voice source file does not exist: data/sources/voice/stack/missing.wav",
+);
+
+const banner = document.getElementById("errorBanner");
+assert.strictEqual(banner.hidden, false);
+assert.strictEqual(banner.className, "error-banner notice-banner caution");
+assert.strictEqual(banner.children[0].children[0].textContent, "주의");
+assert.strictEqual(
+  banner.children[0].children[1].textContent,
+  "소스 파일이 없어 변경사항을 적용하지 못했습니다.",
+);
+assert.strictEqual(
+  banner.children[1].textContent,
+  "Graph EQ와 믹서 변경은 임시 설정에 남아 있지만 활성 재생 설정에는 " +
+    "반영되지 않았습니다. Source Library에서 존재하는 파일을 다시 선택한 뒤 " +
+    "Apply/Restart를 누르세요.",
+);
+assert.strictEqual(
+  banner.children[2].children[1].textContent,
+  "원문: voice source file does not exist: data/sources/voice/stack/missing.wav",
+);
+
+state.snapshot = {
+  operator_notices: ["Selected output default sample rate is 44100, but settings request 48000."],
+};
+renderErrors();
+
+assert.strictEqual(
+  banner.children[0].children[1].textContent,
+  "소스 파일이 없어 변경사항을 적용하지 못했습니다.",
+);
+""",
+    )
+
+
 def test_stable_apply_failure_rolls_back_only_captured_differing_covered_controls() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

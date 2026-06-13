@@ -39,6 +39,7 @@ const state = {
   diagnostics: null,
   sources: null,
   transientError: null,
+  transientNotice: null,
   transientErrorShownAt: 0,
   deviceError: null,
   diagnosticsError: null,
@@ -89,6 +90,7 @@ const state = {
   playbackControlInFlight: false,
   playbackApplyModeInFlight: false,
   pendingPlaybackApplyMode: null,
+  playbackApplyModeChoiceDialog: null,
   storageModeInFlight: false,
   pendingStorageMode: null,
   applyInFlight: false,
@@ -1832,26 +1834,41 @@ const setErrorBanner = (message, kind = "error") => {
 
 const showError = (message) => {
   const notice = noticeFromMessage(message, "error");
+  state.transientNotice = null;
   state.transientError = notice?.technical || null;
   state.transientErrorShownAt = notice ? Date.now() : 0;
   renderNoticeBanner(notice ? [notice] : []);
 };
 
-const showSettingsApplyFailureCaution = (message = "") => {
-  state.transientError = null;
-  state.transientErrorShownAt = 0;
-  renderNoticeBanner([
-    uiNotice(
-      message,
-      settingsApplyFailureCautionMessage,
-      settingsApplyFailureCautionDetail,
+const settingsApplyFailureNotice = (message = "") => {
+  const text = String(message || "").trim();
+  const normalized = text.toLowerCase();
+  if (normalized.includes("source file") && normalized.includes("does not exist")) {
+    return uiNotice(
+      text,
+      "소스 파일이 없어 변경사항을 적용하지 못했습니다.",
+      "Graph EQ와 믹서 변경은 임시 설정에 남아 있지만 활성 재생 설정에는 반영되지 않았습니다. Source Library에서 존재하는 파일을 다시 선택한 뒤 Apply/Restart를 누르세요.",
       "caution",
-    ),
-  ]);
+    );
+  }
+  return uiNotice(
+    text,
+    settingsApplyFailureCautionMessage,
+    settingsApplyFailureCautionDetail,
+    "caution",
+  );
+};
+
+const showSettingsApplyFailureCaution = (message = "") => {
+  const notice = settingsApplyFailureNotice(message);
+  state.transientError = null;
+  state.transientNotice = notice;
+  state.transientErrorShownAt = Date.now();
+  renderNoticeBanner([notice]);
 };
 
 const transientErrorVisibleLongEnough = () => (
-  !state.transientError ||
+  (!state.transientError && !state.transientNotice) ||
   Date.now() - state.transientErrorShownAt >= transientNoticeMinimumVisibleMs
 );
 
@@ -1865,6 +1882,7 @@ const clearTransientError = (options = {}) => {
     return false;
   }
   state.transientError = null;
+  state.transientNotice = null;
   state.transientErrorShownAt = 0;
   renderErrors();
   return true;
@@ -3640,6 +3658,10 @@ const renderErrors = () => {
     setErrorBanner(state.transientError);
     return;
   }
+  if (state.transientNotice) {
+    renderNoticeBanner([state.transientNotice]);
+    return;
+  }
   const warnings = currentWarningNotices();
   if (warnings.length) {
     renderNoticeBanner(warnings);
@@ -5203,12 +5225,6 @@ const currentPendingPlaybackApplyMode = () => {
 const playbackApplyModeLiveSwitchConfirmationMessage =
   "안정 적용에서 아직 적용하지 않은 변경사항은 즉시 반영 모드로 전환할 때 바로 적용되지 않습니다. 마지막으로 적용된 설정에서 Live를 시작할까요?";
 
-const playbackApplyModeLiveSwitchGraphEqChoiceMessage =
-  "Stable에서 바꾼 Graph EQ가 있습니다.\n\n" +
-  "Apply: Live 시작 후 1초 뒤 현재 Graph EQ를 적용합니다.\n" +
-  "Discard: 마지막 적용 설정으로 Live를 시작합니다.\n" +
-  "Cancel: 전환하지 않습니다.";
-
 const playbackApplyModeSwitchNeedsStagedChangeConfirmation = (mode) => (
   currentPlaybackApplyMode() === "stable" &&
     mode === "live" &&
@@ -5231,33 +5247,157 @@ const playbackApplyModeSwitchNeedsStagedGraphEqChoice = (mode) => (
     stagedGraphEqLayerIdsForLiveSwitch().length > 0
 );
 
-const normalizeStagedGraphEqChoice = (value) => {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (["apply", "a", "적용"].includes(normalized)) return "apply";
-  if (["discard", "d", "버리기", "삭제"].includes(normalized)) return "discard";
-  return null;
+const playbackApplyModeDialogRoot = () => (
+  document.body || $("secret-pond-app") || document.documentElement || null
+);
+
+const removePlaybackApplyModeDialogElement = (element) => {
+  if (!element) return;
+  if (typeof element.remove === "function") {
+    element.remove();
+    return;
+  }
+  const parent = element.parentElement;
+  if (Array.isArray(parent?.children)) {
+    const index = parent.children.indexOf(element);
+    if (index >= 0) parent.children.splice(index, 1);
+  }
 };
+
+const closePlaybackApplyModeChoiceDialog = (choice) => {
+  const dialogState = state.playbackApplyModeChoiceDialog;
+  if (!dialogState) return;
+  state.playbackApplyModeChoiceDialog = null;
+  document.removeEventListener?.("keydown", dialogState.handleKeydown);
+  removePlaybackApplyModeDialogElement(dialogState.overlay);
+  dialogState.resolve(choice);
+};
+
+const playbackApplyModeChoiceButton = (action) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `playback-apply-mode-choice ${action.className || ""}`.trim();
+  button.setAttribute("data-playback-apply-mode-choice", action.choice);
+  button.dataset.playbackApplyModeChoice = action.choice;
+  button.setAttribute("aria-label", `${action.label}. ${action.helper}`);
+  const label = document.createElement("strong");
+  label.textContent = action.label;
+  const helper = document.createElement("small");
+  helper.textContent = ` ${action.helper}`;
+  button.append(label, helper);
+  button.addEventListener("click", (event) => {
+    event.preventDefault?.();
+    closePlaybackApplyModeChoiceDialog(action.result);
+  });
+  return button;
+};
+
+const showPlaybackApplyModeChoiceDialog = ({ title, detail, actions }) => {
+  const root = playbackApplyModeDialogRoot();
+  if (!root) return Promise.resolve(null);
+  if (state.playbackApplyModeChoiceDialog) {
+    closePlaybackApplyModeChoiceDialog({ proceed: false, stagedGraphEq: "discard" });
+  }
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "playback-apply-mode-dialog-backdrop";
+    overlay.setAttribute("role", "presentation");
+    const dialog = document.createElement("section");
+    dialog.className = "playback-apply-mode-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "playbackApplyModeChoiceTitle");
+    dialog.setAttribute("aria-describedby", "playbackApplyModeChoiceDetail");
+    const heading = document.createElement("h2");
+    heading.id = "playbackApplyModeChoiceTitle";
+    heading.textContent = title;
+    const body = document.createElement("p");
+    body.id = "playbackApplyModeChoiceDetail";
+    body.textContent = detail;
+    const actionsEl = document.createElement("div");
+    actionsEl.className = "playback-apply-mode-dialog-actions";
+    actions.forEach((action) => {
+      actionsEl.appendChild(playbackApplyModeChoiceButton(action));
+    });
+    dialog.append(heading, body, actionsEl);
+    overlay.appendChild(dialog);
+    const cancelChoice = { proceed: false, stagedGraphEq: "discard" };
+    const handleKeydown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault?.();
+      closePlaybackApplyModeChoiceDialog(cancelChoice);
+    };
+    state.playbackApplyModeChoiceDialog = { overlay, resolve, handleKeydown };
+    root.appendChild(overlay);
+    document.addEventListener?.("keydown", handleKeydown);
+    actionsEl.children[0]?.focus?.();
+  });
+};
+
+const playbackApplyModeStagedGraphEqChoice = () => (
+  showPlaybackApplyModeChoiceDialog({
+    title: "Graph EQ 변경을 Live에 어떻게 넘길까요?",
+    detail:
+      "Stable에서 조정한 Graph EQ가 있습니다. Live를 시작할 때 현재 EQ를 적용하거나 마지막 적용값으로 시작할 수 있습니다.",
+    actions: [
+      {
+        choice: "apply",
+        label: "현재 Graph EQ 적용",
+        helper: "Live 시작 후 준비되면 반영",
+        className: "primary",
+        result: { proceed: true, stagedGraphEq: "apply" },
+      },
+      {
+        choice: "discard",
+        label: "마지막 적용값 사용",
+        helper: "이번 EQ draft는 Live에 넘기지 않음",
+        className: "caution",
+        result: { proceed: true, stagedGraphEq: "discard" },
+      },
+      {
+        choice: "cancel",
+        label: "취소",
+        helper: "Stable 유지",
+        result: { proceed: false, stagedGraphEq: "discard" },
+      },
+    ],
+  })
+);
+
+const playbackApplyModePendingChangeChoice = () => (
+  showPlaybackApplyModeChoiceDialog({
+    title: "Live로 전환할까요?",
+    detail: playbackApplyModeLiveSwitchConfirmationMessage,
+    actions: [
+      {
+        choice: "start",
+        label: "Live 시작",
+        helper: "마지막 적용값 사용",
+        className: "primary",
+        result: { proceed: true, stagedGraphEq: "discard" },
+      },
+      {
+        choice: "cancel",
+        label: "취소",
+        helper: "Stable 유지",
+        result: { proceed: false, stagedGraphEq: "discard" },
+      },
+    ],
+  })
+);
 
 const playbackApplyModeSwitchChoice = (mode) => {
   if (playbackApplyModeSwitchNeedsStagedGraphEqChoice(mode)) {
-    if (typeof window.prompt !== "function") {
-      return window.confirm(playbackApplyModeLiveSwitchGraphEqChoiceMessage)
-        ? { proceed: true, stagedGraphEq: "apply" }
-        : { proceed: false, stagedGraphEq: "discard" };
-    }
-    const choice = normalizeStagedGraphEqChoice(
-      window.prompt(playbackApplyModeLiveSwitchGraphEqChoiceMessage, "apply"),
+    return playbackApplyModeStagedGraphEqChoice().then(
+      (choice) => choice || { proceed: false, stagedGraphEq: "discard" },
     );
-    return choice
-      ? { proceed: true, stagedGraphEq: choice }
-      : { proceed: false, stagedGraphEq: "discard" };
   }
   if (!playbackApplyModeSwitchNeedsStagedChangeConfirmation(mode)) {
     return { proceed: true, stagedGraphEq: "discard" };
   }
-  return window.confirm(playbackApplyModeLiveSwitchConfirmationMessage)
-    ? { proceed: true, stagedGraphEq: "discard" }
-    : { proceed: false, stagedGraphEq: "discard" };
+  return playbackApplyModePendingChangeChoice().then(
+    (choice) => choice || { proceed: false, stagedGraphEq: "discard" },
+  );
 };
 
 const currentPendingStorageMode = () => {
@@ -5529,7 +5669,10 @@ const setPlaybackApplyMode = async (mode) => {
     renderPlaybackApplyModeControls();
     return null;
   }
-  const switchChoice = playbackApplyModeSwitchChoice(mode);
+  const pendingSwitchChoice = playbackApplyModeSwitchChoice(mode);
+  const switchChoice = typeof pendingSwitchChoice?.then === "function"
+    ? await pendingSwitchChoice
+    : pendingSwitchChoice;
   if (!switchChoice.proceed) {
     renderPlaybackApplyModeControls();
     return null;
