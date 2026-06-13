@@ -25289,6 +25289,16 @@ var SecretPondDssspGraphEqBundle = (() => {
     path += ` L ${width + 200} ${centerY}`;
     return path;
   };
+  var calcFilterCoefficients = (filter, sampleRate = 44100) => {
+    const { type, freq, gain, q } = filter;
+    return calcBiQuadCoefficients(type, freq, gain, q, sampleRate);
+  };
+  var calcFilterMagnitudes = (vars, scale, width, precisionDivider = 2) => {
+    const { minFreq, maxFreq, sampleRate } = scale;
+    const steps = width / precisionDivider;
+    const magnitudes = calcMagnitudes(vars, steps, minFreq, maxFreq, sampleRate);
+    return magnitudes;
+  };
   var calcCompositeMagnitudes = (magnitudes) => {
     const compositeMags = [];
     if (!magnitudes?.length) return [];
@@ -25321,6 +25331,15 @@ var SecretPondDssspGraphEqBundle = (() => {
       y: (clientY - CTM.f) / CTM.d
     };
   };
+  var getZeroGain = (type) => [
+    "LOWPASS1",
+    "LOWPASS2",
+    "HIGHPASS1",
+    "HIGHPASS2",
+    "BANDPASS",
+    "BYPASS",
+    "NOTCH"
+  ].includes(type) || !type;
   var getFilterKey = (filter) => `${filter.type}_${filter.freq}_${filter.q}_${filter.gain}`;
   var CompositeCurve = ({
     filters,
@@ -25398,6 +25417,136 @@ var SecretPondDssspGraphEqBundle = (() => {
     easeIn: "0.42 0 1 1",
     easeOut: "0 0 0.58 1",
     easeInOut: "0.42 0 0.58 1"
+  };
+  var FilterCurve = ({
+    filter,
+    index = -1,
+    resolutionFactor = 2,
+    color,
+    dotted,
+    opacity,
+    lineWidth,
+    gradientId,
+    showPin = false,
+    showBypass = false,
+    active = false,
+    activeColor,
+    activeOpacity,
+    activeLineWidth,
+    style,
+    easing,
+    animate,
+    duration,
+    // ms
+    className,
+    onChange
+  }) => {
+    const {
+      scale,
+      width,
+      theme: {
+        filters: { zeroPoint, curve, defaultColor, colors }
+      }
+    } = useGraph();
+    const prevFilterHashRef = (0, import_react.useRef)("");
+    const vars = calcFilterCoefficients(filter, scale.sampleRate);
+    const magnitudes = calcFilterMagnitudes(vars, scale, width, resolutionFactor);
+    (0, import_react.useEffect)(() => {
+      const filterHash = JSON.stringify(filter);
+      if (vars && prevFilterHashRef.current !== filterHash) {
+        onChange?.(index, vars);
+        prevFilterHashRef.current = filterHash;
+      }
+    }, [filter, vars, onChange]);
+    if (!vars || !magnitudes?.length) return null;
+    const zeroValue = filter.type === "BYPASS";
+    if (zeroValue && !showBypass) return null;
+    const normalColor = color || colors?.[index]?.curve || defaultColor;
+    const curveColor = zeroValue ? zeroPoint.color : active ? activeColor || colors?.[index]?.active || normalColor : normalColor;
+    const curveOpacity = active ? activeOpacity || curve.opacity.active : opacity || curve.opacity.normal;
+    const curveWidth = active ? activeLineWidth || curve.width.active : lineWidth || curve.width.normal;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      showPin && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        FilterPin,
+        {
+          vars,
+          filter,
+          color: curveColor,
+          opacity: curveOpacity,
+          lineWidth: curveWidth
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        FrequencyResponseCurve,
+        {
+          magnitudes,
+          dotted,
+          color: curveColor,
+          opacity: curveOpacity,
+          lineWidth: curveWidth,
+          gradientId,
+          style,
+          easing,
+          animate,
+          duration,
+          className
+        }
+      )
+    ] });
+  };
+  var FilterPin = ({
+    filter,
+    vars,
+    opacity,
+    lineWidth,
+    color
+  }) => {
+    const { scale, height, logScale } = useGraph();
+    const { minGain, maxGain, sampleRate } = scale;
+    const { freq, type } = filter;
+    let { gain, q } = filter;
+    const zeroGain = getZeroGain(type);
+    const {
+      theme: {
+        filters: { point }
+      }
+    } = useGraph();
+    if (!["LOW", "HIGH", "NOTCH"].some((item) => type.includes(item))) return null;
+    const pass1FilterType = type.includes("PASS1") || type === "NOTCH";
+    const pass2FilterType = type.includes("PASS2");
+    if (pass1FilterType || pass2FilterType) gain = 0;
+    if (pass1FilterType) q = 0.7;
+    let pointRadius = gain >= 0 || zeroGain ? point.radius : -point.radius;
+    let pass2UpFlag = false;
+    if (pass2FilterType && q > 1.1) {
+      pointRadius = -point.radius;
+      pass2UpFlag = true;
+    }
+    let pointY = pointRadius || 0;
+    if (pass1FilterType || pass2FilterType) {
+      pointY += getCenterLine(minGain, maxGain, height);
+    } else {
+      pointY += scaleMagnitude(gain, minGain, maxGain, height);
+    }
+    const centerMagnitude = calcMagnitudeForFrequency(vars, freq, sampleRate);
+    const magnitudeY = scaleMagnitude(centerMagnitude, minGain, maxGain, height);
+    const deltaX = pointY > magnitudeY;
+    const x = logScale.x(freq);
+    if (gain < 0 && deltaX || gain >= 0 && !deltaX || pass2UpFlag) {
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "line",
+        {
+          x1: x,
+          x2: x,
+          y1: pointY,
+          y2: magnitudeY,
+          stroke: color,
+          strokeWidth: lineWidth,
+          strokeOpacity: opacity
+        }
+      );
+    }
+    return null;
   };
   var FrequencyResponseCurve = ({
     magnitudes,
@@ -25706,6 +25855,7 @@ var SecretPondDssspGraphEqBundle = (() => {
   var emptyPoints = Object.freeze([]);
   var graphWidth = 900;
   var graphHeight = 320;
+  var pointVisualInset = 15;
   var clamp2 = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
   var gainToGraphY = (gain) => (graphEqDisplayConfig.maxGain - clamp2(gain, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain)) / (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain) * graphHeight;
   var graphYToGain = (y) => Number((graphEqDisplayConfig.maxGain - clamp2(y, 0, graphHeight) / graphHeight * (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain)).toFixed(1));
@@ -25716,6 +25866,8 @@ var SecretPondDssspGraphEqBundle = (() => {
     const ratio = clamp2(x, 0, graphWidth) / graphWidth;
     return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
   };
+  var pointVisualX = (x) => clamp2(x, pointVisualInset, graphWidth - pointVisualInset);
+  var pointVisualY = (y) => clamp2(y, pointVisualInset, graphHeight - pointVisualInset);
   var pointerToGraphPosition = (event, svg) => {
     const rect = svg?.getBoundingClientRect();
     if (!rect?.width || !rect?.height) return null;
@@ -25815,6 +25967,8 @@ var SecretPondDssspGraphEqBundle = (() => {
     }, [filter]);
     const x = frequencyToGraphX(filter.freq);
     const y = gainToGraphY(filter.gain);
+    const visualX = pointVisualX(x);
+    const visualY = pointVisualY(y);
     const color = graphTheme.filters.colors[index] || {};
     const pointTheme = graphTheme.filters.point;
     const pointColor = color.point || graphTheme.filters.defaultColor;
@@ -25852,8 +26006,8 @@ var SecretPondDssspGraphEqBundle = (() => {
         const dragWindow = svg?.ownerDocument?.defaultView || window;
         const startPosition = pointerToGraphPosition(event, svg);
         const offset = {
-          x: (startPosition?.x ?? x) - x,
-          y: (startPosition?.y ?? y) - y
+          x: (startPosition?.x ?? visualX) - visualX,
+          y: (startPosition?.y ?? visualY) - visualY
         };
         emitChange(event, false, svg, offset);
         const handlePointerMove = (moveEvent) => {
@@ -25873,14 +26027,14 @@ var SecretPondDssspGraphEqBundle = (() => {
         dragWindow.addEventListener("pointerup", finishDrag, { once: true });
         dragWindow.addEventListener("pointercancel", finishDrag, { once: true });
       },
-      [disabled, emitChange, onDrag, onSelect, point?.id, x, y]
+      [disabled, emitChange, onDrag, onSelect, point?.id, visualX, visualY]
     );
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         "circle",
         {
-          cx: x,
-          cy: y,
+          cx: visualX,
+          cy: visualY,
           r: pointTheme.radius,
           fill: fillColor,
           fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
@@ -25901,8 +26055,8 @@ var SecretPondDssspGraphEqBundle = (() => {
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         "text",
         {
-          x,
-          y,
+          x: visualX,
+          y: visualY,
           textAnchor: "middle",
           dominantBaseline: "central",
           fill: pointTheme.label.color,
@@ -25939,6 +26093,8 @@ var SecretPondDssspGraphEqBundle = (() => {
       0,
       localPoints.findIndex((point) => point.id === selectedPointId)
     );
+    const selectedFilter = filters[selectedIndex] || null;
+    const selectedFilterColor = graphTheme.filters.colors[selectedIndex]?.point || graphTheme.filters.defaultColor;
     const handleChange = (0, import_react2.useCallback)(
       (event) => {
         if (disabled) return;
@@ -25987,6 +26143,18 @@ var SecretPondDssspGraphEqBundle = (() => {
             theme: graphTheme,
             style: { width: "100%", height: "100%" },
             children: [
+              selectedFilter && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                FilterCurve,
+                {
+                  filter: selectedFilter,
+                  index: selectedIndex,
+                  color: selectedFilterColor,
+                  opacity: 0.72,
+                  lineWidth: 1.15,
+                  dotted: true,
+                  className: "graph-eq-selected-band-curve"
+                }
+              ),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CompositeCurve, { filters }),
               filters.map((filter, index) => {
                 const point = localPoints[index];

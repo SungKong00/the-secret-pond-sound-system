@@ -12,6 +12,14 @@ function differentGain(value) {
 }
 
 async function resetFirstGraphEqDraft(page) {
+  await setFirstGraphEqDraft(page, [
+    { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
+    { id: "custom-mid", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 },
+    { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
+  ]);
+}
+
+async function setFirstGraphEqDraft(page, points) {
   await page.request.put(applyModeUrl, { data: { mode: "stable" } });
   const state = await page.request.get(stateUrl).then((response) => response.json());
   const draft = JSON.parse(JSON.stringify(state.settings.draft));
@@ -19,11 +27,7 @@ async function resetFirstGraphEqDraft(page) {
     ...draft.layers.mid.eq,
     highpass_hz: 20,
     lowpass_hz: 20000,
-    points: [
-      { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
-      { id: "custom-mid", type: "bell", frequency_hz: 1200, gain_db: -2, q: 1.1 },
-      { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
-    ],
+    points,
   };
   await page.request.put(draftUrl, { data: draft });
 }
@@ -80,6 +84,9 @@ test("DSSSP Graph EQ is inline inside layer cards and no fourth tab exists", asy
   await expect(page.locator("[data-graph-eq-point-row]")).toHaveCount(3);
   await expect(page.locator(".graph-eq-band-list .graph-eq-band-number")).toHaveText(["1", "2", "3"]);
   await expect(selectedInspector(page)).toBeVisible();
+  await expect(page.locator(".graph-eq-selected-band-curve")).toHaveCount(1);
+  await selectGraphEqBand(page, 1);
+  await expect(page.locator(".graph-eq-selected-band-curve")).toHaveCount(1);
 
   const box = await page.locator(".graph-eq-dsssp-surface svg").boundingBox();
   expect(box.width).toBeGreaterThan(500);
@@ -211,7 +218,35 @@ test("Low Shelf handle keeps tracking the latest drag position outside the graph
   await expect.poll(async () => Number(await lowGain.inputValue())).toBeLessThan(-13);
   const lowAfter = await lowHandle.boundingBox();
   expect(lowAfter).not.toBeNull();
-  expect(Math.abs((lowAfter.x + lowAfter.width / 2) - graphBox.x)).toBeLessThanOrEqual(2);
+  expect(lowAfter.x).toBeGreaterThanOrEqual(graphBox.x);
+  expect(lowAfter.x + lowAfter.width).toBeLessThanOrEqual(graphBox.x + graphBox.width);
+});
+
+test("edge Graph EQ handles stay fully visible inside the graph", async ({ page }) => {
+  await setFirstGraphEqDraft(page, [
+    { id: "edge-low", type: "low_shelf", frequency_hz: 20, gain_db: -15, q: 0.7 },
+    { id: "edge-mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
+    { id: "edge-high", type: "high_shelf", frequency_hz: 20000, gain_db: 15, q: 0.7 },
+  ]);
+  await openCurrentFirstGraphEq(page);
+
+  const graph = page.locator(".graph-eq-dsssp-surface svg");
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+
+  const handles = page.locator(".graph-eq-dsssp-surface svg circle");
+  const lowBox = await handles.nth(0).boundingBox();
+  const highBox = await handles.nth(2).boundingBox();
+  expect(lowBox).not.toBeNull();
+  expect(highBox).not.toBeNull();
+
+  for (const handleBox of [lowBox, highBox]) {
+    expect(handleBox.x).toBeGreaterThanOrEqual(graphBox.x);
+    expect(handleBox.y).toBeGreaterThanOrEqual(graphBox.y);
+    expect(handleBox.x + handleBox.width).toBeLessThanOrEqual(graphBox.x + graphBox.width);
+    expect(handleBox.y + handleBox.height).toBeLessThanOrEqual(graphBox.y + graphBox.height);
+  }
 });
 
 test("Bell handle keeps tracking the latest drag position outside the graph", async ({ page }) => {

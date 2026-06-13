@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import {
   CompositeCurve,
+  FilterCurve,
   FrequencyResponseGraph,
   PointerTracker,
 } from "dsssp";
@@ -16,6 +17,7 @@ const mountedEditors = new WeakMap();
 const emptyPoints = Object.freeze([]);
 const graphWidth = 900;
 const graphHeight = 320;
+const pointVisualInset = 15;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
 
@@ -39,6 +41,9 @@ const graphXToFrequency = (x) => {
   const ratio = clamp(x, 0, graphWidth) / graphWidth;
   return Math.round(10 ** (minLog + ratio * (maxLog - minLog)));
 };
+
+const pointVisualX = (x) => clamp(x, pointVisualInset, graphWidth - pointVisualInset);
+const pointVisualY = (y) => clamp(y, pointVisualInset, graphHeight - pointVisualInset);
 
 const pointerToGraphPosition = (event, svg) => {
   const rect = svg?.getBoundingClientRect();
@@ -144,6 +149,8 @@ function GraphEqFilterPoint({
 
   const x = frequencyToGraphX(filter.freq);
   const y = gainToGraphY(filter.gain);
+  const visualX = pointVisualX(x);
+  const visualY = pointVisualY(y);
   const color = graphTheme.filters.colors[index] || {};
   const pointTheme = graphTheme.filters.point;
   const pointColor = color.point || graphTheme.filters.defaultColor;
@@ -196,8 +203,8 @@ function GraphEqFilterPoint({
       const dragWindow = svg?.ownerDocument?.defaultView || window;
       const startPosition = pointerToGraphPosition(event, svg);
       const offset = {
-        x: (startPosition?.x ?? x) - x,
-        y: (startPosition?.y ?? y) - y,
+        x: (startPosition?.x ?? visualX) - visualX,
+        y: (startPosition?.y ?? visualY) - visualY,
       };
       emitChange(event, false, svg, offset);
       const handlePointerMove = (moveEvent) => {
@@ -218,14 +225,14 @@ function GraphEqFilterPoint({
       dragWindow.addEventListener("pointerup", finishDrag, { once: true });
       dragWindow.addEventListener("pointercancel", finishDrag, { once: true });
     },
-    [disabled, emitChange, onDrag, onSelect, point?.id, x, y],
+    [disabled, emitChange, onDrag, onSelect, point?.id, visualX, visualY],
   );
 
   return (
     <>
       <circle
-        cx={x}
-        cy={y}
+        cx={visualX}
+        cy={visualY}
         r={pointTheme.radius}
         fill={fillColor}
         fillOpacity={dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal}
@@ -243,8 +250,8 @@ function GraphEqFilterPoint({
         }}
       />
       <text
-        x={x}
-        y={y}
+        x={visualX}
+        y={visualY}
         textAnchor="middle"
         dominantBaseline="central"
         fill={pointTheme.label.color}
@@ -286,6 +293,9 @@ function GraphEqDssspEditor({
     0,
     localPoints.findIndex((point) => point.id === selectedPointId),
   );
+  const selectedFilter = filters[selectedIndex] || null;
+  const selectedFilterColor = graphTheme.filters.colors[selectedIndex]?.point ||
+    graphTheme.filters.defaultColor;
 
   const handleChange = useCallback(
     (event) => {
@@ -335,6 +345,17 @@ function GraphEqDssspEditor({
         theme={graphTheme}
         style={{ width: "100%", height: "100%" }}
       >
+        {selectedFilter && (
+          <FilterCurve
+            filter={selectedFilter}
+            index={selectedIndex}
+            color={selectedFilterColor}
+            opacity={0.72}
+            lineWidth={1.15}
+            dotted
+            className="graph-eq-selected-band-curve"
+          />
+        )}
         <CompositeCurve filters={filters} />
         {filters.map((filter, index) => {
           const point = localPoints[index];
