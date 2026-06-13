@@ -150,20 +150,21 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
     assert rendered["graphEqWorkspaceVisible"] is False
     assert rendered["inlineGraphEqSections"] == 3
-    assert rendered["expandedGraphEqEditors"] in {0, 1}
+    assert rendered["expandedGraphEqEditors"] == 3
     assert rendered["visibleText"] is True
     assert rendered["miniPreviewCount"] == 0
-    if rendered["expandedGraphEqEditors"]:
-        assert rendered["editorRect"]["width"] > 700
-        assert rendered["graphHostRect"]["width"] > 700
-        assert rendered["graphHostRect"]["height"] > 340
-        assert rendered["dssspRootCount"] == 1
-        assert rendered["dssspSvgCount"] == 1
-        assert rendered["legacyEqUiCount"] == 0
+    assert rendered["collapsedSummaryCount"] == 0
+    assert rendered["toggleCount"] == 0
+    assert rendered["editorRect"]["width"] > 680
+    assert rendered["graphHostRect"]["width"] > 680
+    assert rendered["graphHostRect"]["height"] > 320
+    assert rendered["dssspRootCount"] == 3
+    assert rendered["dssspSvgCount"] == 3
+    assert rendered["legacyEqUiCount"] == 0
     assert rendered["stepButtonCount"] >= 6
     for button in rendered["stepButtons"]:
-        assert button["width"] >= 40
-        assert button["height"] >= 38
+        assert button["width"] >= 32
+        assert button["height"] >= 34
     assert rendered["mainPanelRect"]["right"] <= rendered["rightPanelRect"]["x"]
     assert rendered["rightPanelRect"]["width"] >= 280
 
@@ -221,11 +222,13 @@ requestAnimationFrame(openGraphEqFixture);
 
     assert rendered["viewportWidth"] == 1280
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
-    assert rendered["expandedGraphEqEditors"] == 1
-    assert rendered["graphHostRect"]["width"] > 640
-    assert rendered["graphHostRect"]["height"] > 340
-    assert rendered["dssspRootCount"] == 1
-    assert rendered["dssspSvgCount"] == 1
+    assert rendered["expandedGraphEqEditors"] == 3
+    assert rendered["collapsedSummaryCount"] == 0
+    assert rendered["toggleCount"] == 0
+    assert rendered["graphHostRect"]["width"] > 600
+    assert rendered["graphHostRect"]["height"] > 320
+    assert rendered["dssspRootCount"] == 3
+    assert rendered["dssspSvgCount"] == 3
     assert rendered["legacyEqUiCount"] == 0
     assert rendered["rightPanelRect"]["width"] >= 280
 
@@ -844,9 +847,23 @@ class _CdpPage:
   const rightPanel = document.querySelector(".right-stack-panel");
   const sections = Array.from(document.querySelectorAll(".graph-eq-layer-card-section"));
   const expandedEditors = Array.from(document.querySelectorAll(".graph-eq-inline-editor.expanded"));
-  const editor = expandedEditors[0] || null;
+  const editor = expandedEditors.find(
+    (candidate) => candidate.getBoundingClientRect().width > 0
+  ) || null;
   const graphHost = editor?.querySelector(".graph-eq-dsssp-host") || null;
-  const missingGraphEqNode = !mainPanel || !rightPanel || sections.length !== 3;
+  const dssspRoots = document.querySelectorAll('[data-graph-eq-dsssp-root="true"]');
+  const dssspSvgs = document.querySelectorAll(".graph-eq-dsssp-surface svg");
+  const missingGraphEqNode = (
+    !mainPanel ||
+    !rightPanel ||
+    sections.length !== 3 ||
+    expandedEditors.length !== 3 ||
+    !editor ||
+    !graphHost ||
+    graphHost.getBoundingClientRect().width <= 0 ||
+    dssspRoots.length !== 3 ||
+    dssspSvgs.length !== 3
+  );
   if (missingGraphEqNode) {
     return {
       ready: false,
@@ -856,6 +873,7 @@ class _CdpPage:
     };
   }
   const stepButtons = Array.from(document.querySelectorAll(".graph-eq-step-button"))
+    .filter((button) => button.getBoundingClientRect().width > 0)
     .map((button) => {
       const bounds = button.getBoundingClientRect();
       return {
@@ -872,6 +890,8 @@ class _CdpPage:
     inlineGraphEqSections: sections.length,
     expandedGraphEqEditors: expandedEditors.length,
     miniPreviewCount: document.querySelectorAll(".graph-eq-mini-preview").length,
+    collapsedSummaryCount: document.querySelectorAll(".graph-eq-collapsed-summary").length,
+    toggleCount: document.querySelectorAll("[data-graph-eq-toggle]").length,
     visibleText: (
       document.body.innerText.includes("Graph EQ") &&
       document.body.innerText.includes("Freq") &&
@@ -882,8 +902,8 @@ class _CdpPage:
     ),
     editorRect: editor ? rect(editor) : null,
     graphHostRect: graphHost ? rect(graphHost) : null,
-    dssspRootCount: document.querySelectorAll('[data-graph-eq-dsssp-root="true"]').length,
-    dssspSvgCount: document.querySelectorAll(".graph-eq-dsssp-surface svg").length,
+    dssspRootCount: dssspRoots.length,
+    dssspSvgCount: dssspSvgs.length,
     legacyEqUiCount: document.querySelectorAll(legacyEqTag).length,
     mainPanelRect: rect(mainPanel),
     rightPanelRect: rect(rightPanel),

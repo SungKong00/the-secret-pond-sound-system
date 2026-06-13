@@ -6243,6 +6243,7 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
   if (!selected) {
     return `
       <div class="graph-eq-selected-inspector empty" data-graph-eq-selected-inspector>
+        <h5>Selected Band <small lang="ko">선택한 점</small></h5>
         <p>점을 추가하세요</p>
       </div>
     `;
@@ -6257,8 +6258,10 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
       <div class="graph-eq-selected-inspector-head">
         <span class="graph-eq-band-number" aria-hidden="true">${pointIndex + 1}</span>
         <div>
-          <h5>Band ${pointIndex + 1} <small lang="ko">선택한 점</small></h5>
-          <p data-graph-eq-selected-summary>${graphEqPointTypes[selected.type]} · ${Math.round(selected.frequency_hz)} Hz</p>
+          <h5>Selected Band ${pointIndex + 1} <small lang="ko">선택한 점</small></h5>
+          <p data-graph-eq-selected-summary>
+            ${graphEqPointTypes[selected.type]} · ${graphEqFrequencyLabel(selected.frequency_hz)} · ${graphEqGainLabel(selected.gain_db)}
+          </p>
         </div>
         <button
           class="button danger graph-eq-row-delete"
@@ -6334,39 +6337,43 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
   const selectedIndex = Math.max(0, eq.points.findIndex((point) => point.id === selected?.id));
   return `
     <div class="graph-eq-inline-controls" aria-label="Selected Graph EQ point">
-      <div class="graph-eq-inline-controls-head">
-        <div>
-          <h5>Bands <small lang="ko">점 목록</small></h5>
-          <p>${eq.points.length}/${graphEqMaxPoints} Points</p>
+      <div class="graph-eq-workflow">
+        ${renderInlineGraphEqSelectedInspector(layerId, selected, disabled, eq.points.length, selectedIndex)}
+        <div class="graph-eq-band-manager">
+          <div class="graph-eq-inline-controls-head">
+            <div>
+              <h5>Bands <small lang="ko">점 목록</small></h5>
+              <p>${eq.points.length}/${graphEqMaxPoints} Bands</p>
+            </div>
+            <button
+              class="button"
+              type="button"
+              data-graph-eq-action="add-point"
+              ${disabled || eq.points.length >= graphEqMaxPoints ? "disabled" : ""}
+            >
+              + Band
+            </button>
+          </div>
+          <div class="graph-eq-band-list">
+            ${eq.points.map((point, index) => renderInlineGraphEqPointRow(
+              layerId,
+              point,
+              selected?.id === point.id,
+              disabled,
+              index,
+            )).join("")}
+          </div>
+          <div class="graph-eq-inline-actions">
+            <button
+              class="button"
+              type="button"
+              data-graph-eq-action="reset-layer"
+              ${disabled ? "disabled" : ""}
+            >
+              Layer Reset
+            </button>
+          </div>
         </div>
-        <button
-          class="button"
-          type="button"
-          data-graph-eq-action="add-point"
-          ${disabled || eq.points.length >= graphEqMaxPoints ? "disabled" : ""}
-        >
-          + Point
-        </button>
-      </div>
-      <div class="graph-eq-band-list">
-        ${eq.points.map((point, index) => renderInlineGraphEqPointRow(
-          layerId,
-          point,
-          selected?.id === point.id,
-          disabled,
-          index,
-        )).join("")}
-      </div>
-      ${renderInlineGraphEqSelectedInspector(layerId, selected, disabled, eq.points.length, selectedIndex)}
-      <div class="graph-eq-inline-actions">
-        <button
-          class="button"
-          type="button"
-          data-graph-eq-action="reset-layer"
-          ${disabled ? "disabled" : ""}
-        >
-          Layer Reset
-        </button>
       </div>
     </div>
   `;
@@ -6391,33 +6398,25 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
 
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const expanded = expandedGraphEqLayerId() === layerId;
   const liveStatus = currentPlaybackApplyMode() === "live"
     ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
     : null;
   return `
     <section
-      class="graph-eq-layer-card-section ${expanded ? "expanded" : "collapsed"}"
+      class="graph-eq-layer-card-section expanded always-open"
       data-graph-eq-layer-card="${escapeHtml(layerId)}"
     >
       <div class="graph-eq-layer-card-head">
         <div>
           <h4>Graph EQ <small lang="ko">곡선 EQ</small></h4>
           <p class="graph-eq-layer-card-status">
-            ${liveStatus?.label || (expanded ? "편집 중" : "현재 곡선")}
+            ${liveStatus?.label || "상시 표시"}
           </p>
         </div>
-        <button
-          class="button graph-eq-edit-button"
-          type="button"
-          data-graph-eq-toggle="${escapeHtml(layerId)}"
-          aria-expanded="${expanded ? "true" : "false"}"
-        >
-          ${expanded ? "Close" : "Edit"}
-        </button>
+        <div class="graph-eq-layer-card-meta">${eq.points.length}/${graphEqMaxPoints} Bands</div>
       </div>
       ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
-      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqCollapsedSummary(eq)}
+      ${renderExpandedGraphEqEditorShell(layerId, eq)}
     </section>
   `;
 };

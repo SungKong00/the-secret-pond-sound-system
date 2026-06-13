@@ -2755,6 +2755,19 @@ section.control-group .control-group-head h4::before {
   gap: 10px;
 }
 
+.graph-eq-layer-card-meta {
+  align-self: start;
+  padding: 4px 7px;
+  border: 1px solid rgba(223, 213, 191, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 .graph-eq-layer-card-head h4,
 .graph-eq-inline-controls-head h5 {
   margin: 0;
@@ -2828,7 +2841,7 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-dsssp-host {
   min-width: 0;
-  min-height: 350px;
+  min-height: 328px;
   overflow: hidden;
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
@@ -2838,7 +2851,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-root,
 .graph-eq-dsssp-surface {
   width: 100%;
-  min-height: 350px;
+  min-height: 328px;
 }
 
 .graph-eq-dsssp-surface {
@@ -2849,7 +2862,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-surface svg {
   display: block;
   width: 100%;
-  min-height: 320px;
+  min-height: 298px;
 }
 
 .graph-eq-inline-controls {
@@ -2860,18 +2873,38 @@ section.control-group .control-group-head h4::before {
   padding: 10px;
 }
 
+.graph-eq-workflow {
+  display: grid;
+  grid-template-columns: minmax(330px, 1.35fr) minmax(240px, 0.85fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.graph-eq-band-manager {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 1px solid rgba(223, 213, 191, 0.1);
+}
+
 .graph-eq-inline-controls-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
 .graph-eq-band-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 6px;
+}
+
+.graph-eq-band-manager .graph-eq-band-list {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .graph-eq-point-row {
@@ -2881,8 +2914,8 @@ section.control-group .control-group-head h4::before {
   gap: 8px;
   align-items: center;
   width: 100%;
-  min-height: 42px;
-  padding: 6px 8px;
+  min-height: 38px;
+  padding: 6px 7px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.025);
@@ -2905,8 +2938,8 @@ section.control-group .control-group-head h4::before {
 .graph-eq-band-number {
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 1px solid rgba(223, 213, 191, 0.18);
   border-radius: 999px;
   background: rgba(226, 184, 79, 0.12);
@@ -2942,9 +2975,9 @@ section.control-group .control-group-head h4::before {
 .graph-eq-selected-inspector {
   display: grid;
   gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(223, 213, 191, 0.1);
+  min-width: 0;
+  margin: 0;
+  padding-right: 2px;
 }
 
 .graph-eq-selected-inspector.empty {
@@ -2962,17 +2995,22 @@ section.control-group .control-group-head h4::before {
 .graph-eq-selected-inspector-head h5 {
   margin: 0;
   font-size: 12px;
+  line-height: 1.15;
 }
 
 .graph-eq-selected-inspector-head p {
   margin: 2px 0 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .graph-eq-selected-fields {
   display: grid;
-  grid-template-columns: 1.1fr repeat(3, minmax(96px, 1fr));
+  grid-template-columns: minmax(132px, 1.1fr) minmax(126px, 1fr);
   gap: 8px;
 }
 
@@ -2991,19 +3029,33 @@ section.control-group .control-group-head h4::before {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.32);
   color: var(--text);
-  padding: 7px 8px;
+  padding: 6px 8px;
 }
 
 .graph-eq-row-delete {
   min-width: 0;
+  padding: 6px 10px;
 }
 
 .graph-eq-inline-actions {
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .graph-eq-inline-actions .button {
   width: 100%;
+  min-height: 34px;
+}
+
+.graph-eq-inline-controls .graph-eq-stepper {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 6px;
+}
+
+.graph-eq-inline-controls .graph-eq-step-button {
+  min-width: 32px;
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 15px;
 }
 
 .graph-eq-panel {
@@ -3594,13 +3646,38 @@ input[type="checkbox"] {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .graph-eq-workflow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .graph-eq-dsssp-host {
+    min-height: 168px;
+    overflow: hidden;
+  }
+
+  .graph-eq-dsssp-root,
+  .graph-eq-dsssp-surface {
+    width: 100%;
+    min-height: 166px;
+  }
+
+  .graph-eq-dsssp-surface svg {
+    min-height: 146px;
+  }
+
+  .graph-eq-band-manager {
+    padding-left: 0;
+    padding-top: 10px;
+    border-top: 1px solid rgba(223, 213, 191, 0.1);
+    border-left: 0;
+  }
+
   .graph-eq-selected-inspector-head {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .graph-eq-selected-inspector-head .graph-eq-row-delete {
-    grid-column: 1 / -1;
-    width: 100%;
+    width: auto;
   }
 
   .capture-gate-switch {
