@@ -31,16 +31,15 @@ def test_operator_guide_covers_required_operations() -> None:
         "data/sources/voice/stack/*.wav",
         "Source Library",
         "http://127.0.0.1:8000",
-        "Arm",
-        "Disarm",
+        "녹음 준비",
         "Spacebar",
         "browser blur",
-        "Arm is unavailable while already armed",
-        "Disarm is unavailable when already disarmed",
+        "`녹음 준비` is unavailable",
+        "Turning `녹음 준비` off disables capture",
         "Apply and Restart",
-        "Applying...",
+        "적용 중…",
         "Unsaved audio changes",
-        "Restart Output",
+        "다시 재생",
         "Soft",
         "Misty",
         "Dense",
@@ -76,12 +75,12 @@ def test_operator_guide_covers_required_operations() -> None:
         "rebuilds `data/rendered/layers/voice_playback.wav`",
         "verify `secret-pond doctor` and dashboard warnings",
         "does not prove microphone permission",
-        "Sync Live",
-        "Sync Polling",
-        "Error None",
-        "Error Active",
+        "실시간 동기화",
+        "폴링 동기화",
+        "오류 없음",
+        "오류 있음",
         "Spacebar capture is ready",
-        "Hold Space to Record",
+        "스페이스바를 누르고 있는 동안 녹음",
         "active recording",
         "key-repeat start requests",
         "Graph EQ workspace tab",
@@ -159,12 +158,12 @@ def test_readme_links_operator_docs() -> None:
     assert "secret-pond rebuild-test-library" in readme
     assert "data/sources/low/*.wav" in readme
     assert "Source Library" in readme
-    assert "Restart Output" in readme
+    assert "다시 재생" in readme
     assert "Soft" in readme
     assert "Misty" in readme
     assert "Dense" in readme
     assert "Clearer Voice" in readme
-    assert "Unsaved audio changes" in readme
+    assert "저장 안 된 오디오 변경" in readme
     assert "min/max duration" in readme
     assert "Voice loop" in readme
     assert "loop length" in readme

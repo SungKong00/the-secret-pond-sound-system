@@ -4143,12 +4143,13 @@ def test_live_status_text_uses_korean_facing_wording() -> None:
     assert "Live mode ·" not in app_script
     assert "Live transition ·" not in app_script
     assert "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다." in app_script
+    assert "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다." in app_script
+    assert "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다." in app_script
     assert (
-        "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다."
+        "Live 모드 · Voice Stack은 준비되면 전환되고 "
+        "Low/Mid 소스는 Apply and Restart 후 반영됩니다."
         in app_script
     )
-    assert "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다." in app_script
-    assert "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다." in app_script
     assert "Live 전환 · 새 녹음은 준비되면 Low/Mid/Voice가 함께 부드럽게 전환됩니다." in app_script
 
 
@@ -4701,11 +4702,11 @@ assert.strictEqual(document.getElementById("applyButton").disabled, true);
 assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), false);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다.",
+  "Live 모드에서도 출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -4822,11 +4823,12 @@ assert.strictEqual(document.getElementById("applyButton").disabled, false);
 assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), true);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "Live 모드에서도 소스 파일 선택은 Apply and Restart 후 반영됩니다.",
+  "Live 모드에서 Voice Stack 소스는 준비되면 전환됩니다. "
+    + "Low/Mid 소스는 Apply and Restart 후 반영됩니다.",
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · Voice Stack은 준비되면 전환되고 Low/Mid 소스는 Apply and Restart 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,

@@ -870,6 +870,64 @@ assert.deepStrictEqual(
     )
 
 
+def test_live_graph_eq_tick_timer_survives_repeated_same_pending_state() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  scheduleLiveGraphEqTick,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { scheduleLiveGraphEqTick, state } = globalThis.__secretPond;
+const timers = [];
+const cleared = [];
+window.setTimeout = (callback, delay) => {
+  timers.push({ callback, delay });
+  return `timer-${timers.length}`;
+};
+window.clearTimeout = (timerId) => {
+  cleared.push(timerId);
+};
+state.snapshot = {
+  settings: { active: { playback: { apply_mode: "live" } } },
+  playback: { apply_mode: "live" },
+};
+
+scheduleLiveGraphEqTick({
+  pending: true,
+  layer_id: "mid",
+  request_id: 7,
+  apply_delay_ms: 1000,
+});
+scheduleLiveGraphEqTick({
+  pending: true,
+  layer_id: "mid",
+  request_id: 7,
+  apply_delay_ms: 1000,
+});
+
+assert.strictEqual(timers.length, 1);
+assert.deepStrictEqual(cleared, []);
+
+scheduleLiveGraphEqTick({
+  pending: true,
+  layer_id: "mid",
+  request_id: 8,
+  apply_delay_ms: 1000,
+});
+
+assert.strictEqual(timers.length, 2);
+assert.deepStrictEqual(cleared, ["timer-1"]);
+""",
+    )
+
+
 def test_graph_eq_mount_preservation_ignores_stale_clear_timer() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -1887,6 +1945,70 @@ def test_feedback_spinner_is_decorative_top_right_translucent_overlay() -> None:
     assert app_script.count('class="feedback-spinner" aria-hidden="true"') == 3
 
 
+def test_static_feedback_motion_honors_reduced_motion_preference() -> None:
+    styles = Path("src/secret_pond/web/static/styles.css").read_text(encoding="utf-8")
+
+    reduced_motion_rule = re.search(
+        r"@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{(?P<body>.*?)\n\}",
+        styles,
+        re.DOTALL,
+    )
+
+    assert reduced_motion_rule is not None
+    reduced_motion_body = reduced_motion_rule.group("body")
+    assert "animation-duration: 0.01ms !important;" in reduced_motion_body
+    assert "animation-iteration-count: 1 !important;" in reduced_motion_body
+    assert "transition-duration: 0.01ms !important;" in reduced_motion_body
+
+
+def test_decorative_canvas_stays_static_when_reduced_motion_is_preferred() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  drawCanvas,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { drawCanvas } = globalThis.__secretPond;
+let animationFrameCalls = 0;
+let strokeCalls = 0;
+const context = {
+  setTransform() {},
+  clearRect() {},
+  beginPath() {},
+  moveTo() {},
+  lineTo() {},
+  stroke() {
+    strokeCalls += 1;
+  },
+  set strokeStyle(_value) {},
+  set lineWidth(_value) {},
+};
+document.getElementById = (id) => {
+  if (id !== "pondCanvas") return null;
+  return { getContext: () => context };
+};
+window.innerWidth = 390;
+window.innerHeight = 844;
+window.devicePixelRatio = 1;
+window.matchMedia = (query) => ({ matches: query.includes("prefers-reduced-motion") });
+globalThis.requestAnimationFrame = () => {
+  animationFrameCalls += 1;
+};
+
+drawCanvas();
+
+assert.strictEqual(strokeCalls, 8);
+assert.strictEqual(animationFrameCalls, 0);
+""",
+    )
+
+
 def test_playback_apply_mode_panel_does_not_receive_feedback_pending_class() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
@@ -2403,12 +2525,12 @@ for (const [fieldName, nextDeviceId, expectedSummary] of [
   [
     "input_device_id",
     "mic-2",
-    "Live 모드 · 입력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+    "Live 모드 · 입력 장치는 System 패널에서 선택 즉시 적용됩니다.",
   ],
   [
     "output_device_id",
     "speaker-2",
-    "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.",
+    "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
   ],
 ]) {
   const draft = clone(activeSettings);

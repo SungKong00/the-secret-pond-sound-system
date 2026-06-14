@@ -1020,6 +1020,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "변경 적용" in apply_mode_panel
     assert "즉시 반영" in apply_mode_panel
     assert "안정 적용" in apply_mode_panel
+    assert "System 패널 즉시 적용: 입력/출력 장치" in apply_mode_panel
+    assert (
+        "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
+        not in apply_mode_panel
+    )
+    assert "Live 전환: Voice Stack 소스 선택" in apply_mode_panel
+    assert "Apply and Restart: 루프 길이, 샘플레이트, Low/Mid 소스 선택" in apply_mode_panel
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
     assert '<small lang="ko">재생</small>' in playback_panel
@@ -1479,8 +1486,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renameSourceFile" in script.text
     assert "previewVoiceRaw" in script.text
     assert "addVoiceRawToStack" in script.text
-    assert "Preview" in script.text
-    assert "Add to Stack" in script.text
+    assert "미리듣기" in script.text
+    assert "스택에 추가" in script.text
     assert 'api("/api/voice-raw/preview"' in script.text
     assert 'api("/api/voice-stack/add-source"' in script.text
     assert "recoverSourceMutationError" in script.text
@@ -2068,6 +2075,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert 'deriveControlRequestState("/api/recording/start").skip' in start_from_space_body
     assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
+    assert "releaseButtonFocusForSpace" not in start_from_space_body
     assert "if (event.repeat) return;" in start_from_space_body
     assert "state.spaceRecording = true" in start_from_space_body
 
@@ -3991,7 +3999,8 @@ assert.strictEqual(runtimeChange.applyDisabled, true);
 assert.strictEqual(runtimeChange.applyAttention, false);
 assert.strictEqual(
   runtimeChange.applyTitle,
-  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+  "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. "
+    + "입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 
 const recordingStopBusy = derive({{
@@ -7487,21 +7496,22 @@ assert.strictEqual(helpers.sourceFileControlFromEventTarget(unrelatedTarget), nu
 assert.strictEqual(helpers.sourceFileControlFromEventTarget(null), null);
 
 const selectableFileRow = {{
+  tagName: "BUTTON",
   dataset: {{ sourcePick: "low", sourcePath: "data/sources/low/next-low.wav" }},
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? this : null;
   }},
 }};
 const nestedFileName = {{
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? selectableFileRow : null;
   }},
 }};
 const nestedButton = {{
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return this;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return this;
     return selector === "[data-source-pick]" ? selectableFileRow : null;
   }},
 }};
@@ -7517,9 +7527,10 @@ assert.strictEqual(helpers.selectSourceFileFromEventTarget(nestedButton), false)
 assert.strictEqual(helpers.state.sourceCardSelections.low, undefined);
 
 const voiceRawFileRow = {{
+  tagName: "BUTTON",
   dataset: {{ sourcePick: "voice_raw", sourcePath: "data/sources/voice/raw/VR0610.wav" }},
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? this : null;
   }},
 }};
@@ -7889,8 +7900,9 @@ assert.strictEqual(vrHtml.includes("Add to Stack"), false);
 assert.strictEqual(vrHtml.includes("data-voice-raw-preview"), false);
 assert.strictEqual(vrHtml.includes("data-voice-raw-add"), false);
 assert.strictEqual(vrHtml.includes('data-source-pick="voice_raw"'), true);
-assert.strictEqual(vrHtml.includes('role="button"'), true);
-assert.strictEqual(vrHtml.includes('tabindex="0"'), true);
+assert.strictEqual(vrHtml.includes('class="source-file-pick-button source-file-title"'), true);
+assert.strictEqual(vrHtml.includes('role="button"'), false);
+assert.strictEqual(vrHtml.includes('tabindex="0"'), false);
 assert.strictEqual(vrHtml.includes("source-file-row voice-raw selected"), true);
 assert.strictEqual(vrHtml.includes("적용 대기"), false);
 assert.strictEqual(vrHtml.includes("적용 됨"), false);
@@ -7917,8 +7929,8 @@ assert.strictEqual(vrCard.innerHTML.includes("source-category-actions"), true);
 assert.strictEqual(vrCard.innerHTML.includes("data-source-confirm-selection"), false);
 assert.strictEqual(vrCard.innerHTML.includes("보관용"), false);
 assert.strictEqual(vrCard.innerHTML.includes("적용 대기"), false);
-assert.strictEqual(vrCard.innerHTML.includes(">Preview</button>"), true);
-assert.strictEqual(vrCard.innerHTML.includes(">Add to Stack</button>"), true);
+assert.strictEqual(vrCard.innerHTML.includes(">미리듣기</button>"), true);
+assert.strictEqual(vrCard.innerHTML.includes(">스택에 추가</button>"), true);
 assert.strictEqual(
   vrCard.innerHTML.includes(
     'data-voice-raw-preview-selected="data/sources/voice/raw/VR0610_213112.wav"',
@@ -7950,8 +7962,8 @@ const busyVrCard = helpers.sourceCategoryCard({{
     }},
   ],
 }});
-assert.strictEqual(busyVrCard.innerHTML.includes("Preview</button>"), true);
-assert.strictEqual(busyVrCard.innerHTML.includes("Add to Stack</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("미리듣기</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("스택에 추가</button>"), true);
 assert.strictEqual(busyVrCard.innerHTML.includes("disabled"), true);
 assert.strictEqual(busyVrCard.innerHTML.includes("소스 파일 작업이 끝날 때까지 기다리세요."), true);
 
@@ -9466,7 +9478,8 @@ assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 assert.strictEqual(elements.resetButton.disabled, false);
 assert.strictEqual(
   elements.applyButton.title,
-  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+  "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. "
+    + "입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
@@ -10790,12 +10803,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.snapshot.armed = true;
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await globalThis.__secretPondTest.startFromSpace(repeatSpaceEvent);
-  assert.strictEqual(repeatSpaceEvent.defaultPrevented, true);
-  assert.strictEqual(repeatButtonBlurred, true);
+  assert.strictEqual(repeatSpaceEvent.defaultPrevented, false);
+  assert.strictEqual(repeatButtonBlurred, false);
   assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
   assert.strictEqual(unexpectedStartPath, null);
 
-  for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) {{
+  for (const tagName of ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "SUMMARY"]) {{
     const focusedControlSpaceEvent = {{
       code: "Space",
       repeat: true,
@@ -12130,7 +12143,7 @@ def test_api_state_reports_live_playback_apply_capabilities(tmp_path: Path) -> N
         "volume_applies_immediately": True,
         "mute_applies_immediately": True,
         "seek_applies_immediately": True,
-        "voice_stack_transition_applies_immediately": False,
+        "voice_stack_transition_applies_immediately": True,
         "voice_raw_preview_treatment_applies_immediately": True,
         "eq_applies_immediately": True,
         "excluded_apply_flow": [

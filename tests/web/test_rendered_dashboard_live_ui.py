@@ -67,7 +67,9 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
     assert rendered["stablePressed"] == "false"
     assert rendered["liveDetailsText"] == (
         "적용 범위 즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리 "
-        "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
+        "System 패널 즉시 적용: 입력/출력 장치 "
+        "Live 전환: Voice Stack 소스 선택 "
+        "Apply and Restart: 루프 길이, 샘플레이트, Low/Mid 소스 선택"
     )
     assert rendered["seekDisabled"] is False
     assert rendered["seekMax"] == "56"
@@ -696,7 +698,7 @@ def _live_state_payload() -> dict[str, Any]:
                 "volume_applies_immediately": True,
                 "mute_applies_immediately": True,
                 "seek_applies_immediately": True,
-                "voice_stack_transition_applies_immediately": False,
+                "voice_stack_transition_applies_immediately": True,
                 "voice_raw_preview_treatment_applies_immediately": True,
                 "eq_applies_immediately": True,
                 "excluded_apply_flow": [

@@ -2093,14 +2093,11 @@ select:disabled {
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.11);
-  cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease;
 }
 
-.source-file-row:hover,
-.source-file-row:focus-visible {
+.source-file-row:hover {
   border-color: rgba(214, 168, 77, 0.34);
-  outline: none;
 }
 
 .source-file-row.pending {
@@ -2148,7 +2145,7 @@ select:disabled {
 
 .source-file-name-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 6px;
   align-items: center;
 }
@@ -2159,12 +2156,34 @@ select:disabled {
   gap: 4px;
 }
 
+.source-file-pick-button {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.source-file-pick-button:hover strong {
+  color: #f8e7bf;
+}
+
+.source-file-pick-button:focus-visible {
+  outline: 2px solid rgba(214, 168, 77, 0.62);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .source-file-title strong {
   flex: 0 1 auto;
 }
 
-.source-file-title .icon-mini-button {
-  flex: 0 0 24px;
+.source-file-name-line .icon-mini-button {
+  justify-self: end;
 }
 
 .source-file-meta-line {
@@ -2750,6 +2769,17 @@ section.control-group .control-group-head h4::before {
 @keyframes feedback-spinner-rotate {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -3962,6 +3992,18 @@ input[type="checkbox"] {
     grid-template-areas: none;
   }
 
+  .operation-panel {
+    order: 1;
+  }
+
+  .right-stack-panel {
+    order: 2;
+  }
+
+  .main-workspace-panel {
+    order: 3;
+  }
+
   .record-panel,
   .operation-panel,
   .operation-card,
@@ -4020,6 +4062,28 @@ input[type="checkbox"] {
       "voice"
       "input"
       "space";
+  }
+
+  .source-category-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .source-category-actions .mini-button,
+  .source-file-pick-button,
+  .source-file-row .source-file-delete-button,
+  .source-file-name-line .icon-mini-button {
+    min-height: 44px;
+  }
+
+  .source-file-name-line .icon-mini-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .source-file-row .source-file-delete-button {
+    min-width: 44px;
+    padding-inline: 10px;
   }
 
   .workspace-tabs {

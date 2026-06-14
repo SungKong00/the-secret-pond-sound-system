@@ -130,6 +130,7 @@ const state = {
 };
 
 let liveGraphEqTickTimer = null;
+let liveGraphEqTickTimerKey = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -2592,6 +2593,7 @@ const markLiveGraphEqTickTransportFailure = (error, requestSnapshot = null) => {
   if (liveGraphEqTickTimer) {
     (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
     liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
   }
   state.snapshot.playback.live_graph_eq = failed;
   updateLiveApplyFeedbackForLiveGraphEqState(failed);
@@ -2604,14 +2606,28 @@ const markLiveGraphEqTickTransportFailure = (error, requestSnapshot = null) => {
 };
 
 const scheduleLiveGraphEqTick = (liveGraphEq) => {
+  const layerId = liveGraphEqRequestLayerId(liveGraphEq);
+  const requestId = liveGraphEqRequestId(liveGraphEq);
+  const timerKey = layerId && requestId !== null ? `${layerId}:${requestId}` : null;
+  if (
+    liveGraphEqTickTimer &&
+    liveGraphEqTickTimerKey === timerKey &&
+    currentPlaybackApplyMode() === "live" &&
+    liveGraphEq?.pending
+  ) {
+    return;
+  }
   if (liveGraphEqTickTimer) {
     (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
     liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
   }
   if (currentPlaybackApplyMode() !== "live" || !liveGraphEq?.pending) return;
   const delayMs = Math.max(100, Number(liveGraphEq.apply_delay_ms || 1000));
+  liveGraphEqTickTimerKey = timerKey;
   liveGraphEqTickTimer = (window.setTimeout || setTimeout)(async () => {
     liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
     await control("/api/playback/live-graph-eq/tick", { syncDraft: false }).catch(() => {});
   }, delayMs);
 };
@@ -3008,6 +3024,9 @@ const deriveSettingsActionState = ({
   const liveOutputDeviceApplyRequired = liveOutputDeviceApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const liveSourceFileSelectionApplyRequired = liveSourceFileSelectionApplyRequiredChange(snapshot);
+  const liveSourceFileSelectionApplyTitle = liveVoiceStackSourceSelectionOnlyChange(snapshot)
+    ? "Live 모드에서 Voice Stack 소스는 준비되면 전환됩니다. Apply and Restart로 확정할 수 있습니다."
+    : "Live 모드에서 Voice Stack 소스는 준비되면 전환됩니다. Low/Mid 소스는 Apply and Restart 후 반영됩니다.";
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetParticipantsBusy
@@ -3031,15 +3050,15 @@ const deriveSettingsActionState = ({
                 : liveChannelCountApplyRequired
                   ? "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다."
                 : liveInputDeviceApplyRequired
-                  ? "Live 모드에서도 입력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 입력 장치는 System 패널에서 선택 즉시 적용됩니다."
                 : liveOutputDeviceApplyRequired
-                  ? "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 출력 장치는 System 패널에서 선택 즉시 적용됩니다."
                 : runtimeConfigChanged
-                  ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                  ? "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. 입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다."
                   : liveLoopLengthApplyRequired
                     ? "Live 모드에서도 루프 길이는 Apply and Restart 후 반영됩니다."
                   : liveSourceFileSelectionApplyRequired
-                    ? "Live 모드에서도 소스 파일 선택은 Apply and Restart 후 반영됩니다."
+                    ? liveSourceFileSelectionApplyTitle
                   : canApplyRenderedCache
                     ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
                   : !pendingChanges
@@ -3264,6 +3283,21 @@ const liveOutputDeviceApplyRequiredChange = (snapshot = state.snapshot) => {
 const liveSourceFileSelectionApplyRequiredChange = (snapshot = state.snapshot) => {
   const live = livePlaybackFeatures(snapshot);
   return Boolean(live.enabled && hasSourceFileChanges(snapshot));
+};
+
+const changedSourcePathFields = (snapshot = state.snapshot) => {
+  const activeSources = snapshot?.settings?.active?.sources || {};
+  const draftSources = state.draft?.sources || snapshot?.settings?.draft?.sources || {};
+  return ["low_path", "mid_path", "voice_raw_path", "voice_stack_path"].filter(
+    (fieldName) => activeSources[fieldName] !== draftSources[fieldName],
+  );
+};
+
+const liveVoiceStackSourceSelectionOnlyChange = (snapshot = state.snapshot) => {
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled) return false;
+  const fields = changedSourcePathFields(snapshot);
+  return fields.length === 1 && fields[0] === "voice_stack_path";
 };
 
 const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
@@ -3769,16 +3803,19 @@ const outputControlSummaryText = (
     return "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveInputDeviceApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 입력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 입력 장치는 System 패널에서 선택 즉시 적용됩니다.";
   }
   if (liveOutputDeviceApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다.";
   }
   if (liveLoopLengthApplyRequiredChange(snapshot)) {
     return "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveSourceFileSelectionApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다.";
+    if (liveVoiceStackSourceSelectionOnlyChange(snapshot)) {
+      return "Live 모드 · Voice Stack 소스는 준비되면 전환됩니다.";
+    }
+    return "Live 모드 · Voice Stack은 준비되면 전환되고 Low/Mid 소스는 Apply and Restart 후 반영됩니다.";
   }
   if (pendingChangeState.pendingChanges) {
     return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
@@ -4414,7 +4451,7 @@ const sourceLibraryInteractiveControlSelector = [
 const sourceFileControlFromEventTarget = (target) =>
   target?.closest?.("[data-source-pick]") || null;
 
-const sourceFileSelectionControlSelector = "button,input,select,textarea";
+const sourceFileSelectionControlSelector = "button:not([data-source-pick]),input,select,textarea";
 
 const selectSourceFileFromEventTarget = (target) => {
   if (target?.closest?.(sourceFileSelectionControlSelector)) return false;
@@ -4630,14 +4667,14 @@ const sourceCategoryVoiceRawActionsMarkup = (category) => {
         data-voice-raw-preview-selected="${escapeHtml(selectedPathValue)}"
         title="${escapeHtml(action.previewTitle)}"
         ${action.previewDisabled ? " disabled" : ""}
-      >Preview</button>
+      >미리듣기</button>
       <button
         class="mini-button"
         type="button"
         data-voice-raw-add-selected="${escapeHtml(selectedPathValue)}"
         title="${escapeHtml(action.addTitle)}"
         ${action.addDisabled ? " disabled" : ""}
-      >Add to Stack</button>
+      >스택에 추가</button>
     </div>
   `;
 };
@@ -4753,6 +4790,13 @@ const sourceFileRows = (category) => {
     const modifiedDatetime = file.modified_at
       ? ` datetime="${escapeHtml(file.modified_at)}"`
       : "";
+    const pickAttributes = `
+      data-source-pick="${escapeHtml(category.id)}"
+      data-source-path="${escapeHtml(file.path)}"
+    `;
+    const titleControl = selectable
+      ? `<button class="source-file-pick-button source-file-title" type="button" ${pickAttributes} aria-label="${escapeHtml(file.name)} 선택"><strong>${escapeHtml(file.name)}</strong></button>`
+      : `<span class="source-file-title"><strong>${escapeHtml(file.name)}</strong></span>`;
     const renameControls = renaming ? `
         <div class="source-rename-row">
           <input
@@ -4781,18 +4825,16 @@ const sourceFileRows = (category) => {
         </div>
       ` : `
         <div class="source-file-name-line">
-          <span class="source-file-title">
-            <strong>${escapeHtml(file.name)}</strong>
-            <button
-              class="icon-mini-button"
-              type="button"
-              data-source-rename="${escapeHtml(category.id)}"
-              data-source-path="${escapeHtml(file.path)}"
-              aria-label="${escapeHtml(file.name)} 파일명 수정"
-              title="파일명 수정"
-              ${sourceCommandBlocked() ? " disabled" : ""}
-            >✎</button>
-          </span>
+          ${titleControl}
+          <button
+            class="icon-mini-button"
+            type="button"
+            data-source-rename="${escapeHtml(category.id)}"
+            data-source-path="${escapeHtml(file.path)}"
+            aria-label="${escapeHtml(file.name)} 파일명 수정"
+            title="파일명 수정"
+            ${sourceCommandBlocked() ? " disabled" : ""}
+          >✎</button>
           <time class="source-file-date"${modifiedDatetime}>${escapeHtml(shortModifiedAt)}</time>
           ${deleteButton}
         </div>
@@ -4809,18 +4851,9 @@ const sourceFileRows = (category) => {
       confirmable && file.active && !file.applied ? "pending" : "",
       confirmable && file.applied ? "applied" : "",
     ].filter(Boolean).join(" ");
-    const selectionAttributes = selectable
-      ? `
-        role="button"
-        tabindex="0"
-        data-source-pick="${escapeHtml(category.id)}"
-        data-source-path="${escapeHtml(file.path)}"
-      `
-      : "";
     return `
       <div
         class="${rowClass}"
-        ${selectionAttributes}
       >
         <div class="source-file-main">
           ${renameControls}
@@ -7456,7 +7489,6 @@ const renderGraphEqEditor = (eq, layerId) => {
           data-graph-eq-point="${escapeHtml(point.id)}"
           style="left: ${(position.x * 100).toFixed(3)}%; top: ${(position.y * 100).toFixed(3)}%;"
           type="button"
-          role="button"
           aria-pressed="${selected ? "true" : "false"}"
           aria-label="${graphEqPointTypes[point.type]} ${Math.round(point.frequency_hz)} Hz"
         >
@@ -8893,19 +8925,11 @@ const changeDeviceFromEvent = (key, event) => {
 const shouldIgnoreSpace = () => {
   const element = document.activeElement;
   if (!element) return false;
-  return interactiveControlTags.has(element.tagName);
-};
-
-const releaseButtonFocusForSpace = () => {
-  const element = document.activeElement;
-  if (element?.tagName === "BUTTON") {
-    element.blur();
-  }
+  return deferredInteractiveControlTags.has(element.tagName);
 };
 
 const startFromSpace = async (event) => {
   if (event.code !== "Space" || shouldIgnoreSpace()) return;
-  releaseButtonFocusForSpace();
   event.preventDefault();
   if (event.repeat) return;
   if (deriveControlRequestState("/api/recording/start").skip) return;
@@ -8915,7 +8939,6 @@ const startFromSpace = async (event) => {
 
 const stopFromSpace = async (event) => {
   if (event.code !== "Space" || shouldIgnoreSpace()) return;
-  releaseButtonFocusForSpace();
   event.preventDefault();
   if (!state.spaceRecording && !state.snapshot?.is_recording) return;
   await requestRecordingStop();
@@ -9017,6 +9040,9 @@ const drawCanvas = () => {
   const canvas = $("pondCanvas");
   const context = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
+  const reduceMotion = Boolean(
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
+  );
   const resize = () => {
     canvas.width = Math.floor(window.innerWidth * ratio);
     canvas.height = Math.floor(window.innerHeight * ratio);
@@ -9026,8 +9052,7 @@ const drawCanvas = () => {
   resize();
 
   let frame = 0;
-  const draw = () => {
-    frame += 0.018;
+  const drawFrame = () => {
     context.clearRect(0, 0, window.innerWidth, window.innerHeight);
     const active = state.snapshot?.is_recording ? 1 : state.snapshot?.armed ? 0.55 : 0.25;
     const centerY = window.innerHeight * 0.54;
@@ -9047,6 +9072,11 @@ const drawCanvas = () => {
       }
       context.stroke();
     }
+  };
+  const draw = () => {
+    if (!reduceMotion) frame += 0.018;
+    drawFrame();
+    if (reduceMotion) return;
     requestAnimationFrame(draw);
   };
   draw();
@@ -9194,6 +9224,7 @@ const bindEvents = () => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const fileControl = sourceFileControlFromEventTarget(event.target);
     if (!fileControl) return;
+    if (fileControl.tagName === "BUTTON") return;
     event.preventDefault();
     selectSourceFileFromCard(fileControl.dataset.sourcePick, fileControl.dataset.sourcePath);
   });
