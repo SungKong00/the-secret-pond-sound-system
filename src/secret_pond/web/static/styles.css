@@ -3566,6 +3566,8 @@ label {
 .range-rail {
   display: grid;
   min-width: 0;
+  padding: 4px 0;
+  cursor: pointer;
 }
 
 .range-assist {
@@ -4091,6 +4093,7 @@ input[type="checkbox"] {
   }
 
   .capture-gate,
+  .layer-controls .filter-pair-grid,
   .filter-pair-grid,
   .eq-band-grid,
   .settings-preset-save,

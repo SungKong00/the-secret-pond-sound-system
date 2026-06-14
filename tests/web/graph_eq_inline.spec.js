@@ -998,7 +998,10 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
 
   const layout = await page.evaluate(() => {
     const card = document.querySelector('[data-graph-eq-layer-card="mid"]');
+    const layerCard = card?.closest(".layer-card");
     const workflow = card?.querySelector(".graph-eq-workflow");
+    const filterGrid = layerCard?.querySelector(".filter-group .filter-pair-grid");
+    const filterRails = Array.from(layerCard?.querySelectorAll(".filter-group .range-rail") || []);
     const deleteButton = card?.querySelector('[data-graph-eq-action="delete-point"]');
     const addButton = card?.querySelector('[data-graph-eq-action="add-point"]');
     const rect = (node) => {
@@ -1008,6 +1011,8 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
     return {
       hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 2,
       workflowColumns: workflow ? getComputedStyle(workflow).gridTemplateColumns : "",
+      filterColumns: filterGrid ? getComputedStyle(filterGrid).gridTemplateColumns : "",
+      filterRails: filterRails.map(rect),
       card: rect(card),
       deleteButton: rect(deleteButton),
       addButton: rect(addButton),
@@ -1016,6 +1021,10 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
 
   expect(layout.hasHorizontalOverflow).toBe(false);
   expect(layout.workflowColumns.split(" ").length).toBe(1);
+  expect(layout.filterColumns.split(" ").length).toBe(1);
+  for (const rail of layout.filterRails) {
+    expect(rail.width).toBeGreaterThan(240);
+  }
   expect(layout.card.left).toBeGreaterThanOrEqual(0);
   expect(layout.card.right).toBeLessThanOrEqual(390);
   expect(layout.deleteButton.width).toBeLessThan(96);
@@ -1193,18 +1202,19 @@ test("Filter Range slider stays mounted while dragging and saves after release",
 
   const filterGroup = firstLayerCard(page).locator(".filter-group");
   await filterGroup.scrollIntoViewIfNeeded();
+  const lowCutRail = filterGroup.locator(".range-rail").first();
   const lowCutSlider = filterGroup.locator('input[type="range"]').first();
   const lowCutValueInput = filterGroup.locator(".value-input").first();
   await expect(lowCutValueInput).toHaveValue("20");
 
-  const sliderBox = await viewportBox(lowCutSlider);
-  expect(sliderBox).not.toBeNull();
+  const railBox = await viewportBox(lowCutRail);
+  expect(railBox).not.toBeNull();
   const originalSlider = await lowCutSlider.elementHandle();
   expect(originalSlider).not.toBeNull();
 
-  await page.mouse.move(sliderBox.x + 2, sliderBox.y + sliderBox.height / 2);
+  await page.mouse.move(railBox.x + 2, railBox.y + 2);
   await page.mouse.down();
-  await page.mouse.move(sliderBox.x + sliderBox.width * 0.56, sliderBox.y + sliderBox.height / 2, { steps: 10 });
+  await page.mouse.move(railBox.x + railBox.width * 0.56, railBox.y + railBox.height + 60, { steps: 10 });
 
   await expect.poll(async () => Number(await lowCutValueInput.inputValue())).toBeGreaterThan(80);
   expect(await originalSlider.evaluate((node) => node.isConnected)).toBe(true);

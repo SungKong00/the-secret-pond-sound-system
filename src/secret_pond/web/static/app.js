@@ -8064,6 +8064,18 @@ const setRangeProgressFromSlider = (row, control, sliderValue, min, max) => {
   );
 };
 
+const rangeSliderValueFromPointer = (rail, rangeBounds, event) => {
+  const rect = rail?.getBoundingClientRect?.();
+  const clientX = Number(event?.clientX);
+  if (!rect || !Number.isFinite(rect.width) || rect.width <= 0) return null;
+  if (!Number.isFinite(clientX)) return null;
+  const min = Number(rangeBounds.min);
+  const max = Number(rangeBounds.max);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+  const normalized = clamp((clientX - rect.left) / rect.width, 0, 1);
+  return min + normalized * (max - min);
+};
+
 const boundedRange = (control, value, activeValue) => {
   const values = [Number(value), Number(activeValue)].filter((number) => Number.isFinite(number));
   return {
@@ -8189,12 +8201,14 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     </div>
   `;
   const input = row.querySelector("input");
+  const rangeRail = row.querySelector(".range-rail");
   const output = row.querySelector(".value");
   const valueInput = row.querySelector(".value-input");
   const positiveToggle = row.querySelector("[data-positive-toggle]");
   const nudgeDown = row.querySelector(".nudge-down");
   const nudgeUp = row.querySelector(".nudge-up");
   let currentValue = value;
+  let activeRangePointerId = null;
   const commitRangeInputOnChange = control.commitOn === "change";
   let lastPositiveValue =
     control.positiveToggle && normalizedTransitionSeconds(value) > 0
@@ -8251,6 +8265,49 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     });
     if (commit) onInput(numericValue);
   };
+  const pointerIdForEvent = (event) => (
+    event?.pointerId === undefined || event?.pointerId === null ? "mouse" : event.pointerId
+  );
+  const updateValueFromPointer = (event, { commit = !commitRangeInputOnChange } = {}) => {
+    const sliderValue = rangeSliderValueFromPointer(rangeRail, rangeBounds, event);
+    if (sliderValue === null) return;
+    input.value = String(sliderValue);
+    updateValue(sliderValue, {
+      fromSlider: true,
+      commit,
+      preserveSliderPosition: commitRangeInputOnChange,
+    });
+  };
+  const startRangePointerDrag = (event) => {
+    if (input.disabled || draftEditLocked()) return;
+    activeRangePointerId = pointerIdForEvent(event);
+    input.focus?.({ preventScroll: true });
+    trackInteractiveControl(input);
+    event.preventDefault?.();
+    if (event.pointerId !== undefined && event.pointerId !== null) {
+      rangeRail?.setPointerCapture?.(event.pointerId);
+    }
+    updateValueFromPointer(event);
+  };
+  const updateRangePointerDrag = (event) => {
+    if (activeRangePointerId === null || pointerIdForEvent(event) !== activeRangePointerId) return;
+    event.preventDefault?.();
+    updateValueFromPointer(event);
+  };
+  const finishRangePointerDrag = (event) => {
+    if (activeRangePointerId === null || pointerIdForEvent(event) !== activeRangePointerId) return;
+    event.preventDefault?.();
+    updateValueFromPointer(event, { commit: true });
+    if (event.pointerId !== undefined && event.pointerId !== null) {
+      rangeRail?.releasePointerCapture?.(event.pointerId);
+    }
+    activeRangePointerId = null;
+    releaseInteractiveControl(input);
+  };
+  rangeRail?.addEventListener("pointerdown", startRangePointerDrag);
+  rangeRail?.addEventListener("pointermove", updateRangePointerDrag);
+  rangeRail?.addEventListener("pointerup", finishRangePointerDrag);
+  rangeRail?.addEventListener("pointercancel", finishRangePointerDrag);
   input.addEventListener("input", () => {
     updateValue(input.value, {
       fromSlider: true,

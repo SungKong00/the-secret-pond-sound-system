@@ -2108,6 +2108,7 @@ def test_static_ui_range_sliders_have_drag_friendly_hit_area(tmp_path: Path) -> 
     styles = client.get("/static/styles.css")
 
     assert styles.status_code == 200
+    range_rail_rule = slice_between(styles.text, '.range-rail {', "}")
     range_rule = slice_between(styles.text, 'input[type="range"] {', "}")
     webkit_thumb_rule = slice_between(
         styles.text,
@@ -2119,6 +2120,8 @@ def test_static_ui_range_sliders_have_drag_friendly_hit_area(tmp_path: Path) -> 
         'input[type="range"]::-moz-range-thumb {',
         "}",
     )
+    assert "padding: 4px 0;" in range_rail_rule
+    assert "cursor: pointer;" in range_rail_rule
     assert "height: 24px;" in range_rule
     assert "cursor: pointer;" in range_rule
     assert "touch-action: pan-y;" in range_rule
@@ -2337,6 +2340,140 @@ assert.strictEqual(
     lowCutControl.max,
   ),
 );
+""",
+    )
+
+
+def test_static_ui_filter_range_rail_drag_tracks_pointer_and_commits_on_release(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, rangeControl, rangeSliderValueFromActual }"
+        ),
+        dom_setup="""
+const makeElement = (tagName = "div") => {
+  const element = {
+    tagName: String(tagName).toUpperCase(),
+    children: [],
+    innerHTML: "",
+    value: "",
+    textContent: "",
+    className: "",
+    parentElement: null,
+    attributes: {},
+    listeners: {},
+    capturedPointer: null,
+    releasedPointer: null,
+    focused: false,
+    _queryElements: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return this[name] || "";
+      },
+    },
+    classList: {
+      toggle() {},
+      contains() { return false; },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    appendChild(child) {
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(eventName, handler) {
+      this.listeners[eventName] = handler;
+    },
+    dispatchEvent(event) {
+      this.listeners[event.type]?.(event);
+    },
+    focus() {
+      this.focused = true;
+    },
+    setPointerCapture(pointerId) {
+      this.capturedPointer = pointerId;
+    },
+    releasePointerCapture(pointerId) {
+      this.releasedPointer = pointerId;
+    },
+    getBoundingClientRect() {
+      return { left: 100, width: 200, x: 100, y: 10, height: 24 };
+    },
+    querySelector(selector) {
+      if (!this._queryElements[selector]) this._queryElements[selector] = makeElement();
+      return this._queryElements[selector];
+    },
+  };
+  return element;
+};
+globalThis.document = {
+  getElementById() { return makeElement(); },
+  querySelector() { return makeElement(); },
+  querySelectorAll() { return []; },
+  createElement(tagName) { return makeElement(tagName); },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.requestAnimationFrame = () => {};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+""",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const filterGroup = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+const lowCutControl = filterGroup.controls[0];
+const commits = [];
+const row = helpers.rangeControl(lowCutControl, 20, (value) => {
+  commits.push(value);
+});
+const input = row.querySelector("input");
+const rail = row.querySelector(".range-rail");
+const valueInput = row.querySelector(".value-input");
+input.min = "0";
+input.max = "1000";
+input.value = "0";
+let prevented = 0;
+const eventAt = (type, clientX, pointerId = 7) => ({
+  type,
+  clientX,
+  pointerId,
+  preventDefault() { prevented += 1; },
+});
+
+rail.dispatchEvent(eventAt("pointerdown", 102));
+assert.strictEqual(rail.capturedPointer, 7);
+assert.strictEqual(input.focused, true);
+assert.strictEqual(commits.length, 0);
+
+rail.dispatchEvent(eventAt("pointermove", 310));
+assert(Number(valueInput.value) > 400, `rail drag did not track: ${valueInput.value}`);
+assert.strictEqual(commits.length, 0);
+
+rail.dispatchEvent(eventAt("pointerup", 310));
+assert.strictEqual(rail.releasedPointer, 7);
+assert.strictEqual(commits.length, 1);
+assert(Number(commits[0]) > 400, `expected release commit above 400 Hz, got ${commits[0]}`);
+assert.strictEqual(
+  Number(input.value),
+  helpers.rangeSliderValueFromActual(
+    lowCutControl,
+    commits[0],
+    lowCutControl.min,
+    lowCutControl.max,
+  ),
+);
+assert(prevented >= 3, `pointer events were not captured: ${prevented}`);
 """,
     )
 
