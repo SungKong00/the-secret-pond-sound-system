@@ -3661,10 +3661,16 @@ input[type="range"] {
   appearance: none;
   width: 100%;
   min-width: 68px;
-  height: 18px;
+  height: 24px;
   border-radius: 999px;
   background: transparent;
   accent-color: var(--amber);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+input[type="range"]:disabled {
+  cursor: not-allowed;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -3682,9 +3688,9 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 input[type="range"]::-webkit-slider-thumb {
   appearance: none;
-  width: 13px;
-  height: 13px;
-  margin-top: -5px;
+  width: 15px;
+  height: 15px;
+  margin-top: -6px;
   border: 1px solid rgba(0, 0, 0, 0.58);
   border-radius: 3px;
   background:
@@ -3692,6 +3698,15 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
     0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+input[type="range"]:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 input[type="range"]::-moz-range-track {
@@ -3708,11 +3723,21 @@ input[type="range"]::-moz-range-track {
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   border: 1px solid rgba(0, 0, 0, 0.58);
   border-radius: 3px;
   background: linear-gradient(180deg, #e1d6bd, #9a8d70);
+  cursor: grab;
+}
+
+input[type="range"]:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+input[type="range"]:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 input[type="checkbox"] {

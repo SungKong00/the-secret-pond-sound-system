@@ -8011,8 +8011,25 @@ const rangeMarkPercent = (control, value, min, max) => {
   return rangePercent(rangeSliderValueFromActual(control, value, min, max), -100, 100);
 };
 
+const rangeSliderPercent = (control, sliderValue, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return rangePercent(sliderValue, 0, logFrequencySliderMax);
+  }
+  if (useZeroCenteredRange(control, min, max)) {
+    return rangePercent(sliderValue, -100, 100);
+  }
+  return rangePercent(sliderValue, min, max);
+};
+
 const setRangeProgress = (row, value, min, max, control = {}) => {
   row.style?.setProperty("--control-percent", `${rangeMarkPercent(control, value, min, max)}%`);
+};
+
+const setRangeProgressFromSlider = (row, control, sliderValue, min, max) => {
+  row.style?.setProperty(
+    "--control-percent",
+    `${rangeSliderPercent(control, sliderValue, min, max)}%`,
+  );
 };
 
 const boundedRange = (control, value, activeValue) => {
@@ -8170,14 +8187,23 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     if (label) label.textContent = layerEnabledText(enabled);
     valueToggle?.classList.toggle("enabled", enabled);
   };
-  const setDisplayedValue = (nextValue) => {
-    input.value = String(rangeSliderValueFromActual(control, nextValue, min, max));
+  const setDisplayedValue = (nextValue, { sliderValue = null } = {}) => {
+    const hasSliderValue =
+      sliderValue !== null && sliderValue !== undefined && Number.isFinite(Number(sliderValue));
+    const nextSliderValue = hasSliderValue
+      ? String(sliderValue)
+      : String(rangeSliderValueFromActual(control, nextValue, min, max));
+    if (input.value !== nextSliderValue) input.value = nextSliderValue;
     if (valueInput) valueInput.value = String(nextValue);
-    setRangeProgress(row, nextValue, min, max, control);
+    if (hasSliderValue) setRangeProgressFromSlider(row, control, sliderValue, min, max);
+    else setRangeProgress(row, nextValue, min, max, control);
     output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
     setPositiveToggleState(nextValue);
   };
-  const updateValue = (nextValue, { fromSlider = false, commit = true } = {}) => {
+  const updateValue = (
+    nextValue,
+    { fromSlider = false, commit = true, preserveSliderPosition = false } = {},
+  ) => {
     if (draftEditLocked()) {
       setDisplayedValue(currentValue);
       return;
@@ -8188,11 +8214,17 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     const numericValue = snappedValue(actualValue, control.step, min, max);
     if (control.positiveToggle && numericValue > 0) lastPositiveValue = numericValue;
     currentValue = numericValue;
-    setDisplayedValue(numericValue);
+    setDisplayedValue(numericValue, {
+      sliderValue: fromSlider && preserveSliderPosition ? nextValue : null,
+    });
     if (commit) onInput(numericValue);
   };
   input.addEventListener("input", () => {
-    updateValue(input.value, { fromSlider: true, commit: !commitRangeInputOnChange });
+    updateValue(input.value, {
+      fromSlider: true,
+      commit: !commitRangeInputOnChange,
+      preserveSliderPosition: commitRangeInputOnChange,
+    });
   });
   if (commitRangeInputOnChange) {
     input.addEventListener("change", () => updateValue(input.value, { fromSlider: true }));

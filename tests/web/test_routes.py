@@ -2093,6 +2093,35 @@ def test_static_ui_open_control_group_marker_does_not_offset_title(tmp_path: Pat
     assert "display: none;" in open_marker
 
 
+def test_static_ui_range_sliders_have_drag_friendly_hit_area(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    styles = client.get("/static/styles.css")
+
+    assert styles.status_code == 200
+    range_rule = slice_between(styles.text, 'input[type="range"] {', "}")
+    webkit_thumb_rule = slice_between(
+        styles.text,
+        'input[type="range"]::-webkit-slider-thumb {',
+        "}",
+    )
+    moz_thumb_rule = slice_between(
+        styles.text,
+        'input[type="range"]::-moz-range-thumb {',
+        "}",
+    )
+    assert "height: 24px;" in range_rule
+    assert "cursor: pointer;" in range_rule
+    assert "touch-action: pan-y;" in range_rule
+    assert "width: 15px;" in webkit_thumb_rule
+    assert "height: 15px;" in webkit_thumb_rule
+    assert "width: 15px;" in moz_thumb_rule
+    assert "height: 15px;" in moz_thumb_rule
+    assert 'input[type="range"]:disabled {' in styles.text
+    assert 'input[type="range"]:active::-webkit-slider-thumb {' in styles.text
+    assert 'input[type="range"]:active::-moz-range-thumb {' in styles.text
+
+
 def test_static_ui_non_eq_db_sliders_use_wide_zero_centered_ranges(
     tmp_path: Path,
 ) -> None:
@@ -2190,6 +2219,115 @@ expectLogFilter(byPath(layerFilter.controls, "eq.lowpass_hz"));
 const recordingControls = helpers.recordingControlGroups.flatMap((group) => group.controls);
 expectLogFilter(byPath(recordingControls, "highpass_hz"));
 expectLogFilter(byPath(recordingControls, "lowpass_hz"));
+""",
+    )
+
+
+def test_static_ui_filter_range_preserves_slider_position_while_dragging(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, rangeControl, rangeSliderValueFromActual }"
+        ),
+        dom_setup="""
+const makeElement = (tagName = "div") => {
+  const element = {
+    tagName: String(tagName).toUpperCase(),
+    children: [],
+    innerHTML: "",
+    value: "",
+    textContent: "",
+    className: "",
+    parentElement: null,
+    attributes: {},
+    listeners: {},
+    _queryElements: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return this[name] || "";
+      },
+    },
+    classList: {
+      toggle() {},
+      contains() { return false; },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    appendChild(child) {
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(eventName, handler) {
+      this.listeners[eventName] = handler;
+    },
+    dispatchEvent(event) {
+      this.listeners[event.type]?.(event);
+    },
+    querySelector(selector) {
+      if (!this._queryElements[selector]) this._queryElements[selector] = makeElement();
+      return this._queryElements[selector];
+    },
+  };
+  return element;
+};
+globalThis.document = {
+  getElementById() { return makeElement(); },
+  querySelector() { return makeElement(); },
+  querySelectorAll() { return []; },
+  createElement(tagName) { return makeElement(tagName); },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.requestAnimationFrame = () => {};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+""",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const filterGroup = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+const lowCutControl = filterGroup.controls[0];
+const commits = [];
+const row = helpers.rangeControl(lowCutControl, 20, (value) => {
+  commits.push(value);
+});
+const input = row.querySelector("input");
+const valueInput = row.querySelector(".value-input");
+const rawDragPosition = "456.7";
+
+input.value = rawDragPosition;
+input.dispatchEvent({ type: "input" });
+
+assert.strictEqual(input.value, rawDragPosition);
+assert.strictEqual(commits.length, 0);
+assert(
+  Number(valueInput.value) > 80,
+  `expected visible Hz value above 80, got ${valueInput.value}`,
+);
+
+input.dispatchEvent({ type: "change" });
+
+assert.strictEqual(commits.length, 1);
+assert(Number(commits[0]) > 80, `expected committed Hz value above 80, got ${commits[0]}`);
+assert.strictEqual(
+  Number(input.value),
+  helpers.rangeSliderValueFromActual(
+    lowCutControl,
+    commits[0],
+    lowCutControl.min,
+    lowCutControl.max,
+  ),
+);
 """,
     )
 
