@@ -2145,6 +2145,55 @@ assert.strictEqual(
     )
 
 
+def test_static_ui_filter_frequency_sliders_use_log_scale_and_release_commit(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, recordingControlGroups, rangeSliderValueFromActual, "
+            "rangeActualValueFromSlider, rangeMarkPercent }"
+        ),
+        body="""
+const helpers = globalThis.__secretPondTest;
+const byPath = (controls, path) => controls.find((control) => control.path === path);
+const expectClose = (actual, expected, tolerance = 0.001) => {
+  assert(Math.abs(Number(actual) - Number(expected)) <= tolerance, `${actual} !== ${expected}`);
+};
+const expectLogFilter = (control) => {
+  assert.strictEqual(control.scale, "log-frequency");
+  assert.strictEqual(control.commitOn, "change");
+  assert.strictEqual(
+    helpers.rangeSliderValueFromActual(control, control.min, control.min, control.max),
+    0,
+  );
+  assert.strictEqual(
+    helpers.rangeSliderValueFromActual(control, control.max, control.min, control.max),
+    1000,
+  );
+  const geometricCenter = Math.sqrt(control.min * control.max);
+  expectClose(
+    helpers.rangeSliderValueFromActual(control, geometricCenter, control.min, control.max),
+    500,
+  );
+  expectClose(
+    helpers.rangeActualValueFromSlider(control, 500, control.min, control.max),
+    geometricCenter,
+  );
+  expectClose(helpers.rangeMarkPercent(control, geometricCenter, control.min, control.max), 50);
+};
+
+const layerFilter = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+expectLogFilter(byPath(layerFilter.controls, "eq.highpass_hz"));
+expectLogFilter(byPath(layerFilter.controls, "eq.lowpass_hz"));
+
+const recordingControls = helpers.recordingControlGroups.flatMap((group) => group.controls);
+expectLogFilter(byPath(recordingControls, "highpass_hz"));
+expectLogFilter(byPath(recordingControls, "lowpass_hz"));
+""",
+    )
+
+
 def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -2537,7 +2586,10 @@ def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
 
     script = static_app_test_script(
         tmp_path,
-        "{ controlGroup, layerControlGroups, setPath, clone }",
+        (
+            "{ controlGroup, layerControlGroups, setPath, clone, "
+            "rangeSliderValueFromActual }"
+        ),
     )
     harness = f"""
 const assert = require("assert");
@@ -2628,6 +2680,7 @@ const current = {{
 const filterGroup = globalThis.__secretPondTest.layerControlGroups.find(
   (group) => group.action === "reset-filter",
 );
+const lowCutControl = filterGroup.controls[0];
 const section = globalThis.__secretPondTest.controlGroup(
   filterGroup,
   current.draft,
@@ -2639,14 +2692,22 @@ const section = globalThis.__secretPondTest.controlGroup(
 const body = section.querySelector(".control-group-body");
 const lowCutRow = body.children[0];
 const lowCutInput = lowCutRow.querySelector("input");
+const sliderValueForHz = (hz) => globalThis.__secretPondTest.rangeSliderValueFromActual(
+  lowCutControl,
+  hz,
+  lowCutControl.min,
+  lowCutControl.max,
+);
 
-lowCutInput.value = "80";
+lowCutInput.value = String(sliderValueForHz(80));
 lowCutInput.dispatchEvent({{ type: "input" }});
+lowCutInput.dispatchEvent({{ type: "change" }});
 assert.match(lastActionsMarkup, /filter-status pending/);
 
 current.draft = globalThis.__secretPondTest.clone(current.draft);
-lowCutInput.value = "20";
+lowCutInput.value = String(sliderValueForHz(20));
 lowCutInput.dispatchEvent({{ type: "input" }});
+lowCutInput.dispatchEvent({{ type: "change" }});
 assert.doesNotMatch(lastActionsMarkup, /filter-status pending/);
 assert.match(lastActionsMarkup, /filter-status bypassed/);
 assert.match(lastActionsMarkup, /필터 없음/);
@@ -8191,7 +8252,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, "
             "commitInlineGraphEqPoints, graphEqBellBandNumber, graphEqForLayer, selectSourceFile, "
-            "uploadSourceFile, applyAndRestart, resetDraft }"
+            "uploadSourceFile, applyAndRestart, resetDraft, recordingControlGroups, "
+            "rangeSliderValueFromActual }"
         ),
     )
     harness = f"""
@@ -9177,10 +9239,24 @@ assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.resetButton.disabled, true);
 globalThis.__secretPondTest.renderRecordingControls();
-const inputGainGroupBody = elements.recordingControls.children[0].children[0];
-const inputGainRow = inputGainGroupBody.children[0];
+const inputGainGroupIndex = globalThis.__secretPondTest.recordingControlGroups.findIndex((group) =>
+  group.controls.some((control) => control.path === "gain_db"),
+);
+const inputGainControlIndex = globalThis.__secretPondTest.recordingControlGroups[
+  inputGainGroupIndex
+].controls.findIndex((control) => control.path === "gain_db");
+const inputGainControl = globalThis.__secretPondTest.recordingControlGroups[
+  inputGainGroupIndex
+].controls[inputGainControlIndex];
+const inputGainGroupBody = elements.recordingControls.children[inputGainGroupIndex].children[0];
+const inputGainRow = inputGainGroupBody.children[inputGainControlIndex];
 const inputGainInput = inputGainRow.querySelector("input");
-inputGainInput.value = "3";
+inputGainInput.value = String(globalThis.__secretPondTest.rangeSliderValueFromActual(
+  inputGainControl,
+  3,
+  inputGainControl.min,
+  inputGainControl.max,
+));
 inputGainInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");

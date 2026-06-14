@@ -1121,6 +1121,60 @@ test("Graph EQ add delete and max eight constraints keep shelves fixed", async (
     .toHaveText(["", "1", "2", "3", "4", "5", ""]);
 });
 
+test("Filter Range slider stays mounted while dragging and saves after release", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeSettings = JSON.parse(JSON.stringify(before.settings.active));
+  const pendingDraftSaves = [];
+  await page.route("**/api/settings/draft", async (route) => {
+    const draft = route.request().postDataJSON();
+    await new Promise((resolve) => {
+      pendingDraftSaves.push({ draft, resolve });
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        settings: {
+          active: activeSettings,
+          draft,
+        },
+      }),
+    });
+  });
+
+  const filterGroup = firstLayerCard(page).locator(".filter-group");
+  await filterGroup.scrollIntoViewIfNeeded();
+  const lowCutSlider = filterGroup.locator('input[type="range"]').first();
+  const lowCutValueInput = filterGroup.locator(".value-input").first();
+  await expect(lowCutValueInput).toHaveValue("20");
+
+  const sliderBox = await viewportBox(lowCutSlider);
+  expect(sliderBox).not.toBeNull();
+  const originalSlider = await lowCutSlider.elementHandle();
+  expect(originalSlider).not.toBeNull();
+
+  await page.mouse.move(sliderBox.x + 2, sliderBox.y + sliderBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sliderBox.x + sliderBox.width * 0.56, sliderBox.y + sliderBox.height / 2, { steps: 10 });
+
+  await expect.poll(async () => Number(await lowCutValueInput.inputValue())).toBeGreaterThan(80);
+  expect(await originalSlider.evaluate((node) => node.isConnected)).toBe(true);
+  await page.waitForTimeout(360);
+  expect(pendingDraftSaves).toHaveLength(0);
+
+  await page.mouse.up();
+  await expect.poll(() => pendingDraftSaves.length).toBe(1);
+  const savedHighpass = pendingDraftSaves[0].draft.layers.mid.eq.highpass_hz;
+  expect(savedHighpass).toBe(Number(await lowCutValueInput.inputValue()));
+  expect(savedHighpass).toBeGreaterThan(80);
+
+  pendingDraftSaves[0].resolve();
+  await expect.poll(async () => Number(await filterGroup.locator(".value-input").first().inputValue()))
+    .toBe(savedHighpass);
+});
+
 test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async ({ page }) => {
   await openFirstGraphEq(page);
 

@@ -591,7 +591,15 @@ const graphEqFilterGroup = {
       step: 1,
       suffix: " Hz",
       kind: "filter",
+      scale: "log-frequency",
+      commitOn: "change",
       rangeLabel: "below cut",
+      marks: [
+        { value: 20, label: "20" },
+        { value: 80, label: "80" },
+        { value: 200, label: "200" },
+        { value: 500, label: "500" },
+      ],
       description: "이 값보다 낮은 소리를 줄입니다.",
     },
     {
@@ -602,7 +610,15 @@ const graphEqFilterGroup = {
       step: 10,
       suffix: " Hz",
       kind: "filter",
+      scale: "log-frequency",
+      commitOn: "change",
       rangeLabel: "above cut",
+      marks: [
+        { value: 2000, label: "2k" },
+        { value: 5000, label: "5k" },
+        { value: 10000, label: "10k" },
+        { value: 20000, label: "20k" },
+      ],
       description: "이 값보다 높은 소리를 줄입니다.",
     },
   ],
@@ -965,7 +981,15 @@ const recordingControlGroups = [
         step: 1,
         suffix: " Hz",
         kind: "filter",
+        scale: "log-frequency",
+        commitOn: "change",
         rangeLabel: "rumble cut",
+        marks: [
+          { value: 40, label: "40" },
+          { value: 80, label: "80" },
+          { value: 150, label: "150" },
+          { value: 300, label: "300" },
+        ],
         description: "숨소리보다 낮은 진동과 바닥 소음을 줄입니다.",
       },
       {
@@ -976,7 +1000,15 @@ const recordingControlGroups = [
         step: 10,
         suffix: " Hz",
         kind: "filter",
+        scale: "log-frequency",
+        commitOn: "change",
         rangeLabel: "air cut",
+        marks: [
+          { value: 4000, label: "4k" },
+          { value: 8000, label: "8k" },
+          { value: 12000, label: "12k" },
+          { value: 16000, label: "16k" },
+        ],
         description: "거친 고역이나 공간 노이즈를 줄입니다.",
       },
       {
@@ -7928,8 +7960,19 @@ const rangePercent = (value, min, max) => {
 const useZeroCenteredRange = (control, min, max) =>
   control.scale === "zero-centered-db" && Number(min) < 0 && Number(max) > 0;
 
+const useLogFrequencyRange = (control, min, max) =>
+  control.scale === "log-frequency" && Number(min) > 0 && Number(max) > Number(min);
+
+const logFrequencySliderMax = 1000;
+
 const rangeSliderValueFromActual = (control, value, min, max) => {
   const numericValue = Number(value);
+  if (useLogFrequencyRange(control, min, max)) {
+    const minLog = Math.log10(Number(min));
+    const maxLog = Math.log10(Number(max));
+    const valueLog = Math.log10(clamp(numericValue, min, max));
+    return ((valueLog - minLog) / (maxLog - minLog)) * logFrequencySliderMax;
+  }
   if (!useZeroCenteredRange(control, min, max)) return numericValue;
   if (numericValue < 0) return -(Math.abs(numericValue) / Math.abs(Number(min))) * 100;
   if (numericValue > 0) return (numericValue / Number(max)) * 100;
@@ -7938,6 +7981,12 @@ const rangeSliderValueFromActual = (control, value, min, max) => {
 
 const rangeActualValueFromSlider = (control, sliderValue, min, max) => {
   const numericValue = Number(sliderValue);
+  if (useLogFrequencyRange(control, min, max)) {
+    const minLog = Math.log10(Number(min));
+    const maxLog = Math.log10(Number(max));
+    const normalized = rangePercent(numericValue, 0, logFrequencySliderMax) / 100;
+    return 10 ** (minLog + normalized * (maxLog - minLog));
+  }
   if (!useZeroCenteredRange(control, min, max)) return numericValue;
   if (numericValue < 0) return (Math.abs(numericValue) / 100) * Number(min);
   if (numericValue > 0) return (numericValue / 100) * Number(max);
@@ -7945,6 +7994,9 @@ const rangeActualValueFromSlider = (control, sliderValue, min, max) => {
 };
 
 const rangeInputBounds = (control, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return { min: 0, max: logFrequencySliderMax, step: "any" };
+  }
   if (!useZeroCenteredRange(control, min, max)) {
     return { min, max, step: control.step };
   }
@@ -7952,6 +8004,9 @@ const rangeInputBounds = (control, min, max) => {
 };
 
 const rangeMarkPercent = (control, value, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return rangePercent(rangeSliderValueFromActual(control, value, min, max), 0, logFrequencySliderMax);
+  }
   if (!useZeroCenteredRange(control, min, max)) return rangePercent(value, min, max);
   return rangePercent(rangeSliderValueFromActual(control, value, min, max), -100, 100);
 };
@@ -8091,6 +8146,7 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
   const nudgeDown = row.querySelector(".nudge-down");
   const nudgeUp = row.querySelector(".nudge-up");
   let currentValue = value;
+  const commitRangeInputOnChange = control.commitOn === "change";
   let lastPositiveValue =
     control.positiveToggle && normalizedTransitionSeconds(value) > 0
       ? value
@@ -8121,7 +8177,7 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
     setPositiveToggleState(nextValue);
   };
-  const updateValue = (nextValue, { fromSlider = false } = {}) => {
+  const updateValue = (nextValue, { fromSlider = false, commit = true } = {}) => {
     if (draftEditLocked()) {
       setDisplayedValue(currentValue);
       return;
@@ -8133,11 +8189,14 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     if (control.positiveToggle && numericValue > 0) lastPositiveValue = numericValue;
     currentValue = numericValue;
     setDisplayedValue(numericValue);
-    onInput(numericValue);
+    if (commit) onInput(numericValue);
   };
   input.addEventListener("input", () => {
-    updateValue(input.value, { fromSlider: true });
+    updateValue(input.value, { fromSlider: true, commit: !commitRangeInputOnChange });
   });
+  if (commitRangeInputOnChange) {
+    input.addEventListener("change", () => updateValue(input.value, { fromSlider: true }));
+  }
   valueInput?.addEventListener("change", () => updateValue(valueInput.value));
   valueInput?.addEventListener("input", () => {
     if (Number.isFinite(Number(valueInput.value))) updateValue(valueInput.value);
