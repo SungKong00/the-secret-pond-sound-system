@@ -3515,6 +3515,21 @@ assert.strictEqual(
   }}).skip,
   true,
 );
+assert.deepStrictEqual(
+  deriveControl("/api/playback/live-graph-eq/tick", {{}}, {{
+    snapshot: {{ playback: {{ output_running: true }} }},
+    playbackControlInFlight: true,
+  }}),
+  {{
+    startsStartRequest: false,
+    playbackControlRequest: false,
+    allowStaleRecordingStop: false,
+    expectsRecordingOutcome: false,
+    pollAutoStopRequest: false,
+    startsStopRequest: false,
+    skip: false,
+  }},
+);
 assert.strictEqual(
   deriveControl("/api/playback/start", {{}}, {{
     snapshot: {{ playback: {{ output_running: true }} }},

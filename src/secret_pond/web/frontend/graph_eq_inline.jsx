@@ -346,6 +346,7 @@ function GraphEqDssspEditor({
   selectedPointId = null,
   disabled = false,
   onChange,
+  onChangeCommitted,
   onSelect,
   onDelete,
   onDragState,
@@ -389,14 +390,16 @@ function GraphEqDssspEditor({
       const nextPoint = nextPoints[event.index] || null;
       latestPointsRef.current = nextPoints;
       setLocalPoints(nextPoints);
-      onChange?.({
+      const payload = {
         layerId,
         points: nextPoints,
         selectedPointId: nextPoint?.id || null,
         ended: Boolean(event.ended),
-      });
+      };
+      onChange?.(payload);
+      if (payload.ended) onChangeCommitted?.(payload);
     },
-    [disabled, layerId, onChange],
+    [disabled, layerId, onChange, onChangeCommitted],
   );
 
   const handleDrag = useCallback(
@@ -430,14 +433,16 @@ function GraphEqDssspEditor({
       const nextPoints = graphEqWithNewestBell(previousPoints, nextPoint);
       latestPointsRef.current = nextPoints;
       setLocalPoints(nextPoints);
-      onChange?.({
+      const payload = {
         layerId,
         points: nextPoints,
         selectedPointId: id,
         ended: true,
-      });
+      };
+      onChange?.(payload);
+      onChangeCommitted?.(payload);
     },
-    [disabled, layerId, onChange],
+    [disabled, layerId, onChange, onChangeCommitted],
   );
 
   const handleDelete = useCallback(

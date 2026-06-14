@@ -69,6 +69,7 @@ const state = {
   pendingLiveFeedbackSurfaceId: undefined,
   liveFeedbackSurfaceId: undefined,
   graphEqInlinePreserveMountLayerId: null,
+  graphEqInlinePreserveMountToken: 0,
   liveGraphEqLatestRequestIds: {},
   liveApplyFeedback: null,
   stableApplyCoveredFeedbackSurfaceIds: [],
@@ -1347,6 +1348,18 @@ const reduceLiveApplyFeedbackState = (current = {}, event = {}) => {
     };
   }
 
+  if (event.type === "live_render_pending") {
+    return {
+      ...stateModel,
+      feedbackState: liveApplyFeedbackStates.applying,
+      requestId: Number.isFinite(Number(event.requestId)) ? Number(event.requestId) : stateModel.requestId,
+      modeEpoch: Number.isFinite(Number(event.modeEpoch)) ? Number(event.modeEpoch) : stateModel.modeEpoch,
+      warningMessage: "",
+      spinnerVisible: true,
+      staleResponse: null,
+    };
+  }
+
   if (event.type === "request_succeeded") {
     const confirmedValue = Object.hasOwn(event, "confirmedValue")
       ? cloneApplyFeedbackValue(event.confirmedValue)
@@ -2498,8 +2511,10 @@ const applyState = (payload, options = {}) => {
     renderControlsOnSync,
     confirmActiveAsDraft: Boolean(options.confirmActiveAsDraft),
   });
+  updateLiveApplyFeedbackForLiveGraphEqState(normalizedPayload?.playback?.live_graph_eq);
   state.serverStateSignature = serverStateSignature(state.snapshot, { syncDraft });
   renderState();
+  refreshLayerCoveredFeedbackVisualStates();
   renderSystemPanel();
   clearVoiceRawSelectionAfterPreviewStop(currentSnapshot, state.snapshot);
   scheduleLiveGraphEqTick(state.snapshot?.playback?.live_graph_eq);
@@ -2816,6 +2831,14 @@ const updateLiveApplyFeedbackForRequestStart = (request) => {
 const updateLiveApplyFeedbackForRequestSuccess = (request, settingsPayload) => {
   if (!state.liveApplyFeedback) return;
   const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
+  if (liveApplyFeedbackWaitsForLiveGraphEqRender(current)) {
+    state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+      type: "live_render_pending",
+      requestId: request.requestId,
+      modeEpoch: current.modeEpoch,
+    });
+    return;
+  }
   state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
     type: "request_succeeded",
     requestId: request.requestId,
@@ -3302,6 +3325,74 @@ const settingsApplyMode = (snapshot, draft) => (
 const layerIdForFeedbackSurface = (surfaceId) => {
   const match = String(surfaceId || "").match(/^layer[:.](low|mid|voice)$/);
   return match ? match[1] : null;
+};
+
+const graphEqLayerIdForControlId = (controlId) => {
+  const match = String(controlId || "").match(/^layers\.(low|mid|voice)\.eq(?:\.|$)/);
+  return match ? match[1] : null;
+};
+
+const liveApplyFeedbackGraphEqLayerId = (feedback = {}) => {
+  const controlIds = Array.isArray(feedback.controlIds) ? feedback.controlIds : [];
+  const controlLayerId = controlIds
+    .map((controlId) => graphEqLayerIdForControlId(controlId))
+    .find(Boolean);
+  if (controlIds.length) return controlLayerId || null;
+  return layerIdForFeedbackSurface(feedback.coveredCardId);
+};
+
+const liveApplyFeedbackWaitsForLiveGraphEqRender = (feedback = {}) => (
+  currentPlaybackApplyMode() === "live" && Boolean(liveApplyFeedbackGraphEqLayerId(feedback))
+);
+
+const liveGraphEqTargetsFeedbackSurface = (liveGraphEq = {}, surfaceId) => {
+  const surfaceLayerId = layerIdForFeedbackSurface(surfaceId);
+  if (!surfaceLayerId) return false;
+  return liveGraphEqRequestLayerId(liveGraphEq) === surfaceLayerId;
+};
+
+const deriveLiveGraphEqFeedbackState = (snapshot, surfaceId) => {
+  if (currentPlaybackApplyMode(snapshot) !== "live") return null;
+  if (!snapshot?.playback?.live?.eq_applies_immediately) return null;
+  const liveGraphEq = snapshot?.playback?.live_graph_eq;
+  if (!liveGraphEqTargetsFeedbackSurface(liveGraphEq, surfaceId)) return null;
+  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+    return {
+      visual_state: "pending",
+      show_spinner: true,
+    };
+  }
+  return null;
+};
+
+const updateLiveApplyFeedbackForLiveGraphEqState = (liveGraphEq = {}) => {
+  if (!state.liveApplyFeedback) return;
+  const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
+  const layerId = liveApplyFeedbackGraphEqLayerId(current);
+  if (!layerId || liveGraphEqRequestLayerId(liveGraphEq) !== layerId) return;
+  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+    state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+      type: "live_render_pending",
+      requestId: current.requestId,
+      modeEpoch: current.modeEpoch,
+    });
+    return;
+  }
+  if (liveGraphEq?.status === "applied") {
+    state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+      type: "request_succeeded",
+      requestId: current.requestId,
+      modeEpoch: current.modeEpoch,
+      confirmedValue: feedbackControlValues(state.draft, current.controlIds),
+    });
+  } else if (liveGraphEq?.status === "failed") {
+    state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
+      type: "request_failed",
+      requestId: current.requestId,
+      modeEpoch: current.modeEpoch,
+      warningMessage: liveGraphEq.failure_warning,
+    });
+  }
 };
 
 const surfaceSettingsChanged = (active, draft, surfaceId) => {
@@ -5416,12 +5507,17 @@ const refreshLayerFeedbackVisualState = (containerId, layerIds) => {
       surfaceId: `layer:${layerId}`,
     });
     applyCoveredFeedbackVisualState(card, "layer-card", feedbackState);
+    refreshInlineGraphEqLiveStatusCopy(layerId, feedbackState);
   });
 };
 
-const refreshCoveredFeedbackVisualStates = () => {
+const refreshLayerCoveredFeedbackVisualStates = () => {
   refreshLayerFeedbackVisualState("layerControls", ["mid", "low"]);
   refreshLayerFeedbackVisualState("voiceLayerControls", ["voice"]);
+};
+
+const refreshCoveredFeedbackVisualStates = () => {
+  refreshLayerCoveredFeedbackVisualStates();
   applyCoveredFeedbackVisualState(
     $("voiceStackControls"),
     "control-stack compact voice-stack-controls feedback-surface",
@@ -5452,6 +5548,22 @@ const refreshCoveredFeedbackVisualStates = () => {
       surfaceId: "recording",
     }),
   );
+};
+
+const preserveInlineGraphEqMount = (layerId) => {
+  if (!layerIds.includes(layerId)) return state.graphEqInlinePreserveMountToken;
+  state.graphEqInlinePreserveMountLayerId = layerId;
+  state.graphEqInlinePreserveMountToken += 1;
+  return state.graphEqInlinePreserveMountToken;
+};
+
+const clearPreservedInlineGraphEqMount = (layerId = state.graphEqInlinePreserveMountLayerId, token = null) => {
+  if (!layerId) return false;
+  if (state.graphEqInlinePreserveMountLayerId !== layerId) return false;
+  if (token !== null && state.graphEqInlinePreserveMountToken !== token) return false;
+  state.graphEqInlinePreserveMountLayerId = null;
+  state.graphEqInlinePreserveMountToken += 1;
+  return true;
 };
 
 const graphEqInlineEditorMountShouldBePreserved = () => {
@@ -5854,6 +5966,8 @@ const deriveCoveredSurfaceFeedbackState = ({
     surfaceId,
   );
   if (liveApplyFeedbackState) return liveApplyFeedbackState;
+  const liveGraphEqFeedbackState = deriveLiveGraphEqFeedbackState(snapshot, surfaceId);
+  if (liveGraphEqFeedbackState) return liveGraphEqFeedbackState;
   const hasUnappliedChange = feedbackSurfaceHasDraftChange(activeSettings, draft, surfaceId);
   const applyMode = currentPlaybackApplyMode(snapshot);
   if (applyMode === "stable") {
@@ -6463,6 +6577,21 @@ const commitInlineGraphEqPoints = (layerId, points, selectedPointId = null, opti
   return committed;
 };
 
+const previewInlineGraphEqPoints = (layerId, points, selectedPointId = null, options = {}) => {
+  if (!layerIds.includes(layerId) || !state.draft || draftEditLocked()) return false;
+  const eq = graphEqForLayer(state.draft, layerId);
+  const normalized = normalizeGraphEqSettings({ ...eq, points });
+  updateDraftGraphEq(layerId, normalized);
+  if (selectedPointId !== undefined) {
+    state.graphEqSelectedPointIds[layerId] = selectedPointId;
+  }
+  markDraftEdited();
+  syncDraftSnapshot();
+  refreshCoveredFeedbackVisualStates();
+  options.afterSync?.(normalized);
+  return true;
+};
+
 const commitGraphEqFilterEdit = (layerId, control, value) => {
   commitDraftChange(
     () => {
@@ -6842,11 +6971,42 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
   </div>
 `;
 
+const inlineGraphEqStatusCopy = (feedbackState = null) => {
+  if (currentPlaybackApplyMode() !== "live") return null;
+  if (coveredFeedbackStateUsesPendingVisual(feedbackState)) {
+    return {
+      label: "Live Graph EQ 적용 대기 중",
+      detail: "마지막 조작값을 렌더링 중입니다.",
+    };
+  }
+  return graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq);
+};
+
+const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
+  const graphEqSection = document.querySelector?.(`[data-graph-eq-layer-card="${layerId}"]`);
+  if (!graphEqSection) return;
+  const status = graphEqSection.querySelector(".graph-eq-layer-card-status");
+  if (!status) return;
+  const liveStatus = inlineGraphEqStatusCopy(feedbackState);
+  status.textContent = liveStatus?.label || "상시 표시";
+  let detail = graphEqSection.querySelector(".graph-eq-layer-card-detail");
+  if (liveStatus?.detail) {
+    if (!detail) {
+      detail = document.createElement("p");
+      detail.className = "graph-eq-layer-card-detail";
+      graphEqSection.querySelector(".graph-eq-layer-card-head")?.after(detail);
+    }
+    detail.textContent = liveStatus.detail;
+    detail.hidden = false;
+  } else if (detail) {
+    detail.textContent = "";
+    detail.hidden = true;
+  }
+};
+
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const liveStatus = currentPlaybackApplyMode() === "live"
-    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
-    : null;
+  const liveStatus = inlineGraphEqStatusCopy();
   return `
     <section
       class="graph-eq-layer-card-section expanded always-open"
@@ -7068,7 +7228,7 @@ const mountInlineGraphEqEditor = (container, layerId) => {
     disabled: draftEditLocked(),
     onSelect: (pointId) => syncInlineGraphEqSelection(container, layerId, pointId),
     onDelete: (payload) => {
-      state.graphEqInlinePreserveMountLayerId = layerId;
+      preserveInlineGraphEqMount(layerId);
       const nextPoints = payload?.points || [];
       const nextSelectedPointId = payload?.selectedPointId || null;
       commitInlineGraphEqPoints(layerId, nextPoints, nextSelectedPointId, {
@@ -7082,10 +7242,27 @@ const mountInlineGraphEqEditor = (container, layerId) => {
       });
     },
     onDragState: ({ dragging }) => {
-      if (dragging) state.graphEqInlinePreserveMountLayerId = layerId;
+      if (dragging) preserveInlineGraphEqMount(layerId);
     },
     onChange: (payload) => {
-      state.graphEqInlinePreserveMountLayerId = layerId;
+      if (payload?.ended) return;
+      preserveInlineGraphEqMount(layerId);
+      const nextPoints = payload?.points || [];
+      if (!nextPoints.length) return;
+      const nextSelectedPointId = payload.selectedPointId || selectedOrFirstGraphEqPointId(layerId, {
+        points: nextPoints,
+      });
+      previewInlineGraphEqPoints(layerId, nextPoints, nextSelectedPointId, {
+        afterSync: () => syncInlineGraphEqPointControls(
+          container,
+          layerId,
+          nextPoints,
+          nextSelectedPointId,
+        ),
+      });
+    },
+    onChangeCommitted: (payload) => {
+      preserveInlineGraphEqMount(layerId);
       const nextPoints = payload?.points || [];
       if (!nextPoints.length) return;
       const nextSelectedPointId = payload.selectedPointId || selectedOrFirstGraphEqPointId(layerId, {
@@ -7908,7 +8085,7 @@ const clearDraftSaveTimer = () => {
 const invalidatePendingDraftSaves = () => {
   clearDraftSaveTimer();
   state.draftSaveRequestId += 1;
-  state.graphEqInlinePreserveMountLayerId = null;
+  clearPreservedInlineGraphEqMount();
   if (state.liveApplyFeedback) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(state.liveApplyFeedback, {
       type: "mode_changed",
@@ -7931,6 +8108,8 @@ const beginDraftSave = () => {
     requestId,
     draftEditRevision: state.draftEditRevision,
     coveredFeedbackControlIds: [...state.pendingCoveredFeedbackControlIds],
+    graphEqPreserveLayerId: state.graphEqInlinePreserveMountLayerId,
+    graphEqPreserveToken: state.graphEqInlinePreserveMountToken,
   };
 };
 
@@ -8018,7 +8197,7 @@ const saveDraft = async () => {
   } catch (error) {
     if (isCurrentDraftSave(request)) {
       updateLiveApplyFeedbackForRequestFailure(request);
-      state.graphEqInlinePreserveMountLayerId = null;
+      clearPreservedInlineGraphEqMount();
       rollbackDraftCoveredControlsFromActive(request.coveredFeedbackControlIds);
       showSettingsApplyFailureCaution(error.message);
       throw error;
@@ -8026,7 +8205,8 @@ const saveDraft = async () => {
     return null;
   } finally {
     if (isCurrentDraftSave(request)) {
-      const preservedGraphEqLayerId = state.graphEqInlinePreserveMountLayerId;
+      const preservedGraphEqLayerId = request.graphEqPreserveLayerId;
+      const preservedGraphEqToken = request.graphEqPreserveToken;
       state.draftSaveInFlight = false;
       state.pendingCoveredFeedbackSurfaceId = undefined;
       state.coveredFeedbackSurfaceId = undefined;
@@ -8037,9 +8217,7 @@ const saveDraft = async () => {
       renderDraftSaveFeedbackSurfaces();
       if (preservedGraphEqLayerId) {
         setTimeout(() => {
-          if (state.graphEqInlinePreserveMountLayerId === preservedGraphEqLayerId) {
-            state.graphEqInlinePreserveMountLayerId = null;
-          }
+          clearPreservedInlineGraphEqMount(preservedGraphEqLayerId, preservedGraphEqToken);
         }, 700);
       }
     } else if (request.requestId === state.draftSaveRequestId) {
@@ -8233,7 +8411,8 @@ const controlDisabledByDashboardState = (path, currentState = state) => {
 const deriveControlRequestState = (path, options = {}, currentState = state) => {
   const snapshot = currentState.snapshot;
   const startsStartRequest = path === "/api/recording/start";
-  const playbackControlRequest = path.startsWith("/api/playback/");
+  const backgroundPlaybackRequest = path === "/api/playback/live-graph-eq/tick";
+  const playbackControlRequest = path.startsWith("/api/playback/") && !backgroundPlaybackRequest;
   const allowStaleRecordingStop = options.allowStaleRecordingStop === true;
   const expectsRecordingOutcome =
     path === "/api/recording/stop" ||

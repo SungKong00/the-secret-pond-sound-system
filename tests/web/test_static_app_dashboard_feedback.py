@@ -746,6 +746,179 @@ assert.deepStrictEqual(
     )
 
 
+def test_live_graph_eq_feedback_stays_pending_until_render_apply_payload() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  createLiveApplyFeedbackState,
+  deriveCoveredSurfaceFeedbackState,
+  liveApplyFeedbackStates,
+  reduceLiveApplyFeedbackState,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  createLiveApplyFeedbackState,
+  deriveCoveredSurfaceFeedbackState,
+  liveApplyFeedbackStates,
+  reduceLiveApplyFeedbackState,
+} = globalThis.__secretPond;
+
+const activeSettings = {
+  playback: { apply_mode: "live" },
+  layers: {
+    mid: {
+      enabled: true,
+      volume_db: 0,
+      eq: {
+        highpass_hz: 20,
+        lowpass_hz: 20000,
+        points: [
+          { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
+          { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1 },
+          { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+        ],
+      },
+    },
+  },
+};
+const draftSettings = JSON.parse(JSON.stringify(activeSettings));
+draftSettings.layers.mid.eq.points[1].gain_db = 6;
+const pendingSnapshot = {
+  playback: {
+    apply_mode: "live",
+    live: { enabled: true, eq_applies_immediately: true },
+    live_graph_eq: {
+      status: "pending",
+      pending: true,
+      layer_id: "mid",
+      request_id: 44,
+    },
+  },
+  settings: {
+    active: activeSettings,
+    draft: draftSettings,
+    change: {
+      runtime_config_fields: [],
+      changed_sections: ["layers"],
+      live_preview_reprocessable_field_names: [],
+    },
+  },
+};
+const applying = reduceLiveApplyFeedbackState(
+  reduceLiveApplyFeedbackState(
+    createLiveApplyFeedbackState({ modeEpoch: 5, confirmedValue: 0 }),
+    {
+      type: "edit",
+      requestId: 12,
+      modeEpoch: 5,
+      coveredCardId: "layer:mid",
+      controlIds: ["layers.mid.eq.points"],
+      draftValue: draftSettings.layers.mid.eq.points,
+    },
+  ),
+  {
+    type: "request_started",
+    requestId: 12,
+    modeEpoch: 5,
+  },
+);
+const savedButRenderPending = reduceLiveApplyFeedbackState(applying, {
+  type: "request_succeeded",
+  requestId: 12,
+  modeEpoch: 5,
+  confirmedValue: activeSettings.layers.mid.eq.points,
+});
+assert.strictEqual(savedButRenderPending.feedbackState, liveApplyFeedbackStates.applied);
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({
+    snapshot: pendingSnapshot,
+    draft: draftSettings,
+    operationFlags: { liveApplyFeedback: savedButRenderPending },
+    surfaceId: "layer:mid",
+  }),
+  { visual_state: "pending", show_spinner: true },
+);
+
+const appliedSnapshot = {
+  ...pendingSnapshot,
+  playback: {
+    ...pendingSnapshot.playback,
+    live_graph_eq: {
+      status: "applied",
+      pending: false,
+      layer_id: "mid",
+      request_id: 44,
+    },
+  },
+};
+assert.deepStrictEqual(
+  deriveCoveredSurfaceFeedbackState({
+    snapshot: appliedSnapshot,
+    draft: draftSettings,
+    operationFlags: { liveApplyFeedback: savedButRenderPending },
+    surfaceId: "layer:mid",
+  }),
+  { visual_state: "idle", show_spinner: false },
+);
+""",
+    )
+
+
+def test_graph_eq_mount_preservation_ignores_stale_clear_timer() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  beginDraftSave,
+  clearPreservedInlineGraphEqMount,
+  preserveInlineGraphEqMount,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const { beginDraftSave, clearPreservedInlineGraphEqMount, preserveInlineGraphEqMount, state } =
+  globalThis.__secretPond;
+
+const firstToken = preserveInlineGraphEqMount("mid");
+assert.strictEqual(state.graphEqInlinePreserveMountLayerId, "mid");
+
+const secondToken = preserveInlineGraphEqMount("mid");
+assert.notStrictEqual(firstToken, secondToken);
+
+clearPreservedInlineGraphEqMount("mid", firstToken);
+assert.strictEqual(state.graphEqInlinePreserveMountLayerId, "mid");
+
+clearPreservedInlineGraphEqMount("mid", secondToken);
+assert.strictEqual(state.graphEqInlinePreserveMountLayerId, null);
+
+const saveToken = preserveInlineGraphEqMount("mid");
+const saveRequest = beginDraftSave();
+assert.strictEqual(saveRequest.graphEqPreserveLayerId, "mid");
+assert.strictEqual(saveRequest.graphEqPreserveToken, saveToken);
+
+const dragToken = preserveInlineGraphEqMount("mid");
+clearPreservedInlineGraphEqMount(
+  saveRequest.graphEqPreserveLayerId,
+  saveRequest.graphEqPreserveToken,
+);
+assert.strictEqual(state.graphEqInlinePreserveMountLayerId, "mid");
+
+clearPreservedInlineGraphEqMount("mid", dragToken);
+assert.strictEqual(state.graphEqInlinePreserveMountLayerId, null);
+""",
+    )
+
+
 def test_inline_graph_eq_ignores_stale_live_render_completion_payload() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

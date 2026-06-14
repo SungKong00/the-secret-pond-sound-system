@@ -61,6 +61,8 @@ async function openFirstGraphEqInLive(page) {
 
 const firstGraphEqCard = (page) => page.locator('[data-graph-eq-layer-card="mid"]');
 
+const firstLayerCard = (page) => page.locator(".layer-card").filter({ has: firstGraphEqCard(page) });
+
 const firstGraphEqGraph = (page) => firstGraphEqCard(page).locator(".graph-eq-dsssp-surface svg");
 
 const firstGraphEqHandles = (page) => firstGraphEqCard(page).locator(".graph-eq-dsssp-surface svg circle");
@@ -693,6 +695,116 @@ test("fast repeated Bell drag leaves the final draft value visible", async ({ pa
   await expect.poll(async () => Number(await midGain.inputValue())).toBeGreaterThan(3);
 });
 
+test("Bell drag defers draft save until pointerup and saves the final value", async ({ page }) => {
+  await openFirstGraphEq(page);
+  await selectGraphEqBand(page, 1);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeSettings = JSON.parse(JSON.stringify(before.settings.active));
+  const draftSaves = [];
+  await page.route("**/api/settings/draft", async (route) => {
+    const draft = route.request().postDataJSON();
+    draftSaves.push(draft);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        settings: {
+          active: activeSettings,
+          draft,
+        },
+      }),
+    });
+  });
+
+  const midGain = selectedPointControl(page, "gain");
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+  const midHandle = firstGraphEqHandles(page).nth(1);
+  const box = await viewportBox(midHandle);
+  expect(box).not.toBeNull();
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width * 0.42, graphBox.y + graphBox.height * 0.2, { steps: 6 });
+  await expect.poll(async () => Number(await midGain.inputValue())).toBeGreaterThan(4);
+  await page.waitForTimeout(420);
+  expect(draftSaves).toHaveLength(0);
+
+  await page.mouse.move(graphBox.x + graphBox.width * 0.66, graphBox.y + graphBox.height * 0.33, { steps: 6 });
+  await page.waitForTimeout(420);
+  expect(draftSaves).toHaveLength(0);
+
+  const finalVisibleGain = Number(await midGain.inputValue());
+  await page.mouse.up();
+
+  await expect.poll(() => draftSaves.length).toBe(1);
+  const savedPoint = draftSaves[0].layers.mid.eq.points.find((point) => point.id === "custom-mid");
+  expect(savedPoint.gain_db).toBeCloseTo(finalVisibleGain, 1);
+});
+
+test("stale Graph EQ save response during the next drag keeps the held point interactive", async ({ page }) => {
+  await openFirstGraphEq(page);
+  await selectGraphEqBand(page, 1);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeSettings = JSON.parse(JSON.stringify(before.settings.active));
+  const pendingDraftSaves = [];
+  await page.route("**/api/settings/draft", async (route) => {
+    const draft = route.request().postDataJSON();
+    await new Promise((resolve) => {
+      pendingDraftSaves.push({ draft, resolve });
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        settings: {
+          active: activeSettings,
+          draft,
+        },
+      }),
+    });
+  });
+
+  const midGain = selectedPointControl(page, "gain");
+  const graph = firstGraphEqGraph(page);
+  await graph.scrollIntoViewIfNeeded();
+  const graphBox = await viewportBox(graph);
+  expect(graphBox).not.toBeNull();
+
+  let box = await viewportBox(firstGraphEqHandles(page).nth(1));
+  expect(box).not.toBeNull();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width * 0.45, graphBox.y + graphBox.height * 0.25, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => pendingDraftSaves.length).toBe(1);
+
+  box = await viewportBox(firstGraphEqHandles(page).nth(1));
+  expect(box).not.toBeNull();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(graphBox.x + graphBox.width * 0.32, graphBox.y + graphBox.height * 0.72, { steps: 5 });
+  const gainDuringSecondDrag = Number(await midGain.inputValue());
+  expect(gainDuringSecondDrag).toBeLessThan(0);
+
+  pendingDraftSaves[0].resolve();
+  await page.waitForTimeout(760);
+
+  await page.mouse.move(graphBox.x + graphBox.width * 0.58, graphBox.y + graphBox.height * 0.18, { steps: 8 });
+  const finalVisibleGain = Number(await midGain.inputValue());
+  expect(finalVisibleGain).toBeGreaterThan(6);
+  await page.mouse.up();
+
+  await expect.poll(() => pendingDraftSaves.length).toBe(2);
+  pendingDraftSaves[1].resolve();
+  await expect.poll(async () => Number(await midGain.inputValue())).toBeCloseTo(finalVisibleGain, 1);
+  expect(pendingDraftSaves[1].draft.layers.mid.eq.points[1].gain_db).toBeCloseTo(finalVisibleGain, 1);
+});
+
 test("all layer Graph EQ editors stay open without accordion controls", async ({ page }) => {
   await openMixer(page);
 
@@ -889,6 +1001,32 @@ test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async (
 
   const after = await page.request.get(stateUrl).then((response) => response.json());
   expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
+});
+
+test("Live Graph EQ highlight stays pending after save until render state catches up", async ({ page }) => {
+  await openFirstGraphEqInLive(page);
+
+  const before = await page.request.get(stateUrl).then((response) => response.json());
+  const activeGain = before.settings.active.layers.mid.eq.points[1].gain_db;
+  const targetGain = differentGain(activeGain);
+  await selectGraphEqBand(page, 1);
+  const gainInput = selectedPointControl(page, "gain");
+  await gainInput.fill(String(targetGain));
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().includes("/api/settings/draft") && response.request().method() === "PUT"
+    )),
+    gainInput.blur(),
+  ]);
+
+  await expect(firstLayerCard(page)).toHaveClass(/feedback-pending/);
+  await expect(firstLayerCard(page).locator(".feedback-spinner")).toBeVisible();
+  await expect(firstGraphEqCard(page).locator(".graph-eq-layer-card-status"))
+    .toContainText("Live Graph EQ 적용 대기 중");
+  await expect(firstGraphEqCard(page).locator(".graph-eq-layer-card-status"))
+    .toContainText("Live Graph EQ 적용됨");
+  await expect(firstLayerCard(page)).not.toHaveClass(/feedback-pending/);
+  await expect(firstLayerCard(page).locator(".feedback-spinner")).toBeHidden();
 });
 
 test("Live Graph EQ failure keeps visible draft value instead of snapping back", async ({ page }) => {
