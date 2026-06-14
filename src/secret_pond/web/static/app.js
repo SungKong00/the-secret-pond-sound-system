@@ -556,7 +556,9 @@ const graphEqMinFrequencyHz = 20;
 const graphEqMaxFrequencyHz = 20000;
 const graphEqMinGainDb = -15;
 const graphEqMaxGainDb = 15;
-const graphEqMaxPoints = 6;
+const graphEqMaxPoints = 8;
+const graphEqDefaultBellQ = 1.4;
+const graphEqDefaultShelfQ = 0.707;
 
 const graphEqPointTypes = Object.freeze({
   bell: "Bell / Peak",
@@ -569,9 +571,9 @@ const isFixedGraphEqShelfPoint = (point) => (
 );
 
 const defaultGraphEqPoints = () => [
-  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
-  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1.0 },
-  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: graphEqDefaultShelfQ },
+  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: graphEqDefaultBellQ },
+  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: graphEqDefaultShelfQ },
 ];
 
 const graphEqFilterGroup = {
@@ -662,7 +664,7 @@ const graphEqOrderedPoints = (points = []) => {
     .filter((point) => point.type === "bell")
     .slice(0, bellCapacity)
     .map((point, index) => ({
-      point: normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? 1 }),
+      point: normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? graphEqDefaultBellQ }),
       index,
     }))
     .sort((a, b) => (
@@ -701,21 +703,21 @@ const graphEqEffectivePoints = (eq = {}) => {
       type: "low_shelf",
       frequency_hz: 80,
       gain_db: Number(eq.low_gain_db || 0),
-      q: 0.707,
+      q: graphEqDefaultShelfQ,
     },
     {
       id: "legacy-mid",
       type: "bell",
       frequency_hz: 1000,
       gain_db: Number(eq.mid_gain_db || 0),
-      q: 1,
+      q: graphEqDefaultBellQ,
     },
     {
       id: "legacy-high",
       type: "high_shelf",
       frequency_hz: 10000,
       gain_db: Number(eq.high_gain_db || 0),
-      q: 0.707,
+      q: graphEqDefaultShelfQ,
     },
   ]);
 };
@@ -5647,7 +5649,6 @@ const renderDraftSaveFeedbackSurfaces = () => {
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
-  bindInlineGraphEqLayerSummaries();
   initializeInlineGraphEqEditors();
 };
 
@@ -6664,7 +6665,7 @@ const addGraphEqPoint = () => {
     type: "bell",
     frequency_hz: 1000,
     gain_db: 0,
-    q: 1,
+    q: graphEqDefaultBellQ,
   });
   commitDraftChange(
     () => {
@@ -6782,32 +6783,6 @@ const graphEqBellCount = (points = []) => (Array.isArray(points) ? points : [])
 const graphEqBandMetaLabel = (points = []) => (
   `${graphEqBellCount(points)}/${Math.max(0, graphEqMaxPoints - 2)} Bell`
 );
-
-const renderGraphEqCollapsedSummary = (layerId, eq, liveStatus = null) => {
-  const normalized = normalizeGraphEqSettings(eq);
-  const gains = normalized.points.map((point) => Number(point.gain_db) || 0);
-  const hasGainChange = gains.some((gain) => Math.abs(gain) >= 0.05);
-  const gainSummary = hasGainChange
-    ? `${graphEqGainLabel(Math.min(...gains))} ~ ${graphEqGainLabel(Math.max(...gains))}`
-    : "0 dB";
-  const frequencySummary = normalized.points
-    .map((point) => `${graphEqPointTypes[point.type]} ${graphEqFrequencyLabel(point.frequency_hz)}`)
-    .join(" · ");
-  return `
-    <button
-      class="graph-eq-collapsed-summary"
-      type="button"
-      data-graph-eq-layer-summary="${escapeHtml(layerId)}"
-      aria-label="${escapeHtml(labelText(layerLabels[layerId]))} Graph EQ 열기"
-    >
-      <div>
-        <strong>${escapeHtml(labelText(layerLabels[layerId]))} EQ · ${graphEqBandMetaLabel(normalized.points)}</strong>
-        <span>${escapeHtml(liveStatus?.label || frequencySummary)}</span>
-      </div>
-      <p>Gain ${escapeHtml(gainSummary)}</p>
-    </button>
-  `;
-};
 
 const inlineGraphEqSelectedPoint = (eq, layerId) => {
   const selected = selectedGraphEqPoint(eq, layerId);
@@ -7096,14 +7071,13 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
 
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const expanded = currentGraphEqLayerId() === layerId;
   const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` });
   const liveStatus = inlineGraphEqStatusCopy(feedbackState);
   return `
     <section
-      class="graph-eq-layer-card-section ${expanded ? "expanded" : "compact"}"
+      class="graph-eq-layer-card-section expanded"
       data-graph-eq-layer-card="${escapeHtml(layerId)}"
-      data-graph-eq-expanded="${expanded ? "true" : "false"}"
+      data-graph-eq-expanded="true"
     >
       <div class="graph-eq-layer-card-head">
         <div>
@@ -7115,17 +7089,9 @@ const renderLayerGraphEqSection = (layerId) => {
         <div class="graph-eq-layer-card-meta">${graphEqBandMetaLabel(eq.points)}</div>
       </div>
       ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
-      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqCollapsedSummary(layerId, eq, liveStatus)}
+      ${renderExpandedGraphEqEditorShell(layerId, eq)}
     </section>
   `;
-};
-
-const bindInlineGraphEqLayerSummaries = () => {
-  document.querySelectorAll?.("[data-graph-eq-layer-summary]").forEach((button) => {
-    if (button.dataset.graphEqBound === "true") return;
-    button.dataset.graphEqBound = "true";
-    button.addEventListener("click", () => openExpandedGraphEqLayer(button.dataset.graphEqLayerSummary));
-  });
 };
 
 const selectedOrFirstGraphEqPointId = (layerId, eq) => (
@@ -7225,7 +7191,7 @@ const addInlineGraphEqPoint = (layerId) => {
     type: "bell",
     frequency_hz: Math.round(Math.sqrt(widestGap[0] * widestGap[1])),
     gain_db: 0,
-    q: 1,
+    q: graphEqDefaultBellQ,
   });
   const lowShelf = eq.points.find((point) => point.type === "low_shelf");
   const highShelf = eq.points.find((point) => point.type === "high_shelf");

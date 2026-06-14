@@ -2962,10 +2962,6 @@ section.control-group .control-group-head h4::before {
   min-width: 0;
 }
 
-.graph-eq-layer-card-section.compact {
-  padding: 10px;
-}
-
 .graph-eq-layer-card-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3006,57 +3002,6 @@ section.control-group .control-group-head h4::before {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 11px;
-}
-
-.graph-eq-collapsed-summary {
-  appearance: none;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  margin-top: 8px;
-  padding: 9px 10px;
-  border: 1px solid rgba(223, 213, 191, 0.1);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.022);
-  text-align: left;
-  cursor: pointer;
-}
-
-.graph-eq-collapsed-summary:hover,
-.graph-eq-collapsed-summary:focus-visible {
-  border-color: rgba(226, 184, 79, 0.32);
-  background: rgba(226, 184, 79, 0.08);
-}
-
-.graph-eq-collapsed-summary div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.graph-eq-collapsed-summary strong {
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.1;
-}
-
-.graph-eq-collapsed-summary span,
-.graph-eq-collapsed-summary p {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.graph-eq-collapsed-summary p {
-  color: var(--amber);
-  font-weight: 760;
 }
 
 .graph-eq-inline-editor {
@@ -3786,14 +3731,16 @@ input[type="checkbox"] {
 }
 
 @media (min-width: 1121px) {
-  html[data-workspace-tab="mixer"] .dashboard-grid {
+  html[data-workspace-tab="mixer"] .dashboard-grid,
+  html[data-workspace-tab="stack"] .dashboard-grid {
     grid-template-columns: minmax(292px, 0.74fr) minmax(760px, 2.26fr);
     grid-template-areas:
       "ops main"
       "side main";
   }
 
-  html[data-workspace-tab="mixer"] .operation-panel {
+  html[data-workspace-tab="mixer"] .operation-panel,
+  html[data-workspace-tab="stack"] .operation-panel {
     position: sticky;
     top: 12px;
     max-height: calc(100vh - 24px);
@@ -3801,88 +3748,108 @@ input[type="checkbox"] {
     scrollbar-width: thin;
   }
 
-  html[data-workspace-tab="mixer"] .operation-stack {
+  html[data-workspace-tab="mixer"] .operation-stack,
+  html[data-workspace-tab="stack"] .operation-stack {
     gap: 10px;
   }
 
-  html[data-workspace-tab="mixer"] .operation-card {
+  html[data-workspace-tab="mixer"] .operation-card,
+  html[data-workspace-tab="stack"] .operation-card {
     padding: 10px;
   }
 
   html[data-workspace-tab="mixer"] .record-panel .panel-heading,
-  html[data-workspace-tab="mixer"] .playback-heading {
+  html[data-workspace-tab="stack"] .record-panel .panel-heading,
+  html[data-workspace-tab="mixer"] .playback-heading,
+  html[data-workspace-tab="stack"] .playback-heading {
     margin-bottom: 8px;
   }
 
   html[data-workspace-tab="mixer"] .playback-live-details,
+  html[data-workspace-tab="stack"] .playback-live-details,
   html[data-workspace-tab="mixer"] .playback-summary,
-  html[data-workspace-tab="mixer"] .playback-transition-controls {
+  html[data-workspace-tab="stack"] .playback-summary,
+  html[data-workspace-tab="mixer"] .playback-transition-controls,
+  html[data-workspace-tab="stack"] .playback-transition-controls {
     display: none;
   }
 
-  html[data-workspace-tab="mixer"] .playback-status-stack {
+  html[data-workspace-tab="mixer"] .playback-status-stack,
+  html[data-workspace-tab="stack"] .playback-status-stack {
     gap: 6px;
   }
 
-  html[data-workspace-tab="mixer"] .playback-timeline {
+  html[data-workspace-tab="mixer"] .playback-timeline,
+  html[data-workspace-tab="stack"] .playback-timeline {
     gap: 5px;
     padding: 7px 6px;
   }
 
-  html[data-workspace-tab="mixer"] .playback-actions {
+  html[data-workspace-tab="mixer"] .playback-actions,
+  html[data-workspace-tab="stack"] .playback-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 5px;
     margin-top: 8px;
   }
 
-  html[data-workspace-tab="mixer"] .playback-actions .playback-start {
+  html[data-workspace-tab="mixer"] .playback-actions .playback-start,
+  html[data-workspace-tab="stack"] .playback-actions .playback-start {
     grid-column: auto;
   }
 
-  html[data-workspace-tab="mixer"] .playback-actions .button {
+  html[data-workspace-tab="mixer"] .playback-actions .button,
+  html[data-workspace-tab="stack"] .playback-actions .button {
     min-height: 36px;
     padding-inline: 6px;
   }
 
-  html[data-workspace-tab="mixer"] .playback-apply-strip {
+  html[data-workspace-tab="mixer"] .playback-apply-strip,
+  html[data-workspace-tab="stack"] .playback-apply-strip {
     margin-top: 8px;
     padding-top: 8px;
   }
 
-  html[data-workspace-tab="mixer"] .capture-gate {
+  html[data-workspace-tab="mixer"] .capture-gate,
+  html[data-workspace-tab="stack"] .capture-gate {
     order: 2;
     margin-bottom: 6px;
     padding: 7px;
   }
 
-  html[data-workspace-tab="mixer"] .record-panel {
+  html[data-workspace-tab="mixer"] .record-panel,
+  html[data-workspace-tab="stack"] .record-panel {
     display: grid;
     gap: 6px;
   }
 
-  html[data-workspace-tab="mixer"] .record-panel .panel-heading {
+  html[data-workspace-tab="mixer"] .record-panel .panel-heading,
+  html[data-workspace-tab="stack"] .record-panel .panel-heading {
     order: 1;
   }
 
-  html[data-workspace-tab="mixer"] .record-panel .storage-mode-panel {
+  html[data-workspace-tab="mixer"] .record-panel .storage-mode-panel,
+  html[data-workspace-tab="stack"] .record-panel .storage-mode-panel {
     order: 4;
   }
 
-  html[data-workspace-tab="mixer"] .take-console {
+  html[data-workspace-tab="mixer"] .take-console,
+  html[data-workspace-tab="stack"] .take-console {
     order: 3;
     grid-template-columns: 1fr;
     gap: 6px;
     margin-bottom: 6px;
   }
 
-  html[data-workspace-tab="mixer"] .record-orbit {
+  html[data-workspace-tab="mixer"] .record-orbit,
+  html[data-workspace-tab="stack"] .record-orbit {
     order: 2;
     min-height: 0;
     padding: 7px 9px;
     place-items: stretch;
   }
 
-  html[data-workspace-tab="mixer"] .record-core {
+  html[data-workspace-tab="mixer"] .record-core,
+  html[data-workspace-tab="stack"] .record-core {
     width: 100%;
     min-height: 38px;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -3894,56 +3861,68 @@ input[type="checkbox"] {
     text-align: left;
   }
 
-  html[data-workspace-tab="mixer"] .record-core span {
+  html[data-workspace-tab="mixer"] .record-core span,
+  html[data-workspace-tab="stack"] .record-core span {
     font-size: 11px;
   }
 
-  html[data-workspace-tab="mixer"] .record-core strong {
+  html[data-workspace-tab="mixer"] .record-core strong,
+  html[data-workspace-tab="stack"] .record-core strong {
     font-size: 18px;
   }
 
   html[data-workspace-tab="mixer"] .record-core small,
-  html[data-workspace-tab="mixer"] .record-limits {
+  html[data-workspace-tab="stack"] .record-core small,
+  html[data-workspace-tab="mixer"] .record-limits,
+  html[data-workspace-tab="stack"] .record-limits {
     display: none;
   }
 
-  html[data-workspace-tab="mixer"] .take-actions {
+  html[data-workspace-tab="mixer"] .take-actions,
+  html[data-workspace-tab="stack"] .take-actions {
     order: 1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  html[data-workspace-tab="mixer"] .take-actions .button {
+  html[data-workspace-tab="mixer"] .take-actions .button,
+  html[data-workspace-tab="stack"] .take-actions .button {
     min-height: 36px;
   }
 
-  html[data-workspace-tab="mixer"] .record-outcome {
+  html[data-workspace-tab="mixer"] .record-outcome,
+  html[data-workspace-tab="stack"] .record-outcome {
     order: 5;
     min-height: 0;
     margin-top: 6px;
     padding: 6px 8px;
   }
 
-  html[data-workspace-tab="mixer"] .settings-preset-panel {
+  html[data-workspace-tab="mixer"] .settings-preset-panel,
+  html[data-workspace-tab="stack"] .settings-preset-panel {
     max-height: 170px;
     overflow: auto;
   }
 
-  html[data-workspace-tab="mixer"] .layer-controls {
+  html[data-workspace-tab="mixer"] .layer-controls,
+  html[data-workspace-tab="stack"] .layer-controls {
     grid-template-areas:
       "graph-eq"
       "level"
       "filter";
   }
 
-  html[data-workspace-tab="mixer"] .graph-eq-layer-card-section.expanded {
+  html[data-workspace-tab="mixer"] .graph-eq-layer-card-section.expanded,
+  html[data-workspace-tab="stack"] .graph-eq-layer-card-section.expanded {
     padding: 10px;
   }
 
-  html[data-workspace-tab="mixer"] .graph-eq-inline-editor {
+  html[data-workspace-tab="mixer"] .graph-eq-inline-editor,
+  html[data-workspace-tab="stack"] .graph-eq-inline-editor {
     margin-top: 6px;
   }
 
-  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface {
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface,
+  html[data-workspace-tab="stack"] .graph-eq-dsssp-surface {
     padding: 5px;
   }
 }

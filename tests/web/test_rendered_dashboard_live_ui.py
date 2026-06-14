@@ -150,16 +150,16 @@ requestAnimationFrame(openGraphEqFixture);
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
     assert rendered["graphEqWorkspaceVisible"] is False
     assert rendered["inlineGraphEqSections"] == 3
-    assert rendered["expandedGraphEqEditors"] == 1
+    assert rendered["expandedGraphEqEditors"] == 3
     assert rendered["visibleText"] is True
     assert rendered["miniPreviewCount"] == 0
-    assert rendered["collapsedSummaryCount"] == 2
+    assert rendered["collapsedSummaryCount"] == 0
     assert rendered["toggleCount"] == 0
     assert rendered["editorRect"]["width"] > 900
     assert rendered["graphHostRect"]["width"] > 900
     assert rendered["graphHostRect"]["height"] > 300
-    assert rendered["dssspRootCount"] == 1
-    assert rendered["dssspSvgCount"] == 1
+    assert rendered["dssspRootCount"] == 3
+    assert rendered["dssspSvgCount"] == 3
     assert rendered["legacyEqUiCount"] == 0
     assert rendered["stepButtonCount"] >= 6
     for button in rendered["stepButtons"]:
@@ -222,13 +222,13 @@ requestAnimationFrame(openGraphEqFixture);
 
     assert rendered["viewportWidth"] == 1280
     assert rendered["bodyWidth"] <= rendered["viewportWidth"]
-    assert rendered["expandedGraphEqEditors"] == 1
-    assert rendered["collapsedSummaryCount"] == 2
+    assert rendered["expandedGraphEqEditors"] == 3
+    assert rendered["collapsedSummaryCount"] == 0
     assert rendered["toggleCount"] == 0
     assert rendered["graphHostRect"]["width"] > 700
     assert rendered["graphHostRect"]["height"] > 280
-    assert rendered["dssspRootCount"] == 1
-    assert rendered["dssspSvgCount"] == 1
+    assert rendered["dssspRootCount"] == 3
+    assert rendered["dssspSvgCount"] == 3
     assert rendered["legacyEqUiCount"] == 0
     assert rendered["rightPanelRect"]["width"] >= 280
 
@@ -853,18 +853,16 @@ class _CdpPage:
   const graphHost = editor?.querySelector(".graph-eq-dsssp-host") || null;
   const dssspRoots = document.querySelectorAll('[data-graph-eq-dsssp-root="true"]');
   const dssspSvgs = document.querySelectorAll(".graph-eq-dsssp-surface svg");
-  const collapsedSummaries = document.querySelectorAll(".graph-eq-collapsed-summary");
   const missingGraphEqNode = (
     !mainPanel ||
     !rightPanel ||
     sections.length !== 3 ||
-    expandedEditors.length !== 1 ||
+    expandedEditors.length !== 3 ||
     !editor ||
     !graphHost ||
     graphHost.getBoundingClientRect().width <= 0 ||
-    dssspRoots.length !== 1 ||
-    dssspSvgs.length !== 1 ||
-    collapsedSummaries.length !== 2
+    dssspRoots.length !== 3 ||
+    dssspSvgs.length !== 3
   );
   if (missingGraphEqNode) {
     return {
@@ -892,7 +890,7 @@ class _CdpPage:
     inlineGraphEqSections: sections.length,
     expandedGraphEqEditors: expandedEditors.length,
     miniPreviewCount: document.querySelectorAll(".graph-eq-mini-preview").length,
-    collapsedSummaryCount: collapsedSummaries.length,
+    collapsedSummaryCount: document.querySelectorAll(".graph-eq-collapsed-summary").length,
     toggleCount: document.querySelectorAll("[data-graph-eq-toggle]").length,
     visibleText: (
       document.body.innerText.includes("Graph EQ") &&

@@ -25801,6 +25801,7 @@ var SecretPondDssspGraphEqBundle = (() => {
     low_shelf: Object.freeze({ frequency_hz: 80, gain_db: 0, q: 0.707 }),
     high_shelf: Object.freeze({ frequency_hz: 1e4, gain_db: 0, q: 0.707 })
   });
+  var defaultBellQ = 1.4;
   var supportedDssspTypes = Object.freeze(["LOWSHELF2", "PEAK", "HIGHSHELF2"]);
   var secretPondToDssspType = Object.freeze({
     low_shelf: "LOWSHELF2",
@@ -25839,7 +25840,7 @@ var SecretPondDssspGraphEqBundle = (() => {
       type: secretPondToDssspType[type],
       freq: displayFrequencyForPoint({ ...point, type }, config, index, points),
       gain: clamp(point?.gain_db ?? point?.gain ?? 0, config.minGain, config.maxGain),
-      q: clamp(point?.q ?? fixedShelfDefaults[type]?.q ?? 1, 0.1, 18)
+      q: clamp(point?.q ?? fixedShelfDefaults[type]?.q ?? defaultBellQ, 0.1, 18)
     };
   });
   var toSecretPondPoints = (filters = [], previousPoints = []) => filters.map((filter, index) => {
@@ -25856,7 +25857,7 @@ var SecretPondDssspGraphEqBundle = (() => {
       type,
       frequency_hz: nextFrequency,
       gain_db: Number(clamp(filter?.gain ?? previous.gain_db ?? 0, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain).toFixed(1)),
-      q: Number(clamp(previous.q ?? filter?.q ?? shelfDefault.q ?? 1, 0.1, 18).toFixed(3))
+      q: Number(clamp(previous.q ?? filter?.q ?? shelfDefault.q ?? defaultBellQ, 0.1, 18).toFixed(3))
     };
   }).filter((point) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, point.type));
 
@@ -25867,7 +25868,7 @@ var SecretPondDssspGraphEqBundle = (() => {
   var graphWidth = 900;
   var graphHeight = 320;
   var pointVisualInset = 15;
-  var maxGraphEqPoints = 6;
+  var maxGraphEqPoints = 8;
   var movementThresholdPx = 4;
   var clamp2 = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
   var gainToGraphY = (gain) => (graphEqDisplayConfig.maxGain - clamp2(gain, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain)) / (graphEqDisplayConfig.maxGain - graphEqDisplayConfig.minGain) * graphHeight;
@@ -25951,7 +25952,7 @@ var SecretPondDssspGraphEqBundle = (() => {
         }
       ],
       point: {
-        radius: 10,
+        radius: 8,
         lineWidth: 2,
         backgroundOpacity: { normal: 0.88, active: 1, drag: 1 }
       },
@@ -26203,7 +26204,7 @@ var SecretPondDssspGraphEqBundle = (() => {
           type: "bell",
           frequency_hz: graphXToFrequency(position.x),
           gain_db: graphYToGain(position.y),
-          q: 1
+          q: defaultBellQ
         };
         const nextPoints = graphEqWithNewestBell(previousPoints, nextPoint);
         latestPointsRef.current = nextPoints;

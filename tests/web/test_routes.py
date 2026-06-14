@@ -2200,7 +2200,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert ".graph-eq-band-list" in styles.text
     assert ".graph-eq-selected-inspector" in styles.text
     assert (".graph-eq-weq" + "8c-host") not in styles.text
-    assert ".graph-eq-collapsed-summary" in styles.text
+    assert ".graph-eq-collapsed-summary" not in styles.text
     assert ".graph-eq-step-button" in styles.text
 
 

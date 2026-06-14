@@ -7,6 +7,7 @@ import {
   PointerTracker,
 } from "dsssp";
 import {
+  defaultBellQ,
   frequencyToX,
   graphEqDisplayConfig,
   toDssspFilters,
@@ -19,7 +20,7 @@ const emptyPoints = Object.freeze([]);
 const graphWidth = 900;
 const graphHeight = 320;
 const pointVisualInset = 15;
-const maxGraphEqPoints = 6;
+const maxGraphEqPoints = 8;
 const movementThresholdPx = 4;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
@@ -123,7 +124,7 @@ const graphTheme = {
       },
     ],
     point: {
-      radius: 10,
+      radius: 8,
       lineWidth: 2,
       backgroundOpacity: { normal: 0.88, active: 1, drag: 1 },
     },
@@ -417,7 +418,7 @@ function GraphEqDssspEditor({
         type: "bell",
         frequency_hz: graphXToFrequency(position.x),
         gain_db: graphYToGain(position.y),
-        q: 1,
+        q: defaultBellQ,
       };
       const nextPoints = graphEqWithNewestBell(previousPoints, nextPoint);
       latestPointsRef.current = nextPoints;
