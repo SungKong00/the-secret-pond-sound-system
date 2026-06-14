@@ -46,6 +46,13 @@ def start_voice_raw_preview(
         runtime.voice_raw_preview_path = relative_path
         return
 
+    player_snapshot = None
+    player_snapshot_fn = getattr(runtime.player, "snapshot", None)
+    if callable(player_snapshot_fn):
+        player_snapshot = player_snapshot_fn()
+    previous_preview_path = runtime.voice_raw_preview_path
+    previous_preview_resume_main = runtime.voice_raw_preview_resume_main
+    previous_preview_layers = runtime.voice_raw_preview_layers
     was_main_playback_running = runtime.output.is_running and runtime.voice_raw_preview_path is None
     if runtime.voice_raw_preview_path is not None:
         was_main_playback_running = bool(
@@ -59,6 +66,12 @@ def start_voice_raw_preview(
         runtime.output.start()
     except Exception:
         runtime.player.stop()
+        player_restore = getattr(runtime.player, "restore", None)
+        if player_snapshot is not None and callable(player_restore):
+            player_restore(player_snapshot)
+        runtime.voice_raw_preview_path = previous_preview_path
+        runtime.voice_raw_preview_resume_main = previous_preview_resume_main
+        runtime.voice_raw_preview_layers = previous_preview_layers
         raise
     runtime.voice_raw_preview_path = relative_path
     runtime.voice_raw_preview_resume_main = was_main_playback_running

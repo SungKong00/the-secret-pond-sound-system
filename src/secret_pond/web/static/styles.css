@@ -1373,14 +1373,15 @@ input[type="range"]:focus-visible {
   width: 100%;
   justify-self: stretch;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .playback-transition-controls .value-description {
   min-width: 0;
   max-width: min(100%, 360px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .playback-transition-controls .range-context {
@@ -4078,6 +4079,36 @@ input[type="checkbox"] {
     min-height: 44px;
   }
 
+  .button,
+  .icon-button,
+  .notice-dismiss-button,
+  .workspace-tab,
+  .storage-mode-button,
+  .playback-apply-mode-button,
+  .capture-gate-switch,
+  select,
+  input[type="range"],
+  input[type="checkbox"],
+  .settings-preset-save input,
+  .settings-preset-save-button,
+  .settings-preset-action,
+  .side-tab,
+  .graph-eq-point-row {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .icon-button,
+  .notice-dismiss-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  input[type="checkbox"] {
+    width: 44px;
+    height: 44px;
+  }
+
   .source-file-name-line .icon-mini-button {
     width: 44px;
     height: 44px;
@@ -4196,6 +4227,11 @@ input[type="checkbox"] {
 
   .graph-eq-inline-controls .graph-eq-step-button {
     min-width: 44px;
+    min-height: 44px;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-inline-actions .button,
+  html[data-workspace-tab="stack"] .graph-eq-inline-actions .button {
     min-height: 44px;
   }
 

@@ -65,10 +65,13 @@ class PreviewOutput:
         self.is_running = True
         self.start_calls = 0
         self.stop_calls = 0
+        self.fail_start = False
         self.player: PreviewPlayer | None = None
 
     def start(self) -> None:
         self.start_calls += 1
+        if self.fail_start:
+            raise RuntimeError("device failed")
         if self.player is not None:
             self.player.is_playing = True
         self.is_running = True
@@ -113,6 +116,47 @@ def test_start_voice_raw_preview_stops_main_playback_before_loading_preview() ->
     assert runtime.output.is_running is True
     assert runtime.player.is_playing is True
     assert runtime.voice_raw_preview_path == "data/sources/voice/raw/VR0610_213112.wav"
+
+
+def test_start_voice_raw_preview_restores_main_buffers_when_output_start_fails() -> None:
+    settings = AppSettings().model_copy(
+        update={
+            "audio": AppSettings().audio.model_copy(
+                update={"sample_rate": 8_000, "channels": 2, "loop_seconds": 1},
+            ),
+        },
+        deep=True,
+    )
+    main = AudioBuffer(samples=np.full((32, 2), 0.03, dtype=np.float32), sample_rate=8_000)
+    preview = AudioBuffer(samples=np.full((32, 2), 0.22, dtype=np.float32), sample_rate=8_000)
+    silence = AudioBuffer(samples=np.zeros((32, 2), dtype=np.float32), sample_rate=8_000)
+    runtime = PreviewRuntime()
+    output = PreviewOutput()
+    output.fail_start = True
+    player = LayeredLoopPlayer()
+    player.load_rendered_buffers({"low": silence, "mid": silence, "voice": main})
+    player.start()
+    output.player = None
+    runtime.output = output
+    runtime.player = player
+    runtime.voice_source.layers = {"low": silence, "mid": silence, "voice": preview}
+
+    try:
+        start_voice_raw_preview(runtime, "data/sources/voice/raw/VR0610_213112.wav", settings)
+    except RuntimeError as exc:
+        assert str(exc) == "device failed"
+    else:
+        raise AssertionError("expected output start failure")
+
+    assert runtime.voice_raw_preview_path is None
+    assert runtime.voice_raw_preview_resume_main is False
+    assert runtime.voice_raw_preview_layers is None
+    assert output.is_running is False
+    restored = player.snapshot()
+    assert restored.layers is not None
+    assert restored.layers["voice"] is main
+    block = player.next_block(4)
+    assert float(np.max(np.abs(block.samples))) < 0.05
 
 
 def test_reprocessing_voice_raw_preview_publishes_new_active_preview_source() -> None:

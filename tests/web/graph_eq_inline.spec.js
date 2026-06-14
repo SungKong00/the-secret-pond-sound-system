@@ -1090,6 +1090,116 @@ test("mobile Graph EQ handles keep small visuals with touch-sized pointer target
   }
 });
 
+test("mobile dashboard operation and Graph EQ action buttons keep touch-sized targets", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await openFirstGraphEq(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  const targets = await page.evaluate(() => {
+    const selectors = [
+      ".notice-dismiss-button",
+      ".workspace-tab",
+      ".playback-apply-mode-button",
+      ".playback-actions .button",
+      ".playback-apply-strip .button",
+      ".storage-mode-button",
+      ".capture-gate-switch",
+      ".settings-preset-save-button",
+      'input[type="range"]',
+      'input[type="checkbox"]',
+      "select",
+      ".side-tab",
+      ".icon-button",
+      '[data-graph-eq-action="add-point"]',
+      '[data-graph-eq-action="reset-layer"]',
+      "[data-graph-eq-point-row]",
+    ];
+    return selectors.flatMap((selector) => (
+      Array.from(document.querySelectorAll(selector))
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          return rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== "hidden" &&
+            style.display !== "none" &&
+            !node.disabled;
+        })
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            selector,
+            text: (
+              node.innerText ||
+              node.getAttribute("aria-label") ||
+              node.getAttribute("title") ||
+              ""
+            ).trim().replace(/\s+/g, " "),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        })
+    ));
+  });
+
+  expect(targets.length).toBeGreaterThan(0);
+  for (const target of targets) {
+    expect(target.width, `${target.selector} ${target.text}`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.selector} ${target.text}`).toBeGreaterThanOrEqual(44);
+  }
+
+  const transitionDescriptions = await page.locator(
+    ".playback-transition-controls .value-description",
+  ).evaluateAll((nodes) => nodes.map((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      overflowX: style.overflowX,
+      whiteSpace: style.whiteSpace,
+      text: node.textContent.trim(),
+    };
+  }));
+  expect(transitionDescriptions.length).toBeGreaterThan(0);
+  for (const description of transitionDescriptions) {
+    expect(description.overflowX, description.text).not.toBe("hidden");
+    expect(description.whiteSpace, description.text).not.toBe("nowrap");
+  }
+
+  await page.locator("#sideTabSystem").click();
+  const systemTargets = await page.evaluate(() => {
+    const selectors = ["select", ".side-tab"];
+    return selectors.flatMap((selector) => (
+      Array.from(document.querySelectorAll(selector))
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          return rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== "hidden" &&
+            style.display !== "none";
+        })
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            selector,
+            text: (
+              node.innerText ||
+              node.getAttribute("aria-label") ||
+              node.getAttribute("title") ||
+              ""
+            ).trim().replace(/\s+/g, " "),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        })
+    ));
+  });
+  expect(systemTargets.length).toBeGreaterThan(0);
+  for (const target of systemTargets) {
+    expect(target.width, `${target.selector} ${target.text}`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.selector} ${target.text}`).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test("DSSSP Graph EQ supports keyboard band selection creation and deletion", async ({ page }) => {
   await openFirstGraphEq(page);
 

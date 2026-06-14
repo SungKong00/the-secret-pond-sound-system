@@ -89,7 +89,8 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
 4. Open `http://127.0.0.1:8000`.
 5. Check the System panel before operation.
 6. Use Source Library to select the Low, Mid, and Voice Stack WAV files. Upload new WAV files
-   there when needed. Delete only inactive files; the active source is protected.
+   there when needed. Delete only inactive files that are not referenced by Settings Presets;
+   active and preset-referenced sources are protected.
 
 For machine-readable preflight logs, run:
 

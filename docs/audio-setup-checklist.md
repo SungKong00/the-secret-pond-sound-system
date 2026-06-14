@@ -62,10 +62,10 @@ Use this checklist before rehearsal and before show operation.
 
 ## Settings Presets
 
-- [ ] Save Draft stores the current draft Graph EQ, Mixer, and Source selection state.
-- [ ] Load only works in Stable mode.
-- [ ] Update overwrites the selected preset from the current draft.
-- [ ] Delete removes the selected preset after confirmation.
+- [ ] `초안 저장` stores the current draft Graph EQ, Mixer, and Source selection state.
+- [ ] `불러오기` only works in Stable mode.
+- [ ] `덮어쓰기` overwrites the selected preset from the current draft.
+- [ ] `삭제` removes the selected preset after confirmation.
 - [ ] missing source files block load with a visible warning.
 - [ ] Source rename/delete keeps preset references consistent or blocks unsafe deletion.
 

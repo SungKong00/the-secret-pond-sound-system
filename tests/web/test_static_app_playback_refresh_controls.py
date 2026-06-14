@@ -3278,6 +3278,9 @@ assert.match(
   document.getElementById("settingsPresetList").innerHTML,
   /data-settings-preset-load="preset-1"/,
 );
+assert.match(document.getElementById("settingsPresetList").innerHTML, />\\s*불러오기\\s*</);
+assert.match(document.getElementById("settingsPresetList").innerHTML, />\\s*덮어쓰기\\s*</);
+assert.match(document.getElementById("settingsPresetList").innerHTML, />\\s*삭제\\s*</);
 assert.match(document.getElementById("settingsPresetList").innerHTML, /Mid -8\\.0dB/);
 
 const requests = [];
@@ -4085,6 +4088,7 @@ let markup = document.getElementById("playbackTransitionControls").children
   .join("\\n");
 assert.match(markup, /class="value-line"/);
 assert.match(markup, /class="control-description value-description"/);
+assert.match(markup, /value-description/);
 assert.match(
   markup,
   new RegExp(

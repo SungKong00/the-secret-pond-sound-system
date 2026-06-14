@@ -4017,7 +4017,7 @@ const renderSettingsPresets = () => {
               ${loadDisabled ? "disabled" : ""}
               ${title}
             >
-              Load
+              불러오기
             </button>
             <button
               class="settings-preset-action"
@@ -4025,7 +4025,7 @@ const renderSettingsPresets = () => {
               data-settings-preset-update="${escapeHtml(preset.id)}"
               ${commandDisabled ? "disabled" : ""}
             >
-              Update
+              덮어쓰기
             </button>
             <button
               class="settings-preset-action danger"
@@ -4033,7 +4033,7 @@ const renderSettingsPresets = () => {
               data-settings-preset-delete="${escapeHtml(preset.id)}"
               ${commandDisabled ? "disabled" : ""}
             >
-              Delete
+              삭제
             </button>
           </div>
         </article>

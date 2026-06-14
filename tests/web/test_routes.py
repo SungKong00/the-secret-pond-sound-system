@@ -1101,6 +1101,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "Graph EQ · Mixer · Source" in settings_preset_panel
     assert 'id="settingsPresetNameInput"' in settings_preset_panel
     assert 'id="settingsPresetSaveButton"' in settings_preset_panel
+    assert "초안 저장" in settings_preset_panel
     assert 'id="systemStatus"' in system_panel
     assert 'id="sourceHealthList"' in system_panel
     assert 'id="eventLogSummary"' in system_panel
@@ -11934,6 +11935,89 @@ def test_api_sources_rename_updates_preset_source_references(tmp_path: Path) -> 
     updated = PresetStore(paths).get(preset.id)
     assert updated.payload.sources.low_path == renamed_relative
     assert updated.source_refs["low_path"].path == renamed_relative
+
+
+def test_api_sources_rename_keeps_file_and_settings_when_preset_update_fails(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/preset-low.wav"
+    renamed_relative = "data/sources/low/renamed-preset-low.wav"
+    original_path = tmp_path / original_relative
+    renamed_path = tmp_path / renamed_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    PresetStore(paths).create_from_draft("Opening", settings)
+    paths.presets_file.write_text("{not-json", encoding="utf-8")
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-preset-low"},
+    )
+
+    assert response.status_code == 422
+    assert "presets file contains invalid JSON" in response.json()["detail"]
+    assert original_path.exists() is True
+    assert renamed_path.exists() is False
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == original_relative
+    assert stored.draft.sources.low_path == original_relative
+
+
+def test_api_sources_rename_rolls_back_when_preset_reference_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/preset-low.wav"
+    renamed_relative = "data/sources/low/renamed-preset-low.wav"
+    original_path = tmp_path / original_relative
+    renamed_path = tmp_path / renamed_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    PresetStore(paths).create_from_draft("Opening", settings)
+
+    def fail_replace_source_path(*args, **kwargs):
+        raise OSError("preset save failed")
+
+    monkeypatch.setattr(web_routes.PresetStore, "replace_source_path", fail_replace_source_path)
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-preset-low"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "preset save failed"
+    assert original_path.exists() is True
+    assert renamed_path.exists() is False
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == original_relative
+    assert stored.draft.sources.low_path == original_relative
 
 
 def test_api_sources_delete_rejects_file_referenced_by_preset(tmp_path: Path) -> None:
