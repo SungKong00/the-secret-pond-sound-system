@@ -749,48 +749,107 @@ const normalizeGraphEqSettings = (eq = {}) => {
   };
 };
 
-const graphEqLiveStatusCopy = (liveGraphEq = {}) => {
+const graphEqLivePendingCopy = () => ({
+  label: "Live Graph EQ 적용 대기 중",
+  detail: "약 1초 debounce 후 최신 곡선만 적용합니다.",
+  className: "status-pill caution",
+});
+
+const graphEqLiveSlowCopy = () => ({
+  label: "Live Graph EQ 적용이 지연되고 있습니다.",
+  detail: "재생은 이전 상태로 계속됩니다.",
+  className: "status-pill caution",
+});
+
+const graphEqLiveFailureCopy = (liveGraphEq = {}) => {
+  const failureDetail = liveGraphEq.failure_detail || "기존 재생 상태를 유지합니다.";
+  return {
+    label: liveGraphEq.failure_warning || (
+      "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
+      + "필요하면 Stable Apply and Restart로 적용하세요."
+    ),
+    detail: [
+      failureDetail,
+      "현재 들리는 EQ는 마지막 성공 상태입니다.",
+    ].filter(Boolean).join(" "),
+    className: "status-pill caution",
+  };
+};
+
+const graphEqLiveAppliedCopy = () => ({
+  label: "Live Graph EQ 적용됨",
+  detail: "현재 들리는 EQ가 마지막 성공 상태입니다.",
+  className: "status-pill safe",
+});
+
+const graphEqLiveStatusCopy = (liveGraphEq = {}, layerId = null) => {
   if (!liveGraphEq) return null;
+  const normalizedLayerId = layerIds.includes(layerId) ? layerId : null;
+  if (normalizedLayerId) {
+    if (liveGraphEqLayerFailed(liveGraphEq, normalizedLayerId)) {
+      return graphEqLiveFailureCopy(liveGraphEq);
+    }
+    if (liveGraphEqLayerPending(liveGraphEq, normalizedLayerId)) {
+      return (liveGraphEq.status === "slow" || liveGraphEq.slow_caution)
+        ? graphEqLiveSlowCopy()
+        : graphEqLivePendingCopy();
+    }
+    if (liveGraphEqLayerApplied(liveGraphEq, normalizedLayerId)) {
+      return graphEqLiveAppliedCopy();
+    }
+    return null;
+  }
   if (liveGraphEq.status === "slow" || liveGraphEq.slow_caution) {
-    return {
-      label: "Live Graph EQ 적용이 지연되고 있습니다.",
-      detail: "재생은 이전 상태로 계속됩니다.",
-      className: "status-pill caution",
-    };
+    return graphEqLiveSlowCopy();
   }
   if (liveGraphEq.status === "failed" || liveGraphEq.failure_warning) {
-    const failureDetail = liveGraphEq.failure_detail || "기존 재생 상태를 유지합니다.";
-    return {
-      label: liveGraphEq.failure_warning || (
-        "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
-        + "필요하면 Stable Apply and Restart로 적용하세요."
-      ),
-      detail: [
-        failureDetail,
-        "현재 들리는 EQ는 마지막 성공 상태입니다.",
-      ].filter(Boolean).join(" "),
-      className: "status-pill caution",
-    };
+    return graphEqLiveFailureCopy(liveGraphEq);
   }
   if (liveGraphEq.status === "pending") {
-    return {
-      label: "Live Graph EQ 적용 대기 중",
-      detail: "약 1초 debounce 후 최신 곡선만 적용합니다.",
-      className: "status-pill caution",
-    };
+    return graphEqLivePendingCopy();
   }
   if (liveGraphEq.status === "applied") {
-    return {
-      label: "Live Graph EQ 적용됨",
-      detail: "현재 들리는 EQ가 마지막 성공 상태입니다.",
-      className: "status-pill safe",
-    };
+    return graphEqLiveAppliedCopy();
   }
   return null;
 };
 
 const liveGraphEqRequestLayerId = (liveGraphEq = {}) => (
   layerIds.includes(liveGraphEq?.layer_id) ? liveGraphEq.layer_id : null
+);
+
+const liveGraphEqLayerList = (liveGraphEq = {}, key) => {
+  const value = liveGraphEq?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((layerId) => layerIds.includes(layerId));
+};
+
+const liveGraphEqLayerListed = (liveGraphEq = {}, key, layerId) => (
+  layerIds.includes(layerId) && liveGraphEqLayerList(liveGraphEq, key).includes(layerId)
+);
+
+const liveGraphEqLayerFallbackMatches = (liveGraphEq = {}, layerId, statuses = []) => (
+  layerIds.includes(layerId)
+  && liveGraphEqRequestLayerId(liveGraphEq) === layerId
+  && statuses.includes(liveGraphEq?.status)
+);
+
+const liveGraphEqLayerPending = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "pending_layers", layerId)
+  || (
+    Boolean(liveGraphEq?.pending)
+    && liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["pending", "slow"])
+  )
+);
+
+const liveGraphEqLayerFailed = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "failed_layers", layerId)
+  || liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["failed"])
+);
+
+const liveGraphEqLayerApplied = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "applied_layers", layerId)
+  || liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["applied"])
 );
 
 const liveGraphEqRequestId = (liveGraphEq = {}) => {
@@ -2575,20 +2634,44 @@ const liveGraphEqTickTransportFailureWarning =
 const markLiveGraphEqTickTransportFailure = (error, requestSnapshot = null) => {
   if (currentPlaybackApplyMode() !== "live") return;
   const current = state.snapshot?.playback?.live_graph_eq;
-  const expectedLayerId = liveGraphEqRequestLayerId(requestSnapshot || current);
-  const expectedRequestId = liveGraphEqRequestId(requestSnapshot || current);
-  if (!current?.pending) return;
-  if (expectedLayerId && liveGraphEqRequestLayerId(current) !== expectedLayerId) return;
-  if (expectedRequestId !== null && liveGraphEqRequestId(current) !== expectedRequestId) return;
+  const requestLayerId = liveGraphEqRequestLayerId(requestSnapshot);
+  const requestId = liveGraphEqRequestId(requestSnapshot);
+  const currentLayerId = liveGraphEqRequestLayerId(current);
+  const currentRequestId = liveGraphEqRequestId(current);
+  const expectedLayerId = requestLayerId || currentLayerId;
+  const expectedRequestId = requestId ?? currentRequestId;
+  if (!current && !requestSnapshot?.pending) return;
+  if (current?.pending && expectedLayerId && currentLayerId !== expectedLayerId) return;
+  if (
+    current?.pending &&
+    expectedRequestId !== null &&
+    currentRequestId !== null &&
+    currentRequestId !== expectedRequestId
+  ) {
+    return;
+  }
+  if (
+    !current?.pending &&
+    expectedRequestId !== null &&
+    currentRequestId !== null &&
+    currentRequestId > expectedRequestId
+  ) {
+    return;
+  }
+  const failedBase = current || requestSnapshot || {};
   const failed = {
-    ...current,
+    ...failedBase,
     status: "failed",
     pending: false,
     slow_caution: false,
-    layer_id: expectedLayerId || current.layer_id,
-    request_id: expectedRequestId || current.request_id,
-    failure_warning: current.failure_warning || liveGraphEqTickTransportFailureWarning,
-    failure_detail: error?.message || current.failure_detail || "Live Graph EQ tick request failed.",
+    layer_id: expectedLayerId || failedBase.layer_id,
+    request_id: expectedRequestId || failedBase.request_id,
+    pending_layers: [],
+    failed_layers: expectedLayerId ? [expectedLayerId] : failedBase.failed_layers,
+    applied_layers: liveGraphEqLayerList(failedBase, "applied_layers")
+      .filter((layerId) => layerId !== expectedLayerId),
+    failure_warning: failedBase.failure_warning || liveGraphEqTickTransportFailureWarning,
+    failure_detail: error?.message || failedBase.failure_detail || "Live Graph EQ tick request failed.",
   };
   if (liveGraphEqTickTimer) {
     (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
@@ -3464,15 +3547,20 @@ const liveApplyFeedbackWaitsForLiveGraphEqRender = (feedback = {}) => (
 const liveGraphEqTargetsFeedbackSurface = (liveGraphEq = {}, surfaceId) => {
   const surfaceLayerId = layerIdForFeedbackSurface(surfaceId);
   if (!surfaceLayerId) return false;
-  return liveGraphEqRequestLayerId(liveGraphEq) === surfaceLayerId;
+  return (
+    liveGraphEqLayerPending(liveGraphEq, surfaceLayerId)
+    || liveGraphEqLayerFailed(liveGraphEq, surfaceLayerId)
+    || liveGraphEqLayerApplied(liveGraphEq, surfaceLayerId)
+  );
 };
 
 const deriveLiveGraphEqFeedbackState = (snapshot, surfaceId) => {
   if (currentPlaybackApplyMode(snapshot) !== "live") return null;
   if (!snapshot?.playback?.live?.eq_applies_immediately) return null;
   const liveGraphEq = snapshot?.playback?.live_graph_eq;
-  if (!liveGraphEqTargetsFeedbackSurface(liveGraphEq, surfaceId)) return null;
-  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+  const layerId = layerIdForFeedbackSurface(surfaceId);
+  if (!liveGraphEqTargetsFeedbackSurface(liveGraphEq, surfaceId) || !layerId) return null;
+  if (liveGraphEqLayerPending(liveGraphEq, layerId)) {
     return {
       visual_state: "pending",
       show_spinner: true,
@@ -3485,8 +3573,8 @@ const updateLiveApplyFeedbackForLiveGraphEqState = (liveGraphEq = {}) => {
   if (!state.liveApplyFeedback) return;
   const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
   const layerId = liveApplyFeedbackGraphEqLayerId(current);
-  if (!layerId || liveGraphEqRequestLayerId(liveGraphEq) !== layerId) return;
-  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+  if (!layerId || !liveGraphEqTargetsFeedbackSurface(liveGraphEq, `layer:${layerId}`)) return;
+  if (liveGraphEqLayerPending(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "live_render_pending",
       requestId: current.requestId,
@@ -3494,14 +3582,14 @@ const updateLiveApplyFeedbackForLiveGraphEqState = (liveGraphEq = {}) => {
     });
     return;
   }
-  if (liveGraphEq?.status === "applied") {
+  if (liveGraphEqLayerApplied(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "request_succeeded",
       requestId: current.requestId,
       modeEpoch: current.modeEpoch,
       confirmedValue: feedbackControlValues(state.draft, current.controlIds),
     });
-  } else if (liveGraphEq?.status === "failed") {
+  } else if (liveGraphEqLayerFailed(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "request_failed",
       requestId: current.requestId,
@@ -7086,7 +7174,7 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
   </div>
 `;
 
-const inlineGraphEqStatusCopy = (feedbackState = null) => {
+const inlineGraphEqStatusCopy = (layerId, feedbackState = null) => {
   if (currentPlaybackApplyMode() === "stable") {
     if (feedbackState?.visual_state === "restart_pending") {
       return {
@@ -7109,7 +7197,7 @@ const inlineGraphEqStatusCopy = (feedbackState = null) => {
       detail: "마지막 조작값을 렌더링 중입니다.",
     };
   }
-  return graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq);
+  return graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq, layerId);
 };
 
 const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
@@ -7117,7 +7205,7 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
   if (!graphEqSection) return;
   const status = graphEqSection.querySelector(".graph-eq-layer-card-status");
   if (!status) return;
-  const liveStatus = inlineGraphEqStatusCopy(feedbackState);
+  const liveStatus = inlineGraphEqStatusCopy(layerId, feedbackState);
   status.textContent = liveStatus?.label || "상시 표시";
   let detail = graphEqSection.querySelector(".graph-eq-layer-card-detail");
   if (liveStatus?.detail) {
@@ -7137,7 +7225,7 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
   const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` });
-  const liveStatus = inlineGraphEqStatusCopy(feedbackState);
+  const liveStatus = inlineGraphEqStatusCopy(layerId, feedbackState);
   return `
     <section
       class="graph-eq-layer-card-section expanded"
@@ -7553,7 +7641,7 @@ const renderGraphEqPointControls = (eq, layerId) => {
   const status = $("graphEqStatus");
   const detail = $("graphEqStatusDetail");
   const liveStatus = currentPlaybackApplyMode() === "live"
-    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
+    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq, layerId)
     : null;
   if (!controls) return;
   controls.classList.toggle("empty", !selected);

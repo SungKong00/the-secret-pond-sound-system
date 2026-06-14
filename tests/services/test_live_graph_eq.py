@@ -40,6 +40,18 @@ class MissingSourceRendererSpy(RendererSpy):
         raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
 
 
+class FailingLayerRendererSpy(RendererSpy):
+    def __init__(self, failing_layers: set[str]) -> None:
+        super().__init__()
+        self.failing_layers = set(failing_layers)
+
+    def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.renders.append((layer_id, settings))
+        if layer_id in self.failing_layers:
+            raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
+        return self.buffer
+
+
 class MissingVoiceStackSourceRendererSpy(RendererSpy):
     def __init__(self, source_path: Path, fallback_path: Path) -> None:
         super().__init__()
@@ -267,6 +279,37 @@ def test_missing_live_eq_source_keeps_current_playback_and_sets_warning() -> Non
     assert payload["pending"] is False
     assert payload["layer_id"] == "mid"
     assert payload["request_id"] == 1
+
+
+def test_live_graph_eq_keeps_failed_layer_status_after_another_layer_applies() -> None:
+    runtime = RuntimeHarness()
+    runtime.renderer = FailingLayerRendererSpy({"low"})
+    low_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "low", 3.0)
+    mid_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "mid", 6.0)
+
+    schedule_live_graph_eq_update(runtime, "low", low_settings, now_ms=0)
+    schedule_live_graph_eq_update(runtime, "mid", mid_settings, now_ms=100)
+
+    failed = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+    applied = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=100 + LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+
+    payload = live_graph_eq_payload(runtime)
+    assert failed is None
+    assert applied is not None
+    assert applied.layer_id == "mid"
+    assert runtime.player.layer_buffer_updates == [("mid", runtime.renderer.buffer)]
+    assert payload["status"] == "failed"
+    assert payload["layer_id"] == "low"
+    assert payload["request_id"] == 1
+    assert payload["failure_warning"] == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert payload["failed_layers"] == ["low"]
+    assert payload["applied_layers"] == ["mid"]
 
 
 def test_live_graph_eq_persist_failure_rolls_back_hot_swap_and_reports_failure() -> None:

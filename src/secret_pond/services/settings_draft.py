@@ -45,6 +45,7 @@ def update_draft_settings(
     state = SettingsState(active=_settings_copy(active_snapshot), draft=saved_state.draft)
     if current.active.playback.apply_mode == "live":
         render_settings = _playback_render_settings(runtime, current)
+        player_snapshot = _capture_player_snapshot(runtime)
         _schedule_live_eq_buffers(runtime, render_settings, state.active, state.draft)
         apply_live_player_layer_controls(
             runtime.player,
@@ -54,10 +55,30 @@ def update_draft_settings(
         )
         runtime.apply_settings_state(state)
         if live_preview_reprocess_needed:
-            prepare_voice_raw_preview(runtime, runtime.voice_raw_preview_path, state.draft)
+            try:
+                prepare_voice_raw_preview(runtime, runtime.voice_raw_preview_path, state.draft)
+            except (OSError, RuntimeError, ValueError) as exc:
+                _restore_settings_after_failed_live_preview(runtime, current, player_snapshot)
+                msg = f"Voice Raw preview source cannot be reprocessed: {exc}"
+                raise SettingsDraftUpdateError(msg) from exc
     else:
         runtime.settings_state = state
     return state
+
+
+def _restore_settings_after_failed_live_preview(
+    runtime: SecretPondRuntime,
+    current: SettingsState,
+    player_snapshot,
+) -> None:
+    _restore_player_snapshot(runtime, player_snapshot)
+    restored = SettingsState(
+        active=_settings_copy(current.active),
+        draft=_settings_copy(current.draft),
+    )
+    runtime.settings_store.save(restored)
+    runtime.apply_settings_state(restored)
+    invalidate_live_graph_eq_requests(runtime, "live_preview_reprocess_failed")
 
 
 def _settings_copy(settings: AppSettings) -> AppSettings:

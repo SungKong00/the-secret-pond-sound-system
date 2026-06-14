@@ -1057,6 +1057,39 @@ test("mobile Graph EQ precision controls keep touch-sized targets", async ({ pag
   }
 });
 
+test("mobile Graph EQ handles keep small visuals with touch-sized pointer targets", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await openFirstGraphEq(page);
+  await firstGraphEqCard(page).evaluate((node) => node.scrollIntoView({ block: "start", inline: "nearest" }));
+
+  const handles = await firstGraphEqCard(page).evaluate((card) => {
+    const visualNodes = Array.from(card.querySelectorAll('[data-graph-eq-filter-point="true"]'));
+    const hitNodes = Array.from(card.querySelectorAll('[data-graph-eq-filter-point-hit-area="true"]'));
+    const rectFor = (node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    };
+    return {
+      visuals: visualNodes.map(rectFor),
+      hits: hitNodes.map(rectFor),
+    };
+  });
+
+  expect(handles.visuals.length).toBeGreaterThanOrEqual(3);
+  expect(handles.hits.length).toBe(handles.visuals.length);
+  for (const visual of handles.visuals) {
+    expect(visual.width).toBeLessThan(20);
+    expect(visual.height).toBeLessThan(20);
+  }
+  for (const hit of handles.hits) {
+    expect(hit.width).toBeGreaterThanOrEqual(44);
+    expect(hit.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test("DSSSP Graph EQ supports keyboard band selection creation and deletion", async ({ page }) => {
   await openFirstGraphEq(page);
 

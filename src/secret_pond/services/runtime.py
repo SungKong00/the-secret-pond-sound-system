@@ -114,7 +114,17 @@ def build_runtime(
     voice_stack = VoiceStackStore(paths)
     voice_source = VoiceSourceService(paths)
     voice_stack_service = VoiceStackService(paths, voice_stack)
+    active_voice_stack_path_before = settings_state.active.sources.voice_stack_path
+    draft_voice_stack_path_before = settings_state.draft.sources.voice_stack_path
     voice_stack_snapshot = voice_stack.ensure_initialized(active_settings)
+    settings_state = _persist_startup_voice_stack_source_selection(
+        settings_store,
+        settings_state,
+        normalized_voice_stack_path=active_settings.sources.voice_stack_path,
+        previous_active_voice_stack_path=active_voice_stack_path_before,
+        previous_draft_voice_stack_path=draft_voice_stack_path_before,
+    )
+    active_settings = settings_state.active
 
     resolved_device_registry = device_registry or SoundDeviceRegistry()
     selected_input_device = _startup_input_device_best_effort(
@@ -207,6 +217,38 @@ def build_runtime(
     )
     runtime.playback_render_settings = active_settings
     return runtime
+
+
+def _settings_with_voice_stack_path(
+    settings: AppSettings,
+    voice_stack_path: str | None,
+) -> AppSettings:
+    return settings.model_copy(
+        update={
+            "sources": settings.sources.model_copy(
+                update={"voice_stack_path": voice_stack_path},
+            )
+        },
+        deep=True,
+    )
+
+
+def _persist_startup_voice_stack_source_selection(
+    settings_store: SettingsStore,
+    settings_state: SettingsState,
+    *,
+    normalized_voice_stack_path: str | None,
+    previous_active_voice_stack_path: str | None,
+    previous_draft_voice_stack_path: str | None,
+) -> SettingsState:
+    if normalized_voice_stack_path == previous_active_voice_stack_path:
+        return settings_state
+
+    active = _settings_with_voice_stack_path(settings_state.active, normalized_voice_stack_path)
+    draft = settings_state.draft
+    if previous_draft_voice_stack_path == previous_active_voice_stack_path:
+        draft = _settings_with_voice_stack_path(settings_state.draft, normalized_voice_stack_path)
+    return settings_store.save(SettingsState(active=active, draft=draft))
 
 
 def rendered_layer_paths(paths: ProjectPaths) -> dict[LayerId, Path]:

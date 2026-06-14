@@ -15,6 +15,7 @@ from secret_pond.config import (
     AudioFormatSettings,
     DeviceSettings,
     PlaybackSettings,
+    SourceSelectionSettings,
     VoiceStackSettings,
 )
 from secret_pond.paths import ProjectPaths
@@ -401,6 +402,84 @@ def test_build_runtime_rerenders_voice_playback_when_raw_stack_is_normalized(
     voice_playback = read_wav(paths.voice_playback)
     assert voice_playback.frames == 8_000
     assert not np.allclose(voice_playback.samples, stale_voice, atol=1e-4)
+
+
+def test_build_runtime_persists_normalized_selected_voice_stack_source_path(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    selected_stack = "data/sources/voice/stack/stale.wav"
+    settings = AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+        voice_stack=VoiceStackSettings(loop_seconds=2),
+        sources=SourceSelectionSettings(voice_stack_path=selected_stack),
+    )
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    write_source_layers(paths, settings)
+    write_rendered_layers(paths, settings)
+    stale_selected_path = paths.root / selected_stack
+    write_wav_atomic(
+        stale_selected_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.2, sample_rate=8_000),
+    )
+
+    runtime = build_runtime(
+        tmp_path,
+        recorder=fake_recorder(),
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+
+    normalized_path = runtime.settings_state.active.sources.voice_stack_path
+    assert normalized_path is not None
+    assert normalized_path != selected_stack
+    assert normalized_path.startswith("data/sources/voice/stack/VS")
+    assert read_wav(paths.root / normalized_path).frames == 16_000
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.voice_stack_path == normalized_path
+    assert stored.draft.sources.voice_stack_path == normalized_path
+
+
+def test_build_runtime_keeps_independent_draft_voice_stack_selection_after_normalization(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    active_stack = "data/sources/voice/stack/stale-active.wav"
+    draft_stack = "data/sources/voice/stack/draft-independent.wav"
+    active = AppSettings(
+        audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
+        voice_stack=VoiceStackSettings(loop_seconds=2),
+        sources=SourceSelectionSettings(voice_stack_path=active_stack),
+    )
+    draft = active.model_copy(
+        update={"sources": SourceSelectionSettings(voice_stack_path=draft_stack)},
+        deep=True,
+    )
+    SettingsStore(paths).save(SettingsState(active=active, draft=draft))
+    write_source_layers(paths, active)
+    write_rendered_layers(paths, active)
+    for relative_path in (active_stack, draft_stack):
+        write_wav_atomic(
+            paths.root / relative_path,
+            AudioBuffer(
+                samples=np.ones((8_000, 2), dtype=np.float32) * 0.2,
+                sample_rate=8_000,
+            ),
+        )
+
+    runtime = build_runtime(
+        tmp_path,
+        recorder=fake_recorder(),
+        output=FakeOutput(),
+        device_registry=fake_device_registry(),
+    )
+
+    normalized_path = runtime.settings_state.active.sources.voice_stack_path
+    assert normalized_path is not None
+    assert normalized_path != active_stack
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.voice_stack_path == normalized_path
+    assert stored.draft.sources.voice_stack_path == draft_stack
 
 
 def test_build_runtime_keeps_cache_only_startup_when_missing_raw_stack_is_created(

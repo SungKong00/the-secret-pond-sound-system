@@ -90,6 +90,8 @@ class PlayerSpy:
         self.is_playing = True
         self.enabled_updates: list[tuple[str, bool]] = []
         self.realtime_trim_updates: list[tuple[str, float]] = []
+        self.enabled_states = {layer_id: True for layer_id in ("low", "mid", "voice")}
+        self.realtime_trims = {layer_id: 0.0 for layer_id in ("low", "mid", "voice")}
         self.layer_buffer_updates: list[tuple[str, AudioBuffer]] = []
         self.live_eq_state_updates: list[tuple[str, float]] = []
         self._live_eq_states = {layer_id: EqSettings() for layer_id in ("low", "mid", "voice")}
@@ -98,9 +100,11 @@ class PlayerSpy:
 
     def set_enabled(self, layer_id: str, enabled: bool) -> None:
         self.enabled_updates.append((layer_id, enabled))
+        self.enabled_states[layer_id] = enabled
 
     def set_realtime_trim(self, layer_id: str, realtime_trim_db: float) -> None:
         self.realtime_trim_updates.append((layer_id, realtime_trim_db))
+        self.realtime_trims[layer_id] = realtime_trim_db
 
     def set_layer_buffer(self, layer_id: str, buffer: AudioBuffer) -> None:
         self.layer_buffer_updates.append((layer_id, buffer))
@@ -112,6 +116,21 @@ class PlayerSpy:
     @property
     def live_eq_states(self):
         return {layer_id: eq.model_copy(deep=True) for layer_id, eq in self._live_eq_states.items()}
+
+    def snapshot(self):
+        return {
+            "enabled_states": dict(self.enabled_states),
+            "realtime_trims": dict(self.realtime_trims),
+            "live_eq_states": self.live_eq_states,
+        }
+
+    def restore(self, snapshot) -> None:
+        self.enabled_states = dict(snapshot["enabled_states"])
+        self.realtime_trims = dict(snapshot["realtime_trims"])
+        self._live_eq_states = {
+            layer_id: eq.model_copy(deep=True)
+            for layer_id, eq in snapshot["live_eq_states"].items()
+        }
 
     def restart(self) -> None:
         self.restart_called = True
@@ -1113,6 +1132,51 @@ def test_live_update_draft_settings_reprocesses_running_voice_raw_preview_treatm
             result.draft,
         )
     ]
+
+
+def test_live_update_draft_settings_rolls_back_player_state_when_preview_reprocess_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = AppSettings().model_copy(
+        update={
+            "playback": AppSettings().playback.model_copy(update={"apply_mode": "live"}),
+        },
+        deep=True,
+    )
+    draft_layers = {
+        **active.layers,
+        "voice": active.layers["voice"].model_copy(update={"volume_db": 6.0}),
+    }
+    draft = active.model_copy(
+        update={
+            "layers": draft_layers,
+            "recording": active.recording.model_copy(
+                update={"gain_db": active.recording.gain_db + 3.0}
+            ),
+        },
+        deep=True,
+    )
+    state = SettingsState(active=active, draft=active)
+    store = MemorySettingsStore(state)
+    runtime = RuntimeHarness(state, store)
+    runtime.voice_raw_preview_path = "data/sources/voice/raw/VR0610_213112.wav"
+
+    def fail_prepare_voice_raw_preview(_runtime_arg, _relative_path, _settings) -> None:
+        raise ValueError("selected Voice Raw file does not exist")
+
+    monkeypatch.setattr(
+        "secret_pond.services.settings_draft.prepare_voice_raw_preview",
+        fail_prepare_voice_raw_preview,
+    )
+
+    with pytest.raises(SettingsDraftUpdateError):
+        update_draft_settings(runtime, draft, current=state)  # type: ignore[arg-type]
+
+    assert store.state == state
+    assert runtime.settings_state == state
+    assert runtime.controller.settings == state.active
+    assert runtime.player.realtime_trim_updates[-1] == ("voice", 24.0)
+    assert runtime.player.realtime_trims["voice"] == 0.0
 
 
 def test_live_update_draft_settings_skips_voice_raw_preview_reprocess_when_not_playing(

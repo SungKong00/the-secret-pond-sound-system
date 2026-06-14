@@ -2857,6 +2857,24 @@ const failedDefault = helpers.graphEqLiveStatusCopy({
 assert(failedDefault.label.includes("Stable Apply and Restart"));
 assert(failedDefault.detail.includes("기존 재생 상태를 유지합니다."));
 assert.strictEqual(failedDefault.className, "status-pill caution");
+
+const lowFailedMidApplied = {
+  status: "failed",
+  layer_id: "low",
+  failed_layers: ["low"],
+  applied_layers: ["mid"],
+  failure_warning: "Low Graph EQ 적용을 완료하지 못했습니다.",
+  failure_detail: "low renderer failed",
+};
+const lowCopy = helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "low");
+assert.strictEqual(lowCopy.label, "Low Graph EQ 적용을 완료하지 못했습니다.");
+assert(lowCopy.detail.includes("low renderer failed"));
+assert.strictEqual(lowCopy.className, "status-pill caution");
+
+const midCopy = helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "mid");
+assert.strictEqual(midCopy.label, "Live Graph EQ 적용됨");
+assert.strictEqual(midCopy.className, "status-pill safe");
+assert.strictEqual(helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "voice"), null);
 """,
     )
 
@@ -14156,6 +14174,47 @@ def test_api_settings_apply_preserves_running_voice_raw_preview_with_new_treatme
     assert apply_response.json()["state"]["playback"]["output_running"] is True
     after_apply = client.app.state.runtime.player.next_block(4096)
     assert float(np.max(np.abs(after_apply.samples))) > 0.01
+
+
+def test_api_settings_draft_live_preview_missing_source_returns_conflict_without_partial_save(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    preview_response = client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+    assert preview_response.status_code == 200
+    vr_path.unlink()
+
+    before_state = client.get("/api/settings").json()["settings"]
+    draft = json.loads(json.dumps(before_state["draft"]))
+    draft["recording"]["gain_db"] = 4.0
+
+    response = client.put("/api/settings/draft", json=draft)
+
+    assert response.status_code == 409
+    assert "Voice Raw" in response.json()["detail"]
+    after_state = client.get("/api/settings").json()["settings"]
+    assert after_state == before_state
+    assert client.app.state.runtime.voice_raw_preview_path == (
+        "data/sources/voice/raw/VR0610_213112.wav"
+    )
 
 
 def test_api_voice_raw_preview_stop_restores_main_playback_buffers(

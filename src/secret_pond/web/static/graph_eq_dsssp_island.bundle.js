@@ -25868,6 +25868,7 @@ var SecretPondDssspGraphEqBundle = (() => {
   var graphWidth = 900;
   var graphHeight = 320;
   var pointVisualInset = 15;
+  var graphEqPointHitSize = 160;
   var maxGraphEqPoints = 8;
   var movementThresholdPx = 4;
   var clamp2 = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
@@ -26006,6 +26007,8 @@ var SecretPondDssspGraphEqBundle = (() => {
     const y = gainToGraphY(filter.gain);
     const visualX = pointVisualX(point, x);
     const visualY = pointVisualY(y);
+    const hitX = clamp2(visualX - graphEqPointHitSize / 2, 0, graphWidth - graphEqPointHitSize);
+    const hitY = clamp2(visualY - graphEqPointHitSize / 2, 0, graphHeight - graphEqPointHitSize);
     const color = graphTheme.filters.colors[index] || {};
     const pointTheme = graphTheme.filters.point;
     const pointColor = color.point || graphTheme.filters.defaultColor;
@@ -26123,35 +26126,62 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [disabled, onDelete, onSelect, point]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_jsx_runtime2.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-      "circle",
-      {
-        "data-graph-eq-filter-point": "true",
-        "data-graph-eq-point-type": point?.type || "",
-        cx: visualX,
-        cy: visualY,
-        r: pointTheme.radius,
-        fill: fillColor,
-        fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
-        stroke: strokeColor,
-        strokeWidth: pointTheme.lineWidth,
-        onPointerDown: handlePointerDown,
-        onClick: handleClick,
-        onDoubleClick: handleDoubleClick,
-        onKeyDown: handleKeyDown,
-        onMouseEnter: () => setHovered(true),
-        onMouseLeave: () => setHovered(false),
-        role: "button",
-        tabIndex: disabled ? -1 : 0,
-        focusable: disabled ? "false" : "true",
-        "aria-label": graphEqPointAriaLabel(point, index),
-        "aria-pressed": active ? "true" : "false",
-        style: {
-          cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
-          pointerEvents: "auto"
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "rect",
+        {
+          "data-graph-eq-filter-point-hit-area": "true",
+          "data-graph-eq-point-type": point?.type || "",
+          x: hitX,
+          y: hitY,
+          width: graphEqPointHitSize,
+          height: graphEqPointHitSize,
+          rx: graphEqPointHitSize / 2,
+          fill: "transparent",
+          stroke: "transparent",
+          "aria-hidden": "true",
+          focusable: "false",
+          onPointerDown: handlePointerDown,
+          onClick: handleClick,
+          onDoubleClick: handleDoubleClick,
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
+          style: {
+            cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+            pointerEvents: "all"
+          }
         }
-      }
-    ) });
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "circle",
+        {
+          "data-graph-eq-filter-point": "true",
+          "data-graph-eq-point-type": point?.type || "",
+          cx: visualX,
+          cy: visualY,
+          r: pointTheme.radius,
+          fill: fillColor,
+          fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
+          stroke: strokeColor,
+          strokeWidth: pointTheme.lineWidth,
+          onPointerDown: handlePointerDown,
+          onClick: handleClick,
+          onDoubleClick: handleDoubleClick,
+          onKeyDown: handleKeyDown,
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
+          role: "button",
+          tabIndex: disabled ? -1 : 0,
+          focusable: disabled ? "false" : "true",
+          "aria-label": graphEqPointAriaLabel(point, index),
+          "aria-pressed": active ? "true" : "false",
+          style: {
+            cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+            pointerEvents: "auto"
+          }
+        }
+      )
+    ] });
   }
   function GraphEqDssspEditor({
     layerId,

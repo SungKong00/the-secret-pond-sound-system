@@ -34,6 +34,8 @@ class LiveGraphEqState:
     next_request_id: int = 0
     pending_requests: dict[LayerId, LiveGraphEqRequest] = field(default_factory=dict)
     confirmed_eq: dict[LayerId, EqSettings] = field(default_factory=dict)
+    failed_layers: dict[LayerId, tuple[int, str, str | None]] = field(default_factory=dict)
+    applied_layers: dict[LayerId, int] = field(default_factory=dict)
     slow_caution: bool = False
     failure_warning: str | None = None
     failure_detail: str | None = None
@@ -89,11 +91,20 @@ def schedule_live_graph_eq_update(
         due_at_ms=requested_at_ms + LIVE_EQ_APPLY_DEBOUNCE_MS,
     )
     state.slow_caution = False
-    state.failure_warning = None
-    state.failure_detail = None
     state.invalidation_reason = None
-    state.last_failed_request_id = None
-    state.last_failed_layer_id = None
+    state.failed_layers.pop(normalized_layer_id, None)
+    state.applied_layers.pop(normalized_layer_id, None)
+    if state.failed_layers:
+        latest_failed_layer_id, latest_failure = _latest_failed_layer(state)
+        state.failure_warning = latest_failure[1]
+        state.failure_detail = latest_failure[2]
+        state.last_failed_request_id = latest_failure[0]
+        state.last_failed_layer_id = latest_failed_layer_id
+    else:
+        state.failure_warning = None
+        state.failure_detail = None
+        state.last_failed_request_id = None
+        state.last_failed_layer_id = None
     return state
 
 
@@ -199,13 +210,22 @@ def apply_live_graph_eq_render_result(
     state.confirmed_eq[normalized_layer_id] = eq.model_copy(deep=True)
     state.pending_requests.pop(normalized_layer_id, None)
     state.slow_caution = False
-    state.failure_warning = None
-    state.failure_detail = None
+    state.failed_layers.pop(normalized_layer_id, None)
+    if state.failed_layers:
+        latest_failed_layer_id, latest_failure = _latest_failed_layer(state)
+        state.failure_warning = latest_failure[1]
+        state.failure_detail = latest_failure[2]
+        state.last_failed_request_id = latest_failure[0]
+        state.last_failed_layer_id = latest_failed_layer_id
+    else:
+        state.failure_warning = None
+        state.failure_detail = None
+        state.last_failed_request_id = None
+        state.last_failed_layer_id = None
     state.invalidation_reason = None
     state.last_applied_request_id = request.request_id
     state.last_applied_layer_id = normalized_layer_id
-    state.last_failed_request_id = None
-    state.last_failed_layer_id = None
+    state.applied_layers[normalized_layer_id] = request.request_id
     try:
         _persist_confirmed_eq_if_available(runtime, normalized_layer_id, eq)
     except (OSError, RuntimeError, ValueError) as exc:
@@ -224,6 +244,8 @@ def apply_live_graph_eq_render_result(
 def invalidate_live_graph_eq_requests(runtime: Any, reason: str) -> None:
     state = live_graph_eq_state(runtime)
     state.pending_requests.clear()
+    state.failed_layers.clear()
+    state.applied_layers.clear()
     state.slow_caution = False
     state.failure_warning = None
     state.failure_detail = None
@@ -254,7 +276,7 @@ def live_graph_eq_payload(runtime: Any) -> dict[str, Any]:
     status = "idle"
     if request is not None:
         status = "slow" if state.slow_caution else "pending"
-    elif state.failure_warning:
+    elif state.failed_layers or state.failure_warning:
         status = "failed"
     elif state.last_applied_request_id is not None:
         status = "applied"
@@ -282,6 +304,8 @@ def live_graph_eq_payload(runtime: Any) -> dict[str, Any]:
         "slow_caution": state.slow_caution,
         "failure_warning": state.failure_warning,
         "failure_detail": state.failure_detail,
+        "failed_layers": sorted(state.failed_layers),
+        "applied_layers": sorted(state.applied_layers),
         "invalidation_reason": state.invalidation_reason,
     }
 
@@ -320,8 +344,15 @@ def _record_failure(
     exc: Exception,
 ) -> None:
     state.pending_requests.pop(request.layer_id, None)
+    failure_detail = _failure_detail(runtime, request, exc)
+    state.failed_layers[request.layer_id] = (
+        request.request_id,
+        LIVE_GRAPH_EQ_FAILURE_WARNING,
+        failure_detail,
+    )
+    state.applied_layers.pop(request.layer_id, None)
     state.failure_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
-    state.failure_detail = _failure_detail(runtime, request, exc)
+    state.failure_detail = failure_detail
     state.slow_caution = False
     state.last_failed_request_id = request.request_id
     state.last_failed_layer_id = request.layer_id
@@ -337,6 +368,13 @@ def _record_failure(
         if state.failure_detail:
             payload["failure_detail"] = state.failure_detail
         log_event("settings.live_graph_eq_failed", payload)
+
+
+def _latest_failed_layer(state: LiveGraphEqState) -> tuple[LayerId, tuple[int, str, str | None]]:
+    return max(
+        state.failed_layers.items(),
+        key=lambda item: item[1][0],
+    )
 
 
 def _failure_detail(runtime: Any, request: LiveGraphEqRequest, exc: Exception) -> str | None:

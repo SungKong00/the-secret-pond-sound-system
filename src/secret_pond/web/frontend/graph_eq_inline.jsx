@@ -20,6 +20,7 @@ const emptyPoints = Object.freeze([]);
 const graphWidth = 900;
 const graphHeight = 320;
 const pointVisualInset = 15;
+const graphEqPointHitSize = 160;
 const maxGraphEqPoints = 8;
 const movementThresholdPx = 4;
 
@@ -197,6 +198,8 @@ function GraphEqFilterPoint({
   const y = gainToGraphY(filter.gain);
   const visualX = pointVisualX(point, x);
   const visualY = pointVisualY(y);
+  const hitX = clamp(visualX - graphEqPointHitSize / 2, 0, graphWidth - graphEqPointHitSize);
+  const hitY = clamp(visualY - graphEqPointHitSize / 2, 0, graphHeight - graphEqPointHitSize);
   const color = graphTheme.filters.colors[index] || {};
   const pointTheme = graphTheme.filters.point;
   const pointColor = color.point || graphTheme.filters.defaultColor;
@@ -336,6 +339,28 @@ function GraphEqFilterPoint({
 
   return (
     <>
+      <rect
+        data-graph-eq-filter-point-hit-area="true"
+        data-graph-eq-point-type={point?.type || ""}
+        x={hitX}
+        y={hitY}
+        width={graphEqPointHitSize}
+        height={graphEqPointHitSize}
+        rx={graphEqPointHitSize / 2}
+        fill="transparent"
+        stroke="transparent"
+        aria-hidden="true"
+        focusable="false"
+        onPointerDown={handlePointerDown}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+          pointerEvents: "all",
+        }}
+      />
       <circle
         data-graph-eq-filter-point="true"
         data-graph-eq-point-type={point?.type || ""}

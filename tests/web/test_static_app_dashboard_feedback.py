@@ -1107,6 +1107,65 @@ assert.strictEqual(helpers.state.snapshot.playback.live_graph_eq.request_id, 2);
     )
 
 
+def test_live_graph_eq_tick_transport_failure_survives_state_refresh_race() -> None:
+    app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
+    app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
+    app_script += """
+globalThis.__secretPond = {
+  graphEqLiveStatusCopy,
+  markLiveGraphEqTickTransportFailure,
+  state,
+};
+"""
+    app_script = f"(() => {{\n{app_script}\n}})();"
+
+    run_node_harness(
+        script=app_script,
+        body="""
+const {
+  graphEqLiveStatusCopy,
+  markLiveGraphEqTickTransportFailure,
+  state,
+} = globalThis.__secretPond;
+
+state.snapshot = {
+  settings: {
+    active: { playback: { apply_mode: "live" } },
+    draft: { playback: { apply_mode: "live" } },
+  },
+  playback: {
+    apply_mode: "live",
+    live_graph_eq: {
+      status: "applied",
+      pending: false,
+      layer_id: "mid",
+      request_id: 9,
+      applied_layers: ["mid"],
+    },
+  },
+};
+
+markLiveGraphEqTickTransportFailure(
+  new Error("forced live graph eq failure"),
+  {
+    status: "pending",
+    pending: true,
+    pending_layers: ["mid"],
+    layer_id: "mid",
+    request_id: 9,
+  },
+);
+
+const liveGraphEq = state.snapshot.playback.live_graph_eq;
+assert.strictEqual(liveGraphEq.status, "failed");
+assert.deepStrictEqual(liveGraphEq.failed_layers, ["mid"]);
+assert.deepStrictEqual(liveGraphEq.pending_layers, []);
+const copy = graphEqLiveStatusCopy(liveGraphEq, "mid");
+assert(copy.label.includes("Live Graph EQ 적용 상태를 확인하지 못했습니다"));
+""",
+    )
+
+
 def test_live_apply_feedback_state_model_marks_stale_without_mutating_ui_state() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")
