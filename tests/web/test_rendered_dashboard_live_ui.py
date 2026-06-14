@@ -69,7 +69,8 @@ def test_live_playback_dashboard_renders_in_desktop_viewport() -> None:
         "적용 범위 즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리 "
         "System 패널 즉시 적용: 입력/출력 장치 "
         "Live 전환: Voice Stack 소스 선택 "
-        "Apply and Restart: 루프 길이, 샘플레이트, Low/Mid 소스 선택"
+        "앱 재시작 필요: 샘플레이트, 채널 "
+        "Apply and Restart: 루프 길이, Low/Mid 소스 선택"
     )
     assert rendered["seekDisabled"] is False
     assert rendered["seekMax"] == "56"

@@ -4142,7 +4142,7 @@ def test_live_status_text_uses_korean_facing_wording() -> None:
 
     assert "Live mode ·" not in app_script
     assert "Live transition ·" not in app_script
-    assert "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다." in app_script
+    assert "Live 모드 · 샘플레이트 변경은 앱 재시작 후 반영됩니다." in app_script
     assert "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다." in app_script
     assert "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다." in app_script
     assert (
@@ -4468,11 +4468,11 @@ assert.strictEqual(document.getElementById("applyButton").disabled, true);
 assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), false);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드에서도 샘플레이트 변경은 앱 재시작 후 반영됩니다.",
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 샘플레이트 변경은 앱 재시작 후 반영됩니다.",
 );
 """,
         dom_setup=STATIC_APP_RENDER_DOM_SETUP,
@@ -4584,11 +4584,11 @@ assert.strictEqual(document.getElementById("applyButton").disabled, true);
 assert.strictEqual(document.getElementById("applyButton").classList.contains("attention"), false);
 assert.strictEqual(
   document.getElementById("applyButton").title,
-  "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드에서도 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다.",
 );
 assert.strictEqual(
   document.getElementById("outputControlSummary").textContent,
-  "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.",
+  "Live 모드 · 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다.",
 );
 for (const surfaceId of ["layer:low", "layer:mid", "layer:voice", "voice_stack", "recording"]) {
   assert.deepStrictEqual(

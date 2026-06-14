@@ -4174,7 +4174,26 @@ input[type="checkbox"] {
   }
 
   .precision-control {
-    grid-template-columns: 28px minmax(64px, 90px) 28px;
+    grid-template-columns: 44px minmax(64px, 90px) 44px;
+  }
+
+  .value-input,
+  .nudge-button {
+    height: 44px;
+  }
+
+  .nudge-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .graph-eq-inline-controls .graph-eq-stepper {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .graph-eq-inline-controls .graph-eq-step-button {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .layer-preset-row {

@@ -3043,12 +3043,12 @@ const deriveSettingsActionState = ({
             ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
             : sourceMutationBusy
               ? operationLockMessages.sourceMutation
-              : playbackControlBusy
-                ? operationLockMessages.playbackControl
+                : playbackControlBusy
+                  ? operationLockMessages.playbackControl
                 : liveSampleRateApplyRequired
-                  ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 샘플레이트 변경은 앱 재시작 후 반영됩니다."
                 : liveChannelCountApplyRequired
-                  ? "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다."
                 : liveInputDeviceApplyRequired
                   ? "Live 모드에서도 입력 장치는 System 패널에서 선택 즉시 적용됩니다."
                 : liveOutputDeviceApplyRequired
@@ -3797,10 +3797,10 @@ const outputControlSummaryText = (
     return "녹음 원본을 재생 중입니다.";
   }
   if (liveSampleRateApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 샘플레이트 변경은 앱 재시작 후 반영됩니다.";
   }
   if (liveChannelCountApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다.";
   }
   if (liveInputDeviceApplyRequiredChange(snapshot)) {
     return "Live 모드 · 입력 장치는 System 패널에서 선택 즉시 적용됩니다.";

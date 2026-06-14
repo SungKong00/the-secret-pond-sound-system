@@ -25979,6 +25979,12 @@ var SecretPondDssspGraphEqBundle = (() => {
     const bells = sourcePoints.filter((point) => point?.type === "bell");
     return graphEqWithSortedBells([lowShelf, nextPoint, ...bells, highShelf]);
   };
+  var graphEqPointAriaLabel = (point, index) => {
+    const typeLabel = point?.type === "low_shelf" ? "Low Shelf" : point?.type === "high_shelf" ? "High Shelf" : `Bell ${index}`;
+    const frequency = Math.round(Number(point?.frequency_hz || 0));
+    const gain = Number(point?.gain_db || 0).toFixed(1);
+    return `${typeLabel}, ${frequency} Hz, ${gain} dB`;
+  };
   function GraphEqFilterPoint({
     filter,
     index,
@@ -26100,10 +26106,28 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [onDelete, point]
     );
+    const handleKeyDown = (0, import_react2.useCallback)(
+      (event) => {
+        if (disabled) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect?.(point?.id);
+          return;
+        }
+        if ((event.key === "Delete" || event.key === "Backspace") && isGraphEqPointDeletable(point)) {
+          event.preventDefault();
+          event.stopPropagation();
+          onDelete?.(point?.id);
+        }
+      },
+      [disabled, onDelete, onSelect, point]
+    );
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_jsx_runtime2.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "circle",
       {
         "data-graph-eq-filter-point": "true",
+        "data-graph-eq-point-type": point?.type || "",
         cx: visualX,
         cy: visualY,
         r: pointTheme.radius,
@@ -26114,8 +26138,14 @@ var SecretPondDssspGraphEqBundle = (() => {
         onPointerDown: handlePointerDown,
         onClick: handleClick,
         onDoubleClick: handleDoubleClick,
+        onKeyDown: handleKeyDown,
         onMouseEnter: () => setHovered(true),
         onMouseLeave: () => setHovered(false),
+        role: "button",
+        tabIndex: disabled ? -1 : 0,
+        focusable: disabled ? "false" : "true",
+        "aria-label": graphEqPointAriaLabel(point, index),
+        "aria-pressed": active ? "true" : "false",
         style: {
           cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
           pointerEvents: "auto"
@@ -26187,15 +26217,10 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [layerId, onDragState]
     );
-    const handleSurfaceClick = (0, import_react2.useCallback)(
-      (event) => {
+    const addBellAtPosition = (0, import_react2.useCallback)(
+      (position) => {
         if (disabled || draggingRef.current) return;
         if (latestPointsRef.current.length >= maxGraphEqPoints) return;
-        if (event.target?.closest?.("[data-graph-eq-filter-point]")) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const svg = event.target?.ownerSVGElement || event.currentTarget.querySelector?.("svg");
-        const position = pointerToGraphPosition(event, svg);
         if (position === null) return;
         const previousPoints = latestPointsRef.current;
         const id = `point-${Date.now().toString(36)}`;
@@ -26219,6 +26244,28 @@ var SecretPondDssspGraphEqBundle = (() => {
         onChangeCommitted?.(payload);
       },
       [disabled, layerId, onChange, onChangeCommitted]
+    );
+    const handleSurfaceClick = (0, import_react2.useCallback)(
+      (event) => {
+        if (event.target?.closest?.("[data-graph-eq-filter-point]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const svg = event.target?.ownerSVGElement || event.currentTarget.querySelector?.("svg");
+        addBellAtPosition(pointerToGraphPosition(event, svg));
+      },
+      [addBellAtPosition]
+    );
+    const handleSurfaceKeyDown = (0, import_react2.useCallback)(
+      (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        addBellAtPosition({
+          x: graphWidth / 2,
+          y: gainToGraphY(0)
+        });
+      },
+      [addBellAtPosition]
     );
     const handleDelete = (0, import_react2.useCallback)(
       (pointId) => {
@@ -26277,8 +26324,13 @@ var SecretPondDssspGraphEqBundle = (() => {
                   width: graphWidth,
                   height: graphHeight,
                   fill: "transparent",
+                  role: "button",
+                  tabIndex: disabled ? -1 : 0,
+                  focusable: disabled ? "false" : "true",
+                  "aria-label": `${layerId} Graph EQ Bell band \uCD94\uAC00`,
                   style: { pointerEvents: "all" },
-                  onClick: handleSurfaceClick
+                  onClick: handleSurfaceClick,
+                  onKeyDown: handleSurfaceKeyDown
                 }
               ),
               filters.map((filter, index) => {

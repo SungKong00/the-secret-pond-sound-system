@@ -1026,7 +1026,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         not in apply_mode_panel
     )
     assert "Live 전환: Voice Stack 소스 선택" in apply_mode_panel
-    assert "Apply and Restart: 루프 길이, 샘플레이트, Low/Mid 소스 선택" in apply_mode_panel
+    assert "앱 재시작 필요: 샘플레이트, 채널" in apply_mode_panel
+    assert "Apply and Restart: 루프 길이, Low/Mid 소스 선택" in apply_mode_panel
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
     assert '<small lang="ko">재생</small>' in playback_panel

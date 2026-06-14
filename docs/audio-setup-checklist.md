@@ -20,9 +20,10 @@ Use this checklist before rehearsal and before show operation.
 ## Playback
 
 - [ ] `Apply and Restart` renders new audio.
-- [ ] Playback starts with `Start Output` after startup preload or `Apply and Restart`.
-- [ ] `Restart Output` restarts the loaded playback without changing settings.
-- [ ] `Stop Output` stops the output stream.
+- [ ] `재생` starts playback after startup preload or `Apply and Restart`.
+- [ ] `다시 재생` restarts the loaded playback without changing settings.
+- [ ] `중지` stops the output stream.
+- [ ] `변경사항 적용 후 재생` appears when pending changes need Apply and Restart before playback.
 - [ ] A failed render keeps the previous good playback layer where possible.
 - [ ] Low layer can be disabled after Apply and Restart.
 - [ ] Mid layer can be disabled after Apply and Restart.
@@ -47,16 +48,26 @@ Use this checklist before rehearsal and before show operation.
 
 ## Recording
 
-- [ ] Spacebar does nothing while Disarmed.
-- [ ] Arm enables spacebar capture.
-- [ ] Spacebar starts and stops recording while Armed.
+- [ ] Spacebar does nothing while capture is `꺼짐`.
+- [ ] `녹음 준비` enables spacebar capture.
+- [ ] Spacebar starts and stops recording while capture is ready.
 - [ ] Holding Space does not scroll the page, reactivate a focused button, or send repeat start requests outside text inputs.
 - [ ] Browser blur or hidden tab stops an active recording.
 - [ ] Closing the UI connection does not leave recording stuck.
 - [ ] A recording shorter than 3 seconds is discarded.
 - [ ] A valid recording increments participant count.
-- [ ] A valid recording updates `data/rendered/layers/voice_playback.wav`; use `Apply and Restart` if the running output needs to reload that rendered layer.
-- [ ] A valid recording creates timestamped voice raw and stack files under `data/sources/voice/raw/` and `data/sources/voice/stack/`.
+- [ ] A valid recording refreshes the running Voice layer via transition/crossfade when output is running.
+- [ ] If live voice refresh fails, existing voice playback is kept and Apply and Restart remains fallback.
+- [ ] A valid recording creates timestamped Voice Raw/Stack files under `data/sources/voice/raw/` and `data/sources/voice/stack/` when that storage mode keeps reusable source files.
+
+## Settings Presets
+
+- [ ] Save Draft stores the current draft Graph EQ, Mixer, and Source selection state.
+- [ ] Load only works in Stable mode.
+- [ ] Update overwrites the selected preset from the current draft.
+- [ ] Delete removes the selected preset after confirmation.
+- [ ] missing source files block load with a visible warning.
+- [ ] Source rename/delete keeps preset references consistent or blocks unsafe deletion.
 
 ## Voice Stack Modes
 

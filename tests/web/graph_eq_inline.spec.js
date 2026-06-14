@@ -1022,6 +1022,53 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
   expect(layout.addButton.width).toBeLessThan(96);
 });
 
+test("mobile Graph EQ precision controls keep touch-sized targets", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await openFirstGraphEq(page);
+  await selectGraphEqBand(page, 1);
+  await firstGraphEqCard(page).evaluate((node) => node.scrollIntoView({ block: "start", inline: "nearest" }));
+
+  const touchTargets = await firstGraphEqCard(page).evaluate((card) => {
+    const rects = Array.from(card.querySelectorAll(".graph-eq-step-button, .nudge-button"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          className: node.className,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+      });
+    return rects;
+  });
+
+  expect(touchTargets.length).toBeGreaterThan(0);
+  for (const target of touchTargets) {
+    expect(target.width, target.className).toBeGreaterThanOrEqual(44);
+    expect(target.height, target.className).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test("DSSSP Graph EQ supports keyboard band selection creation and deletion", async ({ page }) => {
+  await openFirstGraphEq(page);
+
+  const surface = firstGraphEqCard(page).locator("[data-graph-eq-surface-hit-area]");
+  await surface.focus();
+  await expect(surface).toBeFocused();
+  await surface.press("Enter");
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
+
+  const bellHandle = firstGraphEqCard(page)
+    .locator('[data-graph-eq-filter-point="true"][data-graph-eq-point-type="bell"]')
+    .first();
+  await bellHandle.focus();
+  await expect(bellHandle).toBeFocused();
+  await bellHandle.press("Enter");
+  await expect(selectedPointControl(page, "gain")).toBeVisible();
+
+  await bellHandle.press("Delete");
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(3);
+});
+
 test("DSSSP Graph EQ edit updates layer EQ draft and persists after reload", async ({ page }) => {
   await openFirstGraphEq(page);
 
