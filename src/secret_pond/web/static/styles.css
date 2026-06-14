@@ -1588,9 +1588,7 @@ input[type="range"].playback-seek-slider:disabled::-moz-range-thumb {
 .settings-preset-panel {
   display: grid;
   gap: 9px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(223, 213, 191, 0.1);
+  margin: 0;
 }
 
 .settings-preset-head {
@@ -2960,8 +2958,12 @@ section.control-group .control-group-head h4::before {
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 10px;
+  padding: 12px;
   min-width: 0;
+}
+
+.graph-eq-layer-card-section.compact {
+  padding: 10px;
 }
 
 .graph-eq-layer-card-head {
@@ -3007,15 +3009,25 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-collapsed-summary {
+  appearance: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  width: 100%;
   margin-top: 8px;
   padding: 9px 10px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.022);
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-eq-collapsed-summary:hover,
+.graph-eq-collapsed-summary:focus-visible {
+  border-color: rgba(226, 184, 79, 0.32);
+  background: rgba(226, 184, 79, 0.08);
 }
 
 .graph-eq-collapsed-summary div {
@@ -3050,14 +3062,14 @@ section.control-group .control-group-head h4::before {
 .graph-eq-inline-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
   margin-top: 10px;
 }
 
 .graph-eq-dsssp-host {
   min-width: 0;
-  min-height: 328px;
+  min-height: clamp(310px, 30vw, 380px);
   overflow: hidden;
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
@@ -3067,7 +3079,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-root,
 .graph-eq-dsssp-surface {
   width: 100%;
-  min-height: 328px;
+  min-height: clamp(310px, 30vw, 380px);
 }
 
 .graph-eq-dsssp-surface {
@@ -3078,7 +3090,7 @@ section.control-group .control-group-head h4::before {
 .graph-eq-dsssp-surface svg {
   display: block;
   width: 100%;
-  min-height: 298px;
+  min-height: clamp(286px, 28vw, 350px);
 }
 
 .graph-eq-inline-controls {
@@ -3086,12 +3098,12 @@ section.control-group .control-group-head h4::before {
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.12);
-  padding: 10px;
+  padding: 9px;
 }
 
 .graph-eq-workflow {
   display: grid;
-  grid-template-columns: minmax(330px, 1.35fr) minmax(240px, 0.85fr);
+  grid-template-columns: minmax(290px, 0.82fr) minmax(0, 1.18fr);
   gap: 10px;
   align-items: start;
   min-width: 0;
@@ -3120,7 +3132,7 @@ section.control-group .control-group-head h4::before {
 }
 
 .graph-eq-band-manager .graph-eq-band-list {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
 }
 
 .graph-eq-point-row {
@@ -3770,6 +3782,169 @@ input[type="checkbox"] {
     grid-template-areas:
       "ops main"
       "side main";
+  }
+}
+
+@media (min-width: 1121px) {
+  html[data-workspace-tab="mixer"] .dashboard-grid {
+    grid-template-columns: minmax(292px, 0.74fr) minmax(760px, 2.26fr);
+    grid-template-areas:
+      "ops main"
+      "side main";
+  }
+
+  html[data-workspace-tab="mixer"] .operation-panel {
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  html[data-workspace-tab="mixer"] .operation-stack {
+    gap: 10px;
+  }
+
+  html[data-workspace-tab="mixer"] .operation-card {
+    padding: 10px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-panel .panel-heading,
+  html[data-workspace-tab="mixer"] .playback-heading {
+    margin-bottom: 8px;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-live-details,
+  html[data-workspace-tab="mixer"] .playback-summary,
+  html[data-workspace-tab="mixer"] .playback-transition-controls {
+    display: none;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-status-stack {
+    gap: 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-timeline {
+    gap: 5px;
+    padding: 7px 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-actions .playback-start {
+    grid-column: auto;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-actions .button {
+    min-height: 36px;
+    padding-inline: 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .playback-apply-strip {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  html[data-workspace-tab="mixer"] .capture-gate {
+    order: 2;
+    margin-bottom: 6px;
+    padding: 7px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-panel {
+    display: grid;
+    gap: 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-panel .panel-heading {
+    order: 1;
+  }
+
+  html[data-workspace-tab="mixer"] .record-panel .storage-mode-panel {
+    order: 4;
+  }
+
+  html[data-workspace-tab="mixer"] .take-console {
+    order: 3;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-orbit {
+    order: 2;
+    min-height: 0;
+    padding: 7px 9px;
+    place-items: stretch;
+  }
+
+  html[data-workspace-tab="mixer"] .record-core {
+    width: 100%;
+    min-height: 38px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    place-items: center start;
+    aspect-ratio: auto;
+    border-radius: 7px;
+    padding: 5px 7px;
+    text-align: left;
+  }
+
+  html[data-workspace-tab="mixer"] .record-core span {
+    font-size: 11px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-core strong {
+    font-size: 18px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-core small,
+  html[data-workspace-tab="mixer"] .record-limits {
+    display: none;
+  }
+
+  html[data-workspace-tab="mixer"] .take-actions {
+    order: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html[data-workspace-tab="mixer"] .take-actions .button {
+    min-height: 36px;
+  }
+
+  html[data-workspace-tab="mixer"] .record-outcome {
+    order: 5;
+    min-height: 0;
+    margin-top: 6px;
+    padding: 6px 8px;
+  }
+
+  html[data-workspace-tab="mixer"] .settings-preset-panel {
+    max-height: 170px;
+    overflow: auto;
+  }
+
+  html[data-workspace-tab="mixer"] .layer-controls {
+    grid-template-areas:
+      "graph-eq"
+      "level"
+      "filter";
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-layer-card-section.expanded {
+    padding: 10px;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-inline-editor {
+    margin-top: 6px;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface {
+    padding: 5px;
   }
 }
 

@@ -199,6 +199,11 @@ def test_missing_live_eq_source_keeps_current_playback_and_sets_warning() -> Non
     assert live_state.pending_request is None
     assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+    payload = live_graph_eq_payload(runtime)
+    assert payload["status"] == "failed"
+    assert payload["pending"] is False
+    assert payload["layer_id"] == "mid"
+    assert payload["request_id"] == 1
 
 
 def test_missing_voice_stack_source_failure_payload_names_fallback(tmp_path: Path) -> None:
@@ -225,6 +230,10 @@ def test_missing_voice_stack_source_failure_payload_names_fallback(tmp_path: Pat
     assert live_state.failure_detail == expected_detail
     assert payload["failure_warning"] == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert payload["failure_detail"] == expected_detail
+    assert payload["status"] == "failed"
+    assert payload["pending"] is False
+    assert payload["layer_id"] == "voice"
+    assert payload["request_id"] == 1
     assert runtime.logger.events[-1] == (
         "settings.live_graph_eq_failed",
         {

@@ -117,7 +117,7 @@ const state = {
     layers: {},
     recording: null,
   },
-  expandedGraphEqLayer: null,
+  expandedGraphEqLayer: "mid",
   graphEqSelectedPointIds: {
     low: null,
     mid: null,
@@ -564,6 +564,10 @@ const graphEqPointTypes = Object.freeze({
   high_shelf: "High Shelf",
 });
 
+const isFixedGraphEqShelfPoint = (point) => (
+  point?.type === "low_shelf" || point?.type === "high_shelf"
+);
+
 const defaultGraphEqPoints = () => [
   { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
   { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1.0 },
@@ -633,6 +637,7 @@ const graphEqPointWithFixedShelfDefaults = (point, type) => {
     ...point,
     id: point?.id || fallback?.id,
     type,
+    frequency_hz: fallback?.frequency_hz,
     q: point?.q ?? fallback?.q,
   });
 };
@@ -656,7 +661,15 @@ const graphEqOrderedPoints = (points = []) => {
   const bells = normalized
     .filter((point) => point.type === "bell")
     .slice(0, bellCapacity)
-    .map((point) => normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? 1 }));
+    .map((point, index) => ({
+      point: normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? 1 }),
+      index,
+    }))
+    .sort((a, b) => (
+      Number(a.point.frequency_hz) - Number(b.point.frequency_hz) ||
+        a.index - b.index
+    ))
+    .map(({ point }) => point);
   return [lowShelf, ...bells, highShelf];
 };
 
@@ -2519,6 +2532,41 @@ const applyState = (payload, options = {}) => {
   clearVoiceRawSelectionAfterPreviewStop(currentSnapshot, state.snapshot);
   scheduleLiveGraphEqTick(state.snapshot?.playback?.live_graph_eq);
   return true;
+};
+
+const liveGraphEqTickTransportFailureWarning =
+  "Live Graph EQ 적용 상태를 확인하지 못했습니다. 기존 재생 상태를 유지합니다.";
+
+const markLiveGraphEqTickTransportFailure = (error, requestSnapshot = null) => {
+  if (currentPlaybackApplyMode() !== "live") return;
+  const current = state.snapshot?.playback?.live_graph_eq;
+  const expectedLayerId = liveGraphEqRequestLayerId(requestSnapshot || current);
+  const expectedRequestId = liveGraphEqRequestId(requestSnapshot || current);
+  if (!current?.pending) return;
+  if (expectedLayerId && liveGraphEqRequestLayerId(current) !== expectedLayerId) return;
+  if (expectedRequestId !== null && liveGraphEqRequestId(current) !== expectedRequestId) return;
+  const failed = {
+    ...current,
+    status: "failed",
+    pending: false,
+    slow_caution: false,
+    layer_id: expectedLayerId || current.layer_id,
+    request_id: expectedRequestId || current.request_id,
+    failure_warning: current.failure_warning || liveGraphEqTickTransportFailureWarning,
+    failure_detail: error?.message || current.failure_detail || "Live Graph EQ tick request failed.",
+  };
+  if (liveGraphEqTickTimer) {
+    (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
+    liveGraphEqTickTimer = null;
+  }
+  state.snapshot.playback.live_graph_eq = failed;
+  updateLiveApplyFeedbackForLiveGraphEqState(failed);
+  refreshLayerCoveredFeedbackVisualStates();
+  const layerId = liveGraphEqRequestLayerId(failed);
+  if (layerId) refreshInlineGraphEqLiveStatusCopy(
+    layerId,
+    deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` }),
+  );
 };
 
 const scheduleLiveGraphEqTick = (liveGraphEq) => {
@@ -5599,6 +5647,7 @@ const renderDraftSaveFeedbackSurfaces = () => {
 const renderLayerControls = () => {
   renderLayerGroup("layerControls", ["mid", "low"]);
   renderLayerGroup("voiceLayerControls", ["voice"]);
+  bindInlineGraphEqLayerSummaries();
   initializeInlineGraphEqEditors();
 };
 
@@ -6469,7 +6518,7 @@ const expandedGraphEqLayerId = () => (
   layerIds.includes(state.expandedGraphEqLayer) ? state.expandedGraphEqLayer : null
 );
 
-const currentGraphEqLayerId = () => expandedGraphEqLayerId() || "low";
+const currentGraphEqLayerId = () => expandedGraphEqLayerId() || "mid";
 
 const graphEqForLayer = (settings, layerId = currentGraphEqLayerId()) => (
   normalizeGraphEqSettings(settings?.layers?.[layerId]?.eq || {})
@@ -6708,13 +6757,33 @@ const graphEqFrequencyLabel = (frequencyHz) => {
 
 const graphEqGainLabel = (gainDb) => dbMarkLabel(Number(gainDb.toFixed(1)));
 
+const graphEqBellPointsByFrequency = (points = []) => (Array.isArray(points) ? points : [])
+  .map((candidate, index) => ({ point: candidate, index }))
+  .filter(({ point }) => point?.type === "bell")
+  .sort((a, b) => (
+    Number(a.point.frequency_hz) - Number(b.point.frequency_hz) ||
+      a.index - b.index
+  ));
+
 const graphEqBellBandNumber = (point, pointIndex, points = []) => {
   if (point?.type !== "bell") return "";
   const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
-  return String(sourcePoints.slice(0, pointIndex + 1).filter((candidate) => candidate?.type === "bell").length);
+  const rankedBells = graphEqBellPointsByFrequency(sourcePoints);
+  const rank = rankedBells.findIndex(({ point: candidate, index }) => (
+    candidate?.id === point.id || (candidate === point && index === pointIndex)
+  ));
+  return rank >= 0 ? String(rank + 1) : "";
 };
 
-const renderGraphEqCollapsedSummary = (eq) => {
+const graphEqBellCount = (points = []) => (Array.isArray(points) ? points : [])
+  .filter((point) => point?.type === "bell")
+  .length;
+
+const graphEqBandMetaLabel = (points = []) => (
+  `${graphEqBellCount(points)}/${Math.max(0, graphEqMaxPoints - 2)} Bell`
+);
+
+const renderGraphEqCollapsedSummary = (layerId, eq, liveStatus = null) => {
   const normalized = normalizeGraphEqSettings(eq);
   const gains = normalized.points.map((point) => Number(point.gain_db) || 0);
   const hasGainChange = gains.some((gain) => Math.abs(gain) >= 0.05);
@@ -6725,13 +6794,18 @@ const renderGraphEqCollapsedSummary = (eq) => {
     .map((point) => `${graphEqPointTypes[point.type]} ${graphEqFrequencyLabel(point.frequency_hz)}`)
     .join(" · ");
   return `
-    <div class="graph-eq-collapsed-summary" aria-label="Graph EQ summary">
+    <button
+      class="graph-eq-collapsed-summary"
+      type="button"
+      data-graph-eq-layer-summary="${escapeHtml(layerId)}"
+      aria-label="${escapeHtml(labelText(layerLabels[layerId]))} Graph EQ 열기"
+    >
       <div>
-        <strong>${normalized.points.length} Points</strong>
-        <span>${escapeHtml(frequencySummary)}</span>
+        <strong>${escapeHtml(labelText(layerLabels[layerId]))} EQ · ${graphEqBandMetaLabel(normalized.points)}</strong>
+        <span>${escapeHtml(liveStatus?.label || frequencySummary)}</span>
       </div>
       <p>Gain ${escapeHtml(gainSummary)}</p>
-    </div>
+    </button>
   `;
 };
 
@@ -6816,6 +6890,7 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
   const bandNumber = graphEqBellBandNumber(selected, pointIndex, points);
   const selectedTitle = bandNumber ? `Selected Band ${bandNumber}` : graphEqPointTypes[selected.type];
   const selectedDeletable = isGraphEqPointDeletable(selected);
+  const selectedFrequencyLocked = isFixedGraphEqShelfPoint(selected);
   const deleteButton = selectedDeletable
     ? `
         <button
@@ -6871,7 +6946,7 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
             min: graphEqMinFrequencyHz,
             max: graphEqMaxFrequencyHz,
             step: 1,
-            disabled,
+            disabled: disabled || selectedFrequencyLocked,
           })}
         </label>
         <label>
@@ -6917,7 +6992,7 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
           <div class="graph-eq-inline-controls-head">
             <div>
               <h5>Bands <small lang="ko">점 목록</small></h5>
-              <p>${eq.points.length}/${graphEqMaxPoints} Bands</p>
+              <p>${graphEqBandMetaLabel(eq.points)}</p>
             </div>
             <button
               class="button"
@@ -6972,6 +7047,21 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
 `;
 
 const inlineGraphEqStatusCopy = (feedbackState = null) => {
+  if (currentPlaybackApplyMode() === "stable") {
+    if (feedbackState?.visual_state === "restart_pending") {
+      return {
+        label: "Apply and Restart 진행 중",
+        detail: "렌더링 후 재생에 반영합니다.",
+      };
+    }
+    if (coveredFeedbackStateUsesPendingVisual(feedbackState)) {
+      return {
+        label: "Apply and Restart 대기 중",
+        detail: "변경값은 draft에 저장됐고 재생에는 아직 반영되지 않았습니다.",
+      };
+    }
+    return null;
+  }
   if (currentPlaybackApplyMode() !== "live") return null;
   if (coveredFeedbackStateUsesPendingVisual(feedbackState)) {
     return {
@@ -7006,25 +7096,36 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
 
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const liveStatus = inlineGraphEqStatusCopy();
+  const expanded = currentGraphEqLayerId() === layerId;
+  const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` });
+  const liveStatus = inlineGraphEqStatusCopy(feedbackState);
   return `
     <section
-      class="graph-eq-layer-card-section expanded always-open"
+      class="graph-eq-layer-card-section ${expanded ? "expanded" : "compact"}"
       data-graph-eq-layer-card="${escapeHtml(layerId)}"
+      data-graph-eq-expanded="${expanded ? "true" : "false"}"
     >
       <div class="graph-eq-layer-card-head">
         <div>
-          <h4>Graph EQ <small lang="ko">곡선 EQ</small></h4>
+          <h4>${labelMarkup(layerLabels[layerId])} Graph EQ</h4>
           <p class="graph-eq-layer-card-status">
             ${liveStatus?.label || "상시 표시"}
           </p>
         </div>
-        <div class="graph-eq-layer-card-meta">${eq.points.length}/${graphEqMaxPoints} Bands</div>
+        <div class="graph-eq-layer-card-meta">${graphEqBandMetaLabel(eq.points)}</div>
       </div>
       ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
-      ${renderExpandedGraphEqEditorShell(layerId, eq)}
+      ${expanded ? renderExpandedGraphEqEditorShell(layerId, eq) : renderGraphEqCollapsedSummary(layerId, eq, liveStatus)}
     </section>
   `;
+};
+
+const bindInlineGraphEqLayerSummaries = () => {
+  document.querySelectorAll?.("[data-graph-eq-layer-summary]").forEach((button) => {
+    if (button.dataset.graphEqBound === "true") return;
+    button.dataset.graphEqBound = "true";
+    button.addEventListener("click", () => openExpandedGraphEqLayer(button.dataset.graphEqLayerSummary));
+  });
 };
 
 const selectedOrFirstGraphEqPointId = (layerId, eq) => (
@@ -7032,27 +7133,29 @@ const selectedOrFirstGraphEqPointId = (layerId, eq) => (
 );
 
 const syncInlineGraphEqPointControls = (container, layerId, points, selectedPointId) => {
+  const orderedPoints = graphEqOrderedPoints(points);
   const rows = Array.from(container.querySelectorAll?.("[data-graph-eq-point-row]") || []);
-  const selected = points.find((point) => point.id === selectedPointId) || points[0] || null;
-  const selectedIndex = Math.max(0, points.findIndex((point) => point.id === selected?.id));
-  if (rows.length !== points.length) {
+  const selected = orderedPoints.find((point) => point.id === selectedPointId) || orderedPoints[0] || null;
+  const selectedIndex = Math.max(0, orderedPoints.findIndex((point) => point.id === selected?.id));
+  if (rows.length !== orderedPoints.length) {
     const controls = container.querySelector?.(".graph-eq-inline-controls");
     if (controls) {
       controls.outerHTML = renderInlineGraphEqPointControls(layerId, {
         ...graphEqForLayer(state.draft, layerId),
-        points,
+        points: orderedPoints,
       });
       bindInlineGraphEqControls(container, layerId);
       return;
     }
   }
   rows.forEach((row, index) => {
-    const point = points.find((candidate) => candidate.id === row.dataset.graphEqPointId) || points[index];
+    const point = orderedPoints[index];
     if (!point) return;
-    const pointIndex = Math.max(0, points.findIndex((candidate) => candidate.id === point.id));
+    if (row.dataset.graphEqPointId !== point.id) row.dataset.graphEqPointId = point.id;
+    const pointIndex = Math.max(0, orderedPoints.findIndex((candidate) => candidate.id === point.id));
     row.classList.toggle("selected", point.id === selected?.id);
     row.setAttribute("aria-pressed", point.id === selected?.id ? "true" : "false");
-    row.innerHTML = renderInlineGraphEqPointRowContent(point, pointIndex, points);
+    row.innerHTML = renderInlineGraphEqPointRowContent(point, pointIndex, orderedPoints);
   });
   const inspector = container.querySelector?.("[data-graph-eq-selected-inspector]");
   if (inspector) {
@@ -7060,9 +7163,9 @@ const syncInlineGraphEqPointControls = (container, layerId, points, selectedPoin
       layerId,
       selected,
       draftEditLocked(),
-      points.length,
+      orderedPoints.length,
       selectedIndex,
-      points,
+      orderedPoints,
     );
   }
   bindInlineGraphEqControls(container, layerId);
@@ -7084,7 +7187,10 @@ const commitInlineGraphEqPointControl = (layerId, pointId, controlName, value) =
     if (point.type !== "bell" || value !== "bell") return;
     updates.type = value;
   }
-  if (controlName === "freq") updates.frequency_hz = Number(value);
+  if (controlName === "freq") {
+    if (isFixedGraphEqShelfPoint(point)) return;
+    updates.frequency_hz = Number(value);
+  }
   if (controlName === "gain") updates.gain_db = Number(value);
   if (controlName === "q") updates.q = Number(value);
   if (!Object.keys(updates).length) return;
@@ -7629,6 +7735,7 @@ const applyRecordingPreset = (name) => {
 const workspaceTabs = () => Array.from(document.querySelectorAll("[data-workspace-tab]"));
 
 const renderWorkspaceTabs = () => {
+  document.documentElement.dataset.workspaceTab = state.workspaceTab;
   workspaceTabs().forEach((button) => {
     const active = button.dataset.workspaceTab === state.workspaceTab;
     button.classList.toggle("active", active);
@@ -8447,6 +8554,9 @@ const deriveControlRequestState = (path, options = {}, currentState = state) => 
 
 const control = async (path, options = {}) => {
   let controlError = null;
+  const liveGraphEqTickRequest = path === "/api/playback/live-graph-eq/tick"
+    ? clone(state.snapshot?.playback?.live_graph_eq || null)
+    : null;
   const controlRequest = deriveControlRequestState(path, options);
   if (controlRequest.skip) return;
   const {
@@ -8504,6 +8614,9 @@ const control = async (path, options = {}) => {
     }
     if (path.startsWith("/api/playback/")) {
       await requestState({ syncDraft: false }).catch(() => {});
+      if (path === "/api/playback/live-graph-eq/tick") {
+        markLiveGraphEqTickTransportFailure(error, liveGraphEqTickRequest);
+      }
     }
   } finally {
     if (startsStopRequest) {

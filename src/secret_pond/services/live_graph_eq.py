@@ -40,6 +40,8 @@ class LiveGraphEqState:
     invalidation_reason: str | None = None
     last_applied_request_id: int | None = None
     last_applied_layer_id: LayerId | None = None
+    last_failed_request_id: int | None = None
+    last_failed_layer_id: LayerId | None = None
 
 
 def live_graph_eq_state(runtime: Any) -> LiveGraphEqState:
@@ -74,6 +76,8 @@ def schedule_live_graph_eq_update(
     state.failure_warning = None
     state.failure_detail = None
     state.invalidation_reason = None
+    state.last_failed_request_id = None
+    state.last_failed_layer_id = None
     return state
 
 
@@ -165,6 +169,8 @@ def apply_live_graph_eq_render_result(
     state.invalidation_reason = None
     state.last_applied_request_id = request.request_id
     state.last_applied_layer_id = normalized_layer_id
+    state.last_failed_request_id = None
+    state.last_failed_layer_id = None
     _persist_confirmed_eq_if_available(runtime, normalized_layer_id, eq)
     return True
 
@@ -178,6 +184,8 @@ def invalidate_live_graph_eq_requests(runtime: Any, reason: str) -> None:
     state.invalidation_reason = reason
     state.last_applied_request_id = None
     state.last_applied_layer_id = None
+    state.last_failed_request_id = None
+    state.last_failed_layer_id = None
 
 
 def confirmed_live_graph_eq(runtime: Any, layer_id: str) -> EqSettings:
@@ -207,8 +215,20 @@ def live_graph_eq_payload(runtime: Any) -> dict[str, Any]:
     return {
         "status": status,
         "pending": request is not None,
-        "layer_id": request.layer_id if request is not None else state.last_applied_layer_id,
-        "request_id": request.request_id if request is not None else state.last_applied_request_id,
+        "layer_id": (
+            request.layer_id
+            if request is not None
+            else state.last_failed_layer_id
+            if status == "failed"
+            else state.last_applied_layer_id
+        ),
+        "request_id": (
+            request.request_id
+            if request is not None
+            else state.last_failed_request_id
+            if status == "failed"
+            else state.last_applied_request_id
+        ),
         "due_at_ms": request.due_at_ms if request is not None else None,
         "apply_delay_ms": LIVE_EQ_APPLY_DEBOUNCE_MS,
         "slow_caution": state.slow_caution,
@@ -255,6 +275,8 @@ def _record_failure(
     state.failure_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
     state.failure_detail = _failure_detail(runtime, request, exc)
     state.slow_caution = False
+    state.last_failed_request_id = request.request_id
+    state.last_failed_layer_id = request.layer_id
     runtime.transition_warning = LIVE_GRAPH_EQ_FAILURE_WARNING
     logger = getattr(runtime, "logger", None)
     log_event = getattr(logger, "log_event", None)

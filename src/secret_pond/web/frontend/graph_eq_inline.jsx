@@ -123,14 +123,9 @@ const graphTheme = {
       },
     ],
     point: {
-      radius: 13,
+      radius: 10,
       lineWidth: 2,
       backgroundOpacity: { normal: 0.88, active: 1, drag: 1 },
-      label: {
-        color: "#f2f1ea",
-        fontFamily: "Inter, system-ui, sans-serif",
-        fontSize: 11,
-      },
     },
     curve: {
       width: { normal: 1, active: 2 },
@@ -144,11 +139,19 @@ const normalizePoints = (points) => (Array.isArray(points) ? points : emptyPoint
 
 const isGraphEqPointDeletable = (point) => point?.type === "bell";
 
-const graphEqBellBandNumber = (point, index, points) => {
-  if (point?.type !== "bell") return "";
-  const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
-  const bellIndex = sourcePoints.slice(0, index + 1).filter((candidate) => candidate?.type === "bell").length;
-  return String(bellIndex);
+const graphEqWithSortedBells = (points) => {
+  const sourcePoints = normalizePoints(points);
+  const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
+  const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
+  const bells = sourcePoints
+    .map((point, pointIndex) => ({ point, index: pointIndex }))
+    .filter(({ point }) => point?.type === "bell")
+    .sort((a, b) => (
+      Number(a.point.frequency_hz) - Number(b.point.frequency_hz) ||
+        a.index - b.index
+    ))
+    .map(({ point }) => point);
+  return [lowShelf, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
 };
 
 const graphEqWithNewestBell = (points, nextPoint) => {
@@ -156,7 +159,7 @@ const graphEqWithNewestBell = (points, nextPoint) => {
   const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
   const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
   const bells = sourcePoints.filter((point) => point?.type === "bell");
-  return [lowShelf, nextPoint, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
+  return graphEqWithSortedBells([lowShelf, nextPoint, ...bells, highShelf]);
 };
 
 function GraphEqFilterPoint({
@@ -165,7 +168,6 @@ function GraphEqFilterPoint({
   point,
   active,
   disabled,
-  label,
   onChange,
   onSelect,
   onDelete,
@@ -323,19 +325,6 @@ function GraphEqFilterPoint({
           pointerEvents: "auto",
         }}
       />
-      <text
-        data-graph-eq-filter-point-label="true"
-        x={visualX}
-        y={visualY}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill={pointTheme.label.color}
-        fontSize={pointTheme.label.fontSize}
-        fontFamily={pointTheme.label.fontFamily}
-        style={{ pointerEvents: "none", userSelect: "none" }}
-      >
-        {label}
-      </text>
     </>
   );
 }
@@ -511,7 +500,6 @@ function GraphEqDssspEditor({
               point={point}
               active={index === selectedIndex}
               disabled={disabled}
-              label={graphEqBellBandNumber(point, index, localPoints)}
               onChange={handleChange}
               onSelect={onSelect}
               onDelete={handleDelete}

@@ -241,8 +241,8 @@ const points = helpers.state.draft.layers.mid.eq.points;
 
 helpers.syncInlineGraphEqPointControls(container, "mid", points, "older");
 
-assert(rows[1].innerHTML.includes('class="graph-eq-band-number" aria-hidden="true">2</span>'));
-assert(inspector.outerHTML.includes("Selected Band 2"));
+assert(rows[1].innerHTML.includes('class="graph-eq-band-number" aria-hidden="true">1</span>'));
+assert(inspector.outerHTML.includes("Selected Band 1"));
 """,
     )
 

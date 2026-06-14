@@ -933,13 +933,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260614-named-presets-v1"' in response.text
+    assert 'href="/static/styles.css?v=20260614-graph-eq-docked-ux"' in response.text
     assert (
-        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-named-presets-v1"'
+        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-graph-eq-docked-ux"'
         in response.text
     )
     assert 'src="/static/graph_eq_inline.bundle.js?v=' not in response.text
-    assert 'src="/static/app.js?v=20260614-named-presets-v1"' in response.text
+    assert 'src="/static/app.js?v=20260614-graph-eq-docked-ux"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert 'id="settingsPresetPanel"' in response.text
@@ -974,6 +974,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "다시 재생" not in top_actions
     assert 'class="panel operation-panel"' in response.text
     assert 'class="operation-card playback-panel"' in response.text
+    assert 'class="operation-card settings-preset-panel"' in response.text
     assert 'aria-labelledby="playbackPanelTitle"' in response.text
     operation_panel = slice_between(
         response.text,
@@ -993,6 +994,11 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     record_panel = slice_between(
         operation_panel,
         '<section class="operation-card record-panel"',
+        '<section\n              id="settingsPresetPanel"',
+    )
+    settings_preset_panel = slice_between(
+        operation_panel,
+        '<section\n              id="settingsPresetPanel"',
         "</section>\n          </div>",
     )
     right_stack = slice_between(
@@ -1006,6 +1012,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         "</section>",
     )
     assert operation_panel.index("Playback") < operation_panel.index("Voice Capture")
+    assert operation_panel.index("Voice Capture") < operation_panel.index("settingsPresetPanel")
     assert operation_panel.index("playbackApplyModePanel") < operation_panel.index(
         "playbackPanelTitle"
     )
@@ -1045,6 +1052,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "출력 재시작" not in playback_panel
     assert "적용 후 재시작" not in playback_panel
     assert "Apply and Restart" not in playback_panel
+    assert "settingsPresetPanel" not in playback_panel
+    assert "Graph EQ · Mixer · Source" not in playback_panel
     assert "녹음 준비" in record_panel
     assert 'id="storageModePanel"' in record_panel
     assert 'id="storageModeSummary"' in record_panel
@@ -1078,6 +1087,12 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'class="record-orbit"' in take_console
     assert 'id="startButton"' in take_console
     assert 'id="stopButton"' in take_console
+    assert 'id="settingsPresetPanelTitle"' in settings_preset_panel
+    assert "Presets" in settings_preset_panel
+    assert "프리셋" in settings_preset_panel
+    assert "Graph EQ · Mixer · Source" in settings_preset_panel
+    assert 'id="settingsPresetNameInput"' in settings_preset_panel
+    assert 'id="settingsPresetSaveButton"' in settings_preset_panel
     assert 'id="systemStatus"' in system_panel
     assert 'id="sourceHealthList"' in system_panel
     assert 'id="eventLogSummary"' in system_panel
@@ -2144,7 +2159,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in response.text
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
-    assert "20260614-named-presets-v1" in response.text
+    assert "20260614-graph-eq-docked-ux" in response.text
     assert ("20260612-graph-eq-inline-" + "weq" + "8c") not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text
@@ -2192,12 +2207,17 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
 def test_static_inline_graph_eq_open_is_idempotent_and_close_is_explicit(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ openExpandedGraphEqLayer, closeExpandedGraphEqLayer, expandedGraphEqLayerId }",
+        exports=(
+            "{ openExpandedGraphEqLayer, closeExpandedGraphEqLayer, "
+            "expandedGraphEqLayerId, currentGraphEqLayerId }"
+        ),
         body="""
 const helpers = globalThis.__secretPondTest;
-assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
+assert.strictEqual(helpers.currentGraphEqLayerId(), "mid");
 helpers.openExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
+assert.strictEqual(helpers.currentGraphEqLayerId(), "low");
 helpers.openExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
 helpers.openExpandedGraphEqLayer("mid");
@@ -2206,6 +2226,7 @@ helpers.closeExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
 helpers.closeExpandedGraphEqLayer("mid");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+assert.strictEqual(helpers.currentGraphEqLayerId(), "mid");
 """,
     )
 
@@ -2342,7 +2363,7 @@ assert.match(highRow, /graph-eq-band-number[^>]*><\\/span>/);
     )
 
 
-def test_static_graph_eq_bell_numbers_follow_newest_first_order(tmp_path: Path) -> None:
+def test_static_graph_eq_bell_numbers_follow_frequency_order(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
         exports="{ renderInlineGraphEqPointRowContent, renderInlineGraphEqSelectedInspector }",
@@ -2359,7 +2380,7 @@ const labels = points.map((point, index) => {
   const row = helpers.renderInlineGraphEqPointRowContent(point, index, points);
   return /graph-eq-band-number[^>]*>([^<]*)<\\/span>/.exec(row)[1];
 });
-assert.deepStrictEqual(labels, ["", "1", "2", "3", ""]);
+assert.deepStrictEqual(labels, ["", "3", "2", "1", ""]);
 const inspector = helpers.renderInlineGraphEqSelectedInspector(
   "mid",
   points[1],
@@ -2368,7 +2389,7 @@ const inspector = helpers.renderInlineGraphEqSelectedInspector(
   1,
   points,
 );
-assert.match(inspector, /Selected Band 1/);
+assert.match(inspector, /Selected Band 3/);
 """,
     )
 
@@ -10066,11 +10087,11 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   const deletedDraft = JSON.parse(graphEqCreateDeleteResponses[1].options.body);
   assert.deepStrictEqual(
     createdDraft.layers.mid.eq.points.map((point) => point.id),
-    ["low", "band-new", "band-old", "high"],
+    ["low", "band-old", "band-new", "high"],
   );
   assert.deepStrictEqual(
     deletedDraft.layers.mid.eq.points.map((point) => point.id),
-    ["low", "band-recent", "band-old", "high"],
+    ["low", "band-old", "band-recent", "high"],
   );
   graphEqCreateDeleteResponses[1].resolve({{
     ok: true,
@@ -10098,7 +10119,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   );
   assert.deepStrictEqual(
     reconciledCreateDeleteEq.points.map((point) => point.id),
-    ["low", "band-recent", "band-old", "high"],
+    ["low", "band-old", "band-recent", "high"],
   );
   assert.deepStrictEqual(
     reconciledCreateDeleteEq.points.map((point, index, points) =>

@@ -25951,14 +25951,9 @@ var SecretPondDssspGraphEqBundle = (() => {
         }
       ],
       point: {
-        radius: 13,
+        radius: 10,
         lineWidth: 2,
-        backgroundOpacity: { normal: 0.88, active: 1, drag: 1 },
-        label: {
-          color: "#f2f1ea",
-          fontFamily: "Inter, system-ui, sans-serif",
-          fontSize: 11
-        }
+        backgroundOpacity: { normal: 0.88, active: 1, drag: 1 }
       },
       curve: {
         width: { normal: 1, active: 2 },
@@ -25969,18 +25964,19 @@ var SecretPondDssspGraphEqBundle = (() => {
   };
   var normalizePoints = (points) => Array.isArray(points) ? points : emptyPoints;
   var isGraphEqPointDeletable = (point) => point?.type === "bell";
-  var graphEqBellBandNumber = (point, index, points) => {
-    if (point?.type !== "bell") return "";
-    const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
-    const bellIndex = sourcePoints.slice(0, index + 1).filter((candidate) => candidate?.type === "bell").length;
-    return String(bellIndex);
+  var graphEqWithSortedBells = (points) => {
+    const sourcePoints = normalizePoints(points);
+    const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
+    const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
+    const bells = sourcePoints.map((point, pointIndex) => ({ point, index: pointIndex })).filter(({ point }) => point?.type === "bell").sort((a, b) => Number(a.point.frequency_hz) - Number(b.point.frequency_hz) || a.index - b.index).map(({ point }) => point);
+    return [lowShelf, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
   };
   var graphEqWithNewestBell = (points, nextPoint) => {
     const sourcePoints = normalizePoints(points);
     const lowShelf = sourcePoints.find((point) => point?.type === "low_shelf") || null;
     const highShelf = sourcePoints.find((point) => point?.type === "high_shelf") || null;
     const bells = sourcePoints.filter((point) => point?.type === "bell");
-    return [lowShelf, nextPoint, ...bells, highShelf].filter(Boolean).slice(0, maxGraphEqPoints);
+    return graphEqWithSortedBells([lowShelf, nextPoint, ...bells, highShelf]);
   };
   function GraphEqFilterPoint({
     filter,
@@ -25988,7 +25984,6 @@ var SecretPondDssspGraphEqBundle = (() => {
     point,
     active,
     disabled,
-    label,
     onChange,
     onSelect,
     onDelete,
@@ -26104,45 +26099,28 @@ var SecretPondDssspGraphEqBundle = (() => {
       },
       [onDelete, point]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-        "circle",
-        {
-          "data-graph-eq-filter-point": "true",
-          cx: visualX,
-          cy: visualY,
-          r: pointTheme.radius,
-          fill: fillColor,
-          fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
-          stroke: strokeColor,
-          strokeWidth: pointTheme.lineWidth,
-          onPointerDown: handlePointerDown,
-          onClick: handleClick,
-          onDoubleClick: handleDoubleClick,
-          onMouseEnter: () => setHovered(true),
-          onMouseLeave: () => setHovered(false),
-          style: {
-            cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
-            pointerEvents: "auto"
-          }
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_jsx_runtime2.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "circle",
+      {
+        "data-graph-eq-filter-point": "true",
+        cx: visualX,
+        cy: visualY,
+        r: pointTheme.radius,
+        fill: fillColor,
+        fillOpacity: dragging || active || hovered ? 1 : pointTheme.backgroundOpacity.normal,
+        stroke: strokeColor,
+        strokeWidth: pointTheme.lineWidth,
+        onPointerDown: handlePointerDown,
+        onClick: handleClick,
+        onDoubleClick: handleDoubleClick,
+        onMouseEnter: () => setHovered(true),
+        onMouseLeave: () => setHovered(false),
+        style: {
+          cursor: disabled ? "default" : dragging ? "grabbing" : "grab",
+          pointerEvents: "auto"
         }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-        "text",
-        {
-          "data-graph-eq-filter-point-label": "true",
-          x: visualX,
-          y: visualY,
-          textAnchor: "middle",
-          dominantBaseline: "central",
-          fill: pointTheme.label.color,
-          fontSize: pointTheme.label.fontSize,
-          fontFamily: pointTheme.label.fontFamily,
-          style: { pointerEvents: "none", userSelect: "none" },
-          children: label
-        }
-      )
-    ] });
+      }
+    ) });
   }
   function GraphEqDssspEditor({
     layerId,
@@ -26312,7 +26290,6 @@ var SecretPondDssspGraphEqBundle = (() => {
                     point,
                     active: index === selectedIndex,
                     disabled,
-                    label: graphEqBellBandNumber(point, index, localPoints),
                     onChange: handleChange,
                     onSelect,
                     onDelete: handleDelete,

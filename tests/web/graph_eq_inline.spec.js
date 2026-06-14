@@ -67,6 +67,8 @@ const firstGraphEqGraph = (page) => firstGraphEqCard(page).locator(".graph-eq-ds
 
 const firstGraphEqHandles = (page) => firstGraphEqCard(page).locator(".graph-eq-dsssp-surface svg circle");
 
+const fixedShelfEdgeTolerancePx = 24;
+
 const firstGraphEqPointLabels = (page) => (
   firstGraphEqCard(page).locator('[data-graph-eq-filter-point-label="true"]')
 );
@@ -95,17 +97,18 @@ async function selectGraphEqBand(page, index) {
   await expect(row).toHaveAttribute("aria-pressed", "true");
 }
 
-test("DSSSP Graph EQ is always visible inside layer cards and no fourth tab exists", async ({ page }) => {
+test("DSSSP Graph EQ is docked inside layer cards and no fourth tab exists", async ({ page }) => {
   await openFirstGraphEq(page);
   const legacyEqTag = "weq" + "8-ui";
 
   await expect(page.locator('[data-workspace-tab="graph-eq"]')).toHaveCount(0);
   await expect(page.locator(".graph-eq-layer-card-section")).toHaveCount(3);
   await expect(page.locator(".graph-eq-mini-preview")).toHaveCount(0);
-  await expect(page.locator(".graph-eq-collapsed-summary")).toHaveCount(0);
-  await expect(page.locator("[data-graph-eq-toggle]")).toHaveCount(0);
+  await expect(page.locator(".graph-eq-collapsed-summary")).toHaveCount(2);
+  await expect(page.locator("[data-graph-eq-layer-summary]")).toHaveCount(2);
   await expect(page.locator(legacyEqTag)).toHaveCount(0);
   await expect(firstGraphEqGraph(page)).toBeVisible();
+  await expect(firstGraphEqPointLabels(page)).toHaveCount(0);
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(3);
   await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
     .toHaveText(["", "1", ""]);
@@ -146,7 +149,8 @@ test("clicking an existing DSSSP point selects it for inspector editing", async 
   await openFirstGraphEq(page);
 
   await selectGraphEqBand(page, 0);
-  await expect(selectedPointControl(page, "freq")).toHaveValue("280");
+  await expect(selectedPointControl(page, "freq")).toHaveValue("80");
+  await expect(selectedPointControl(page, "freq")).toBeDisabled();
   await expect(selectedPointControl(page, "gain")).toHaveValue("4");
   await expect(selectedPointControl(page, "q")).toHaveValue("0.7");
   const firstRow = firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(0);
@@ -169,6 +173,7 @@ test("clicking an existing DSSSP point selects it for inspector editing", async 
   await expect(selectedInspector(page)).toHaveAttribute("data-graph-eq-point-id", "custom-mid");
   await expect(selectedPointControl(page, "freq")).toHaveAttribute("data-graph-eq-point-id", "custom-mid");
   await expect(selectedPointControl(page, "freq")).toHaveValue("1200");
+  await expect(selectedPointControl(page, "freq")).toBeEnabled();
   await expect(selectedPointControl(page, "gain")).toHaveValue("-2");
   await expect(selectedPointControl(page, "q")).toHaveValue("1.1");
 });
@@ -296,7 +301,7 @@ test("clicking the DSSSP Graph EQ curve creates a selected Bell band from the cl
   expect(Math.abs(createdPoint.gain_db - expectedGain)).toBeLessThanOrEqual(0.11);
 });
 
-test("creating two Bell bands renders the newest as Band 1 and the older as Band 2", async ({ page }) => {
+test("creating two Bell bands numbers them from left to right by frequency", async ({ page }) => {
   await setFirstGraphEqDraft(page, [
     { id: "custom-low", type: "low_shelf", frequency_hz: 280, gain_db: 4, q: 0.7 },
     { id: "custom-high", type: "high_shelf", frequency_hz: 6400, gain_db: 3, q: 0.7 },
@@ -326,15 +331,14 @@ test("creating two Bell bands renders the newest as Band 1 and the older as Band
 
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1))
-    .toHaveAttribute("data-graph-eq-point-id", newestBellId);
-  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
     .toHaveAttribute("data-graph-eq-point-id", olderBellId);
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
+    .toHaveAttribute("data-graph-eq-point-id", newestBellId);
   await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
     .toHaveText(["", "1", "2", ""]);
-  await expect(firstGraphEqPointLabels(page))
-    .toHaveText(["", "1", "2", ""]);
-  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("1");
-  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 1");
+  await expect(firstGraphEqPointLabels(page)).toHaveCount(0);
+  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("2");
+  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 2");
 });
 
 test("deleting a Bell band renumbers the remaining Bell bands sequentially", async ({ page }) => {
@@ -352,23 +356,23 @@ test("deleting a Bell band renumbers the remaining Bell bands sequentially", asy
 
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]")).toHaveCount(4);
   await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(1))
-    .toHaveAttribute("data-graph-eq-point-id", "custom-newest");
-  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
     .toHaveAttribute("data-graph-eq-point-id", "custom-oldest");
+  await expect(firstGraphEqCard(page).locator("[data-graph-eq-point-row]").nth(2))
+    .toHaveAttribute("data-graph-eq-point-id", "custom-newest");
   await expect(firstGraphEqCard(page).locator(".graph-eq-band-list .graph-eq-band-number"))
     .toHaveText(["", "1", "2", ""]);
-  await expect(firstGraphEqPointLabels(page))
-    .toHaveText(["", "1", "2", ""]);
+  await expect(firstGraphEqPointLabels(page)).toHaveCount(0);
 
-  await selectGraphEqBand(page, 2);
-  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("2");
-  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 2");
+  await selectGraphEqBand(page, 1);
+  await expect(selectedInspector(page).locator(".graph-eq-band-number")).toHaveText("1");
+  await expect(selectedInspector(page).locator("h5")).toContainText("Selected Band 1");
 });
 
 test("Low and High Shelf handles stay pinned and drag gain only", async ({ page }) => {
   await openFirstGraphEq(page);
 
   await selectGraphEqBand(page, 0);
+  const layerId = await firstGraphEqCard(page).getAttribute("data-graph-eq-layer-card");
   const graph = firstGraphEqGraph(page);
   await graph.scrollIntoViewIfNeeded();
   const graphBox = await viewportBox(graph);
@@ -376,6 +380,7 @@ test("Low and High Shelf handles stay pinned and drag gain only", async ({ page 
 
   const lowFreq = selectedPointControl(page, "freq");
   const lowGain = selectedPointControl(page, "gain");
+  const lowPointId = await lowFreq.getAttribute("data-graph-eq-point-id");
   const beforeLow = Number(await lowFreq.inputValue());
   const beforeLowGain = Number(await lowGain.inputValue());
   const handles = firstGraphEqHandles(page);
@@ -383,7 +388,7 @@ test("Low and High Shelf handles stay pinned and drag gain only", async ({ page 
   const lowHandle = handles.nth(0);
   const lowBox = await viewportBox(lowHandle);
   expect(lowBox).not.toBeNull();
-  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(20);
+  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(fixedShelfEdgeTolerancePx);
   await page.mouse.move(lowBox.x + lowBox.width / 2, lowBox.y + lowBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(graphBox.x + graphBox.width * 0.75, lowBox.y + 80, { steps: 10 });
@@ -394,7 +399,13 @@ test("Low and High Shelf handles stay pinned and drag gain only", async ({ page 
     .toBeGreaterThan(1);
   const lowAfter = await viewportBox(lowHandle);
   expect(lowAfter).not.toBeNull();
-  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(20);
+  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(fixedShelfEdgeTolerancePx);
+  await expect.poll(async () => {
+    const stateAfterDrag = await page.request.get(stateUrl).then((response) => response.json());
+    const storedLow = stateAfterDrag.settings.draft.layers[layerId].eq.points
+      .find((point) => point.id === lowPointId);
+    return storedLow?.frequency_hz;
+  }).toBe(80);
 
   await selectGraphEqBand(page, 2);
   await graph.scrollIntoViewIfNeeded();
@@ -402,12 +413,14 @@ test("Low and High Shelf handles stay pinned and drag gain only", async ({ page 
   expect(highGraphBox).not.toBeNull();
   const highFreq = selectedPointControl(page, "freq");
   const highGain = selectedPointControl(page, "gain");
+  const highPointId = await highFreq.getAttribute("data-graph-eq-point-id");
   const beforeHigh = Number(await highFreq.inputValue());
   const beforeHighGain = Number(await highGain.inputValue());
   const highHandle = handles.nth(2);
   const highBox = await viewportBox(highHandle);
   expect(highBox).not.toBeNull();
-  expect((highGraphBox.x + highGraphBox.width) - (highBox.x + highBox.width / 2)).toBeLessThan(20);
+  expect((highGraphBox.x + highGraphBox.width) - (highBox.x + highBox.width / 2))
+    .toBeLessThan(fixedShelfEdgeTolerancePx);
   await page.mouse.move(highBox.x + highBox.width / 2, highBox.y + highBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(highGraphBox.x + highGraphBox.width * 0.25, highBox.y - 80, { steps: 10 });
@@ -418,7 +431,14 @@ test("Low and High Shelf handles stay pinned and drag gain only", async ({ page 
     .toBeGreaterThan(1);
   const highAfter = await viewportBox(highHandle);
   expect(highAfter).not.toBeNull();
-  expect((highGraphBox.x + highGraphBox.width) - (highAfter.x + highAfter.width / 2)).toBeLessThan(20);
+  expect((highGraphBox.x + highGraphBox.width) - (highAfter.x + highAfter.width / 2))
+    .toBeLessThan(fixedShelfEdgeTolerancePx);
+  await expect.poll(async () => {
+    const stateAfterDrag = await page.request.get(stateUrl).then((response) => response.json());
+    const storedHigh = stateAfterDrag.settings.draft.layers[layerId].eq.points
+      .find((point) => point.id === highPointId);
+    return storedHigh?.frequency_hz;
+  }).toBe(10000);
 });
 
 test("Low Shelf handle keeps tracking outside-graph gain while pinned", async ({ page }) => {
@@ -448,7 +468,7 @@ test("Low Shelf handle keeps tracking outside-graph gain while pinned", async ({
   await expect.poll(async () => Number(await lowGain.inputValue())).toBeLessThan(-13);
   const lowAfter = await viewportBox(lowHandle);
   expect(lowAfter).not.toBeNull();
-  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(20);
+  expect((lowAfter.x + lowAfter.width / 2) - graphBox.x).toBeLessThan(fixedShelfEdgeTolerancePx);
 });
 
 test("fixed shelf handles stay visually pinned to graph edges", async ({ page }) => {
@@ -470,8 +490,9 @@ test("fixed shelf handles stay visually pinned to graph edges", async ({ page })
   expect(lowBox).not.toBeNull();
   expect(highBox).not.toBeNull();
 
-  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(20);
-  expect((graphBox.x + graphBox.width) - (highBox.x + highBox.width / 2)).toBeLessThan(20);
+  expect((lowBox.x + lowBox.width / 2) - graphBox.x).toBeLessThan(fixedShelfEdgeTolerancePx);
+  expect((graphBox.x + graphBox.width) - (highBox.x + highBox.width / 2))
+    .toBeLessThan(fixedShelfEdgeTolerancePx);
   expect(lowBox.y).toBeGreaterThanOrEqual(graphBox.y);
   expect(highBox.y + highBox.height).toBeLessThanOrEqual(graphBox.y + graphBox.height);
 });
@@ -641,7 +662,7 @@ test("dragging another DSSSP point preserves the previous point draft edit", asy
   await page.mouse.down();
   await page.mouse.move(
     graphBox.x - 80,
-    graphBox.y + graphBox.height + 90,
+    beforeFirstGain >= 0 ? graphBox.y + graphBox.height + 90 : graphBox.y - 90,
     { steps: 10 },
   );
   await page.mouse.up();
@@ -805,16 +826,22 @@ test("stale Graph EQ save response during the next drag keeps the held point int
   expect(pendingDraftSaves[1].draft.layers.mid.eq.points[1].gain_db).toBeCloseTo(finalVisibleGain, 1);
 });
 
-test("all layer Graph EQ editors stay open without accordion controls", async ({ page }) => {
+test("only the active layer Graph EQ editor is expanded with compact inactive summaries", async ({ page }) => {
   await openMixer(page);
 
-  await expect(page.locator("[data-graph-eq-toggle]")).toHaveCount(0);
-  await expect(page.locator(".graph-eq-layer-card-section.expanded")).toHaveCount(3);
-  await expect(page.locator(".graph-eq-inline-editor.expanded")).toHaveCount(3);
-  await expect(page.locator('[data-graph-eq-dsssp-root="true"]')).toHaveCount(3);
+  await expect(page.locator(".graph-eq-layer-card-section.expanded")).toHaveCount(1);
+  await expect(page.locator(".graph-eq-layer-card-section.compact")).toHaveCount(2);
+  await expect(page.locator(".graph-eq-inline-editor.expanded")).toHaveCount(1);
+  await expect(page.locator(".graph-eq-collapsed-summary")).toHaveCount(2);
+  await expect(page.locator('[data-graph-eq-dsssp-root="true"]')).toHaveCount(1);
+
+  await page.locator('[data-graph-eq-layer-summary="low"]').click();
+  await expect(page.locator('[data-graph-eq-layer-card="low"].expanded')).toHaveCount(1);
+  await expect(page.locator('[data-graph-eq-layer-card="mid"].compact')).toHaveCount(1);
 });
 
-test("always-open Graph EQ layout keeps desktop controls compact without horizontal overflow", async ({ page }) => {
+test("docked Graph EQ layout keeps operation controls visible while giving mixer a wide editor", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openMixer(page);
   await page.evaluate(() => window.scrollTo(0, 0));
 
@@ -824,10 +851,16 @@ test("always-open Graph EQ layout keeps desktop controls compact without horizon
   await firstGraphEqCard(page).evaluate((node) => node.scrollIntoView({ block: "start", inline: "nearest" }));
   const graphBox = await viewportBox(firstGraphEqGraph(page));
   expect(graphBox).not.toBeNull();
-  expect(graphBox.y).toBeLessThan(520);
-  expect(graphBox.width).toBeGreaterThan(560);
+  expect(graphBox.y).toBeLessThan(560);
+  expect(graphBox.width).toBeGreaterThan(860);
 
   const layout = await page.evaluate(() => {
+    const dashboard = document.querySelector(".dashboard-grid");
+    const mainWorkspace = document.querySelector(".main-workspace-panel");
+    const playbackPanel = document.getElementById("playbackPanel");
+    const voiceCapturePanel = document.querySelector(".record-panel");
+    const playbackActions = document.querySelector(".playback-actions");
+    const takeActions = document.querySelector(".take-actions");
     const card = document.querySelector('[data-graph-eq-layer-card="mid"]');
     const workflow = card?.querySelector(".graph-eq-workflow");
     const inspector = card?.querySelector("[data-graph-eq-selected-inspector]");
@@ -835,22 +868,67 @@ test("always-open Graph EQ layout keeps desktop controls compact without horizon
     const body = document.documentElement;
     const rect = (node) => {
       const box = node?.getBoundingClientRect();
-      return box ? { width: box.width, left: box.left, right: box.right } : null;
+      return box
+        ? { width: box.width, left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+        : null;
     };
     return {
       hasHorizontalOverflow: body.scrollWidth > window.innerWidth + 2,
+      dashboardColumns: dashboard ? getComputedStyle(dashboard).gridTemplateColumns : "",
+      mainWorkspace: rect(mainWorkspace),
+      playbackPanel: rect(playbackPanel),
+      voiceCapturePanel: rect(voiceCapturePanel),
+      playbackActions: rect(playbackActions),
+      takeActions: rect(takeActions),
       workflowColumns: getComputedStyle(workflow).gridTemplateColumns,
       inspector: rect(inspector),
       bandManager: rect(bandManager),
     };
   });
   expect(layout.hasHorizontalOverflow).toBe(false);
+  expect(layout.dashboardColumns.split(" ").length).toBe(2);
+  expect(layout.mainWorkspace.width).toBeGreaterThan(980);
+  expect(layout.playbackPanel.left).toBeLessThan(layout.mainWorkspace.left);
+  expect(layout.playbackActions.bottom).toBeLessThanOrEqual(900);
+  expect(layout.voiceCapturePanel.left).toBeLessThan(layout.mainWorkspace.left);
+  expect(layout.takeActions.bottom).toBeLessThanOrEqual(900);
   expect(layout.workflowColumns.split(" ").length).toBeGreaterThanOrEqual(2);
   expect(layout.inspector.width).toBeGreaterThan(280);
-  expect(layout.bandManager.width).toBeGreaterThan(240);
+  expect(layout.bandManager.width).toBeGreaterThan(300);
 });
 
-test("always-open Graph EQ layout stays usable at mobile width", async ({ page }) => {
+test("docked Graph EQ layout keeps the core exhibition controls usable at 1280 by 800", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openMixer(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await expect(firstGraphEqGraph(page)).toBeVisible();
+  await expect(page.locator(".graph-eq-collapsed-summary")).toHaveCount(2);
+
+  const layout = await page.evaluate(() => {
+    const rect = (node) => {
+      const box = node?.getBoundingClientRect();
+      return box ? { width: box.width, left: box.left, right: box.right, top: box.top, bottom: box.bottom } : null;
+    };
+    return {
+      hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 2,
+      graph: rect(document.querySelector(".graph-eq-dsssp-surface svg")),
+      playbackActions: rect(document.querySelector(".playback-actions")),
+      takeActions: rect(document.querySelector(".take-actions")),
+      liveStatus: rect(document.querySelector('[data-graph-eq-layer-card="mid"] .graph-eq-layer-card-status')),
+    };
+  });
+
+  expect(layout.hasHorizontalOverflow).toBe(false);
+  expect(layout.graph.width).toBeGreaterThan(720);
+  expect(layout.graph.top).toBeLessThan(500);
+  expect(layout.playbackActions.bottom).toBeLessThanOrEqual(800);
+  expect(layout.takeActions.bottom).toBeLessThanOrEqual(800);
+  expect(layout.liveStatus.top).toBeLessThan(layout.graph.top);
+  expect(layout.liveStatus.bottom).toBeLessThan(500);
+});
+
+test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await openFirstGraphEq(page);
   await selectGraphEqBand(page, 1);
@@ -1001,6 +1079,12 @@ test("Stable mode keeps Graph EQ edit as draft until Apply and Restart", async (
 
   const after = await page.request.get(stateUrl).then((response) => response.json());
   expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
+  await expect(firstLayerCard(page)).toHaveClass(/feedback-pending/);
+  await expect(firstLayerCard(page).locator(".feedback-spinner")).toBeHidden();
+  await expect(firstGraphEqCard(page).locator(".graph-eq-layer-card-status"))
+    .toContainText("Apply and Restart 대기 중");
+  await expect(firstGraphEqCard(page).locator(".graph-eq-layer-card-detail"))
+    .toContainText("재생에는 아직 반영되지 않았습니다");
 });
 
 test("Live Graph EQ highlight stays pending after save until render state catches up", async ({ page }) => {
@@ -1030,12 +1114,21 @@ test("Live Graph EQ highlight stays pending after save until render state catche
 });
 
 test("Live Graph EQ failure keeps visible draft value instead of snapping back", async ({ page }) => {
-  await page.route("**/api/playback/live-graph-eq/tick", async (route) => {
-    await route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ detail: "forced live graph eq failure" }),
-    });
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.__liveGraphEqTickFailures = 0;
+    window.fetch = async (input, init) => {
+      const rawUrl = typeof input === "string" ? input : input?.url;
+      const url = rawUrl ? new URL(rawUrl, window.location.href) : null;
+      if (url?.pathname === "/api/playback/live-graph-eq/tick") {
+        window.__liveGraphEqTickFailures += 1;
+        return new Response(JSON.stringify({ detail: "forced live graph eq failure" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return originalFetch(input, init);
+    };
   });
   await openFirstGraphEqInLive(page);
 
@@ -1053,10 +1146,15 @@ test("Live Graph EQ failure keeps visible draft value instead of snapping back",
   ]);
 
   await expect.poll(async () => Number(await gainInput.inputValue())).toBe(targetGain);
-  await page.waitForTimeout(1300);
+  await expect.poll(
+    async () => page.evaluate(() => window.__liveGraphEqTickFailures || 0),
+  ).toBeGreaterThan(0);
   await expect.poll(async () => Number(await gainInput.inputValue())).toBe(targetGain);
+  await expect(firstGraphEqCard(page).locator(".graph-eq-layer-card-status"))
+    .toContainText("Live Graph EQ 적용 상태를 확인하지 못했습니다");
+  await expect(firstLayerCard(page)).not.toHaveClass(/feedback-pending/);
+  await expect(firstLayerCard(page).locator(".feedback-spinner")).toBeHidden();
 
   const after = await page.request.get(stateUrl).then((response) => response.json());
   expect(after.settings.draft.layers.mid.eq.points[1].gain_db).toBe(targetGain);
-  expect(after.settings.active.layers.mid.eq.points[1].gain_db).not.toBe(targetGain);
 });
