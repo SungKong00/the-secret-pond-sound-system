@@ -18,6 +18,7 @@ from secret_pond.services.live_graph_eq import (
     LIVE_GRAPH_EQ_FAILURE_WARNING,
     apply_live_graph_eq_render_result,
     live_graph_eq_state,
+    run_due_live_graph_eq_update,
     schedule_live_graph_eq_update,
 )
 from secret_pond.services.playback_apply_mode import apply_playback_apply_mode
@@ -425,6 +426,54 @@ def test_stable_to_live_mode_apply_choice_preserves_staged_graph_eq_and_schedule
     assert live_state.pending_request is not None
     assert live_state.pending_request.layer_id == "mid"
     assert live_state.pending_request.settings.layers["mid"].eq == staged.layers["mid"].eq
+
+
+def test_stable_to_live_mode_apply_choice_schedules_all_staged_graph_eq_layers() -> None:
+    stable = AppSettings()
+    staged = stable.model_copy(
+        update={
+            "layers": {
+                **stable.layers,
+                "low": stable.layers["low"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(stable.layers["low"].eq, 4.0)},
+                ),
+                "mid": stable.layers["mid"].model_copy(
+                    update={"eq": graph_eq_with_mid_gain(stable.layers["mid"].eq, 6.0)},
+                ),
+            },
+        },
+        deep=True,
+    )
+    state = SettingsState(active=stable, draft=staged)
+    live_raw_buffer = AudioBuffer(
+        samples=np.ones((32, 2), dtype=np.float32) * 0.2,
+        sample_rate=48_000,
+    )
+    runtime = RuntimeHarness(state, live_raw_buffer)
+
+    result = apply_playback_apply_mode(  # type: ignore[arg-type]
+        runtime,
+        "live",
+        staged_graph_eq="apply",
+    )
+    live_state = live_graph_eq_state(runtime)
+    first_request = live_state.pending_request
+    assert first_request is not None
+
+    first_applied = run_due_live_graph_eq_update(runtime, now_ms=first_request.due_at_ms)
+    second_request = live_graph_eq_state(runtime).pending_request
+    assert second_request is not None
+    second_applied = run_due_live_graph_eq_update(runtime, now_ms=second_request.due_at_ms)
+
+    assert result.active.playback.apply_mode == "live"
+    assert {first_applied.layer_id, second_applied.layer_id} == {"low", "mid"}
+    assert [layer_id for layer_id, _settings in runtime.renderer.live_eq_buffer_renders] == [
+        "low",
+        "mid",
+    ]
+    assert runtime.playback_render_settings.layers["low"].eq == staged.layers["low"].eq
+    assert runtime.playback_render_settings.layers["mid"].eq == staged.layers["mid"].eq
+    assert live_graph_eq_state(runtime).pending_request is None
 
 
 def test_stable_to_live_mode_discard_choice_syncs_staged_graph_eq_from_active() -> None:
