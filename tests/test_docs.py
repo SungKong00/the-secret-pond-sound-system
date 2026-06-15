@@ -203,6 +203,9 @@ def test_readme_links_operator_docs() -> None:
     assert "currentOperationFlags" in readme
     assert "열려 있는 드롭다운" in readme
     assert "fix: 소스 드롭다운 활성 상태 유지" in readme
+    assert "일반 녹음은 Voice Stack을 직접 갱신" in readme
+    assert "일반 녹음은 timestamped Voice Raw source로 저장" in readme
+    assert "녹음이 accepted되면 timestamped Voice Raw/Voice Stack WAV" not in readme
 
 
 def test_request_file_records_current_mvp_docs_decisions() -> None:

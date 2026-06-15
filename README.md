@@ -53,8 +53,8 @@ secret-pond serve
 - 프로젝트 기본 세팅, 설정/경로/상태 모델, 오디오 장치 조회
 - WAV 입출력, 오디오 버퍼 변환, 오프라인 녹음 처리 체인
 - 목소리 스택 누적:
-  - `live_ephemeral`: 실제 운영 모드. timestamped Voice Raw/Voice Stack 스냅샷과 legacy mirror를 남기되, test-library 재빌드용 accepted chunk/manifest는 만들지 않음
-  - `test_library`: 테스트/리허설 모드. `data/processed/accepted/*.wav`와 manifest를 남겨 재빌드 가능
+  - `live_ephemeral`: 실제 운영 모드. 일반 녹음은 Voice Stack을 직접 갱신하고 timestamped Voice Stack source와 legacy mirror를 남기되, 개별 Voice Raw나 test-library 재빌드용 accepted chunk/manifest는 만들지 않음
+  - `test_library`: 테스트/리허설 모드. 일반 녹음은 timestamped Voice Raw source로 저장하고, 그 Voice Raw를 스택에 추가할 때 `data/processed/accepted/*.wav`와 manifest를 남겨 재빌드 가능
 - `low`, `mid`, `voice` 3레이어 렌더링과 Live/Stable EQ·필터 적용
 - 단일 출력 엔진용 레이어 믹서와 `sounddevice` 출력 스트림 래퍼
 - 녹음 컨트롤러, 최대 120초 자동 정지, 참여자 카운터, JSONL 운영 이벤트 로그
@@ -102,8 +102,9 @@ secret-pond serve
 - Source Library 선택값이 있으면 선택된 WAV를 사용하고, 선택값이 없으면 기존
   `data/sources/low.wav`, `data/sources/mid.wav`, `data/voice/voice_stack_raw.wav`를
   legacy fallback으로 사용합니다.
-- 녹음이 accepted되면 timestamped Voice Raw/Voice Stack WAV가
-  `data/sources/voice/raw/`와 `data/sources/voice/stack/` 아래에 남습니다.
+- 녹음이 accepted되면 현재 Voice Stack 모드에 맞는 source가 남습니다.
+  `test_library`에서는 `data/sources/voice/raw/` 아래 Voice Raw가 저장되고,
+  `live_ephemeral`에서는 `data/sources/voice/stack/` 아래 Voice Stack source가 저장됩니다.
 - 준비 음원 파일이 없으면 시작 시 자동 렌더와 `Apply and Restart`가 실패합니다. 기존 활성 설정과 맞는 렌더 캐시가 있으면 그 캐시는 계속 로드할 수 있습니다.
 
 ## UI 상태관리 원칙
