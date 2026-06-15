@@ -124,7 +124,7 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "participant count",
         "running Voice layer via transition",
         "Apply and Restart remains fallback",
-        "timestamped Voice Raw/Stack files",
+        "expected reusable source artifact",
         "test_library",
         "live_ephemeral",
         "voice_stack_raw.wav",
@@ -154,9 +154,25 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "stale selected Voice Stack path",
         "missing selected and missing fallback",
         "Stable mode does not run the Live executor",
+        "leaves the Voice Stack manifest unchanged",
+        "Adding a Voice Raw source to the stack",
+        "leaves no individual raw or accepted voice WAV",
     ]
     for phrase in required:
         assert phrase in checklist
+
+
+def test_operator_docs_match_current_voice_stack_storage_contract() -> None:
+    guide = read_text(ROOT / "docs" / "operator-guide.md")
+    checklist = read_text(ROOT / "docs" / "audio-setup-checklist.md")
+
+    assert "Ordinary `test_library` recordings do not change the Voice Stack" in guide
+    assert "without keeping an individual Voice Raw file" in guide
+    assert "accepted recordings now leave timestamped processed raw snapshots" not in guide
+    assert (
+        "A valid recording in test_library mode creates accepted chunks and manifest entries"
+        not in checklist
+    )
 
 
 def test_readme_links_operator_docs() -> None:

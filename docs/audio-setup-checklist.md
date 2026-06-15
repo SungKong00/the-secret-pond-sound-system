@@ -58,7 +58,7 @@ Use this checklist before rehearsal and before show operation.
 - [ ] A valid recording increments participant count.
 - [ ] A valid recording refreshes the running Voice layer via transition/crossfade when output is running.
 - [ ] If live voice refresh fails, existing voice playback is kept and Apply and Restart remains fallback.
-- [ ] A valid recording creates timestamped Voice Raw/Stack files under `data/sources/voice/raw/` and `data/sources/voice/stack/` when that storage mode keeps reusable source files.
+- [ ] A valid recording creates the expected reusable source artifact for the active storage mode: Voice Raw in `test_library`, Voice Stack in `live_ephemeral`.
 
 ## Settings Presets
 
@@ -71,8 +71,9 @@ Use this checklist before rehearsal and before show operation.
 
 ## Voice Stack Modes
 
-- [ ] A valid recording in test_library mode creates accepted chunks and manifest entries.
-- [ ] A valid recording in live_ephemeral mode leaves no individual accepted voice WAV.
+- [ ] A valid recording in test_library mode saves a timestamped Voice Raw source and leaves the Voice Stack manifest unchanged.
+- [ ] Adding a Voice Raw source to the stack in test_library mode creates accepted chunks and manifest entries.
+- [ ] A valid recording in live_ephemeral mode leaves no individual raw or accepted voice WAV.
 - [ ] `secret-pond rebuild-test-library --root .` rebuilds voice_stack_raw.wav and voice_playback.wav from accepted chunks and manifest in test_library mode.
 - [ ] Rebuilt voice stack output is also available as a timestamped Source Library stack file.
 - [ ] live_ephemeral mode can start from an existing voice_stack_raw.wav.
