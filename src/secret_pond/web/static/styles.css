@@ -3139,6 +3139,10 @@ section.control-group .control-group-head h4::before {
   background: rgba(214, 168, 77, 0.08);
 }
 
+.graph-eq-point-row:has(.graph-eq-band-number:empty) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .graph-eq-band-number {
   display: inline-grid;
   place-items: center;
@@ -3150,6 +3154,10 @@ section.control-group .control-group-head h4::before {
   color: #f1d887;
   font-size: 12px;
   font-weight: 900;
+}
+
+.graph-eq-band-number:empty {
+  display: none;
 }
 
 .graph-eq-band-main {
@@ -3194,6 +3202,10 @@ section.control-group .control-group-head h4::before {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+}
+
+.graph-eq-selected-inspector-head:has(.graph-eq-band-number:empty) {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .graph-eq-selected-inspector-head h5 {
@@ -3791,7 +3803,7 @@ input[type="checkbox"] {
 @media (min-width: 1121px) {
   html[data-workspace-tab="mixer"] .dashboard-grid,
   html[data-workspace-tab="stack"] .dashboard-grid {
-    grid-template-columns: minmax(292px, 0.74fr) minmax(760px, 2.26fr);
+    grid-template-columns: minmax(282px, 0.62fr) minmax(0, 2.38fr);
     grid-template-areas:
       "ops main"
       "side main";
@@ -3985,6 +3997,58 @@ input[type="checkbox"] {
   }
 }
 
+@media (min-width: 1361px) {
+  html[data-workspace-tab="mixer"] .graph-eq-inline-editor.expanded,
+  html[data-workspace-tab="stack"] .graph-eq-inline-editor.expanded {
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
+    align-items: stretch;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-inline-controls,
+  html[data-workspace-tab="stack"] .graph-eq-inline-controls {
+    max-height: clamp(310px, 30vw, 380px);
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-workflow,
+  html[data-workspace-tab="stack"] .graph-eq-workflow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-band-manager,
+  html[data-workspace-tab="stack"] .graph-eq-band-manager {
+    padding-top: 9px;
+    padding-left: 0;
+    border-top: 1px solid rgba(223, 213, 191, 0.1);
+    border-left: 0;
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-band-manager .graph-eq-band-list,
+  html[data-workspace-tab="stack"] .graph-eq-band-manager .graph-eq-band-list,
+  html[data-workspace-tab="mixer"] .graph-eq-selected-fields,
+  html[data-workspace-tab="stack"] .graph-eq-selected-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1360px) and (min-width: 1121px) {
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-host,
+  html[data-workspace-tab="stack"] .graph-eq-dsssp-host,
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-root,
+  html[data-workspace-tab="stack"] .graph-eq-dsssp-root,
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface,
+  html[data-workspace-tab="stack"] .graph-eq-dsssp-surface {
+    min-height: clamp(238px, 21vw, 284px);
+  }
+
+  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface svg,
+  html[data-workspace-tab="stack"] .graph-eq-dsssp-surface svg {
+    min-height: clamp(216px, 19vw, 260px);
+  }
+}
+
 @media (max-width: 1120px) {
   .topbar,
   .dashboard-grid {
@@ -4048,6 +4112,23 @@ input[type="checkbox"] {
   .panel,
   .topbar {
     padding: 12px;
+  }
+
+  .status-strip {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .status-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .status-strip .status-pill {
+    flex: 0 0 auto;
   }
 
   .control-row {
@@ -4121,6 +4202,20 @@ input[type="checkbox"] {
 
   .workspace-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .playback-transition-controls,
+  .playback-transition-controls .control-row {
+    overflow: hidden;
+  }
+
+  .playback-transition-controls .range-rail {
+    padding-right: 4px;
+    padding-left: 4px;
+  }
+
+  .playback-transition-controls .range-marks {
+    overflow: hidden;
   }
 
   .capture-gate,

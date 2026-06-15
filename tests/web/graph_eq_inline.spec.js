@@ -867,11 +867,12 @@ test("Voice Stack Graph EQ uses the same always-expanded editor as Loop Mixer", 
   const voiceGraphBox = await viewportBox(voiceGraph);
   expect(voiceGraphBox).not.toBeNull();
   expect(voiceGraphBox.width).toBeGreaterThanOrEqual(mixerGraphBox.width * 0.9);
-  expect(voiceGraphBox.width).toBeGreaterThan(860);
+  expect(voiceGraphBox.width).toBeGreaterThan(740);
 
   const layout = await voiceEqCard.evaluate((card) => {
     const layerCard = card.closest(".layer-card");
     const levelGroup = layerCard?.querySelector(".level-group");
+    const editor = card.querySelector(".graph-eq-inline-editor");
     const graphBox = card.getBoundingClientRect();
     const workflow = card.querySelector(".graph-eq-workflow");
     const inspector = card.querySelector("[data-graph-eq-selected-inspector]");
@@ -885,6 +886,7 @@ test("Voice Stack Graph EQ uses the same always-expanded editor as Loop Mixer", 
       graphTop: graphBox.top,
       graphWidth: graphBox.width,
       levelTop: levelBox?.top ?? 0,
+      editorColumns: editor ? getComputedStyle(editor).gridTemplateColumns : "",
       workflowColumns: workflow ? getComputedStyle(workflow).gridTemplateColumns : "",
       inspector: rect(inspector),
       bandManager: rect(bandManager),
@@ -892,9 +894,10 @@ test("Voice Stack Graph EQ uses the same always-expanded editor as Loop Mixer", 
   });
   expect(layout.graphTop).toBeLessThan(layout.levelTop);
   expect(layout.graphWidth).toBeGreaterThan(1000);
-  expect(layout.workflowColumns.split(" ").length).toBeGreaterThanOrEqual(2);
-  expect(layout.inspector.width).toBeGreaterThan(280);
-  expect(layout.bandManager.width).toBeGreaterThan(300);
+  expect(layout.editorColumns.split(" ").length).toBeGreaterThanOrEqual(2);
+  expect(layout.workflowColumns.split(" ").length).toBe(1);
+  expect(layout.inspector.width).toBeGreaterThanOrEqual(250);
+  expect(layout.bandManager.width).toBeGreaterThanOrEqual(250);
 });
 
 test("docked Graph EQ layout keeps operation controls visible while giving mixer a wide editor", async ({ page }) => {
@@ -909,7 +912,7 @@ test("docked Graph EQ layout keeps operation controls visible while giving mixer
   const graphBox = await viewportBox(firstGraphEqGraph(page));
   expect(graphBox).not.toBeNull();
   expect(graphBox.y).toBeLessThan(560);
-  expect(graphBox.width).toBeGreaterThan(860);
+  expect(graphBox.width).toBeGreaterThan(740);
 
   const layout = await page.evaluate(() => {
     const dashboard = document.querySelector(".dashboard-grid");
@@ -919,6 +922,7 @@ test("docked Graph EQ layout keeps operation controls visible while giving mixer
     const playbackActions = document.querySelector(".playback-actions");
     const takeActions = document.querySelector(".take-actions");
     const card = document.querySelector('[data-graph-eq-layer-card="mid"]');
+    const editor = card?.querySelector(".graph-eq-inline-editor");
     const workflow = card?.querySelector(".graph-eq-workflow");
     const inspector = card?.querySelector("[data-graph-eq-selected-inspector]");
     const bandManager = card?.querySelector(".graph-eq-band-manager");
@@ -937,6 +941,7 @@ test("docked Graph EQ layout keeps operation controls visible while giving mixer
       voiceCapturePanel: rect(voiceCapturePanel),
       playbackActions: rect(playbackActions),
       takeActions: rect(takeActions),
+      editorColumns: getComputedStyle(editor).gridTemplateColumns,
       workflowColumns: getComputedStyle(workflow).gridTemplateColumns,
       inspector: rect(inspector),
       bandManager: rect(bandManager),
@@ -944,14 +949,15 @@ test("docked Graph EQ layout keeps operation controls visible while giving mixer
   });
   expect(layout.hasHorizontalOverflow).toBe(false);
   expect(layout.dashboardColumns.split(" ").length).toBe(2);
-  expect(layout.mainWorkspace.width).toBeGreaterThan(980);
+  expect(layout.mainWorkspace.width).toBeGreaterThan(1030);
   expect(layout.playbackPanel.left).toBeLessThan(layout.mainWorkspace.left);
   expect(layout.playbackActions.bottom).toBeLessThanOrEqual(900);
   expect(layout.voiceCapturePanel.left).toBeLessThan(layout.mainWorkspace.left);
   expect(layout.takeActions.bottom).toBeLessThanOrEqual(900);
-  expect(layout.workflowColumns.split(" ").length).toBeGreaterThanOrEqual(2);
-  expect(layout.inspector.width).toBeGreaterThan(280);
-  expect(layout.bandManager.width).toBeGreaterThan(300);
+  expect(layout.editorColumns.split(" ").length).toBeGreaterThanOrEqual(2);
+  expect(layout.workflowColumns.split(" ").length).toBe(1);
+  expect(layout.inspector.width).toBeGreaterThanOrEqual(250);
+  expect(layout.bandManager.width).toBeGreaterThanOrEqual(250);
 });
 
 test("docked Graph EQ layout keeps the core exhibition controls usable at 1280 by 800", async ({ page }) => {
@@ -1002,6 +1008,7 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
     const workflow = card?.querySelector(".graph-eq-workflow");
     const filterGrid = layerCard?.querySelector(".filter-group .filter-pair-grid");
     const filterRails = Array.from(layerCard?.querySelectorAll(".filter-group .range-rail") || []);
+    const playbackTransition = document.querySelector(".playback-transition-controls");
     const deleteButton = card?.querySelector('[data-graph-eq-action="delete-point"]');
     const addButton = card?.querySelector('[data-graph-eq-action="add-point"]');
     const rect = (node) => {
@@ -1013,6 +1020,10 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
       workflowColumns: workflow ? getComputedStyle(workflow).gridTemplateColumns : "",
       filterColumns: filterGrid ? getComputedStyle(filterGrid).gridTemplateColumns : "",
       filterRails: filterRails.map(rect),
+      playbackTransition: playbackTransition ? {
+        clientWidth: playbackTransition.clientWidth,
+        scrollWidth: playbackTransition.scrollWidth,
+      } : null,
       card: rect(card),
       deleteButton: rect(deleteButton),
       addButton: rect(addButton),
@@ -1025,10 +1036,29 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
   for (const rail of layout.filterRails) {
     expect(rail.width).toBeGreaterThan(240);
   }
+  expect(layout.playbackTransition.scrollWidth).toBeLessThanOrEqual(
+    layout.playbackTransition.clientWidth + 1,
+  );
   expect(layout.card.left).toBeGreaterThanOrEqual(0);
   expect(layout.card.right).toBeLessThanOrEqual(390);
   expect(layout.deleteButton.width).toBeLessThan(96);
   expect(layout.addButton.width).toBeLessThan(96);
+});
+
+test("fixed shelf rows keep their labels without showing empty band number dots", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openMixer(page);
+
+  const shelfBadgeDisplays = await firstGraphEqCard(page).evaluate((card) => {
+    const rows = Array.from(card.querySelectorAll("[data-graph-eq-point-row]"));
+    const fixedRows = [rows[0], rows[rows.length - 1]];
+    return fixedRows.map((row) => {
+      const badge = row?.querySelector(".graph-eq-band-number");
+      return badge ? getComputedStyle(badge).display : null;
+    });
+  });
+
+  expect(shelfBadgeDisplays).toEqual(["none", "none"]);
 });
 
 test("mobile Graph EQ precision controls keep touch-sized targets", async ({ page }) => {
