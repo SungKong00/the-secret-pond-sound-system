@@ -1009,11 +1009,13 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
     const filterGrid = layerCard?.querySelector(".filter-group .filter-pair-grid");
     const filterRails = Array.from(layerCard?.querySelectorAll(".filter-group .range-rail") || []);
     const playbackTransition = document.querySelector(".playback-transition-controls");
+    const transitionToggle = playbackTransition?.querySelector(".value-toggle");
+    const transitionToggleInput = transitionToggle?.querySelector('input[type="checkbox"]');
     const deleteButton = card?.querySelector('[data-graph-eq-action="delete-point"]');
     const addButton = card?.querySelector('[data-graph-eq-action="add-point"]');
     const rect = (node) => {
       const box = node?.getBoundingClientRect();
-      return box ? { width: box.width, left: box.left, right: box.right } : null;
+      return box ? { width: box.width, height: box.height, left: box.left, right: box.right } : null;
     };
     return {
       hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 2,
@@ -1024,6 +1026,8 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
         clientWidth: playbackTransition.clientWidth,
         scrollWidth: playbackTransition.scrollWidth,
       } : null,
+      transitionToggle: rect(transitionToggle),
+      transitionToggleInput: rect(transitionToggleInput),
       card: rect(card),
       deleteButton: rect(deleteButton),
       addButton: rect(addButton),
@@ -1039,6 +1043,9 @@ test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => 
   expect(layout.playbackTransition.scrollWidth).toBeLessThanOrEqual(
     layout.playbackTransition.clientWidth + 1,
   );
+  expect(layout.transitionToggle.height).toBeGreaterThanOrEqual(44);
+  expect(layout.transitionToggleInput.width).toBeLessThanOrEqual(20);
+  expect(layout.transitionToggleInput.height).toBeLessThanOrEqual(20);
   expect(layout.card.left).toBeGreaterThanOrEqual(0);
   expect(layout.card.right).toBeLessThanOrEqual(390);
   expect(layout.deleteButton.width).toBeLessThan(96);
@@ -1136,7 +1143,8 @@ test("mobile dashboard operation and Graph EQ action buttons keep touch-sized ta
       ".capture-gate-switch",
       ".settings-preset-save-button",
       'input[type="range"]',
-      'input[type="checkbox"]',
+      'input[type="checkbox"]:not(.value-toggle input)',
+      ".value-toggle",
       "select",
       ".side-tab",
       ".icon-button",

@@ -4190,6 +4190,18 @@ input[type="checkbox"] {
     height: 44px;
   }
 
+  .control-row .value-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 6px 8px;
+  }
+
+  .control-row .value-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    min-height: 0;
+  }
+
   .source-file-name-line .icon-mini-button {
     width: 44px;
     height: 44px;
