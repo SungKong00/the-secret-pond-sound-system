@@ -92,6 +92,10 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
    there when needed. Delete only inactive files that are not referenced by Settings Presets;
    active and preset-referenced sources are protected.
 
+The operator dashboard is designed for the exhibition laptop or desktop browser. Mobile-width
+operation is outside the supported show workflow; use a browser with enough horizontal space
+when adjusting Graph EQ, playback, recording, and source selection during operation.
+
 For machine-readable preflight logs, run:
 
 ```bash

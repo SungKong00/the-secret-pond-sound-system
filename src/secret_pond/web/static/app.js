@@ -64,6 +64,7 @@ const state = {
   draftSaveInFlight: false,
   draftSaveRequestId: 0,
   draftEditRevision: 0,
+  localDraftSaveHoldSignature: null,
   pendingCoveredFeedbackSurfaceId: undefined,
   coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
@@ -2550,7 +2551,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
   const shouldSyncDraft = shouldSyncIncomingSettingsDraft(
     options.currentSnapshot ?? state.snapshot,
     state.draft,
-    { syncDraft },
+    { syncDraft, settingsPayload },
   );
   const nextSettings = clone(settingsPayload);
   if (options.confirmActiveAsDraft && nextSettings.active) {
@@ -2916,6 +2917,7 @@ const draftEditLockTitle = (stateLike = state) => deriveDraftControlLockState(st
 
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
+  state.localDraftSaveHoldSignature = null;
 };
 
 const draftFeedbackSurfaceIdFromOptions = (options = {}) => {
@@ -5452,10 +5454,30 @@ const confirmedSettingsDraftMatches = (draft) => (
   Boolean(draft && state.confirmedDraftSignature === stableSettingsSignature(draft))
 );
 
+const incomingSettingsDraftSignature = (settingsPayload) => (
+  settingsPayload?.draft ? stableSettingsSignature(settingsPayload.draft) : null
+);
+
+const localDraftSaveHoldShouldPreserveCurrentDraft = (settingsPayload, currentDraft) => {
+  if (!state.localDraftSaveHoldSignature || !currentDraft) return false;
+  const currentSignature = stableSettingsSignature(currentDraft);
+  if (currentSignature !== state.localDraftSaveHoldSignature) return false;
+  const incomingSignature = incomingSettingsDraftSignature(settingsPayload);
+  if (incomingSignature === null || incomingSignature === currentSignature) {
+    state.localDraftSaveHoldSignature = null;
+    return false;
+  }
+  return true;
+};
+
 const shouldSyncIncomingSettingsDraft = (currentSnapshot, currentDraft, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
-  if (syncDraft || !currentDraft) return true;
+  if (syncDraft || !currentDraft) {
+    state.localDraftSaveHoldSignature = null;
+    return true;
+  }
   if (!currentSnapshot?.settings?.draft) return false;
+  if (localDraftSaveHoldShouldPreserveCurrentDraft(options.settingsPayload, currentDraft)) return false;
   if (state.confirmedDraftSignature === null) {
     return state.draftEditRevision === 0 && settingsPayloadMatchesDraft(currentSnapshot, currentDraft);
   }
@@ -8532,6 +8554,7 @@ const saveDraft = async () => {
     rememberServerPayloadRevision(payload);
     updateLiveApplyFeedbackForRequestSuccess(request, payload.settings);
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
+    state.localDraftSaveHoldSignature = stableSettingsSignature(draftPayload);
     renderState();
     renderDevices();
     return payload;

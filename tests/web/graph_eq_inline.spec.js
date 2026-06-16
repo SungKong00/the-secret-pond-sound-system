@@ -894,13 +894,13 @@ test("Voice Stack Graph EQ uses the same always-expanded editor as Loop Mixer", 
   });
   expect(layout.graphTop).toBeLessThan(layout.levelTop);
   expect(layout.graphWidth).toBeGreaterThan(1000);
-  expect(layout.editorColumns.split(" ").length).toBeGreaterThanOrEqual(2);
-  expect(layout.workflowColumns.split(" ").length).toBe(1);
-  expect(layout.inspector.width).toBeGreaterThanOrEqual(250);
-  expect(layout.bandManager.width).toBeGreaterThanOrEqual(250);
+  expect(layout.editorColumns.split(" ").filter(Boolean).length).toBe(1);
+  expect(layout.workflowColumns.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
+  expect(layout.inspector.width).toBeGreaterThanOrEqual(300);
+  expect(layout.bandManager.width).toBeGreaterThanOrEqual(400);
 });
 
-test("docked Graph EQ layout keeps operation controls visible while giving mixer a wide editor", async ({ page }) => {
+test("Graph EQ layout keeps operation controls visible while controls stay below the graph", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openMixer(page);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -954,13 +954,13 @@ test("docked Graph EQ layout keeps operation controls visible while giving mixer
   expect(layout.playbackActions.bottom).toBeLessThanOrEqual(900);
   expect(layout.voiceCapturePanel.left).toBeLessThan(layout.mainWorkspace.left);
   expect(layout.takeActions.bottom).toBeLessThanOrEqual(900);
-  expect(layout.editorColumns.split(" ").length).toBeGreaterThanOrEqual(2);
-  expect(layout.workflowColumns.split(" ").length).toBe(1);
-  expect(layout.inspector.width).toBeGreaterThanOrEqual(250);
-  expect(layout.bandManager.width).toBeGreaterThanOrEqual(250);
+  expect(layout.editorColumns.split(" ").filter(Boolean).length).toBe(1);
+  expect(layout.workflowColumns.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
+  expect(layout.inspector.width).toBeGreaterThanOrEqual(300);
+  expect(layout.bandManager.width).toBeGreaterThanOrEqual(400);
 });
 
-test("docked Graph EQ layout keeps the core exhibition controls usable at 1280 by 800", async ({ page }) => {
+test("Graph EQ layout keeps the core exhibition controls usable at 1280 by 800", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openMixer(page);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -991,7 +991,7 @@ test("docked Graph EQ layout keeps the core exhibition controls usable at 1280 b
   expect(layout.liveStatus.bottom).toBeLessThan(500);
 });
 
-test("docked Graph EQ layout stays usable at mobile width", async ({ page }) => {
+test("Graph EQ narrow viewport fallback avoids horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await openFirstGraphEq(page);
   await selectGraphEqBand(page, 1);

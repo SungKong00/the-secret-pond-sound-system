@@ -3074,22 +3074,22 @@ section.control-group .control-group-head h4::before {
   border: 1px solid rgba(223, 213, 191, 0.12);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.12);
-  padding: 9px;
+  padding: 8px;
 }
 
 .graph-eq-workflow {
   display: grid;
-  grid-template-columns: minmax(290px, 0.82fr) minmax(0, 1.18fr);
-  gap: 10px;
+  grid-template-columns: minmax(340px, 0.78fr) minmax(0, 1.22fr);
+  gap: 8px 10px;
   align-items: start;
   min-width: 0;
 }
 
 .graph-eq-band-manager {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
-  padding-left: 10px;
+  padding-left: 9px;
   border-left: 1px solid rgba(223, 213, 191, 0.1);
 }
 
@@ -3103,23 +3103,23 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-band-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(144px, 1fr));
+  gap: 5px;
 }
 
 .graph-eq-band-manager .graph-eq-band-list {
-  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
 }
 
 .graph-eq-point-row {
   appearance: none;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   width: 100%;
-  min-height: 38px;
-  padding: 6px 7px;
+  min-height: 34px;
+  padding: 5px 6px;
   border: 1px solid rgba(223, 213, 191, 0.1);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.025);
@@ -3146,13 +3146,13 @@ section.control-group .control-group-head h4::before {
 .graph-eq-band-number {
   display: inline-grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: 1px solid rgba(223, 213, 191, 0.18);
   border-radius: 999px;
   background: rgba(226, 184, 79, 0.12);
   color: #f1d887;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -3186,13 +3186,15 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-selected-inspector {
   display: grid;
-  gap: 8px;
+  gap: 7px;
+  align-items: start;
   min-width: 0;
   margin: 0;
-  padding-right: 2px;
+  padding-right: 0;
 }
 
 .graph-eq-selected-inspector.empty {
+  grid-template-columns: minmax(0, 1fr);
   color: var(--muted);
   font-size: 12px;
 }
@@ -3226,13 +3228,13 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-selected-fields {
   display: grid;
-  grid-template-columns: minmax(132px, 1.1fr) minmax(126px, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(112px, 1fr));
+  gap: 7px;
 }
 
 .graph-eq-selected-fields label {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
@@ -3245,12 +3247,12 @@ section.control-group .control-group-head h4::before {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.32);
   color: var(--text);
-  padding: 6px 8px;
+  padding: 5px 7px;
 }
 
 .graph-eq-row-delete {
   min-width: 0;
-  padding: 6px 10px;
+  padding: 5px 9px;
 }
 
 .graph-eq-inline-actions {
@@ -3259,19 +3261,19 @@ section.control-group .control-group-head h4::before {
 
 .graph-eq-inline-actions .button {
   width: 100%;
-  min-height: 34px;
+  min-height: 32px;
 }
 
 .graph-eq-inline-controls .graph-eq-stepper {
   grid-template-columns: 32px minmax(0, 1fr) 32px;
-  gap: 6px;
+  gap: 5px;
 }
 
 .graph-eq-inline-controls .graph-eq-step-button {
   min-width: 32px;
   min-height: 34px;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .graph-eq-panel {
@@ -3997,58 +3999,6 @@ input[type="checkbox"] {
   }
 }
 
-@media (min-width: 1361px) {
-  html[data-workspace-tab="mixer"] .graph-eq-inline-editor.expanded,
-  html[data-workspace-tab="stack"] .graph-eq-inline-editor.expanded {
-    grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
-    align-items: stretch;
-  }
-
-  html[data-workspace-tab="mixer"] .graph-eq-inline-controls,
-  html[data-workspace-tab="stack"] .graph-eq-inline-controls {
-    max-height: clamp(310px, 30vw, 380px);
-    overflow: auto;
-    scrollbar-width: thin;
-  }
-
-  html[data-workspace-tab="mixer"] .graph-eq-workflow,
-  html[data-workspace-tab="stack"] .graph-eq-workflow {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 9px;
-  }
-
-  html[data-workspace-tab="mixer"] .graph-eq-band-manager,
-  html[data-workspace-tab="stack"] .graph-eq-band-manager {
-    padding-top: 9px;
-    padding-left: 0;
-    border-top: 1px solid rgba(223, 213, 191, 0.1);
-    border-left: 0;
-  }
-
-  html[data-workspace-tab="mixer"] .graph-eq-band-manager .graph-eq-band-list,
-  html[data-workspace-tab="stack"] .graph-eq-band-manager .graph-eq-band-list,
-  html[data-workspace-tab="mixer"] .graph-eq-selected-fields,
-  html[data-workspace-tab="stack"] .graph-eq-selected-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 1360px) and (min-width: 1121px) {
-  html[data-workspace-tab="mixer"] .graph-eq-dsssp-host,
-  html[data-workspace-tab="stack"] .graph-eq-dsssp-host,
-  html[data-workspace-tab="mixer"] .graph-eq-dsssp-root,
-  html[data-workspace-tab="stack"] .graph-eq-dsssp-root,
-  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface,
-  html[data-workspace-tab="stack"] .graph-eq-dsssp-surface {
-    min-height: clamp(238px, 21vw, 284px);
-  }
-
-  html[data-workspace-tab="mixer"] .graph-eq-dsssp-surface svg,
-  html[data-workspace-tab="stack"] .graph-eq-dsssp-surface svg {
-    min-height: clamp(216px, 19vw, 260px);
-  }
-}
-
 @media (max-width: 1120px) {
   .topbar,
   .dashboard-grid {
@@ -4244,6 +4194,7 @@ input[type="checkbox"] {
   }
 
   .graph-eq-band-list,
+  .graph-eq-selected-inspector,
   .graph-eq-selected-fields {
     grid-template-columns: minmax(0, 1fr);
   }

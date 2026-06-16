@@ -16,6 +16,7 @@ Use this checklist before rehearsal and before show operation.
 - [ ] Startup loads compatible rendered playback caches, or renders fresh caches when prepared sources are available.
 - [ ] System panel shows source health, selected devices, and recent events.
 - [ ] The browser opens at `http://127.0.0.1:8000`.
+- [ ] The dashboard is opened on a laptop or desktop-width browser; mobile-width operation is not part of the show workflow.
 
 ## Playback
 
