@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "scripts" / "launch_secret_pond.py"
@@ -110,3 +110,22 @@ def test_windows_launcher_stays_safe_for_cmd_batch_parsing() -> None:
     assert "(3, 13)" not in launcher_text
     assert "if not defined SECRET_POND_PY (" not in launcher_text
     assert "if errorlevel 1 (" not in launcher_text
+
+
+def test_windows_launcher_validates_probe_output_not_just_py_exit_code() -> None:
+    windows_launcher = ROOT / "Start Secret Pond.bat"
+    launcher_text = windows_launcher.read_text(encoding="ascii").lower()
+
+    assert "for /f" in launcher_text
+    assert "-vv" in launcher_text
+
+
+def test_launcher_rejects_python_manager_error_even_with_zero_exit(monkeypatch) -> None:
+    launcher = load_launcher()
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="[ERROR] No runtime installed")
+
+    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
+
+    assert launcher._supported_python_command(["py", "-3.11"]) is False

@@ -69,18 +69,19 @@ def server_url(host: str, port: int) -> str:
 def _supported_python_command(command: list[str]) -> bool:
     probe = (
         "import sys; "
-        "raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
+        "print('ok' if (3, 11) <= sys.version_info[:2] < (3, 15) else 'bad')"
     )
     try:
         result = subprocess.run(
             [*command, "-c", probe],
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
+            text=True,
         )
     except OSError:
         return False
-    return result.returncode == 0
+    return result.returncode == 0 and result.stdout.strip() == "ok"
 
 
 def choose_bootstrap_python() -> list[str]:
