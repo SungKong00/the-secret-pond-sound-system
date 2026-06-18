@@ -11,6 +11,8 @@ export const fixedShelfDefaults = Object.freeze({
   high_shelf: Object.freeze({ frequency_hz: 10000, gain_db: 0, q: 0.707 }),
 });
 
+export const defaultBellQ = 1.4;
+
 export const supportedDssspTypes = Object.freeze(["LOWSHELF2", "PEAK", "HIGHSHELF2"]);
 
 export const secretPondToDssspType = Object.freeze({
@@ -84,7 +86,7 @@ export const toDssspFilters = (points = [], config = graphEqDisplayConfig) => po
     type: secretPondToDssspType[type],
     freq: displayFrequencyForPoint({ ...point, type }, config, index, points),
     gain: clamp(point?.gain_db ?? point?.gain ?? 0, config.minGain, config.maxGain),
-    q: clamp(point?.q ?? fixedShelfDefaults[type]?.q ?? 1, 0.1, 18),
+    q: clamp(point?.q ?? fixedShelfDefaults[type]?.q ?? defaultBellQ, 0.1, 18),
   };
 });
 
@@ -106,7 +108,7 @@ export const toSecretPondPoints = (filters = [], previousPoints = []) => filters
       type,
       frequency_hz: nextFrequency,
       gain_db: Number(clamp(filter?.gain ?? previous.gain_db ?? 0, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain).toFixed(1)),
-      q: Number(clamp(previous.q ?? filter?.q ?? shelfDefault.q ?? 1, 0.1, 18).toFixed(3)),
+      q: Number(clamp(previous.q ?? filter?.q ?? shelfDefault.q ?? defaultBellQ, 0.1, 18).toFixed(3)),
     };
   })
   .filter((point) => Object.prototype.hasOwnProperty.call(secretPondToDssspType, point.type));
@@ -118,6 +120,6 @@ export const fromDssspChangeEvent = (event = {}) => ({
     type: dssspToSecretPondType[event.type] || "bell",
     frequency_hz: Math.round(clamp(event.freq ?? 1000, graphEqDisplayConfig.minFreq, graphEqDisplayConfig.maxFreq)),
     gain_db: Number(clamp(event.gain ?? 0, graphEqDisplayConfig.minGain, graphEqDisplayConfig.maxGain).toFixed(1)),
-    q: Number(clamp(event.q ?? 1, 0.1, 18).toFixed(2)),
+    q: Number(clamp(event.q ?? defaultBellQ, 0.1, 18).toFixed(2)),
   },
 });

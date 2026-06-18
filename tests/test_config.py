@@ -47,21 +47,27 @@ def test_graph_eq_defaults_define_three_flat_points() -> None:
 
     assert [(point.type, point.frequency_hz, point.gain_db, point.q) for point in eq.points] == [
         ("low_shelf", 80.0, 0.0, 0.707),
-        ("bell", 1_000.0, 0.0, 1.0),
+        ("bell", 1_000.0, 0.0, 1.4),
         ("high_shelf", 10_000.0, 0.0, 0.707),
     ]
     assert eq.highpass_hz == 20.0
     assert eq.lowpass_hz == 20_000.0
 
 
-def test_graph_eq_rejects_more_than_six_points() -> None:
+def test_graph_eq_accepts_eight_points_and_rejects_more() -> None:
     point = EqSettings().points[1]
 
+    EqSettings(
+        points=[
+            point.model_copy(update={"id": str(index)})
+            for index in range(8)
+        ],
+    )
     with pytest.raises(ValidationError):
         EqSettings(
             points=[
                 point.model_copy(update={"id": str(index)})
-                for index in range(7)
+                for index in range(9)
             ],
         )
 

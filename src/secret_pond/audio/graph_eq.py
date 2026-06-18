@@ -6,6 +6,7 @@ import numpy as np
 from pedalboard import HighShelfFilter, LowShelfFilter, PeakFilter, Pedalboard
 
 from secret_pond.config import (
+    GRAPH_EQ_DEFAULT_BELL_Q,
     GRAPH_EQ_MAX_HZ,
     GRAPH_EQ_MIN_HZ,
     EqPointSettings,
@@ -70,7 +71,7 @@ def _legacy_points(eq: EqSettings) -> list[EqPointSettings]:
             type="bell",
             frequency_hz=_LEGACY_MID_BELL_HZ,
             gain_db=eq.mid_gain_db,
-            q=1.0,
+            q=GRAPH_EQ_DEFAULT_BELL_Q,
         ),
         EqPointSettings(
             id="legacy-high",

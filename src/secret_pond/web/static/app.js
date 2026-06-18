@@ -64,6 +64,7 @@ const state = {
   draftSaveInFlight: false,
   draftSaveRequestId: 0,
   draftEditRevision: 0,
+  localDraftSaveHoldSignature: null,
   pendingCoveredFeedbackSurfaceId: undefined,
   coveredFeedbackSurfaceId: undefined,
   pendingLiveFeedbackSurfaceId: undefined,
@@ -117,7 +118,7 @@ const state = {
     layers: {},
     recording: null,
   },
-  expandedGraphEqLayer: null,
+  expandedGraphEqLayer: "mid",
   graphEqSelectedPointIds: {
     low: null,
     mid: null,
@@ -130,6 +131,7 @@ const state = {
 };
 
 let liveGraphEqTickTimer = null;
+let liveGraphEqTickTimerKey = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -556,7 +558,9 @@ const graphEqMinFrequencyHz = 20;
 const graphEqMaxFrequencyHz = 20000;
 const graphEqMinGainDb = -15;
 const graphEqMaxGainDb = 15;
-const graphEqMaxPoints = 6;
+const graphEqMaxPoints = 8;
+const graphEqDefaultBellQ = 1.4;
+const graphEqDefaultShelfQ = 0.707;
 
 const graphEqPointTypes = Object.freeze({
   bell: "Bell / Peak",
@@ -564,10 +568,14 @@ const graphEqPointTypes = Object.freeze({
   high_shelf: "High Shelf",
 });
 
+const isFixedGraphEqShelfPoint = (point) => (
+  point?.type === "low_shelf" || point?.type === "high_shelf"
+);
+
 const defaultGraphEqPoints = () => [
-  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: 0.707 },
-  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: 1.0 },
-  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: 0.707 },
+  { id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0, q: graphEqDefaultShelfQ },
+  { id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0, q: graphEqDefaultBellQ },
+  { id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0, q: graphEqDefaultShelfQ },
 ];
 
 const graphEqFilterGroup = {
@@ -585,7 +593,15 @@ const graphEqFilterGroup = {
       step: 1,
       suffix: " Hz",
       kind: "filter",
+      scale: "log-frequency",
+      commitOn: "change",
       rangeLabel: "below cut",
+      marks: [
+        { value: 20, label: "20" },
+        { value: 80, label: "80" },
+        { value: 200, label: "200" },
+        { value: 500, label: "500" },
+      ],
       description: "이 값보다 낮은 소리를 줄입니다.",
     },
     {
@@ -596,7 +612,15 @@ const graphEqFilterGroup = {
       step: 10,
       suffix: " Hz",
       kind: "filter",
+      scale: "log-frequency",
+      commitOn: "change",
       rangeLabel: "above cut",
+      marks: [
+        { value: 2000, label: "2k" },
+        { value: 5000, label: "5k" },
+        { value: 10000, label: "10k" },
+        { value: 20000, label: "20k" },
+      ],
       description: "이 값보다 높은 소리를 줄입니다.",
     },
   ],
@@ -633,6 +657,7 @@ const graphEqPointWithFixedShelfDefaults = (point, type) => {
     ...point,
     id: point?.id || fallback?.id,
     type,
+    frequency_hz: fallback?.frequency_hz,
     q: point?.q ?? fallback?.q,
   });
 };
@@ -656,7 +681,15 @@ const graphEqOrderedPoints = (points = []) => {
   const bells = normalized
     .filter((point) => point.type === "bell")
     .slice(0, bellCapacity)
-    .map((point) => normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? 1 }));
+    .map((point, index) => ({
+      point: normalizeGraphEqPoint({ ...point, type: "bell", q: point.q ?? graphEqDefaultBellQ }),
+      index,
+    }))
+    .sort((a, b) => (
+      Number(a.point.frequency_hz) - Number(b.point.frequency_hz) ||
+        a.index - b.index
+    ))
+    .map(({ point }) => point);
   return [lowShelf, ...bells, highShelf];
 };
 
@@ -688,21 +721,21 @@ const graphEqEffectivePoints = (eq = {}) => {
       type: "low_shelf",
       frequency_hz: 80,
       gain_db: Number(eq.low_gain_db || 0),
-      q: 0.707,
+      q: graphEqDefaultShelfQ,
     },
     {
       id: "legacy-mid",
       type: "bell",
       frequency_hz: 1000,
       gain_db: Number(eq.mid_gain_db || 0),
-      q: 1,
+      q: graphEqDefaultBellQ,
     },
     {
       id: "legacy-high",
       type: "high_shelf",
       frequency_hz: 10000,
       gain_db: Number(eq.high_gain_db || 0),
-      q: 0.707,
+      q: graphEqDefaultShelfQ,
     },
   ]);
 };
@@ -717,48 +750,107 @@ const normalizeGraphEqSettings = (eq = {}) => {
   };
 };
 
-const graphEqLiveStatusCopy = (liveGraphEq = {}) => {
+const graphEqLivePendingCopy = () => ({
+  label: "Live Graph EQ 적용 대기 중",
+  detail: "약 1초 debounce 후 최신 곡선만 적용합니다.",
+  className: "status-pill caution",
+});
+
+const graphEqLiveSlowCopy = () => ({
+  label: "Live Graph EQ 적용이 지연되고 있습니다.",
+  detail: "재생은 이전 상태로 계속됩니다.",
+  className: "status-pill caution",
+});
+
+const graphEqLiveFailureCopy = (liveGraphEq = {}) => {
+  const failureDetail = liveGraphEq.failure_detail || "기존 재생 상태를 유지합니다.";
+  return {
+    label: liveGraphEq.failure_warning || (
+      "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
+      + "필요하면 Stable Apply and Restart로 적용하세요."
+    ),
+    detail: [
+      failureDetail,
+      "현재 들리는 EQ는 마지막 성공 상태입니다.",
+    ].filter(Boolean).join(" "),
+    className: "status-pill caution",
+  };
+};
+
+const graphEqLiveAppliedCopy = () => ({
+  label: "Live Graph EQ 적용됨",
+  detail: "현재 들리는 EQ가 마지막 성공 상태입니다.",
+  className: "status-pill safe",
+});
+
+const graphEqLiveStatusCopy = (liveGraphEq = {}, layerId = null) => {
   if (!liveGraphEq) return null;
+  const normalizedLayerId = layerIds.includes(layerId) ? layerId : null;
+  if (normalizedLayerId) {
+    if (liveGraphEqLayerFailed(liveGraphEq, normalizedLayerId)) {
+      return graphEqLiveFailureCopy(liveGraphEq);
+    }
+    if (liveGraphEqLayerPending(liveGraphEq, normalizedLayerId)) {
+      return (liveGraphEq.status === "slow" || liveGraphEq.slow_caution)
+        ? graphEqLiveSlowCopy()
+        : graphEqLivePendingCopy();
+    }
+    if (liveGraphEqLayerApplied(liveGraphEq, normalizedLayerId)) {
+      return graphEqLiveAppliedCopy();
+    }
+    return null;
+  }
   if (liveGraphEq.status === "slow" || liveGraphEq.slow_caution) {
-    return {
-      label: "Live Graph EQ 적용이 지연되고 있습니다.",
-      detail: "재생은 이전 상태로 계속됩니다.",
-      className: "status-pill caution",
-    };
+    return graphEqLiveSlowCopy();
   }
   if (liveGraphEq.status === "failed" || liveGraphEq.failure_warning) {
-    const failureDetail = liveGraphEq.failure_detail || "기존 재생 상태를 유지합니다.";
-    return {
-      label: liveGraphEq.failure_warning || (
-        "Live Graph EQ 적용을 완료하지 못했습니다. 기존 재생 상태를 유지합니다. "
-        + "필요하면 Stable Apply and Restart로 적용하세요."
-      ),
-      detail: [
-        failureDetail,
-        "현재 들리는 EQ는 마지막 성공 상태입니다.",
-      ].filter(Boolean).join(" "),
-      className: "status-pill caution",
-    };
+    return graphEqLiveFailureCopy(liveGraphEq);
   }
   if (liveGraphEq.status === "pending") {
-    return {
-      label: "Live Graph EQ 적용 대기 중",
-      detail: "약 1초 debounce 후 최신 곡선만 적용합니다.",
-      className: "status-pill caution",
-    };
+    return graphEqLivePendingCopy();
   }
   if (liveGraphEq.status === "applied") {
-    return {
-      label: "Live Graph EQ 적용됨",
-      detail: "현재 들리는 EQ가 마지막 성공 상태입니다.",
-      className: "status-pill safe",
-    };
+    return graphEqLiveAppliedCopy();
   }
   return null;
 };
 
 const liveGraphEqRequestLayerId = (liveGraphEq = {}) => (
   layerIds.includes(liveGraphEq?.layer_id) ? liveGraphEq.layer_id : null
+);
+
+const liveGraphEqLayerList = (liveGraphEq = {}, key) => {
+  const value = liveGraphEq?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((layerId) => layerIds.includes(layerId));
+};
+
+const liveGraphEqLayerListed = (liveGraphEq = {}, key, layerId) => (
+  layerIds.includes(layerId) && liveGraphEqLayerList(liveGraphEq, key).includes(layerId)
+);
+
+const liveGraphEqLayerFallbackMatches = (liveGraphEq = {}, layerId, statuses = []) => (
+  layerIds.includes(layerId)
+  && liveGraphEqRequestLayerId(liveGraphEq) === layerId
+  && statuses.includes(liveGraphEq?.status)
+);
+
+const liveGraphEqLayerPending = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "pending_layers", layerId)
+  || (
+    Boolean(liveGraphEq?.pending)
+    && liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["pending", "slow"])
+  )
+);
+
+const liveGraphEqLayerFailed = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "failed_layers", layerId)
+  || liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["failed"])
+);
+
+const liveGraphEqLayerApplied = (liveGraphEq = {}, layerId) => (
+  liveGraphEqLayerListed(liveGraphEq, "applied_layers", layerId)
+  || liveGraphEqLayerFallbackMatches(liveGraphEq, layerId, ["applied"])
 );
 
 const liveGraphEqRequestId = (liveGraphEq = {}) => {
@@ -950,7 +1042,15 @@ const recordingControlGroups = [
         step: 1,
         suffix: " Hz",
         kind: "filter",
+        scale: "log-frequency",
+        commitOn: "change",
         rangeLabel: "rumble cut",
+        marks: [
+          { value: 40, label: "40" },
+          { value: 80, label: "80" },
+          { value: 150, label: "150" },
+          { value: 300, label: "300" },
+        ],
         description: "숨소리보다 낮은 진동과 바닥 소음을 줄입니다.",
       },
       {
@@ -961,7 +1061,15 @@ const recordingControlGroups = [
         step: 10,
         suffix: " Hz",
         kind: "filter",
+        scale: "log-frequency",
+        commitOn: "change",
         rangeLabel: "air cut",
+        marks: [
+          { value: 4000, label: "4k" },
+          { value: 8000, label: "8k" },
+          { value: 12000, label: "12k" },
+          { value: 16000, label: "16k" },
+        ],
         description: "거친 고역이나 공간 노이즈를 줄입니다.",
       },
       {
@@ -2443,7 +2551,7 @@ const applySettingsPayload = (settingsPayload, options = {}) => {
   const shouldSyncDraft = shouldSyncIncomingSettingsDraft(
     options.currentSnapshot ?? state.snapshot,
     state.draft,
-    { syncDraft },
+    { syncDraft, settingsPayload },
   );
   const nextSettings = clone(settingsPayload);
   if (options.confirmActiveAsDraft && nextSettings.active) {
@@ -2521,15 +2629,89 @@ const applyState = (payload, options = {}) => {
   return true;
 };
 
-const scheduleLiveGraphEqTick = (liveGraphEq) => {
+const liveGraphEqTickTransportFailureWarning =
+  "Live Graph EQ 적용 상태를 확인하지 못했습니다. 기존 재생 상태를 유지합니다.";
+
+const markLiveGraphEqTickTransportFailure = (error, requestSnapshot = null) => {
+  if (currentPlaybackApplyMode() !== "live") return;
+  const current = state.snapshot?.playback?.live_graph_eq;
+  const requestLayerId = liveGraphEqRequestLayerId(requestSnapshot);
+  const requestId = liveGraphEqRequestId(requestSnapshot);
+  const currentLayerId = liveGraphEqRequestLayerId(current);
+  const currentRequestId = liveGraphEqRequestId(current);
+  const expectedLayerId = requestLayerId || currentLayerId;
+  const expectedRequestId = requestId ?? currentRequestId;
+  if (!current && !requestSnapshot?.pending) return;
+  if (current?.pending && expectedLayerId && currentLayerId !== expectedLayerId) return;
+  if (
+    current?.pending &&
+    expectedRequestId !== null &&
+    currentRequestId !== null &&
+    currentRequestId !== expectedRequestId
+  ) {
+    return;
+  }
+  if (
+    !current?.pending &&
+    expectedRequestId !== null &&
+    currentRequestId !== null &&
+    currentRequestId > expectedRequestId
+  ) {
+    return;
+  }
+  const failedBase = current || requestSnapshot || {};
+  const failed = {
+    ...failedBase,
+    status: "failed",
+    pending: false,
+    slow_caution: false,
+    layer_id: expectedLayerId || failedBase.layer_id,
+    request_id: expectedRequestId || failedBase.request_id,
+    pending_layers: [],
+    failed_layers: expectedLayerId ? [expectedLayerId] : failedBase.failed_layers,
+    applied_layers: liveGraphEqLayerList(failedBase, "applied_layers")
+      .filter((layerId) => layerId !== expectedLayerId),
+    failure_warning: failedBase.failure_warning || liveGraphEqTickTransportFailureWarning,
+    failure_detail: error?.message || failedBase.failure_detail || "Live Graph EQ tick request failed.",
+  };
   if (liveGraphEqTickTimer) {
     (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
     liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
+  }
+  state.snapshot.playback.live_graph_eq = failed;
+  updateLiveApplyFeedbackForLiveGraphEqState(failed);
+  refreshLayerCoveredFeedbackVisualStates();
+  const layerId = liveGraphEqRequestLayerId(failed);
+  if (layerId) refreshInlineGraphEqLiveStatusCopy(
+    layerId,
+    deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` }),
+  );
+};
+
+const scheduleLiveGraphEqTick = (liveGraphEq) => {
+  const layerId = liveGraphEqRequestLayerId(liveGraphEq);
+  const requestId = liveGraphEqRequestId(liveGraphEq);
+  const timerKey = layerId && requestId !== null ? `${layerId}:${requestId}` : null;
+  if (
+    liveGraphEqTickTimer &&
+    liveGraphEqTickTimerKey === timerKey &&
+    currentPlaybackApplyMode() === "live" &&
+    liveGraphEq?.pending
+  ) {
+    return;
+  }
+  if (liveGraphEqTickTimer) {
+    (window.clearTimeout || clearTimeout)(liveGraphEqTickTimer);
+    liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
   }
   if (currentPlaybackApplyMode() !== "live" || !liveGraphEq?.pending) return;
   const delayMs = Math.max(100, Number(liveGraphEq.apply_delay_ms || 1000));
+  liveGraphEqTickTimerKey = timerKey;
   liveGraphEqTickTimer = (window.setTimeout || setTimeout)(async () => {
     liveGraphEqTickTimer = null;
+    liveGraphEqTickTimerKey = null;
     await control("/api/playback/live-graph-eq/tick", { syncDraft: false }).catch(() => {});
   }, delayMs);
 };
@@ -2735,6 +2917,7 @@ const draftEditLockTitle = (stateLike = state) => deriveDraftControlLockState(st
 
 const markDraftEdited = () => {
   state.draftEditRevision += 1;
+  state.localDraftSaveHoldSignature = null;
 };
 
 const draftFeedbackSurfaceIdFromOptions = (options = {}) => {
@@ -2926,6 +3109,9 @@ const deriveSettingsActionState = ({
   const liveOutputDeviceApplyRequired = liveOutputDeviceApplyRequiredChange(snapshot);
   const liveLoopLengthApplyRequired = liveLoopLengthApplyRequiredChange(snapshot);
   const liveSourceFileSelectionApplyRequired = liveSourceFileSelectionApplyRequiredChange(snapshot);
+  const liveSourceFileSelectionApplyTitle = liveVoiceStackSourceSelectionOnlyChange(snapshot)
+    ? "Live 모드에서 Voice Stack 소스는 준비되면 전환됩니다. Apply and Restart로 확정할 수 있습니다."
+    : "Live 모드에서 Voice Stack 소스는 준비되면 전환됩니다. Low/Mid 소스는 Apply and Restart 후 반영됩니다.";
   const applyTitle = recordingStopBusy
     ? "녹음 처리가 끝날 때까지 기다리세요."
     : resetParticipantsBusy
@@ -2942,22 +3128,22 @@ const deriveSettingsActionState = ({
             ? "준비된 오디오 설정을 렌더링하고 다시 불러오는 중입니다."
             : sourceMutationBusy
               ? operationLockMessages.sourceMutation
-              : playbackControlBusy
-                ? operationLockMessages.playbackControl
+                : playbackControlBusy
+                  ? operationLockMessages.playbackControl
                 : liveSampleRateApplyRequired
-                  ? "Live 모드에서도 샘플레이트 변경은 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 샘플레이트 변경은 앱 재시작 후 반영됩니다."
                 : liveChannelCountApplyRequired
-                  ? "Live 모드에서도 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다."
                 : liveInputDeviceApplyRequired
-                  ? "Live 모드에서도 입력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 입력 장치는 System 패널에서 선택 즉시 적용됩니다."
                 : liveOutputDeviceApplyRequired
-                  ? "Live 모드에서도 출력 장치 변경은 System 패널에서 적용한 뒤 Apply and Restart 후 반영됩니다."
+                  ? "Live 모드에서도 출력 장치는 System 패널에서 선택 즉시 적용됩니다."
                 : runtimeConfigChanged
-                  ? "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다."
+                  ? "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. 입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다."
                   : liveLoopLengthApplyRequired
                     ? "Live 모드에서도 루프 길이는 Apply and Restart 후 반영됩니다."
                   : liveSourceFileSelectionApplyRequired
-                    ? "Live 모드에서도 소스 파일 선택은 Apply and Restart 후 반영됩니다."
+                    ? liveSourceFileSelectionApplyTitle
                   : canApplyRenderedCache
                     ? "준비된 오디오 설정을 적용하는 동안 출력을 멈췄다가 다시 시작합니다."
                   : !pendingChanges
@@ -3184,6 +3370,21 @@ const liveSourceFileSelectionApplyRequiredChange = (snapshot = state.snapshot) =
   return Boolean(live.enabled && hasSourceFileChanges(snapshot));
 };
 
+const changedSourcePathFields = (snapshot = state.snapshot) => {
+  const activeSources = snapshot?.settings?.active?.sources || {};
+  const draftSources = state.draft?.sources || snapshot?.settings?.draft?.sources || {};
+  return ["low_path", "mid_path", "voice_raw_path", "voice_stack_path"].filter(
+    (fieldName) => activeSources[fieldName] !== draftSources[fieldName],
+  );
+};
+
+const liveVoiceStackSourceSelectionOnlyChange = (snapshot = state.snapshot) => {
+  const live = livePlaybackFeatures(snapshot);
+  if (!live.enabled) return false;
+  const fields = changedSourcePathFields(snapshot);
+  return fields.length === 1 && fields[0] === "voice_stack_path";
+};
+
 const liveLayerControlChangeOnly = (snapshot, settingsPlan) => {
   if (!snapshot?.settings?.active || !state.draft) return false;
   if (!settingsPlan?.changedSections?.length || settingsPlan.runtimeConfigChanged) return false;
@@ -3348,15 +3549,20 @@ const liveApplyFeedbackWaitsForLiveGraphEqRender = (feedback = {}) => (
 const liveGraphEqTargetsFeedbackSurface = (liveGraphEq = {}, surfaceId) => {
   const surfaceLayerId = layerIdForFeedbackSurface(surfaceId);
   if (!surfaceLayerId) return false;
-  return liveGraphEqRequestLayerId(liveGraphEq) === surfaceLayerId;
+  return (
+    liveGraphEqLayerPending(liveGraphEq, surfaceLayerId)
+    || liveGraphEqLayerFailed(liveGraphEq, surfaceLayerId)
+    || liveGraphEqLayerApplied(liveGraphEq, surfaceLayerId)
+  );
 };
 
 const deriveLiveGraphEqFeedbackState = (snapshot, surfaceId) => {
   if (currentPlaybackApplyMode(snapshot) !== "live") return null;
   if (!snapshot?.playback?.live?.eq_applies_immediately) return null;
   const liveGraphEq = snapshot?.playback?.live_graph_eq;
-  if (!liveGraphEqTargetsFeedbackSurface(liveGraphEq, surfaceId)) return null;
-  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+  const layerId = layerIdForFeedbackSurface(surfaceId);
+  if (!liveGraphEqTargetsFeedbackSurface(liveGraphEq, surfaceId) || !layerId) return null;
+  if (liveGraphEqLayerPending(liveGraphEq, layerId)) {
     return {
       visual_state: "pending",
       show_spinner: true,
@@ -3369,8 +3575,8 @@ const updateLiveApplyFeedbackForLiveGraphEqState = (liveGraphEq = {}) => {
   if (!state.liveApplyFeedback) return;
   const current = createLiveApplyFeedbackState(state.liveApplyFeedback);
   const layerId = liveApplyFeedbackGraphEqLayerId(current);
-  if (!layerId || liveGraphEqRequestLayerId(liveGraphEq) !== layerId) return;
-  if (liveGraphEq?.pending || liveGraphEq?.status === "pending" || liveGraphEq?.status === "slow") {
+  if (!layerId || !liveGraphEqTargetsFeedbackSurface(liveGraphEq, `layer:${layerId}`)) return;
+  if (liveGraphEqLayerPending(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "live_render_pending",
       requestId: current.requestId,
@@ -3378,14 +3584,14 @@ const updateLiveApplyFeedbackForLiveGraphEqState = (liveGraphEq = {}) => {
     });
     return;
   }
-  if (liveGraphEq?.status === "applied") {
+  if (liveGraphEqLayerApplied(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "request_succeeded",
       requestId: current.requestId,
       modeEpoch: current.modeEpoch,
       confirmedValue: feedbackControlValues(state.draft, current.controlIds),
     });
-  } else if (liveGraphEq?.status === "failed") {
+  } else if (liveGraphEqLayerFailed(liveGraphEq, layerId)) {
     state.liveApplyFeedback = reduceLiveApplyFeedbackState(current, {
       type: "request_failed",
       requestId: current.requestId,
@@ -3681,22 +3887,25 @@ const outputControlSummaryText = (
     return "녹음 원본을 재생 중입니다.";
   }
   if (liveSampleRateApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 샘플레이트 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 샘플레이트 변경은 앱 재시작 후 반영됩니다.";
   }
   if (liveChannelCountApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 샘플레이트 또는 채널 변경은 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 샘플레이트 또는 채널 변경은 앱 재시작 후 반영됩니다.";
   }
   if (liveInputDeviceApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 입력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 입력 장치는 System 패널에서 선택 즉시 적용됩니다.";
   }
   if (liveOutputDeviceApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 출력 장치 변경은 System 패널 적용 후 Apply and Restart 후 반영됩니다.";
+    return "Live 모드 · 출력 장치는 System 패널에서 선택 즉시 적용됩니다.";
   }
   if (liveLoopLengthApplyRequiredChange(snapshot)) {
     return "Live 모드 · 루프 길이 변경은 Apply and Restart 후 반영됩니다.";
   }
   if (liveSourceFileSelectionApplyRequiredChange(snapshot)) {
-    return "Live 모드 · 소스 파일 선택은 Apply and Restart 후 반영됩니다.";
+    if (liveVoiceStackSourceSelectionOnlyChange(snapshot)) {
+      return "Live 모드 · Voice Stack 소스는 준비되면 전환됩니다.";
+    }
+    return "Live 모드 · Voice Stack은 준비되면 전환되고 Low/Mid 소스는 Apply and Restart 후 반영됩니다.";
   }
   if (pendingChangeState.pendingChanges) {
     return "저장 안 된 오디오 변경이 적용 후 재시작을 기다립니다.";
@@ -3810,7 +4019,7 @@ const renderSettingsPresets = () => {
               ${loadDisabled ? "disabled" : ""}
               ${title}
             >
-              Load
+              불러오기
             </button>
             <button
               class="settings-preset-action"
@@ -3818,7 +4027,7 @@ const renderSettingsPresets = () => {
               data-settings-preset-update="${escapeHtml(preset.id)}"
               ${commandDisabled ? "disabled" : ""}
             >
-              Update
+              덮어쓰기
             </button>
             <button
               class="settings-preset-action danger"
@@ -3826,7 +4035,7 @@ const renderSettingsPresets = () => {
               data-settings-preset-delete="${escapeHtml(preset.id)}"
               ${commandDisabled ? "disabled" : ""}
             >
-              Delete
+              삭제
             </button>
           </div>
         </article>
@@ -4332,7 +4541,7 @@ const sourceLibraryInteractiveControlSelector = [
 const sourceFileControlFromEventTarget = (target) =>
   target?.closest?.("[data-source-pick]") || null;
 
-const sourceFileSelectionControlSelector = "button,input,select,textarea";
+const sourceFileSelectionControlSelector = "button:not([data-source-pick]),input,select,textarea";
 
 const selectSourceFileFromEventTarget = (target) => {
   if (target?.closest?.(sourceFileSelectionControlSelector)) return false;
@@ -4548,14 +4757,14 @@ const sourceCategoryVoiceRawActionsMarkup = (category) => {
         data-voice-raw-preview-selected="${escapeHtml(selectedPathValue)}"
         title="${escapeHtml(action.previewTitle)}"
         ${action.previewDisabled ? " disabled" : ""}
-      >Preview</button>
+      >미리듣기</button>
       <button
         class="mini-button"
         type="button"
         data-voice-raw-add-selected="${escapeHtml(selectedPathValue)}"
         title="${escapeHtml(action.addTitle)}"
         ${action.addDisabled ? " disabled" : ""}
-      >Add to Stack</button>
+      >스택에 추가</button>
     </div>
   `;
 };
@@ -4671,6 +4880,13 @@ const sourceFileRows = (category) => {
     const modifiedDatetime = file.modified_at
       ? ` datetime="${escapeHtml(file.modified_at)}"`
       : "";
+    const pickAttributes = `
+      data-source-pick="${escapeHtml(category.id)}"
+      data-source-path="${escapeHtml(file.path)}"
+    `;
+    const titleControl = selectable
+      ? `<button class="source-file-pick-button source-file-title" type="button" ${pickAttributes} aria-label="${escapeHtml(file.name)} 선택"><strong>${escapeHtml(file.name)}</strong></button>`
+      : `<span class="source-file-title"><strong>${escapeHtml(file.name)}</strong></span>`;
     const renameControls = renaming ? `
         <div class="source-rename-row">
           <input
@@ -4699,18 +4915,16 @@ const sourceFileRows = (category) => {
         </div>
       ` : `
         <div class="source-file-name-line">
-          <span class="source-file-title">
-            <strong>${escapeHtml(file.name)}</strong>
-            <button
-              class="icon-mini-button"
-              type="button"
-              data-source-rename="${escapeHtml(category.id)}"
-              data-source-path="${escapeHtml(file.path)}"
-              aria-label="${escapeHtml(file.name)} 파일명 수정"
-              title="파일명 수정"
-              ${sourceCommandBlocked() ? " disabled" : ""}
-            >✎</button>
-          </span>
+          ${titleControl}
+          <button
+            class="icon-mini-button"
+            type="button"
+            data-source-rename="${escapeHtml(category.id)}"
+            data-source-path="${escapeHtml(file.path)}"
+            aria-label="${escapeHtml(file.name)} 파일명 수정"
+            title="파일명 수정"
+            ${sourceCommandBlocked() ? " disabled" : ""}
+          >✎</button>
           <time class="source-file-date"${modifiedDatetime}>${escapeHtml(shortModifiedAt)}</time>
           ${deleteButton}
         </div>
@@ -4727,18 +4941,9 @@ const sourceFileRows = (category) => {
       confirmable && file.active && !file.applied ? "pending" : "",
       confirmable && file.applied ? "applied" : "",
     ].filter(Boolean).join(" ");
-    const selectionAttributes = selectable
-      ? `
-        role="button"
-        tabindex="0"
-        data-source-pick="${escapeHtml(category.id)}"
-        data-source-path="${escapeHtml(file.path)}"
-      `
-      : "";
     return `
       <div
         class="${rowClass}"
-        ${selectionAttributes}
       >
         <div class="source-file-main">
           ${renameControls}
@@ -5249,10 +5454,30 @@ const confirmedSettingsDraftMatches = (draft) => (
   Boolean(draft && state.confirmedDraftSignature === stableSettingsSignature(draft))
 );
 
+const incomingSettingsDraftSignature = (settingsPayload) => (
+  settingsPayload?.draft ? stableSettingsSignature(settingsPayload.draft) : null
+);
+
+const localDraftSaveHoldShouldPreserveCurrentDraft = (settingsPayload, currentDraft) => {
+  if (!state.localDraftSaveHoldSignature || !currentDraft) return false;
+  const currentSignature = stableSettingsSignature(currentDraft);
+  if (currentSignature !== state.localDraftSaveHoldSignature) return false;
+  const incomingSignature = incomingSettingsDraftSignature(settingsPayload);
+  if (incomingSignature === null || incomingSignature === currentSignature) {
+    state.localDraftSaveHoldSignature = null;
+    return false;
+  }
+  return true;
+};
+
 const shouldSyncIncomingSettingsDraft = (currentSnapshot, currentDraft, options = {}) => {
   const syncDraft = options.syncDraft ?? true;
-  if (syncDraft || !currentDraft) return true;
+  if (syncDraft || !currentDraft) {
+    state.localDraftSaveHoldSignature = null;
+    return true;
+  }
   if (!currentSnapshot?.settings?.draft) return false;
+  if (localDraftSaveHoldShouldPreserveCurrentDraft(options.settingsPayload, currentDraft)) return false;
   if (state.confirmedDraftSignature === null) {
     return state.draftEditRevision === 0 && settingsPayloadMatchesDraft(currentSnapshot, currentDraft);
   }
@@ -6469,7 +6694,7 @@ const expandedGraphEqLayerId = () => (
   layerIds.includes(state.expandedGraphEqLayer) ? state.expandedGraphEqLayer : null
 );
 
-const currentGraphEqLayerId = () => expandedGraphEqLayerId() || "low";
+const currentGraphEqLayerId = () => expandedGraphEqLayerId() || "mid";
 
 const graphEqForLayer = (settings, layerId = currentGraphEqLayerId()) => (
   normalizeGraphEqSettings(settings?.layers?.[layerId]?.eq || {})
@@ -6615,7 +6840,7 @@ const addGraphEqPoint = () => {
     type: "bell",
     frequency_hz: 1000,
     gain_db: 0,
-    q: 1,
+    q: graphEqDefaultBellQ,
   });
   commitDraftChange(
     () => {
@@ -6708,32 +6933,31 @@ const graphEqFrequencyLabel = (frequencyHz) => {
 
 const graphEqGainLabel = (gainDb) => dbMarkLabel(Number(gainDb.toFixed(1)));
 
+const graphEqBellPointsByFrequency = (points = []) => (Array.isArray(points) ? points : [])
+  .map((candidate, index) => ({ point: candidate, index }))
+  .filter(({ point }) => point?.type === "bell")
+  .sort((a, b) => (
+    Number(a.point.frequency_hz) - Number(b.point.frequency_hz) ||
+      a.index - b.index
+  ));
+
 const graphEqBellBandNumber = (point, pointIndex, points = []) => {
   if (point?.type !== "bell") return "";
   const sourcePoints = Array.isArray(points) && points.length > 0 ? points : [point];
-  return String(sourcePoints.slice(0, pointIndex + 1).filter((candidate) => candidate?.type === "bell").length);
+  const rankedBells = graphEqBellPointsByFrequency(sourcePoints);
+  const rank = rankedBells.findIndex(({ point: candidate, index }) => (
+    candidate?.id === point.id || (candidate === point && index === pointIndex)
+  ));
+  return rank >= 0 ? String(rank + 1) : "";
 };
 
-const renderGraphEqCollapsedSummary = (eq) => {
-  const normalized = normalizeGraphEqSettings(eq);
-  const gains = normalized.points.map((point) => Number(point.gain_db) || 0);
-  const hasGainChange = gains.some((gain) => Math.abs(gain) >= 0.05);
-  const gainSummary = hasGainChange
-    ? `${graphEqGainLabel(Math.min(...gains))} ~ ${graphEqGainLabel(Math.max(...gains))}`
-    : "0 dB";
-  const frequencySummary = normalized.points
-    .map((point) => `${graphEqPointTypes[point.type]} ${graphEqFrequencyLabel(point.frequency_hz)}`)
-    .join(" · ");
-  return `
-    <div class="graph-eq-collapsed-summary" aria-label="Graph EQ summary">
-      <div>
-        <strong>${normalized.points.length} Points</strong>
-        <span>${escapeHtml(frequencySummary)}</span>
-      </div>
-      <p>Gain ${escapeHtml(gainSummary)}</p>
-    </div>
-  `;
-};
+const graphEqBellCount = (points = []) => (Array.isArray(points) ? points : [])
+  .filter((point) => point?.type === "bell")
+  .length;
+
+const graphEqBandMetaLabel = (points = []) => (
+  `${graphEqBellCount(points)}/${Math.max(0, graphEqMaxPoints - 2)} Bell`
+);
 
 const inlineGraphEqSelectedPoint = (eq, layerId) => {
   const selected = selectedGraphEqPoint(eq, layerId);
@@ -6816,6 +7040,7 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
   const bandNumber = graphEqBellBandNumber(selected, pointIndex, points);
   const selectedTitle = bandNumber ? `Selected Band ${bandNumber}` : graphEqPointTypes[selected.type];
   const selectedDeletable = isGraphEqPointDeletable(selected);
+  const selectedFrequencyLocked = isFixedGraphEqShelfPoint(selected);
   const deleteButton = selectedDeletable
     ? `
         <button
@@ -6871,7 +7096,7 @@ const renderInlineGraphEqSelectedInspector = (layerId, selected, disabled, point
             min: graphEqMinFrequencyHz,
             max: graphEqMaxFrequencyHz,
             step: 1,
-            disabled,
+            disabled: disabled || selectedFrequencyLocked,
           })}
         </label>
         <label>
@@ -6917,7 +7142,7 @@ const renderInlineGraphEqPointControls = (layerId, eq) => {
           <div class="graph-eq-inline-controls-head">
             <div>
               <h5>Bands <small lang="ko">점 목록</small></h5>
-              <p>${eq.points.length}/${graphEqMaxPoints} Bands</p>
+              <p>${graphEqBandMetaLabel(eq.points)}</p>
             </div>
             <button
               class="button"
@@ -6971,7 +7196,22 @@ const renderExpandedGraphEqEditorShell = (layerId, eq) => `
   </div>
 `;
 
-const inlineGraphEqStatusCopy = (feedbackState = null) => {
+const inlineGraphEqStatusCopy = (layerId, feedbackState = null) => {
+  if (currentPlaybackApplyMode() === "stable") {
+    if (feedbackState?.visual_state === "restart_pending") {
+      return {
+        label: "Apply and Restart 진행 중",
+        detail: "렌더링 후 재생에 반영합니다.",
+      };
+    }
+    if (coveredFeedbackStateUsesPendingVisual(feedbackState)) {
+      return {
+        label: "Apply and Restart 대기 중",
+        detail: "변경값은 draft에 저장됐고 재생에는 아직 반영되지 않았습니다.",
+      };
+    }
+    return null;
+  }
   if (currentPlaybackApplyMode() !== "live") return null;
   if (coveredFeedbackStateUsesPendingVisual(feedbackState)) {
     return {
@@ -6979,7 +7219,7 @@ const inlineGraphEqStatusCopy = (feedbackState = null) => {
       detail: "마지막 조작값을 렌더링 중입니다.",
     };
   }
-  return graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq);
+  return graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq, layerId);
 };
 
 const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
@@ -6987,7 +7227,7 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
   if (!graphEqSection) return;
   const status = graphEqSection.querySelector(".graph-eq-layer-card-status");
   if (!status) return;
-  const liveStatus = inlineGraphEqStatusCopy(feedbackState);
+  const liveStatus = inlineGraphEqStatusCopy(layerId, feedbackState);
   status.textContent = liveStatus?.label || "상시 표시";
   let detail = graphEqSection.querySelector(".graph-eq-layer-card-detail");
   if (liveStatus?.detail) {
@@ -7006,20 +7246,22 @@ const refreshInlineGraphEqLiveStatusCopy = (layerId, feedbackState = null) => {
 
 const renderLayerGraphEqSection = (layerId) => {
   const eq = graphEqForLayer(state.draft, layerId);
-  const liveStatus = inlineGraphEqStatusCopy();
+  const feedbackState = deriveCoveredSurfaceFeedbackState({ surfaceId: `layer:${layerId}` });
+  const liveStatus = inlineGraphEqStatusCopy(layerId, feedbackState);
   return `
     <section
-      class="graph-eq-layer-card-section expanded always-open"
+      class="graph-eq-layer-card-section expanded"
       data-graph-eq-layer-card="${escapeHtml(layerId)}"
+      data-graph-eq-expanded="true"
     >
       <div class="graph-eq-layer-card-head">
         <div>
-          <h4>Graph EQ <small lang="ko">곡선 EQ</small></h4>
+          <h4>${labelMarkup(layerLabels[layerId])} Graph EQ</h4>
           <p class="graph-eq-layer-card-status">
             ${liveStatus?.label || "상시 표시"}
           </p>
         </div>
-        <div class="graph-eq-layer-card-meta">${eq.points.length}/${graphEqMaxPoints} Bands</div>
+        <div class="graph-eq-layer-card-meta">${graphEqBandMetaLabel(eq.points)}</div>
       </div>
       ${liveStatus?.detail ? `<p class="graph-eq-layer-card-detail">${escapeHtml(liveStatus.detail)}</p>` : ""}
       ${renderExpandedGraphEqEditorShell(layerId, eq)}
@@ -7032,27 +7274,29 @@ const selectedOrFirstGraphEqPointId = (layerId, eq) => (
 );
 
 const syncInlineGraphEqPointControls = (container, layerId, points, selectedPointId) => {
+  const orderedPoints = graphEqOrderedPoints(points);
   const rows = Array.from(container.querySelectorAll?.("[data-graph-eq-point-row]") || []);
-  const selected = points.find((point) => point.id === selectedPointId) || points[0] || null;
-  const selectedIndex = Math.max(0, points.findIndex((point) => point.id === selected?.id));
-  if (rows.length !== points.length) {
+  const selected = orderedPoints.find((point) => point.id === selectedPointId) || orderedPoints[0] || null;
+  const selectedIndex = Math.max(0, orderedPoints.findIndex((point) => point.id === selected?.id));
+  if (rows.length !== orderedPoints.length) {
     const controls = container.querySelector?.(".graph-eq-inline-controls");
     if (controls) {
       controls.outerHTML = renderInlineGraphEqPointControls(layerId, {
         ...graphEqForLayer(state.draft, layerId),
-        points,
+        points: orderedPoints,
       });
       bindInlineGraphEqControls(container, layerId);
       return;
     }
   }
   rows.forEach((row, index) => {
-    const point = points.find((candidate) => candidate.id === row.dataset.graphEqPointId) || points[index];
+    const point = orderedPoints[index];
     if (!point) return;
-    const pointIndex = Math.max(0, points.findIndex((candidate) => candidate.id === point.id));
+    if (row.dataset.graphEqPointId !== point.id) row.dataset.graphEqPointId = point.id;
+    const pointIndex = Math.max(0, orderedPoints.findIndex((candidate) => candidate.id === point.id));
     row.classList.toggle("selected", point.id === selected?.id);
     row.setAttribute("aria-pressed", point.id === selected?.id ? "true" : "false");
-    row.innerHTML = renderInlineGraphEqPointRowContent(point, pointIndex, points);
+    row.innerHTML = renderInlineGraphEqPointRowContent(point, pointIndex, orderedPoints);
   });
   const inspector = container.querySelector?.("[data-graph-eq-selected-inspector]");
   if (inspector) {
@@ -7060,9 +7304,9 @@ const syncInlineGraphEqPointControls = (container, layerId, points, selectedPoin
       layerId,
       selected,
       draftEditLocked(),
-      points.length,
+      orderedPoints.length,
       selectedIndex,
-      points,
+      orderedPoints,
     );
   }
   bindInlineGraphEqControls(container, layerId);
@@ -7084,7 +7328,10 @@ const commitInlineGraphEqPointControl = (layerId, pointId, controlName, value) =
     if (point.type !== "bell" || value !== "bell") return;
     updates.type = value;
   }
-  if (controlName === "freq") updates.frequency_hz = Number(value);
+  if (controlName === "freq") {
+    if (isFixedGraphEqShelfPoint(point)) return;
+    updates.frequency_hz = Number(value);
+  }
   if (controlName === "gain") updates.gain_db = Number(value);
   if (controlName === "q") updates.q = Number(value);
   if (!Object.keys(updates).length) return;
@@ -7119,7 +7366,7 @@ const addInlineGraphEqPoint = (layerId) => {
     type: "bell",
     frequency_hz: Math.round(Math.sqrt(widestGap[0] * widestGap[1])),
     gain_db: 0,
-    q: 1,
+    q: graphEqDefaultBellQ,
   });
   const lowShelf = eq.points.find((point) => point.type === "low_shelf");
   const highShelf = eq.points.find((point) => point.type === "high_shelf");
@@ -7352,7 +7599,6 @@ const renderGraphEqEditor = (eq, layerId) => {
           data-graph-eq-point="${escapeHtml(point.id)}"
           style="left: ${(position.x * 100).toFixed(3)}%; top: ${(position.y * 100).toFixed(3)}%;"
           type="button"
-          role="button"
           aria-pressed="${selected ? "true" : "false"}"
           aria-label="${graphEqPointTypes[point.type]} ${Math.round(point.frequency_hz)} Hz"
         >
@@ -7417,7 +7663,7 @@ const renderGraphEqPointControls = (eq, layerId) => {
   const status = $("graphEqStatus");
   const detail = $("graphEqStatusDetail");
   const liveStatus = currentPlaybackApplyMode() === "live"
-    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq)
+    ? graphEqLiveStatusCopy(state.snapshot?.playback?.live_graph_eq, layerId)
     : null;
   if (!controls) return;
   controls.classList.toggle("empty", !selected);
@@ -7629,6 +7875,7 @@ const applyRecordingPreset = (name) => {
 const workspaceTabs = () => Array.from(document.querySelectorAll("[data-workspace-tab]"));
 
 const renderWorkspaceTabs = () => {
+  document.documentElement.dataset.workspaceTab = state.workspaceTab;
   workspaceTabs().forEach((button) => {
     const active = button.dataset.workspaceTab === state.workspaceTab;
     button.classList.toggle("active", active);
@@ -7855,8 +8102,19 @@ const rangePercent = (value, min, max) => {
 const useZeroCenteredRange = (control, min, max) =>
   control.scale === "zero-centered-db" && Number(min) < 0 && Number(max) > 0;
 
+const useLogFrequencyRange = (control, min, max) =>
+  control.scale === "log-frequency" && Number(min) > 0 && Number(max) > Number(min);
+
+const logFrequencySliderMax = 1000;
+
 const rangeSliderValueFromActual = (control, value, min, max) => {
   const numericValue = Number(value);
+  if (useLogFrequencyRange(control, min, max)) {
+    const minLog = Math.log10(Number(min));
+    const maxLog = Math.log10(Number(max));
+    const valueLog = Math.log10(clamp(numericValue, min, max));
+    return ((valueLog - minLog) / (maxLog - minLog)) * logFrequencySliderMax;
+  }
   if (!useZeroCenteredRange(control, min, max)) return numericValue;
   if (numericValue < 0) return -(Math.abs(numericValue) / Math.abs(Number(min))) * 100;
   if (numericValue > 0) return (numericValue / Number(max)) * 100;
@@ -7865,6 +8123,12 @@ const rangeSliderValueFromActual = (control, value, min, max) => {
 
 const rangeActualValueFromSlider = (control, sliderValue, min, max) => {
   const numericValue = Number(sliderValue);
+  if (useLogFrequencyRange(control, min, max)) {
+    const minLog = Math.log10(Number(min));
+    const maxLog = Math.log10(Number(max));
+    const normalized = rangePercent(numericValue, 0, logFrequencySliderMax) / 100;
+    return 10 ** (minLog + normalized * (maxLog - minLog));
+  }
   if (!useZeroCenteredRange(control, min, max)) return numericValue;
   if (numericValue < 0) return (Math.abs(numericValue) / 100) * Number(min);
   if (numericValue > 0) return (numericValue / 100) * Number(max);
@@ -7872,6 +8136,9 @@ const rangeActualValueFromSlider = (control, sliderValue, min, max) => {
 };
 
 const rangeInputBounds = (control, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return { min: 0, max: logFrequencySliderMax, step: "any" };
+  }
   if (!useZeroCenteredRange(control, min, max)) {
     return { min, max, step: control.step };
   }
@@ -7879,12 +8146,44 @@ const rangeInputBounds = (control, min, max) => {
 };
 
 const rangeMarkPercent = (control, value, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return rangePercent(rangeSliderValueFromActual(control, value, min, max), 0, logFrequencySliderMax);
+  }
   if (!useZeroCenteredRange(control, min, max)) return rangePercent(value, min, max);
   return rangePercent(rangeSliderValueFromActual(control, value, min, max), -100, 100);
 };
 
+const rangeSliderPercent = (control, sliderValue, min, max) => {
+  if (useLogFrequencyRange(control, min, max)) {
+    return rangePercent(sliderValue, 0, logFrequencySliderMax);
+  }
+  if (useZeroCenteredRange(control, min, max)) {
+    return rangePercent(sliderValue, -100, 100);
+  }
+  return rangePercent(sliderValue, min, max);
+};
+
 const setRangeProgress = (row, value, min, max, control = {}) => {
   row.style?.setProperty("--control-percent", `${rangeMarkPercent(control, value, min, max)}%`);
+};
+
+const setRangeProgressFromSlider = (row, control, sliderValue, min, max) => {
+  row.style?.setProperty(
+    "--control-percent",
+    `${rangeSliderPercent(control, sliderValue, min, max)}%`,
+  );
+};
+
+const rangeSliderValueFromPointer = (rail, rangeBounds, event) => {
+  const rect = rail?.getBoundingClientRect?.();
+  const clientX = Number(event?.clientX);
+  if (!rect || !Number.isFinite(rect.width) || rect.width <= 0) return null;
+  if (!Number.isFinite(clientX)) return null;
+  const min = Number(rangeBounds.min);
+  const max = Number(rangeBounds.max);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+  const normalized = clamp((clientX - rect.left) / rect.width, 0, 1);
+  return min + normalized * (max - min);
 };
 
 const boundedRange = (control, value, activeValue) => {
@@ -8012,12 +8311,15 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     </div>
   `;
   const input = row.querySelector("input");
+  const rangeRail = row.querySelector(".range-rail");
   const output = row.querySelector(".value");
   const valueInput = row.querySelector(".value-input");
   const positiveToggle = row.querySelector("[data-positive-toggle]");
   const nudgeDown = row.querySelector(".nudge-down");
   const nudgeUp = row.querySelector(".nudge-up");
   let currentValue = value;
+  let activeRangePointerId = null;
+  const commitRangeInputOnChange = control.commitOn === "change";
   let lastPositiveValue =
     control.positiveToggle && normalizedTransitionSeconds(value) > 0
       ? value
@@ -8041,14 +8343,23 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     if (label) label.textContent = layerEnabledText(enabled);
     valueToggle?.classList.toggle("enabled", enabled);
   };
-  const setDisplayedValue = (nextValue) => {
-    input.value = String(rangeSliderValueFromActual(control, nextValue, min, max));
+  const setDisplayedValue = (nextValue, { sliderValue = null } = {}) => {
+    const hasSliderValue =
+      sliderValue !== null && sliderValue !== undefined && Number.isFinite(Number(sliderValue));
+    const nextSliderValue = hasSliderValue
+      ? String(sliderValue)
+      : String(rangeSliderValueFromActual(control, nextValue, min, max));
+    if (input.value !== nextSliderValue) input.value = nextSliderValue;
     if (valueInput) valueInput.value = String(nextValue);
-    setRangeProgress(row, nextValue, min, max, control);
+    if (hasSliderValue) setRangeProgressFromSlider(row, control, sliderValue, min, max);
+    else setRangeProgress(row, nextValue, min, max, control);
     output.innerHTML = renderDraftValue(nextValue, activeValue, control.suffix);
     setPositiveToggleState(nextValue);
   };
-  const updateValue = (nextValue, { fromSlider = false } = {}) => {
+  const updateValue = (
+    nextValue,
+    { fromSlider = false, commit = true, preserveSliderPosition = false } = {},
+  ) => {
     if (draftEditLocked()) {
       setDisplayedValue(currentValue);
       return;
@@ -8059,12 +8370,64 @@ const rangeControl = (control, value, onInput, activeValue = undefined) => {
     const numericValue = snappedValue(actualValue, control.step, min, max);
     if (control.positiveToggle && numericValue > 0) lastPositiveValue = numericValue;
     currentValue = numericValue;
-    setDisplayedValue(numericValue);
-    onInput(numericValue);
+    setDisplayedValue(numericValue, {
+      sliderValue: fromSlider && preserveSliderPosition ? nextValue : null,
+    });
+    if (commit) onInput(numericValue);
   };
+  const pointerIdForEvent = (event) => (
+    event?.pointerId === undefined || event?.pointerId === null ? "mouse" : event.pointerId
+  );
+  const updateValueFromPointer = (event, { commit = !commitRangeInputOnChange } = {}) => {
+    const sliderValue = rangeSliderValueFromPointer(rangeRail, rangeBounds, event);
+    if (sliderValue === null) return;
+    input.value = String(sliderValue);
+    updateValue(sliderValue, {
+      fromSlider: true,
+      commit,
+      preserveSliderPosition: commitRangeInputOnChange,
+    });
+  };
+  const startRangePointerDrag = (event) => {
+    if (input.disabled || draftEditLocked()) return;
+    activeRangePointerId = pointerIdForEvent(event);
+    input.focus?.({ preventScroll: true });
+    trackInteractiveControl(input);
+    event.preventDefault?.();
+    if (event.pointerId !== undefined && event.pointerId !== null) {
+      rangeRail?.setPointerCapture?.(event.pointerId);
+    }
+    updateValueFromPointer(event);
+  };
+  const updateRangePointerDrag = (event) => {
+    if (activeRangePointerId === null || pointerIdForEvent(event) !== activeRangePointerId) return;
+    event.preventDefault?.();
+    updateValueFromPointer(event);
+  };
+  const finishRangePointerDrag = (event) => {
+    if (activeRangePointerId === null || pointerIdForEvent(event) !== activeRangePointerId) return;
+    event.preventDefault?.();
+    updateValueFromPointer(event, { commit: true });
+    if (event.pointerId !== undefined && event.pointerId !== null) {
+      rangeRail?.releasePointerCapture?.(event.pointerId);
+    }
+    activeRangePointerId = null;
+    releaseInteractiveControl(input);
+  };
+  rangeRail?.addEventListener("pointerdown", startRangePointerDrag);
+  rangeRail?.addEventListener("pointermove", updateRangePointerDrag);
+  rangeRail?.addEventListener("pointerup", finishRangePointerDrag);
+  rangeRail?.addEventListener("pointercancel", finishRangePointerDrag);
   input.addEventListener("input", () => {
-    updateValue(input.value, { fromSlider: true });
+    updateValue(input.value, {
+      fromSlider: true,
+      commit: !commitRangeInputOnChange,
+      preserveSliderPosition: commitRangeInputOnChange,
+    });
   });
+  if (commitRangeInputOnChange) {
+    input.addEventListener("change", () => updateValue(input.value, { fromSlider: true }));
+  }
   valueInput?.addEventListener("change", () => updateValue(valueInput.value));
   valueInput?.addEventListener("input", () => {
     if (Number.isFinite(Number(valueInput.value))) updateValue(valueInput.value);
@@ -8191,6 +8554,7 @@ const saveDraft = async () => {
     rememberServerPayloadRevision(payload);
     updateLiveApplyFeedbackForRequestSuccess(request, payload.settings);
     applySettingsPayload(payload.settings, { renderControlsOnSync: false });
+    state.localDraftSaveHoldSignature = stableSettingsSignature(draftPayload);
     renderState();
     renderDevices();
     return payload;
@@ -8447,6 +8811,9 @@ const deriveControlRequestState = (path, options = {}, currentState = state) => 
 
 const control = async (path, options = {}) => {
   let controlError = null;
+  const liveGraphEqTickRequest = path === "/api/playback/live-graph-eq/tick"
+    ? clone(state.snapshot?.playback?.live_graph_eq || null)
+    : null;
   const controlRequest = deriveControlRequestState(path, options);
   if (controlRequest.skip) return;
   const {
@@ -8504,6 +8871,9 @@ const control = async (path, options = {}) => {
     }
     if (path.startsWith("/api/playback/")) {
       await requestState({ syncDraft: false }).catch(() => {});
+      if (path === "/api/playback/live-graph-eq/tick") {
+        markLiveGraphEqTickTransportFailure(error, liveGraphEqTickRequest);
+      }
     }
   } finally {
     if (startsStopRequest) {
@@ -8723,19 +9093,11 @@ const changeDeviceFromEvent = (key, event) => {
 const shouldIgnoreSpace = () => {
   const element = document.activeElement;
   if (!element) return false;
-  return interactiveControlTags.has(element.tagName);
-};
-
-const releaseButtonFocusForSpace = () => {
-  const element = document.activeElement;
-  if (element?.tagName === "BUTTON") {
-    element.blur();
-  }
+  return deferredInteractiveControlTags.has(element.tagName);
 };
 
 const startFromSpace = async (event) => {
   if (event.code !== "Space" || shouldIgnoreSpace()) return;
-  releaseButtonFocusForSpace();
   event.preventDefault();
   if (event.repeat) return;
   if (deriveControlRequestState("/api/recording/start").skip) return;
@@ -8745,7 +9107,6 @@ const startFromSpace = async (event) => {
 
 const stopFromSpace = async (event) => {
   if (event.code !== "Space" || shouldIgnoreSpace()) return;
-  releaseButtonFocusForSpace();
   event.preventDefault();
   if (!state.spaceRecording && !state.snapshot?.is_recording) return;
   await requestRecordingStop();
@@ -8847,6 +9208,9 @@ const drawCanvas = () => {
   const canvas = $("pondCanvas");
   const context = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
+  const reduceMotion = Boolean(
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
+  );
   const resize = () => {
     canvas.width = Math.floor(window.innerWidth * ratio);
     canvas.height = Math.floor(window.innerHeight * ratio);
@@ -8856,8 +9220,7 @@ const drawCanvas = () => {
   resize();
 
   let frame = 0;
-  const draw = () => {
-    frame += 0.018;
+  const drawFrame = () => {
     context.clearRect(0, 0, window.innerWidth, window.innerHeight);
     const active = state.snapshot?.is_recording ? 1 : state.snapshot?.armed ? 0.55 : 0.25;
     const centerY = window.innerHeight * 0.54;
@@ -8877,6 +9240,11 @@ const drawCanvas = () => {
       }
       context.stroke();
     }
+  };
+  const draw = () => {
+    if (!reduceMotion) frame += 0.018;
+    drawFrame();
+    if (reduceMotion) return;
     requestAnimationFrame(draw);
   };
   draw();
@@ -9024,6 +9392,7 @@ const bindEvents = () => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const fileControl = sourceFileControlFromEventTarget(event.target);
     if (!fileControl) return;
+    if (fileControl.tagName === "BUTTON") return;
     event.preventDefault();
     selectSourceFileFromCard(fileControl.dataset.sourcePick, fileControl.dataset.sourcePath);
   });

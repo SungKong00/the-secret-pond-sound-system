@@ -137,7 +137,7 @@ def _playback_live_payload(settings: AppSettings) -> dict[str, Any]:
         "volume_applies_immediately": enabled,
         "mute_applies_immediately": enabled,
         "seek_applies_immediately": enabled,
-        "voice_stack_transition_applies_immediately": False,
+        "voice_stack_transition_applies_immediately": enabled,
         "voice_raw_preview_treatment_applies_immediately": enabled,
         "eq_applies_immediately": enabled,
         "excluded_apply_flow": LIVE_EXCLUDED_APPLY_FLOW_FIELDS,

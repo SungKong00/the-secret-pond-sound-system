@@ -89,7 +89,12 @@ If `voice_stack_raw.wav` exists, the app can start from that accumulated voice s
 4. Open `http://127.0.0.1:8000`.
 5. Check the System panel before operation.
 6. Use Source Library to select the Low, Mid, and Voice Stack WAV files. Upload new WAV files
-   there when needed. Delete only inactive files; the active source is protected.
+   there when needed. Delete only inactive files that are not referenced by Settings Presets;
+   active and preset-referenced sources are protected.
+
+The operator dashboard is designed for the exhibition laptop or desktop browser. Mobile-width
+operation is outside the supported show workflow; use a browser with enough horizontal space
+when adjusting Graph EQ, playback, recording, and source selection during operation.
 
 For machine-readable preflight logs, run:
 
@@ -116,17 +121,16 @@ Current MVP behavior:
 
 ## Operation
 
-On startup, the app loads existing compatible playback caches. If caches are missing or stale and selected Source Library low/mid files are available, startup automatically renders and loads fresh playback layers. If no library selection exists, the app uses the legacy `data/sources/low.wav` plus `data/sources/mid.wav` paths. Use `Start Output` to begin playback after startup preparation succeeds. Use `Apply and Restart` after staged settings changes or when the System panel reports startup playback is unavailable. Use `Stop Output` to stop the stream. Use `Restart Output` to restart the current loaded playback from the beginning without applying new settings.
+On startup, the app loads existing compatible playback caches. If caches are missing or stale and selected Source Library low/mid files are available, startup automatically renders and loads fresh playback layers. If no library selection exists, the app uses the legacy `data/sources/low.wav` plus `data/sources/mid.wav` paths. Use `재생` to begin playback after startup preparation succeeds. Use `Apply and Restart` after Stable staged settings changes or when the System panel reports startup playback is unavailable. Use `중지` to stop the stream. Use `다시 재생` to restart the current loaded playback from the beginning without applying new settings.
 
-Use `Arm` before recording. Spacebar recording only works while Armed.
+Turn on `녹음 준비` before recording. Spacebar recording only works while recording is ready.
 
-- `Arm`: enables Spacebar capture.
-- Arm is unavailable while already armed or recording.
-- `Disarm`: disables capture and stops an active recording.
-- Disarm is unavailable when already disarmed.
+- `녹음 준비`: enables Spacebar capture.
+- `녹음 준비` is unavailable while already ready or recording.
+- Turning `녹음 준비` off disables capture and stops an active recording.
 - `Spacebar`: hold to record, release to stop.
-- Holding Space suppresses key-repeat start requests and browser default Space actions outside text inputs.
-- When Arm is active and no terminal recording outcome is displayed, the record panel shows `Hold Space to Record`.
+- Holding Space suppresses key-repeat start requests. If focus is on a button, input, select, textarea, or summary, the focused control keeps its normal keyboard behavior.
+- When `녹음 준비` is active and no terminal recording outcome is displayed, the record panel shows `스페이스바를 누르고 있는 동안 녹음`.
 - Recording shorter than 3 seconds is discarded.
 - Maximum recording duration is 120 seconds.
 - The record panel shows elapsed time, remaining time, and min/max duration.
@@ -134,9 +138,9 @@ Use `Arm` before recording. Spacebar recording only works while Armed.
 
 If browser blur happens, the tab becomes hidden, or the UI disconnects while recording, the app stops the active recording path. Browser blur and hidden-tab handling happen in the UI; WebSocket disconnect handling happens in the backend.
 
-The header shows `Sync Live` when WebSocket state updates are active. If it shows `Sync Polling`, the dashboard is using HTTP fallback; recording controls still work, but check the status strip after the connection recovers.
+The header shows `실시간 동기화` when WebSocket state updates are active. If it shows `폴링 동기화`, the dashboard is using HTTP fallback; recording controls still work, but check the status strip after the connection recovers.
 
-The header shows `Error None` during normal operation and `Error Active` whenever the visible error banner has a current action, device, diagnostics, recording, or playback error.
+The header shows `오류 없음` during normal operation and `오류 있음` whenever the visible error banner has a current action, device, diagnostics, recording, or playback error.
 
 ## Settings
 
@@ -149,12 +153,14 @@ Graph EQ는 Graph EQ workspace tab에서 Low, Mid, Voice layer별로 조절합�
 - Live Graph EQ 적용에 실패하면 재생은 기존 audible state를 유지하고, dashboard warning에 실패 안내가 표시됩니다. 현재 들리는 EQ는 마지막 성공 상태이며, Stable `Apply and Restart`는 fallback으로 계속 사용할 수 있습니다.
 - Voice가 `live_ephemeral`이고 selected timestamped stack source가 사라졌다면 Live Graph EQ는 `data/voice/voice_stack_raw.wav`를 EQ-free fallback source로 사용할 수 있습니다. 둘 다 없으면 missing source와 fallback 경로를 warning에 표시하고 기존 재생을 유지합니다.
 - Live Graph EQ는 `low_playback.wav`, `mid_playback.wav`, `voice_playback.wav` 같은 이미 EQ가 baked 된 playback cache를 다시 EQ하지 않습니다. Low/Mid selected source, Voice Stack selected source 또는 `voice_stack_raw.wav` 같은 EQ-free source material에서만 새 buffer를 렌더링합니다.
+- Source Library에서 Voice Stack 소스를 선택하면 Live 모드에서는 voice layer가 먼저 준비되고 준비가 끝나면 전환됩니다. Low/Mid 소스 선택은 계속 `Apply and Restart` 경로로 확정합니다.
+- Voice Raw 파일은 행을 선택한 뒤 `미리듣기`로 현재 Voice Treatment가 적용된 소리를 확인하고, `스택에 추가`로 선택된 Voice Stack에 반영합니다. Voice Raw preview는 주 재생과 겹치지 않게 동작합니다.
 
 The Voice Stack panel also includes `Voice loop` for the voice stack loop length. This is not a real-time control. Changing Voice loop is staged as a pending setting like the layer sliders.
 
-`Apply and Restart` normalizes the selected voice stack source to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. Accepted recordings also save a timestamped processed voice raw snapshot under `data/sources/voice/raw/`. New voice stack outputs are saved as timestamped files under `data/sources/voice/stack/`, while `data/voice/voice_stack_raw.wav` remains as a legacy compatibility mirror. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.
+`Apply and Restart` normalizes the selected voice stack source to the selected voice stack loop length by trimming or repeating existing raw stack audio as needed, then rebuilds `data/rendered/layers/voice_playback.wav`. In `test_library`, accepted recordings save timestamped Voice Raw snapshots under `data/sources/voice/raw/`; adding one of those Voice Raw files to the stack creates a timestamped Voice Stack source under `data/sources/voice/stack/`. In `live_ephemeral`, accepted recordings update the current Voice Stack directly and save the selected timestamped Voice Stack source, without keeping an individual Voice Raw file. `data/voice/voice_stack_raw.wav` remains as a legacy compatibility mirror. If this apply fails, the app attempts to keep or restore the previous playback and raw stack state.
 
-Use `Apply and Restart` to render the current pending audio settings and reload playback. While it is working, the button shows `Applying...` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. This applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. It does not apply sample-rate or channel changes in the MVP; use the System panel dropdowns for device changes.
+Use `Apply and Restart` to render the current pending audio settings and reload playback. While it is working, the button shows `적용 중…` and Maintenance reset actions are locked. Apply and Restart is unavailable while recording and while recording stop processing finishes. In Stable mode this applies layer volume/EQ/filter settings and recording treatment settings that affect later recordings. Live mode applies volume, mute, seek, EQ, Filter Range, Voice Raw preview treatment, and Voice Stack source transition through immediate/live paths; use `Apply and Restart` as the Stable fallback or to confirm rendered cache state. It does not apply sample-rate or channel changes in the MVP; use the System panel dropdowns for device changes.
 
 The Voice Treatment panel has four non-technical presets:
 
@@ -174,7 +180,7 @@ Use `Maintenance` > `Reset Participants` only when intentionally zeroing the sho
 - If startup playback is unavailable, check the recent System event. If prepared files are missing, add or select low/mid WAV files in Source Library, or add `data/sources/low.wav` and `data/sources/mid.wav`, then use `Apply and Restart`.
 - If a selected device is unavailable, choose a new device in the System panel and rerun `secret-pond doctor`.
 - If `Apply and Restart` fails, the app tries to keep or restore the previous rendered playback state.
-- If `Restart Output` fails, stop output, check the device, and restart the app if the device state is unclear.
+- If `다시 재생` fails, stop output, check the device, and restart the app if the device state is unclear.
 - If the browser appears stale, refresh the page. Active backend state is preserved by the Python process.
 
 ## Files Between Rehearsals
@@ -216,4 +222,4 @@ data/config/settings.json
 data/logs
 ```
 
-`test_library` keeps accepted individual clips so the stack can be rebuilt. `live_ephemeral` does not keep test-library accepted chunks, but accepted recordings now leave timestamped processed raw snapshots under `data/sources/voice/raw/`. The selected timestamped voice stack file under `data/sources/voice/stack/` is the important playback source artifact. The legacy `voice_stack_raw.wav` mirror is kept for compatibility.
+`test_library` keeps reusable Voice Raw files, and Voice Raw files added to the stack create accepted clips plus manifest entries so the stack can be rebuilt. Ordinary `test_library` recordings do not change the Voice Stack until an operator adds the saved Voice Raw source. `live_ephemeral` does not keep individual raw or accepted voice WAV files from ordinary recordings. The selected timestamped voice stack file under `data/sources/voice/stack/` is the important playback source artifact. The legacy `voice_stack_raw.wav` mirror is kept for compatibility.

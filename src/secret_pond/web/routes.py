@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from secret_pond.audio.source_library import (
     SourceCategoryConfig,
     category_config,
+    rename_source_file,
     source_library_payload,
 )
 from secret_pond.config import AppSettings
@@ -348,6 +350,8 @@ def rename_source(
     with runtime.operation_lock:
         settings_state = _settings_state(runtime)
         try:
+            preset_store = PresetStore(runtime.paths)
+            preset_store.list_presets()
             result = rename_source_file_in_library(
                 runtime,
                 config.id,
@@ -355,7 +359,17 @@ def rename_source(
                 stem,
                 settings_state=settings_state,
             )
-            PresetStore(runtime.paths).replace_source_path(relative_path, result.relative_path)
+            try:
+                preset_store.replace_source_path(relative_path, result.relative_path)
+            except SOURCE_MUTATION_ERRORS:
+                _rollback_source_rename(
+                    runtime,
+                    config.id,
+                    renamed_relative_path=result.relative_path,
+                    original_relative_path=relative_path,
+                    settings_state=settings_state,
+                )
+                raise
             settings_state = result.settings_state
         except SOURCE_MUTATION_ERRORS as exc:
             raise _source_mutation_http_exception(exc) from exc
@@ -819,6 +833,31 @@ def _source_mutation_http_exception(exc: Exception) -> HTTPException:
     else:
         status_code = 422
     return HTTPException(status_code=status_code, detail=str(exc))
+
+
+def _rollback_source_rename(
+    runtime: SecretPondRuntime,
+    category: str,
+    *,
+    renamed_relative_path: str,
+    original_relative_path: str,
+    settings_state: SettingsState,
+) -> None:
+    try:
+        rename_source_file(
+            runtime.paths,
+            category,
+            renamed_relative_path,
+            PurePosixPath(original_relative_path).stem,
+        )
+        restored = runtime.settings_store.save(settings_state)
+        runtime.apply_settings_state(restored)
+    except SOURCE_MUTATION_ERRORS as exc:
+        msg = (
+            "source rename failed while updating presets and rollback failed: "
+            f"{exc}"
+        )
+        raise SourceLibraryMutationError(msg) from exc
 
 
 def _source_settings_payload(

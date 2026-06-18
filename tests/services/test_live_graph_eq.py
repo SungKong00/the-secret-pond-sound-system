@@ -40,6 +40,18 @@ class MissingSourceRendererSpy(RendererSpy):
         raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
 
 
+class FailingLayerRendererSpy(RendererSpy):
+    def __init__(self, failing_layers: set[str]) -> None:
+        super().__init__()
+        self.failing_layers = set(failing_layers)
+
+    def render_live_eq_layer_buffer(self, layer_id: str, settings: AppSettings) -> AudioBuffer:
+        self.renders.append((layer_id, settings))
+        if layer_id in self.failing_layers:
+            raise LiveEqSourceError(layer_id, None, "EQ-free source is missing")
+        return self.buffer
+
+
 class MissingVoiceStackSourceRendererSpy(RendererSpy):
     def __init__(self, source_path: Path, fallback_path: Path) -> None:
         super().__init__()
@@ -69,6 +81,18 @@ class PlayerSpy:
         self.live_eq_state_updates.append((layer_id, eq.model_copy(deep=True)))
 
 
+class SnapshotPlayerSpy(PlayerSpy):
+    def snapshot(self):
+        return (
+            list(self.layer_buffer_updates),
+            list(self.live_eq_state_updates),
+        )
+
+    def restore(self, snapshot) -> None:
+        self.layer_buffer_updates = list(snapshot[0])
+        self.live_eq_state_updates = list(snapshot[1])
+
+
 class RuntimeHarness:
     def __init__(self) -> None:
         self.state_epoch = 42
@@ -87,13 +111,33 @@ class LoggerSpy:
         self.events.append((event_type, payload or {}))
 
 
+class FailingSettingsStore:
+    def __init__(self, state) -> None:
+        self.state = state
+
+    def load(self):
+        return self.state
+
+    def save(self, state):
+        self.state = state
+        raise RuntimeError("settings save failed")
+
+
 def graph_eq_with_mid_gain(settings: AppSettings, gain_db: float) -> AppSettings:
-    points = [point.model_dump() for point in settings.layers["mid"].eq.points]
+    return graph_eq_with_layer_mid_gain(settings, "mid", gain_db)
+
+
+def graph_eq_with_layer_mid_gain(
+    settings: AppSettings,
+    layer_id: str,
+    gain_db: float,
+) -> AppSettings:
+    points = [point.model_dump() for point in settings.layers[layer_id].eq.points]
     points[1]["gain_db"] = gain_db
     eq = EqSettings(points=points)
     layers = {
         **settings.layers,
-        "mid": settings.layers["mid"].model_copy(update={"eq": eq}),
+        layer_id: settings.layers[layer_id].model_copy(update={"eq": eq}),
     }
     return settings.model_copy(update={"layers": layers}, deep=True)
 
@@ -134,6 +178,37 @@ def test_schedule_live_graph_eq_update_is_latest_wins_after_debounce() -> None:
     assert runtime.player.layer_buffer_updates == [("mid", runtime.renderer.buffer)]
     assert runtime.player.live_eq_state_updates[-1][0] == "mid"
     assert runtime.player.live_eq_state_updates[-1][1].points[1].gain_db == 6.0
+    assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 6.0
+    assert live_graph_eq_state(runtime).pending_request is None
+
+
+def test_live_graph_eq_preserves_distinct_layer_requests_after_debounce() -> None:
+    runtime = RuntimeHarness()
+    low_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "low", 3.0)
+    mid_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "mid", 6.0)
+
+    schedule_live_graph_eq_update(runtime, "low", low_settings, now_ms=100)
+    schedule_live_graph_eq_update(runtime, "mid", mid_settings, now_ms=200)
+
+    low_request = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=100 + LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+    mid_request = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=200 + LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+
+    assert low_request is not None
+    assert low_request.layer_id == "low"
+    assert mid_request is not None
+    assert mid_request.layer_id == "mid"
+    assert runtime.renderer.renders == [("low", low_settings), ("mid", mid_settings)]
+    assert [layer_id for layer_id, _buffer in runtime.player.layer_buffer_updates] == [
+        "low",
+        "mid",
+    ]
+    assert runtime.playback_render_settings.layers["low"].eq.points[1].gain_db == 3.0
     assert runtime.playback_render_settings.layers["mid"].eq.points[1].gain_db == 6.0
     assert live_graph_eq_state(runtime).pending_request is None
 
@@ -199,6 +274,71 @@ def test_missing_live_eq_source_keeps_current_playback_and_sets_warning() -> Non
     assert live_state.pending_request is None
     assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert runtime.transition_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+    payload = live_graph_eq_payload(runtime)
+    assert payload["status"] == "failed"
+    assert payload["pending"] is False
+    assert payload["layer_id"] == "mid"
+    assert payload["request_id"] == 1
+
+
+def test_live_graph_eq_keeps_failed_layer_status_after_another_layer_applies() -> None:
+    runtime = RuntimeHarness()
+    runtime.renderer = FailingLayerRendererSpy({"low"})
+    low_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "low", 3.0)
+    mid_settings = graph_eq_with_layer_mid_gain(runtime.playback_render_settings, "mid", 6.0)
+
+    schedule_live_graph_eq_update(runtime, "low", low_settings, now_ms=0)
+    schedule_live_graph_eq_update(runtime, "mid", mid_settings, now_ms=100)
+
+    failed = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+    applied = run_due_live_graph_eq_update(
+        runtime,
+        now_ms=100 + LIVE_EQ_APPLY_DEBOUNCE_MS,
+    )
+
+    payload = live_graph_eq_payload(runtime)
+    assert failed is None
+    assert applied is not None
+    assert applied.layer_id == "mid"
+    assert runtime.player.layer_buffer_updates == [("mid", runtime.renderer.buffer)]
+    assert payload["status"] == "failed"
+    assert payload["layer_id"] == "low"
+    assert payload["request_id"] == 1
+    assert payload["failure_warning"] == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert payload["failed_layers"] == ["low"]
+    assert payload["applied_layers"] == ["mid"]
+
+
+def test_live_graph_eq_persist_failure_rolls_back_hot_swap_and_reports_failure() -> None:
+    runtime = RuntimeHarness()
+    runtime.player = SnapshotPlayerSpy()
+    previous_render_settings = runtime.playback_render_settings.model_copy(deep=True)
+    next_settings = graph_eq_with_mid_gain(runtime.playback_render_settings, 6.0)
+
+    from secret_pond.services.settings_store import SettingsState
+
+    settings_state = SettingsState(
+        active=runtime.playback_render_settings,
+        draft=runtime.playback_render_settings,
+    )
+    runtime.settings_state = settings_state
+    runtime.settings_store = FailingSettingsStore(settings_state)
+
+    schedule_live_graph_eq_update(runtime, "mid", next_settings, now_ms=0)
+    result = run_due_live_graph_eq_update(runtime, now_ms=LIVE_EQ_APPLY_DEBOUNCE_MS)
+
+    live_state = live_graph_eq_state(runtime)
+    assert result is None
+    assert runtime.player.layer_buffer_updates == []
+    assert runtime.player.live_eq_state_updates == []
+    assert runtime.playback_render_settings == previous_render_settings
+    assert live_state.pending_request is None
+    assert live_state.failure_warning == LIVE_GRAPH_EQ_FAILURE_WARNING
+    assert live_state.failure_detail is None
+    assert live_state.last_failed_layer_id == "mid"
 
 
 def test_missing_voice_stack_source_failure_payload_names_fallback(tmp_path: Path) -> None:
@@ -225,6 +365,10 @@ def test_missing_voice_stack_source_failure_payload_names_fallback(tmp_path: Pat
     assert live_state.failure_detail == expected_detail
     assert payload["failure_warning"] == LIVE_GRAPH_EQ_FAILURE_WARNING
     assert payload["failure_detail"] == expected_detail
+    assert payload["status"] == "failed"
+    assert payload["pending"] is False
+    assert payload["layer_id"] == "voice"
+    assert payload["request_id"] == 1
     assert runtime.logger.events[-1] == (
         "settings.live_graph_eq_failed",
         {

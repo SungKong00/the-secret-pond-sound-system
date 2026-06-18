@@ -30,17 +30,17 @@ def test_operator_guide_covers_required_operations() -> None:
         "data/sources/voice/raw/*.wav",
         "data/sources/voice/stack/*.wav",
         "Source Library",
+        "preset-referenced sources are protected",
         "http://127.0.0.1:8000",
-        "Arm",
-        "Disarm",
+        "녹음 준비",
         "Spacebar",
         "browser blur",
-        "Arm is unavailable while already armed",
-        "Disarm is unavailable when already disarmed",
+        "`녹음 준비` is unavailable",
+        "Turning `녹음 준비` off disables capture",
         "Apply and Restart",
-        "Applying...",
+        "적용 중…",
         "Unsaved audio changes",
-        "Restart Output",
+        "다시 재생",
         "Soft",
         "Misty",
         "Dense",
@@ -76,12 +76,12 @@ def test_operator_guide_covers_required_operations() -> None:
         "rebuilds `data/rendered/layers/voice_playback.wav`",
         "verify `secret-pond doctor` and dashboard warnings",
         "does not prove microphone permission",
-        "Sync Live",
-        "Sync Polling",
-        "Error None",
-        "Error Active",
+        "실시간 동기화",
+        "폴링 동기화",
+        "오류 없음",
+        "오류 있음",
         "Spacebar capture is ready",
-        "Hold Space to Record",
+        "스페이스바를 누르고 있는 동안 녹음",
         "active recording",
         "key-repeat start requests",
         "Graph EQ workspace tab",
@@ -110,20 +110,33 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "Source Library",
         "data/sources/voice/stack",
         "Startup loads compatible rendered playback caches",
-        "Playback starts",
+        "재생",
+        "중지",
+        "다시 재생",
+        "변경사항 적용 후 재생",
         "Low layer",
         "Mid layer",
         "Voice layer",
-        "Disarmed",
-        "Arm",
+        "꺼짐",
+        "녹음 준비",
         "Spacebar",
         "shorter than 3 seconds",
         "participant count",
+        "running Voice layer via transition",
+        "Apply and Restart remains fallback",
+        "expected reusable source artifact",
         "test_library",
         "live_ephemeral",
         "voice_stack_raw.wav",
         "secret-pond rebuild-test-library",
         "voice_playback.wav",
+        "Settings Presets",
+        "초안 저장",
+        "불러오기",
+        "덮어쓰기",
+        "삭제",
+        "only works in Stable",
+        "missing source files block load",
         "EQ slider",
         "Voice loop",
         "voice_stack_raw.wav and voice_playback.wav to the selected length",
@@ -141,9 +154,25 @@ def test_audio_setup_checklist_covers_manual_verification() -> None:
         "stale selected Voice Stack path",
         "missing selected and missing fallback",
         "Stable mode does not run the Live executor",
+        "leaves the Voice Stack manifest unchanged",
+        "Adding a Voice Raw source to the stack",
+        "leaves no individual raw or accepted voice WAV",
     ]
     for phrase in required:
         assert phrase in checklist
+
+
+def test_operator_docs_match_current_voice_stack_storage_contract() -> None:
+    guide = read_text(ROOT / "docs" / "operator-guide.md")
+    checklist = read_text(ROOT / "docs" / "audio-setup-checklist.md")
+
+    assert "Ordinary `test_library` recordings do not change the Voice Stack" in guide
+    assert "without keeping an individual Voice Raw file" in guide
+    assert "accepted recordings now leave timestamped processed raw snapshots" not in guide
+    assert (
+        "A valid recording in test_library mode creates accepted chunks and manifest entries"
+        not in checklist
+    )
 
 
 def test_readme_links_operator_docs() -> None:
@@ -159,12 +188,12 @@ def test_readme_links_operator_docs() -> None:
     assert "secret-pond rebuild-test-library" in readme
     assert "data/sources/low/*.wav" in readme
     assert "Source Library" in readme
-    assert "Restart Output" in readme
+    assert "다시 재생" in readme
     assert "Soft" in readme
     assert "Misty" in readme
     assert "Dense" in readme
     assert "Clearer Voice" in readme
-    assert "Unsaved audio changes" in readme
+    assert "저장 안 된 오디오 변경" in readme
     assert "min/max duration" in readme
     assert "Voice loop" in readme
     assert "loop length" in readme
@@ -174,6 +203,9 @@ def test_readme_links_operator_docs() -> None:
     assert "currentOperationFlags" in readme
     assert "열려 있는 드롭다운" in readme
     assert "fix: 소스 드롭다운 활성 상태 유지" in readme
+    assert "일반 녹음은 Voice Stack을 직접 갱신" in readme
+    assert "일반 녹음은 timestamped Voice Raw source로 저장" in readme
+    assert "녹음이 accepted되면 timestamped Voice Raw/Voice Stack WAV" not in readme
 
 
 def test_request_file_records_current_mvp_docs_decisions() -> None:

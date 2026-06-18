@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>비밀의 연못 사운드 시스템</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260614-named-presets-v1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260614-graph-eq-docked-ux" />
   </head>
   <body>
     <canvas id="pondCanvas" aria-hidden="true"></canvas>
@@ -77,7 +77,10 @@
                 <summary id="playbackLiveDetailsSummary">적용 범위</summary>
                 <div class="playback-live-details-body">
                   <span>즉시 반영: 볼륨, 음소거, 위치 이동, EQ, Voice Raw 미리듣기 처리</span>
-                  <span>Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택</span>
+                  <span>System 패널 즉시 적용: 입력/출력 장치</span>
+                  <span>Live 전환: Voice Stack 소스 선택</span>
+                  <span>앱 재시작 필요: 샘플레이트, 채널</span>
+                  <span>Apply and Restart: 루프 길이, Low/Mid 소스 선택</span>
                 </div>
               </details>
             </section>
@@ -147,33 +150,6 @@
                   변경사항 적용 후 재생
                 </button>
               </div>
-              <section
-                id="settingsPresetPanel"
-                class="settings-preset-panel"
-                aria-labelledby="settingsPresetPanelTitle"
-              >
-                <div class="settings-preset-head">
-                  <div>
-                    <p class="eyebrow">설정 저장</p>
-                    <h3 id="settingsPresetPanelTitle">Presets <small lang="ko">프리셋</small></h3>
-                  </div>
-                  <span class="settings-preset-scope">Graph EQ · Mixer · Source</span>
-                </div>
-                <div class="settings-preset-save">
-                  <input
-                    id="settingsPresetNameInput"
-                    type="text"
-                    autocomplete="off"
-                    maxlength="80"
-                    placeholder="예: Opening"
-                    aria-label="프리셋 이름"
-                  />
-                  <button id="settingsPresetSaveButton" class="settings-preset-save-button" type="button">
-                    Save Draft
-                  </button>
-                </div>
-                <div id="settingsPresetList" class="settings-preset-list" role="list"></div>
-              </section>
             </section>
 
             <section class="operation-card record-panel" aria-label="녹음 제어">
@@ -255,6 +231,34 @@
                 <span id="recordOutcomeStatus">녹음 준비 필요</span>
                 <strong id="recordOutcomeDetail">켜면 스페이스바로 녹음할 수 있습니다.</strong>
               </div>
+            </section>
+
+            <section
+              id="settingsPresetPanel"
+              class="operation-card settings-preset-panel"
+              aria-labelledby="settingsPresetPanelTitle"
+            >
+              <div class="settings-preset-head">
+                <div>
+                  <p class="eyebrow">설정 저장</p>
+                  <h3 id="settingsPresetPanelTitle">Presets <small lang="ko">프리셋</small></h3>
+                </div>
+                <span class="settings-preset-scope">Graph EQ · Mixer · Source</span>
+              </div>
+              <div class="settings-preset-save">
+                <input
+                  id="settingsPresetNameInput"
+                  type="text"
+                  autocomplete="off"
+                  maxlength="80"
+                  placeholder="예: Opening"
+                  aria-label="프리셋 이름"
+                />
+                <button id="settingsPresetSaveButton" class="settings-preset-save-button" type="button">
+                  초안 저장
+                </button>
+              </div>
+              <div id="settingsPresetList" class="settings-preset-list" role="list"></div>
             </section>
           </div>
         </section>
@@ -472,7 +476,7 @@
         </aside>
       </section>
     </main>
-    <script src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-named-presets-v1" defer></script>
-    <script src="/static/app.js?v=20260614-named-presets-v1" defer></script>
+    <script src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-graph-eq-docked-ux" defer></script>
+    <script src="/static/app.js?v=20260614-graph-eq-docked-ux" defer></script>
   </body>
 </html>

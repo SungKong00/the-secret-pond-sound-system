@@ -5,6 +5,19 @@ from pathlib import Path
 from static_app_harness import STATIC_APP_BOOTSTRAP, STATIC_APP_RENDER_DOM_SETUP, run_node_harness
 
 
+def test_source_library_mobile_controls_keep_touch_sized_hit_areas() -> None:
+    styles = Path("src/secret_pond/web/static/styles.css").read_text(encoding="utf-8")
+
+    mobile_source_controls = styles[styles.index("@media (max-width: 620px)") :]
+
+    assert ".source-file-pick-button" in mobile_source_controls
+    assert ".source-category-actions .mini-button" in mobile_source_controls
+    assert ".source-file-row .source-file-delete-button" in mobile_source_controls
+    assert ".source-file-name-line .icon-mini-button" in mobile_source_controls
+    assert "min-height: 44px;" in mobile_source_controls
+    assert "width: 44px;" in mobile_source_controls
+
+
 def test_active_source_select_survives_source_library_refresh() -> None:
     app_script = Path("src/secret_pond/web/static/app.js").read_text(encoding="utf-8")
     app_script = app_script.replace(STATIC_APP_BOOTSTRAP, "")

@@ -11,7 +11,9 @@ GRAPH_EQ_MIN_HZ = 20.0
 GRAPH_EQ_MAX_HZ = 20_000.0
 GRAPH_EQ_MIN_GAIN_DB = -18.0
 GRAPH_EQ_MAX_GAIN_DB = 18.0
-GRAPH_EQ_MAX_POINTS = 6
+GRAPH_EQ_MAX_POINTS = 8
+GRAPH_EQ_DEFAULT_BELL_Q = 1.4
+GRAPH_EQ_DEFAULT_SHELF_Q = 0.707
 
 
 class EqPointSettings(BaseModel):
@@ -19,7 +21,18 @@ class EqPointSettings(BaseModel):
     type: EqPointType
     frequency_hz: float = Field(ge=GRAPH_EQ_MIN_HZ, le=GRAPH_EQ_MAX_HZ)
     gain_db: float = Field(default=0.0, ge=GRAPH_EQ_MIN_GAIN_DB, le=GRAPH_EQ_MAX_GAIN_DB)
-    q: float = Field(default=1.0, ge=0.1, le=18.0)
+    q: float = Field(default=GRAPH_EQ_DEFAULT_BELL_Q, ge=0.1, le=18.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_q_for_type(cls, data: object) -> object:
+        if not isinstance(data, dict) or data.get("q") is not None:
+            return data
+        if data.get("type") in {"low_shelf", "high_shelf"}:
+            return {**data, "q": GRAPH_EQ_DEFAULT_SHELF_Q}
+        if data.get("type") == "bell":
+            return {**data, "q": GRAPH_EQ_DEFAULT_BELL_Q}
+        return data
 
 
 def default_graph_eq_points() -> list[EqPointSettings]:
@@ -29,21 +42,21 @@ def default_graph_eq_points() -> list[EqPointSettings]:
             type="low_shelf",
             frequency_hz=80.0,
             gain_db=0.0,
-            q=0.707,
+            q=GRAPH_EQ_DEFAULT_SHELF_Q,
         ),
         EqPointSettings(
             id="mid",
             type="bell",
             frequency_hz=1_000.0,
             gain_db=0.0,
-            q=1.0,
+            q=GRAPH_EQ_DEFAULT_BELL_Q,
         ),
         EqPointSettings(
             id="high",
             type="high_shelf",
             frequency_hz=10_000.0,
             gain_db=0.0,
-            q=0.707,
+            q=GRAPH_EQ_DEFAULT_SHELF_Q,
         ),
     ]
 

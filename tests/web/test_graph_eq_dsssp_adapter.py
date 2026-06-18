@@ -86,6 +86,34 @@ console.log(JSON.stringify({{ displayFilters, roundTrip, positions }}));
     assert 0 < output["positions"][1]["x"] < 1
 
 
+def test_dsssp_adapter_defaults_missing_bell_q_to_musical_one_octave_width() -> None:
+    output = run_node(
+        f"""
+import {{
+  fromDssspChangeEvent,
+  toDssspFilters,
+  toSecretPondPoints
+}} from {json.dumps(ADAPTER.as_uri())};
+
+const points = [
+  {{ id: "low", type: "low_shelf", frequency_hz: 80, gain_db: 0 }},
+  {{ id: "mid", type: "bell", frequency_hz: 1000, gain_db: 0 }},
+  {{ id: "high", type: "high_shelf", frequency_hz: 10000, gain_db: 0 }},
+];
+const displayFilters = toDssspFilters(points);
+const roundTrip = toSecretPondPoints([{{ id: "created", type: "PEAK", freq: 1500, gain: 3 }}], []);
+const event = fromDssspChangeEvent({{ type: "PEAK", freq: 1600, gain: -2 }});
+console.log(JSON.stringify({{ displayFilters, roundTrip, event }}));
+"""
+    )
+
+    assert output["displayFilters"][0]["q"] == 0.707
+    assert output["displayFilters"][1]["q"] == 1.4
+    assert output["displayFilters"][2]["q"] == 0.707
+    assert output["roundTrip"][0]["q"] == 1.4
+    assert output["event"]["point"]["q"] == 1.4
+
+
 def test_dsssp_adapter_keeps_shelf_cutoff_frequency_even_with_custom_ids() -> None:
     output = run_node(
         f"""

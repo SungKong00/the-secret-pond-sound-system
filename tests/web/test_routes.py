@@ -933,13 +933,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="secret-pond-app"' in response.text
-    assert 'href="/static/styles.css?v=20260614-named-presets-v1"' in response.text
+    assert 'href="/static/styles.css?v=20260614-graph-eq-docked-ux"' in response.text
     assert (
-        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-named-presets-v1"'
+        'src="/static/graph_eq_dsssp_island.bundle.js?v=20260614-graph-eq-docked-ux"'
         in response.text
     )
     assert 'src="/static/graph_eq_inline.bundle.js?v=' not in response.text
-    assert 'src="/static/app.js?v=20260614-named-presets-v1"' in response.text
+    assert 'src="/static/app.js?v=20260614-graph-eq-docked-ux"' in response.text
     assert 'id="outputBadge"' in response.text
     assert 'id="transitionModeBadge"' in response.text
     assert 'id="settingsPresetPanel"' in response.text
@@ -974,6 +974,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "다시 재생" not in top_actions
     assert 'class="panel operation-panel"' in response.text
     assert 'class="operation-card playback-panel"' in response.text
+    assert 'class="operation-card settings-preset-panel"' in response.text
     assert 'aria-labelledby="playbackPanelTitle"' in response.text
     operation_panel = slice_between(
         response.text,
@@ -993,6 +994,11 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     record_panel = slice_between(
         operation_panel,
         '<section class="operation-card record-panel"',
+        '<section\n              id="settingsPresetPanel"',
+    )
+    settings_preset_panel = slice_between(
+        operation_panel,
+        '<section\n              id="settingsPresetPanel"',
         "</section>\n          </div>",
     )
     right_stack = slice_between(
@@ -1006,6 +1012,7 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
         "</section>",
     )
     assert operation_panel.index("Playback") < operation_panel.index("Voice Capture")
+    assert operation_panel.index("Voice Capture") < operation_panel.index("settingsPresetPanel")
     assert operation_panel.index("playbackApplyModePanel") < operation_panel.index(
         "playbackPanelTitle"
     )
@@ -1013,6 +1020,14 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "변경 적용" in apply_mode_panel
     assert "즉시 반영" in apply_mode_panel
     assert "안정 적용" in apply_mode_panel
+    assert "System 패널 즉시 적용: 입력/출력 장치" in apply_mode_panel
+    assert (
+        "Apply and Restart: 루프 길이, 샘플레이트, 출력 장치, 소스 파일 선택"
+        not in apply_mode_panel
+    )
+    assert "Live 전환: Voice Stack 소스 선택" in apply_mode_panel
+    assert "앱 재시작 필요: 샘플레이트, 채널" in apply_mode_panel
+    assert "Apply and Restart: 루프 길이, Low/Mid 소스 선택" in apply_mode_panel
     assert 'id="playbackPanelTitle"' in playback_panel
     assert "Playback" in playback_panel
     assert '<small lang="ko">재생</small>' in playback_panel
@@ -1045,6 +1060,8 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert "출력 재시작" not in playback_panel
     assert "적용 후 재시작" not in playback_panel
     assert "Apply and Restart" not in playback_panel
+    assert "settingsPresetPanel" not in playback_panel
+    assert "Graph EQ · Mixer · Source" not in playback_panel
     assert "녹음 준비" in record_panel
     assert 'id="storageModePanel"' in record_panel
     assert 'id="storageModeSummary"' in record_panel
@@ -1078,6 +1095,13 @@ def test_root_serves_operator_dashboard(tmp_path: Path) -> None:
     assert 'class="record-orbit"' in take_console
     assert 'id="startButton"' in take_console
     assert 'id="stopButton"' in take_console
+    assert 'id="settingsPresetPanelTitle"' in settings_preset_panel
+    assert "Presets" in settings_preset_panel
+    assert "프리셋" in settings_preset_panel
+    assert "Graph EQ · Mixer · Source" in settings_preset_panel
+    assert 'id="settingsPresetNameInput"' in settings_preset_panel
+    assert 'id="settingsPresetSaveButton"' in settings_preset_panel
+    assert "초안 저장" in settings_preset_panel
     assert 'id="systemStatus"' in system_panel
     assert 'id="sourceHealthList"' in system_panel
     assert 'id="eventLogSummary"' in system_panel
@@ -1464,8 +1488,8 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     assert "renameSourceFile" in script.text
     assert "previewVoiceRaw" in script.text
     assert "addVoiceRawToStack" in script.text
-    assert "Preview" in script.text
-    assert "Add to Stack" in script.text
+    assert "미리듣기" in script.text
+    assert "스택에 추가" in script.text
     assert 'api("/api/voice-raw/preview"' in script.text
     assert 'api("/api/voice-stack/add-source"' in script.text
     assert "recoverSourceMutationError" in script.text
@@ -2053,6 +2077,7 @@ def test_static_ui_assets_are_served(tmp_path: Path) -> None:
     )
     assert 'deriveControlRequestState("/api/recording/start").skip' in start_from_space_body
     assert 'if (event.code !== "Space" || shouldIgnoreSpace()) return;' in start_from_space_body
+    assert "releaseButtonFocusForSpace" not in start_from_space_body
     assert "if (event.repeat) return;" in start_from_space_body
     assert "state.spaceRecording = true" in start_from_space_body
 
@@ -2076,6 +2101,38 @@ def test_static_ui_open_control_group_marker_does_not_offset_title(tmp_path: Pat
     assert "width: 1em;" in collapsed_marker
     assert "content: \"\";" in open_marker
     assert "display: none;" in open_marker
+
+
+def test_static_ui_range_sliders_have_drag_friendly_hit_area(tmp_path: Path) -> None:
+    client = create_test_client(tmp_path)
+
+    styles = client.get("/static/styles.css")
+
+    assert styles.status_code == 200
+    range_rail_rule = slice_between(styles.text, '.range-rail {', "}")
+    range_rule = slice_between(styles.text, 'input[type="range"] {', "}")
+    webkit_thumb_rule = slice_between(
+        styles.text,
+        'input[type="range"]::-webkit-slider-thumb {',
+        "}",
+    )
+    moz_thumb_rule = slice_between(
+        styles.text,
+        'input[type="range"]::-moz-range-thumb {',
+        "}",
+    )
+    assert "padding: 4px 0;" in range_rail_rule
+    assert "cursor: pointer;" in range_rail_rule
+    assert "height: 24px;" in range_rule
+    assert "cursor: pointer;" in range_rule
+    assert "touch-action: pan-y;" in range_rule
+    assert "width: 15px;" in webkit_thumb_rule
+    assert "height: 15px;" in webkit_thumb_rule
+    assert "width: 15px;" in moz_thumb_rule
+    assert "height: 15px;" in moz_thumb_rule
+    assert 'input[type="range"]:disabled {' in styles.text
+    assert 'input[type="range"]:active::-webkit-slider-thumb {' in styles.text
+    assert 'input[type="range"]:active::-moz-range-thumb {' in styles.text
 
 
 def test_static_ui_non_eq_db_sliders_use_wide_zero_centered_ranges(
@@ -2130,6 +2187,298 @@ assert.strictEqual(
     )
 
 
+def test_static_ui_filter_frequency_sliders_use_log_scale_and_release_commit(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, recordingControlGroups, rangeSliderValueFromActual, "
+            "rangeActualValueFromSlider, rangeMarkPercent }"
+        ),
+        body="""
+const helpers = globalThis.__secretPondTest;
+const byPath = (controls, path) => controls.find((control) => control.path === path);
+const expectClose = (actual, expected, tolerance = 0.001) => {
+  assert(Math.abs(Number(actual) - Number(expected)) <= tolerance, `${actual} !== ${expected}`);
+};
+const expectLogFilter = (control) => {
+  assert.strictEqual(control.scale, "log-frequency");
+  assert.strictEqual(control.commitOn, "change");
+  assert.strictEqual(
+    helpers.rangeSliderValueFromActual(control, control.min, control.min, control.max),
+    0,
+  );
+  assert.strictEqual(
+    helpers.rangeSliderValueFromActual(control, control.max, control.min, control.max),
+    1000,
+  );
+  const geometricCenter = Math.sqrt(control.min * control.max);
+  expectClose(
+    helpers.rangeSliderValueFromActual(control, geometricCenter, control.min, control.max),
+    500,
+  );
+  expectClose(
+    helpers.rangeActualValueFromSlider(control, 500, control.min, control.max),
+    geometricCenter,
+  );
+  expectClose(helpers.rangeMarkPercent(control, geometricCenter, control.min, control.max), 50);
+};
+
+const layerFilter = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+expectLogFilter(byPath(layerFilter.controls, "eq.highpass_hz"));
+expectLogFilter(byPath(layerFilter.controls, "eq.lowpass_hz"));
+
+const recordingControls = helpers.recordingControlGroups.flatMap((group) => group.controls);
+expectLogFilter(byPath(recordingControls, "highpass_hz"));
+expectLogFilter(byPath(recordingControls, "lowpass_hz"));
+""",
+    )
+
+
+def test_static_ui_filter_range_preserves_slider_position_while_dragging(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, rangeControl, rangeSliderValueFromActual }"
+        ),
+        dom_setup="""
+const makeElement = (tagName = "div") => {
+  const element = {
+    tagName: String(tagName).toUpperCase(),
+    children: [],
+    innerHTML: "",
+    value: "",
+    textContent: "",
+    className: "",
+    parentElement: null,
+    attributes: {},
+    listeners: {},
+    _queryElements: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return this[name] || "";
+      },
+    },
+    classList: {
+      toggle() {},
+      contains() { return false; },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    appendChild(child) {
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(eventName, handler) {
+      this.listeners[eventName] = handler;
+    },
+    dispatchEvent(event) {
+      this.listeners[event.type]?.(event);
+    },
+    querySelector(selector) {
+      if (!this._queryElements[selector]) this._queryElements[selector] = makeElement();
+      return this._queryElements[selector];
+    },
+  };
+  return element;
+};
+globalThis.document = {
+  getElementById() { return makeElement(); },
+  querySelector() { return makeElement(); },
+  querySelectorAll() { return []; },
+  createElement(tagName) { return makeElement(tagName); },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.requestAnimationFrame = () => {};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+""",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const filterGroup = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+const lowCutControl = filterGroup.controls[0];
+const commits = [];
+const row = helpers.rangeControl(lowCutControl, 20, (value) => {
+  commits.push(value);
+});
+const input = row.querySelector("input");
+const valueInput = row.querySelector(".value-input");
+const rawDragPosition = "456.7";
+
+input.value = rawDragPosition;
+input.dispatchEvent({ type: "input" });
+
+assert.strictEqual(input.value, rawDragPosition);
+assert.strictEqual(commits.length, 0);
+assert(
+  Number(valueInput.value) > 80,
+  `expected visible Hz value above 80, got ${valueInput.value}`,
+);
+
+input.dispatchEvent({ type: "change" });
+
+assert.strictEqual(commits.length, 1);
+assert(Number(commits[0]) > 80, `expected committed Hz value above 80, got ${commits[0]}`);
+assert.strictEqual(
+  Number(input.value),
+  helpers.rangeSliderValueFromActual(
+    lowCutControl,
+    commits[0],
+    lowCutControl.min,
+    lowCutControl.max,
+  ),
+);
+""",
+    )
+
+
+def test_static_ui_filter_range_rail_drag_tracks_pointer_and_commits_on_release(
+    tmp_path: Path,
+) -> None:
+    run_static_app_harness(
+        tmp_path,
+        exports=(
+            "{ layerControlGroups, rangeControl, rangeSliderValueFromActual }"
+        ),
+        dom_setup="""
+const makeElement = (tagName = "div") => {
+  const element = {
+    tagName: String(tagName).toUpperCase(),
+    children: [],
+    innerHTML: "",
+    value: "",
+    textContent: "",
+    className: "",
+    parentElement: null,
+    attributes: {},
+    listeners: {},
+    capturedPointer: null,
+    releasedPointer: null,
+    focused: false,
+    _queryElements: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return this[name] || "";
+      },
+    },
+    classList: {
+      toggle() {},
+      contains() { return false; },
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    appendChild(child) {
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(eventName, handler) {
+      this.listeners[eventName] = handler;
+    },
+    dispatchEvent(event) {
+      this.listeners[event.type]?.(event);
+    },
+    focus() {
+      this.focused = true;
+    },
+    setPointerCapture(pointerId) {
+      this.capturedPointer = pointerId;
+    },
+    releasePointerCapture(pointerId) {
+      this.releasedPointer = pointerId;
+    },
+    getBoundingClientRect() {
+      return { left: 100, width: 200, x: 100, y: 10, height: 24 };
+    },
+    querySelector(selector) {
+      if (!this._queryElements[selector]) this._queryElements[selector] = makeElement();
+      return this._queryElements[selector];
+    },
+  };
+  return element;
+};
+globalThis.document = {
+  getElementById() { return makeElement(); },
+  querySelector() { return makeElement(); },
+  querySelectorAll() { return []; },
+  createElement(tagName) { return makeElement(tagName); },
+  addEventListener() {},
+};
+globalThis.window = {
+  addEventListener() {},
+  location: { protocol: "http:", host: "127.0.0.1:8000", search: "" },
+};
+globalThis.requestAnimationFrame = () => {};
+globalThis.setTimeout = () => 0;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => 0;
+""",
+        body="""
+const helpers = globalThis.__secretPondTest;
+const filterGroup = helpers.layerControlGroups.find((group) => group.className === "filter-group");
+const lowCutControl = filterGroup.controls[0];
+const commits = [];
+const row = helpers.rangeControl(lowCutControl, 20, (value) => {
+  commits.push(value);
+});
+const input = row.querySelector("input");
+const rail = row.querySelector(".range-rail");
+const valueInput = row.querySelector(".value-input");
+input.min = "0";
+input.max = "1000";
+input.value = "0";
+let prevented = 0;
+const eventAt = (type, clientX, pointerId = 7) => ({
+  type,
+  clientX,
+  pointerId,
+  preventDefault() { prevented += 1; },
+});
+
+rail.dispatchEvent(eventAt("pointerdown", 102));
+assert.strictEqual(rail.capturedPointer, 7);
+assert.strictEqual(input.focused, true);
+assert.strictEqual(commits.length, 0);
+
+rail.dispatchEvent(eventAt("pointermove", 310));
+assert(Number(valueInput.value) > 400, `rail drag did not track: ${valueInput.value}`);
+assert.strictEqual(commits.length, 0);
+
+rail.dispatchEvent(eventAt("pointerup", 310));
+assert.strictEqual(rail.releasedPointer, 7);
+assert.strictEqual(commits.length, 1);
+assert(Number(commits[0]) > 400, `expected release commit above 400 Hz, got ${commits[0]}`);
+assert.strictEqual(
+  Number(input.value),
+  helpers.rangeSliderValueFromActual(
+    lowCutControl,
+    commits[0],
+    lowCutControl.min,
+    lowCutControl.max,
+  ),
+);
+assert(prevented >= 3, `pointer events were not captured: ${prevented}`);
+""",
+    )
+
+
 def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     client = create_test_client(tmp_path)
 
@@ -2144,7 +2493,7 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert 'id="workspaceTabGraphEq"' not in response.text
     assert 'id="workspacePaneGraphEq"' not in response.text
     assert 'id="graphEqLayerTabs"' not in response.text
-    assert "20260614-named-presets-v1" in response.text
+    assert "20260614-graph-eq-docked-ux" in response.text
     assert ("20260612-graph-eq-inline-" + "weq" + "8c") not in response.text
     assert "20260608-voice-loop-timeline" not in response.text
     assert "Graph EQ" in script.text
@@ -2185,19 +2534,24 @@ def test_graph_eq_is_inline_in_existing_layer_cards(tmp_path: Path) -> None:
     assert ".graph-eq-band-list" in styles.text
     assert ".graph-eq-selected-inspector" in styles.text
     assert (".graph-eq-weq" + "8c-host") not in styles.text
-    assert ".graph-eq-collapsed-summary" in styles.text
+    assert ".graph-eq-collapsed-summary" not in styles.text
     assert ".graph-eq-step-button" in styles.text
 
 
 def test_static_inline_graph_eq_open_is_idempotent_and_close_is_explicit(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
-        exports="{ openExpandedGraphEqLayer, closeExpandedGraphEqLayer, expandedGraphEqLayerId }",
+        exports=(
+            "{ openExpandedGraphEqLayer, closeExpandedGraphEqLayer, "
+            "expandedGraphEqLayerId, currentGraphEqLayerId }"
+        ),
         body="""
 const helpers = globalThis.__secretPondTest;
-assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
+assert.strictEqual(helpers.currentGraphEqLayerId(), "mid");
 helpers.openExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
+assert.strictEqual(helpers.currentGraphEqLayerId(), "low");
 helpers.openExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "low");
 helpers.openExpandedGraphEqLayer("mid");
@@ -2206,6 +2560,7 @@ helpers.closeExpandedGraphEqLayer("low");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), "mid");
 helpers.closeExpandedGraphEqLayer("mid");
 assert.strictEqual(helpers.expandedGraphEqLayerId(), null);
+assert.strictEqual(helpers.currentGraphEqLayerId(), "mid");
 """,
     )
 
@@ -2342,7 +2697,7 @@ assert.match(highRow, /graph-eq-band-number[^>]*><\\/span>/);
     )
 
 
-def test_static_graph_eq_bell_numbers_follow_newest_first_order(tmp_path: Path) -> None:
+def test_static_graph_eq_bell_numbers_follow_frequency_order(tmp_path: Path) -> None:
     run_static_app_harness(
         tmp_path,
         exports="{ renderInlineGraphEqPointRowContent, renderInlineGraphEqSelectedInspector }",
@@ -2359,7 +2714,7 @@ const labels = points.map((point, index) => {
   const row = helpers.renderInlineGraphEqPointRowContent(point, index, points);
   return /graph-eq-band-number[^>]*>([^<]*)<\\/span>/.exec(row)[1];
 });
-assert.deepStrictEqual(labels, ["", "1", "2", "3", ""]);
+assert.deepStrictEqual(labels, ["", "3", "2", "1", ""]);
 const inspector = helpers.renderInlineGraphEqSelectedInspector(
   "mid",
   points[1],
@@ -2368,7 +2723,7 @@ const inspector = helpers.renderInlineGraphEqSelectedInspector(
   1,
   points,
 );
-assert.match(inspector, /Selected Band 1/);
+assert.match(inspector, /Selected Band 3/);
 """,
     )
 
@@ -2503,6 +2858,24 @@ const failedDefault = helpers.graphEqLiveStatusCopy({
 assert(failedDefault.label.includes("Stable Apply and Restart"));
 assert(failedDefault.detail.includes("기존 재생 상태를 유지합니다."));
 assert.strictEqual(failedDefault.className, "status-pill caution");
+
+const lowFailedMidApplied = {
+  status: "failed",
+  layer_id: "low",
+  failed_layers: ["low"],
+  applied_layers: ["mid"],
+  failure_warning: "Low Graph EQ 적용을 완료하지 못했습니다.",
+  failure_detail: "low renderer failed",
+};
+const lowCopy = helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "low");
+assert.strictEqual(lowCopy.label, "Low Graph EQ 적용을 완료하지 못했습니다.");
+assert(lowCopy.detail.includes("low renderer failed"));
+assert.strictEqual(lowCopy.className, "status-pill caution");
+
+const midCopy = helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "mid");
+assert.strictEqual(midCopy.label, "Live Graph EQ 적용됨");
+assert.strictEqual(midCopy.className, "status-pill safe");
+assert.strictEqual(helpers.graphEqLiveStatusCopy(lowFailedMidApplied, "voice"), null);
 """,
     )
 
@@ -2516,7 +2889,10 @@ def test_static_ui_filter_status_uses_latest_draft_after_saved_draft_refresh(
 
     script = static_app_test_script(
         tmp_path,
-        "{ controlGroup, layerControlGroups, setPath, clone }",
+        (
+            "{ controlGroup, layerControlGroups, setPath, clone, "
+            "rangeSliderValueFromActual }"
+        ),
     )
     harness = f"""
 const assert = require("assert");
@@ -2607,6 +2983,7 @@ const current = {{
 const filterGroup = globalThis.__secretPondTest.layerControlGroups.find(
   (group) => group.action === "reset-filter",
 );
+const lowCutControl = filterGroup.controls[0];
 const section = globalThis.__secretPondTest.controlGroup(
   filterGroup,
   current.draft,
@@ -2618,14 +2995,22 @@ const section = globalThis.__secretPondTest.controlGroup(
 const body = section.querySelector(".control-group-body");
 const lowCutRow = body.children[0];
 const lowCutInput = lowCutRow.querySelector("input");
+const sliderValueForHz = (hz) => globalThis.__secretPondTest.rangeSliderValueFromActual(
+  lowCutControl,
+  hz,
+  lowCutControl.min,
+  lowCutControl.max,
+);
 
-lowCutInput.value = "80";
+lowCutInput.value = String(sliderValueForHz(80));
 lowCutInput.dispatchEvent({{ type: "input" }});
+lowCutInput.dispatchEvent({{ type: "change" }});
 assert.match(lastActionsMarkup, /filter-status pending/);
 
 current.draft = globalThis.__secretPondTest.clone(current.draft);
-lowCutInput.value = "20";
+lowCutInput.value = String(sliderValueForHz(20));
 lowCutInput.dispatchEvent({{ type: "input" }});
+lowCutInput.dispatchEvent({{ type: "change" }});
 assert.doesNotMatch(lastActionsMarkup, /filter-status pending/);
 assert.match(lastActionsMarkup, /filter-status bypassed/);
 assert.match(lastActionsMarkup, /필터 없음/);
@@ -3771,7 +4156,8 @@ assert.strictEqual(runtimeChange.applyDisabled, true);
 assert.strictEqual(runtimeChange.applyAttention, false);
 assert.strictEqual(
   runtimeChange.applyTitle,
-  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+  "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. "
+    + "입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 
 const recordingStopBusy = derive({{
@@ -7267,21 +7653,22 @@ assert.strictEqual(helpers.sourceFileControlFromEventTarget(unrelatedTarget), nu
 assert.strictEqual(helpers.sourceFileControlFromEventTarget(null), null);
 
 const selectableFileRow = {{
+  tagName: "BUTTON",
   dataset: {{ sourcePick: "low", sourcePath: "data/sources/low/next-low.wav" }},
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? this : null;
   }},
 }};
 const nestedFileName = {{
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? selectableFileRow : null;
   }},
 }};
 const nestedButton = {{
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return this;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return this;
     return selector === "[data-source-pick]" ? selectableFileRow : null;
   }},
 }};
@@ -7297,9 +7684,10 @@ assert.strictEqual(helpers.selectSourceFileFromEventTarget(nestedButton), false)
 assert.strictEqual(helpers.state.sourceCardSelections.low, undefined);
 
 const voiceRawFileRow = {{
+  tagName: "BUTTON",
   dataset: {{ sourcePick: "voice_raw", sourcePath: "data/sources/voice/raw/VR0610.wav" }},
   closest(selector) {{
-    if (selector === "button,input,select,textarea") return null;
+    if (selector === "button:not([data-source-pick]),input,select,textarea") return null;
     return selector === "[data-source-pick]" ? this : null;
   }},
 }};
@@ -7669,8 +8057,9 @@ assert.strictEqual(vrHtml.includes("Add to Stack"), false);
 assert.strictEqual(vrHtml.includes("data-voice-raw-preview"), false);
 assert.strictEqual(vrHtml.includes("data-voice-raw-add"), false);
 assert.strictEqual(vrHtml.includes('data-source-pick="voice_raw"'), true);
-assert.strictEqual(vrHtml.includes('role="button"'), true);
-assert.strictEqual(vrHtml.includes('tabindex="0"'), true);
+assert.strictEqual(vrHtml.includes('class="source-file-pick-button source-file-title"'), true);
+assert.strictEqual(vrHtml.includes('role="button"'), false);
+assert.strictEqual(vrHtml.includes('tabindex="0"'), false);
 assert.strictEqual(vrHtml.includes("source-file-row voice-raw selected"), true);
 assert.strictEqual(vrHtml.includes("적용 대기"), false);
 assert.strictEqual(vrHtml.includes("적용 됨"), false);
@@ -7697,8 +8086,8 @@ assert.strictEqual(vrCard.innerHTML.includes("source-category-actions"), true);
 assert.strictEqual(vrCard.innerHTML.includes("data-source-confirm-selection"), false);
 assert.strictEqual(vrCard.innerHTML.includes("보관용"), false);
 assert.strictEqual(vrCard.innerHTML.includes("적용 대기"), false);
-assert.strictEqual(vrCard.innerHTML.includes(">Preview</button>"), true);
-assert.strictEqual(vrCard.innerHTML.includes(">Add to Stack</button>"), true);
+assert.strictEqual(vrCard.innerHTML.includes(">미리듣기</button>"), true);
+assert.strictEqual(vrCard.innerHTML.includes(">스택에 추가</button>"), true);
 assert.strictEqual(
   vrCard.innerHTML.includes(
     'data-voice-raw-preview-selected="data/sources/voice/raw/VR0610_213112.wav"',
@@ -7730,8 +8119,8 @@ const busyVrCard = helpers.sourceCategoryCard({{
     }},
   ],
 }});
-assert.strictEqual(busyVrCard.innerHTML.includes("Preview</button>"), true);
-assert.strictEqual(busyVrCard.innerHTML.includes("Add to Stack</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("미리듣기</button>"), true);
+assert.strictEqual(busyVrCard.innerHTML.includes("스택에 추가</button>"), true);
 assert.strictEqual(busyVrCard.innerHTML.includes("disabled"), true);
 assert.strictEqual(busyVrCard.innerHTML.includes("소스 파일 작업이 끝날 때까지 기다리세요."), true);
 
@@ -8170,7 +8559,8 @@ def test_static_ui_recording_stop_busy_state_disables_capture_controls(tmp_path:
             "changeDevice, control, startFromSpace, stopFromSpace, stopIfRecording, "
             "renderLayerControls, syncAppliedSourceSignature, saveDraft, "
             "commitInlineGraphEqPoints, graphEqBellBandNumber, graphEqForLayer, selectSourceFile, "
-            "uploadSourceFile, applyAndRestart, resetDraft }"
+            "uploadSourceFile, applyAndRestart, resetDraft, recordingControlGroups, "
+            "rangeSliderValueFromActual }"
         ),
     )
     harness = f"""
@@ -9156,10 +9546,24 @@ assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 assert.strictEqual(elements.applyButton.disabled, true);
 assert.strictEqual(elements.resetButton.disabled, true);
 globalThis.__secretPondTest.renderRecordingControls();
-const inputGainGroupBody = elements.recordingControls.children[0].children[0];
-const inputGainRow = inputGainGroupBody.children[0];
+const inputGainGroupIndex = globalThis.__secretPondTest.recordingControlGroups.findIndex((group) =>
+  group.controls.some((control) => control.path === "gain_db"),
+);
+const inputGainControlIndex = globalThis.__secretPondTest.recordingControlGroups[
+  inputGainGroupIndex
+].controls.findIndex((control) => control.path === "gain_db");
+const inputGainControl = globalThis.__secretPondTest.recordingControlGroups[
+  inputGainGroupIndex
+].controls[inputGainControlIndex];
+const inputGainGroupBody = elements.recordingControls.children[inputGainGroupIndex].children[0];
+const inputGainRow = inputGainGroupBody.children[inputGainControlIndex];
 const inputGainInput = inputGainRow.querySelector("input");
-inputGainInput.value = "3";
+inputGainInput.value = String(globalThis.__secretPondTest.rangeSliderValueFromActual(
+  inputGainControl,
+  3,
+  inputGainControl.min,
+  inputGainControl.max,
+));
 inputGainInput.dispatchEvent({{ type: "input" }});
 assert.strictEqual(elements.pendingBadge.hidden, false);
 assert.strictEqual(elements.pendingBadge.textContent, "저장 안 된 오디오 변경");
@@ -9231,7 +9635,8 @@ assert.strictEqual(elements.applyButton.classList.contains("attention"), false);
 assert.strictEqual(elements.resetButton.disabled, false);
 assert.strictEqual(
   elements.applyButton.title,
-  "샘플레이트, 채널 변경은 앱 재시작이 필요하고 장치 변경은 System 패널에서 적용해야 합니다.",
+  "샘플레이트와 채널 변경은 앱 재시작이 필요합니다. "
+    + "입력/출력 장치는 System 패널에서 선택 즉시 적용됩니다.",
 );
 globalThis.__secretPondTest.state.snapshot.settings.active = cloneSettings(activeSettings);
 globalThis.__secretPondTest.state.snapshot.settings.draft = cloneSettings(activeSettings);
@@ -10066,11 +10471,11 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   const deletedDraft = JSON.parse(graphEqCreateDeleteResponses[1].options.body);
   assert.deepStrictEqual(
     createdDraft.layers.mid.eq.points.map((point) => point.id),
-    ["low", "band-new", "band-old", "high"],
+    ["low", "band-old", "band-new", "high"],
   );
   assert.deepStrictEqual(
     deletedDraft.layers.mid.eq.points.map((point) => point.id),
-    ["low", "band-recent", "band-old", "high"],
+    ["low", "band-old", "band-recent", "high"],
   );
   graphEqCreateDeleteResponses[1].resolve({{
     ok: true,
@@ -10098,7 +10503,7 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   );
   assert.deepStrictEqual(
     reconciledCreateDeleteEq.points.map((point) => point.id),
-    ["low", "band-recent", "band-old", "high"],
+    ["low", "band-old", "band-recent", "high"],
   );
   assert.deepStrictEqual(
     reconciledCreateDeleteEq.points.map((point, index, points) =>
@@ -10555,12 +10960,12 @@ globalThis.__secretPondTest.state.snapshot.is_recording = false;
   globalThis.__secretPondTest.state.snapshot.armed = true;
   globalThis.__secretPondTest.state.snapshot.is_recording = false;
   await globalThis.__secretPondTest.startFromSpace(repeatSpaceEvent);
-  assert.strictEqual(repeatSpaceEvent.defaultPrevented, true);
-  assert.strictEqual(repeatButtonBlurred, true);
+  assert.strictEqual(repeatSpaceEvent.defaultPrevented, false);
+  assert.strictEqual(repeatButtonBlurred, false);
   assert.strictEqual(globalThis.__secretPondTest.state.spaceRecording, false);
   assert.strictEqual(unexpectedStartPath, null);
 
-  for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) {{
+  for (const tagName of ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "SUMMARY"]) {{
     const focusedControlSpaceEvent = {{
       code: "Space",
       repeat: true,
@@ -11532,6 +11937,89 @@ def test_api_sources_rename_updates_preset_source_references(tmp_path: Path) -> 
     assert updated.source_refs["low_path"].path == renamed_relative
 
 
+def test_api_sources_rename_keeps_file_and_settings_when_preset_update_fails(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/preset-low.wav"
+    renamed_relative = "data/sources/low/renamed-preset-low.wav"
+    original_path = tmp_path / original_relative
+    renamed_path = tmp_path / renamed_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    PresetStore(paths).create_from_draft("Opening", settings)
+    paths.presets_file.write_text("{not-json", encoding="utf-8")
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-preset-low"},
+    )
+
+    assert response.status_code == 422
+    assert "presets file contains invalid JSON" in response.json()["detail"]
+    assert original_path.exists() is True
+    assert renamed_path.exists() is False
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == original_relative
+    assert stored.draft.sources.low_path == original_relative
+
+
+def test_api_sources_rename_rolls_back_when_preset_reference_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    original_relative = "data/sources/low/preset-low.wav"
+    renamed_relative = "data/sources/low/renamed-preset-low.wav"
+    original_path = tmp_path / original_relative
+    renamed_path = tmp_path / renamed_relative
+    write_wav_atomic(
+        original_path,
+        AudioBuffer(samples=np.ones((8_000, 2), dtype=np.float32) * 0.05, sample_rate=8_000),
+    )
+    settings = api_settings().model_copy(
+        update={"sources": SourceSelectionSettings(low_path=original_relative)},
+        deep=True,
+    )
+    PresetStore(paths).create_from_draft("Opening", settings)
+
+    def fail_replace_source_path(*args, **kwargs):
+        raise OSError("preset save failed")
+
+    monkeypatch.setattr(web_routes.PresetStore, "replace_source_path", fail_replace_source_path)
+    client = create_test_client(
+        tmp_path,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+
+    response = client.patch(
+        "/api/sources/low/files",
+        json={"path": original_relative, "stem": "renamed-preset-low"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "preset save failed"
+    assert original_path.exists() is True
+    assert renamed_path.exists() is False
+    stored = SettingsStore(paths).load()
+    assert stored.active.sources.low_path == original_relative
+    assert stored.draft.sources.low_path == original_relative
+
+
 def test_api_sources_delete_rejects_file_referenced_by_preset(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
     paths.ensure_directories()
@@ -11895,7 +12383,7 @@ def test_api_state_reports_live_playback_apply_capabilities(tmp_path: Path) -> N
         "volume_applies_immediately": True,
         "mute_applies_immediately": True,
         "seek_applies_immediately": True,
-        "voice_stack_transition_applies_immediately": False,
+        "voice_stack_transition_applies_immediately": True,
         "voice_raw_preview_treatment_applies_immediately": True,
         "eq_applies_immediately": True,
         "excluded_apply_flow": [
@@ -13770,6 +14258,47 @@ def test_api_settings_apply_preserves_running_voice_raw_preview_with_new_treatme
     assert apply_response.json()["state"]["playback"]["output_running"] is True
     after_apply = client.app.state.runtime.player.next_block(4096)
     assert float(np.max(np.abs(after_apply.samples))) > 0.01
+
+
+def test_api_settings_draft_live_preview_missing_source_returns_conflict_without_partial_save(
+    tmp_path: Path,
+) -> None:
+    output = FakeOutput()
+    settings = api_settings_for_sixty_second_voice_loop(mode="test_library").model_copy(
+        update={"playback": PlaybackSettings(apply_mode="live")},
+        deep=True,
+    )
+    client = create_test_client(
+        tmp_path,
+        with_sources=True,
+        output=output,
+        settings=settings,
+        raise_server_exceptions=False,
+    )
+    paths = ProjectPaths(tmp_path)
+    vr_path = paths.voice_raw_sources_dir / "VR0610_213112.wav"
+    write_wav_atomic(vr_path, twenty_second_voice_take())
+
+    preview_response = client.post(
+        "/api/voice-raw/preview",
+        json={"voice_raw_path": "data/sources/voice/raw/VR0610_213112.wav"},
+    )
+    assert preview_response.status_code == 200
+    vr_path.unlink()
+
+    before_state = client.get("/api/settings").json()["settings"]
+    draft = json.loads(json.dumps(before_state["draft"]))
+    draft["recording"]["gain_db"] = 4.0
+
+    response = client.put("/api/settings/draft", json=draft)
+
+    assert response.status_code == 409
+    assert "Voice Raw" in response.json()["detail"]
+    after_state = client.get("/api/settings").json()["settings"]
+    assert after_state == before_state
+    assert client.app.state.runtime.voice_raw_preview_path == (
+        "data/sources/voice/raw/VR0610_213112.wav"
+    )
 
 
 def test_api_voice_raw_preview_stop_restores_main_playback_buffers(
