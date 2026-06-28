@@ -11,6 +11,8 @@ class PublicRecorderSettings:
     admin_password: str
     max_upload_bytes: int = 25 * 1024 * 1024
     stack_lock_timeout_seconds: float = 30.0
+    minimum_duration_seconds: float = 3.0
+    maximum_duration_seconds: float = 600.0
 
     @classmethod
     def from_env(cls) -> PublicRecorderSettings:

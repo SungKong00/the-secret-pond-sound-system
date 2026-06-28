@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.public_settings import PublicRecorderSettings
+from secret_pond.services.public_voice_stack import PublicVoiceStackError, PublicVoiceStackService
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -33,7 +35,7 @@ def create_public_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         return FileResponse(STATIC_DIR / "public_recorder.html")
 
-    @app.post("/api/public/recordings")
+    @app.post("/api/public/recordings", status_code=status.HTTP_201_CREATED)
     async def upload_public_recording(
         file: Annotated[UploadFile, File()],
         x_public_recording_token: Annotated[str | None, Header()] = None,
@@ -48,11 +50,34 @@ def create_public_app(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     detail="file_too_large",
                 )
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="processing_failed",
-            )
+            upload_path = paths.recordings_temp_dir / f"public-upload-{uuid4().hex}{_extension_for_upload(file)}"
+            upload_path.write_bytes(content)
+            try:
+                result = PublicVoiceStackService(paths, public_settings).add_upload_file(upload_path)
+            except PublicVoiceStackError as exc:
+                raise HTTPException(
+                    status_code=_status_for_public_error(exc.code),
+                    detail=exc.code,
+                ) from exc
+            return {
+                "version_id": result.history_record.id,
+                "stack_path": result.history_record.stack_path,
+            }
         finally:
             await file.close()
 
     return app
+
+
+def _extension_for_upload(file: UploadFile) -> str:
+    name = file.filename or ""
+    suffix = Path(name).suffix.lower()
+    if suffix and len(suffix) <= 16:
+        return suffix
+    return ".webm"
+
+
+def _status_for_public_error(code: str) -> int:
+    if code == "lock_timeout":
+        return status.HTTP_409_CONFLICT
+    return status.HTTP_422_UNPROCESSABLE_CONTENT
