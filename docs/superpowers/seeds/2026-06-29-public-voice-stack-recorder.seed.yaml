@@ -1,0 +1,259 @@
+goal: Implement a short-lived public mobile web recorder for The Secret Pond Voice Stack collection flow
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - path: pyproject.toml
+      role: Project manifest for Python version, FastAPI, uvicorn, pydantic, numpy, scipy, soundfile, pedalboard, pytest, and httpx dependencies.
+    - path: src/secret_pond/audio/voice_stack.py
+      role: Existing VoiceStackStore implementation that writes voice_stack_raw.wav, timestamped stack sources, and split-by-loop-length layered additions.
+    - path: src/secret_pond/paths.py
+      role: Existing ProjectPaths source for data/voice, data/sources/voice/stack, and other persisted data paths.
+    - path: src/secret_pond/config.py
+      role: Existing AppSettings and InputControlSettings; maximum_recording_seconds allows 600 seconds.
+    - path: src/secret_pond/services/controller.py
+      role: Existing local recording controller that validates recording duration and runs apply_recording_processing.
+    - path: src/secret_pond/services/recording_transaction.py
+      role: Existing file snapshot rollback pattern for Voice Stack side effects.
+    - path: src/secret_pond/services/file_snapshots.py
+      role: Existing capture_file_snapshot and restore_file_snapshot helpers for rollback.
+    - path: src/secret_pond/app.py
+      role: Existing FastAPI app factory and static-file serving pattern.
+    - path: src/secret_pond/web/routes.py
+      role: Existing FastAPI APIRouter structure for HTTP routes.
+    - path: tests/services/test_controller.py
+      role: Existing service tests for recording duration and controller behavior.
+    - path: tests/web/test_routes.py
+      role: Existing web route tests and HTTP test client patterns.
+    - path: docs/superpowers/plans/2026-06-28-public-voice-stack-recorder.md
+      role: Current implementation plan; must be updated to remove stale silence-detection and 20-second examples.
+  existing_patterns:
+    - Reuse ProjectPaths for all persistent and temporary data locations.
+    - Reuse SettingsStore and AppSettings instead of creating a separate settings format.
+    - Reuse VoiceStackStore.add_processed_voice for split-by-loop-length layering onto the latest stack.
+    - Reuse apply_recording_processing for accepted public recordings.
+    - Follow the existing FastAPI factory/router/static asset style.
+    - Follow existing pytest/httpx route and service test patterns.
+    - Use file snapshot rollback around stack side effects when later settings/history writes fail.
+  existing_dependencies:
+    - Python >=3.11,<3.15
+    - fastapi>=0.115
+    - uvicorn[standard]>=0.30
+    - pydantic>=2.8
+    - numpy>=1.26
+    - scipy>=1.13
+    - soundfile>=0.12
+    - pedalboard>=0.9
+    - pytest>=8.2
+    - httpx>=0.27
+  new_dependencies:
+    - python-multipart for FastAPI UploadFile form handling
+    - filelock for single-instance Voice Stack commit serialization
+    - FFmpeg binary available in the Render image for browser audio decode
+    - SQLite through Python stdlib for public stack history metadata
+constraints:
+  - Only the public Voice Stack collection flow goes online; the local operator dashboard and audio-device runtime stay offline.
+  - Access is by private token link without user login.
+  - Expected collection window is about 20 invited users over 3-5 days.
+  - The initial seed Voice Stack is installed before opening the link to participants.
+  - MVP excludes user preview playback after recording.
+  - MVP must-pass browsers are current iOS Safari and Android Chrome on mobile.
+  - The public recorder uses getUserMedia and MediaRecorder.
+  - The client requests MediaRecorder audioBitsPerSecond around 128000 when supported.
+  - The server accepts any browser-produced MIME/container only if FFmpeg can decode it and the decoded audio passes MVP limits.
+  - Unsupported browsers or missing MediaRecorder/getUserMedia capability show an unsupported-browser message and do not upload.
+  - No broad desktop/browser compatibility expansion is in scope.
+  - No client-side transcoding is in scope.
+  - Maximum upload size is 25 MiB, implemented as 25 * 1024 * 1024 bytes and presented to users as 25 MB.
+  - Minimum recording duration is 3 seconds.
+  - The stop button is disabled until the recording timer reaches 3 seconds when the client can enforce it.
+  - Maximum recording duration is 10 minutes, implemented as 600 seconds.
+  - The UI tells users that the maximum recording time is 10 minutes.
+  - The server authoritatively validates upload size, decode success, minimum duration, and maximum duration.
+  - The client pre-checks actual Blob size before upload for immediate file-too-large feedback.
+  - Rejection messages use specific reasons; too_short, too_long, file_too_large, unsupported_browser, decode_failed, processing_failed, or lock_timeout.
+  - No silence detection.
+  - No loudness or quality scoring gate.
+  - No duplicate prevention.
+  - No manual admin review before commit.
+  - Uploaded originals are temporary processing inputs only and must be deleted on success and failure.
+  - Decoded temporary WAV files are deleted on success and failure.
+  - Public submissions do not create Voice Raw library items.
+  - Public submissions do not create accepted individual clips.
+  - Admin-visible storage contains accumulated Voice Stack WAV versions and stack metadata only, not individual voice files.
+  - Accepted recordings are committed under a single-instance file lock.
+  - The lock waits and retries rather than failing immediately.
+  - The accepted recording is always layered onto the latest active Voice Stack after the lock is acquired.
+  - If stack writing succeeds but settings/history persistence fails, rollback restores previous stack files/settings and removes orphan stack outputs.
+  - Once a public submission is committed to the Voice Stack, participant rollback is not supported.
+  - Every committed stack version remains downloadable by admin.
+  - Admin download access uses server-configured Basic Auth credentials.
+  - SQLite history records stack version metadata only; version id, parent id, stack path, duration, file size, hash, created_at, and add result metadata.
+  - Implement a separate public recorder FastAPI app, not the local operator runtime.
+  - Add Dockerfile.public-recorder for Render deployment.
+  - Add render.yaml for a Render web service with a persistent disk mounted for app data.
+  - Render target is Starter Web Service plus a 1 GB persistent disk unless implementation verification shows it needs more.
+  - Environment variables include PUBLIC_RECORDING_TOKEN, ADMIN_USERNAME, ADMIN_PASSWORD, PUBLIC_MAX_UPLOAD_BYTES, PUBLIC_STACK_LOCK_TIMEOUT_SECONDS, and APP_DATA_DIR.
+  - Static public recorder assets must be included in package data so installed deployments can serve them.
+acceptance_criteria:
+  - "AC1_token_access: GET /r/{token} renders the public recorder for the configured PUBLIC_RECORDING_TOKEN and rejects missing or wrong tokens without exposing the operator dashboard. Verify with route tests for valid token HTML, invalid token 403 or 404, and no operator dashboard route mounted by the public recorder app."
+  - "AC2_mobile_recording_ui: The recorder works on current iOS Safari and Android Chrome when MediaRecorder is available, records with getUserMedia, and lets users discard or re-record before submitting. Verify supported MediaRecorder path in JS/browser tests, manual iOS Safari and Android Chrome checklist, and visible re-record/discard/add controls before upload."
+  - "AC3_limit_display_and_client_gates: The UI displays 3 second minimum, 10 minute maximum, and 25 MB upload limits; disables stop before 3 seconds; auto-stops or blocks recording past 600 seconds; and pre-checks Blob size before upload. Verify JS tests for stop disabled under 3 seconds, max text includes 10 minutes, and Blob size > 25 * 1024 * 1024 shows file_too_large before upload."
+  - "AC4_server_validation: The server rejects invalid submissions with specific reason codes/messages for file_too_large, too_short, too_long, decode_failed or processing_failed, and unsupported_browser when applicable. Verify route/service tests for >25 MiB rejection, decoded duration <3 seconds and >600 seconds, undecodable upload, processing exception paths, and specific response detail codes/messages."
+  - "AC5_no_excluded_gates: The public submission path does not reject solely for silence, loudness, quality score, duplicate content, or missing admin review. Verify no is_effectively_silent/analyze_audio_levels gate in public_voice_stack.py, no admin approval state before commit, and the plan document removes stale silent-rejection examples."
+  - "AC6_latest_stack_commit_under_lock: Valid submissions are FFmpeg-decoded, processed with apply_recording_processing, and added through VoiceStackStore.add_processed_voice to the latest active stack after acquiring the file lock. Verify two commits make the second parent the first, lock-held waits/retries then lock_timeout after configured timeout, VoiceStackStore output path exists, and settings active.sources.voice_stack_path points to the committed stack."
+  - "AC7_cleanup_and_no_individual_retention: Success and failure paths leave no public-upload temp files, no Voice Raw item, and no accepted individual clip for public submissions. Verify data/recordings_temp/public-upload-* is empty after success/failure, no files under data/sources/voice/raw or data/processed/accepted are created, and UploadFile is closed/released after request handling."
+  - "AC8_rollback_on_partial_failure: If stack side effects occur but settings or SQLite history persistence fails, the service restores the previous stack/settings state and removes newly-created stack files. Verify injected history write failure restores voice_stack_raw/settings/history and removes orphan timestamped stack WAV files."
+  - "AC9_admin_history_downloads: Admin Basic Auth protects download/list endpoints, and authenticated admin can download latest and historical stack versions recorded in SQLite history. Verify unauthorized, wrong-password, and correct-password paths; list endpoint includes seed and commit versions; download endpoint returns FileResponse for each known version path."
+  - "AC10_render_deployment: The public recorder can be built and deployed as an isolated Render web service with Dockerfile.public-recorder, render.yaml, FFmpeg installed, package static assets included, and a 1 GB persistent disk for APP_DATA_DIR. Verify Dockerfile.public-recorder installs FFmpeg and starts uvicorn public app, render.yaml defines env vars and persistent disk, pyproject.toml includes python-multipart/filelock/package-data, and docs explain seed stack init, Render env vars, admin download, and post-collection shutdown."
+ontology_schema:
+  name: PublicVoiceStackRecorder
+  description: Brownfield extension that exposes only a short-lived mobile public recording flow, validates temporary browser audio, layers accepted audio into the latest Voice Stack, persists stack history, and deletes individual submission artifacts.
+  fields:
+    - name: publicRecorderApp
+      type: object
+      description: Separate FastAPI app for public token routes, upload handling, static recorder assets, and admin download routes.
+      required: true
+    - name: token
+      type: string
+      description: Private invitation token used by /r/{token} to authorize public recording access without login.
+      required: true
+    - name: mediaCaptureApi
+      type: object
+      description: Browser getUserMedia and MediaRecorder capability, MIME/container, and target audio bitrate metadata.
+      required: true
+    - name: browserSupport
+      type: object
+      description: Current iOS Safari or Android Chrome support status and unsupported-browser result when capture is unavailable.
+      required: true
+    - name: publicSubmission
+      type: object
+      description: One participant's temporary recording attempt before commit, including discard/re-record/add state.
+      required: true
+    - name: recordingBlob
+      type: object
+      description: Client-side MediaRecorder Blob with actual byte size used for pre-upload validation.
+      required: true
+    - name: uploadLimitBytes
+      type: integer
+      description: Maximum allowed upload size, 25 * 1024 * 1024 bytes.
+      required: true
+    - name: minDurationSeconds
+      type: number
+      description: Minimum accepted decoded duration, 3 seconds.
+      required: true
+    - name: maxDurationSeconds
+      type: number
+      description: Maximum accepted decoded duration, 600 seconds.
+      required: true
+    - name: validationResult
+      type: object
+      description: Client and server validation result with reason code for rejection.
+      required: true
+    - name: ffmpegDecode
+      type: object
+      description: Server-side decode step from uploaded browser container to temporary canonical WAV/audio buffer.
+      required: true
+    - name: decodedAudio
+      type: object
+      description: Temporary decoded audio representation used only during request processing.
+      required: true
+    - name: voiceStack
+      type: object
+      description: Existing latest active Voice Stack file and settings selection receiving accepted recordings.
+      required: true
+    - name: voiceStackCommit
+      type: object
+      description: Result of VoiceStackStore.add_processed_voice, including stack path and add metadata.
+      required: true
+    - name: stackVersion
+      type: object
+      description: Downloadable committed Voice Stack version recorded for admin history.
+      required: true
+    - name: processingLock
+      type: object
+      description: File lock that serializes latest-stack commit operations.
+      required: true
+    - name: sqliteHistory
+      type: object
+      description: Persistent SQLite metadata store for seed and commit stack versions.
+      required: true
+    - name: cleanupResult
+      type: object
+      description: Evidence that uploaded originals, decoded temp WAVs, Voice Raw artifacts, and accepted clip artifacts were absent or removed.
+      required: true
+    - name: voiceRawArtifact
+      type: object
+      description: Existing Voice Raw artifact category that public submissions must not create.
+      required: true
+    - name: acceptedClipArtifact
+      type: object
+      description: Existing accepted individual clip category that public submissions must not create.
+      required: true
+    - name: seedStack
+      type: object
+      description: Initial stack installed before collection and recorded in history as the first downloadable version.
+      required: true
+    - name: adminAuth
+      type: object
+      description: Server-configured Basic Auth credentials for version list and stack download endpoints.
+      required: true
+    - name: deploymentConfig
+      type: object
+      description: Render deployment configuration, env vars, app data directory, and operational documentation.
+      required: true
+    - name: dockerfile
+      type: object
+      description: Dockerfile.public-recorder image definition including FFmpeg and uvicorn startup.
+      required: true
+    - name: renderConfig
+      type: object
+      description: render.yaml service and disk configuration.
+      required: true
+    - name: persistentDisk
+      type: object
+      description: Render persistent disk mounted for SQLite history and Voice Stack WAV versions.
+      required: true
+    - name: runtimeIsolation
+      type: object
+      description: Boundary that keeps the public recorder independent from local audio-device/operator dashboard runtime.
+      required: true
+evaluation_principles:
+  - name: User-visible MVP completeness
+    description: Recorder supports invited mobile recording without login, preview playback, or dashboard exposure.
+    weight: 0.22
+  - name: Validation correctness
+    description: Capture, size, duration, decode, unsupported-browser, and specific rejection behavior match the agreed MVP gates.
+    weight: 0.20
+  - name: Data retention safety
+    description: Temporary uploads and per-submission artifacts are deleted or never created on every success and failure path.
+    weight: 0.20
+  - name: Stack integrity
+    description: Accepted recordings are serialized, layered onto the latest active stack, rolled back on partial failure, and preserved as downloadable committed versions.
+    weight: 0.22
+  - name: Brownfield fit and deployment simplicity
+    description: Implementation reuses existing Secret Pond patterns and remains deployable as an isolated Render service with persistent disk.
+    weight: 0.16
+exit_conditions:
+  - name: MVP implemented
+    description: Public recorder flow, validation, stack commit, cleanup, admin downloads, and deployment files satisfy all acceptance criteria.
+    criteria: AC1 through AC10 pass in local verification or are explicitly marked manual-release verified where real mobile devices/Render deploy are required.
+  - name: Unsupported and out-of-scope protected
+    description: Excluded gates and broad compatibility work are not added.
+    criteria: Public code path contains no silence/loudness/quality/duplicate/admin-review/client-transcoding/preview-playback implementation.
+  - name: Ready for short collection window
+    description: System is deployable and suitable for about 20 invited users over 3-5 days.
+    criteria: Seed stack init, Render configuration, persistent storage, token link, and Basic Auth admin download path are documented and smoke-tested.
+metadata:
+  seed_id: seed_2bfbf4c7f357
+  version: 1.1.0
+  created_at: '2026-06-28T22:34:48.539117Z'
+  revised_at: '2026-06-29T00:00:00+09:00'
+  ambiguity_score: 0.171
+  interview_id: interview_20260628_152245
+  parent_seed_id: null
+  generation_mode: qa_revised
+  qa_session_id: qa-ddbe96d1
+  degraded: false
+  unresolved_slots: []
+  recovery_reason: null
