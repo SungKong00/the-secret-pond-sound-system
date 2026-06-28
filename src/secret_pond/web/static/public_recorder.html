@@ -4,11 +4,51 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>The Secret Pond Voice Stack</title>
+    <link rel="stylesheet" href="/static/public_recorder.css" />
+    <script src="/static/public_recorder.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>Voice Stack</h1>
-      <p>최대 녹음 시간은 10분입니다.</p>
+    <main class="recorder-shell">
+      <section class="recorder" aria-labelledby="recorderTitle">
+        <p class="eyebrow">The Secret Pond</p>
+        <h1 id="recorderTitle">Voice Stack</h1>
+        <p class="summary">
+          녹음 원본 파일은 Voice Stack에 추가하는 처리에만 쓰이며, 단독 파일로 보관하거나
+          관리자에게 노출하지 않습니다.
+        </p>
+
+        <div class="limit-grid" aria-label="녹음 제한">
+          <div>
+            <span>최소</span>
+            <strong>3초</strong>
+          </div>
+          <div>
+            <span>최대</span>
+            <strong>10분</strong>
+          </div>
+          <div>
+            <span>업로드</span>
+            <strong>25MB</strong>
+          </div>
+        </div>
+
+        <div class="record-meter" aria-live="polite">
+          <span id="elapsedTime">0:00</span>
+          <span id="recordState">대기</span>
+        </div>
+
+        <div class="actions" aria-label="녹음 작업">
+          <button id="startButton" type="button" class="primary">녹음 시작</button>
+          <button id="stopButton" type="button" class="danger" disabled>녹음 중지</button>
+          <button id="rerecordButton" type="button" class="secondary" hidden>다시 녹음</button>
+          <button id="addButton" type="button" class="primary" hidden>Voice Stack에 추가</button>
+        </div>
+
+        <p class="rollback-note">
+          추가 후 다른 사람이 녹음하면 방금 추가한 내용도 되돌릴 수 없습니다.
+        </p>
+        <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
+      </section>
     </main>
   </body>
 </html>
