@@ -13,7 +13,11 @@ from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.voice_stack import VoiceStackAddResult, VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
-from secret_pond.services.file_snapshots import FileSnapshot, capture_file_snapshot, restore_file_snapshot
+from secret_pond.services.file_snapshots import (
+    FileSnapshot,
+    capture_file_snapshot,
+    restore_file_snapshot,
+)
 from secret_pond.services.public_settings import PublicRecorderSettings
 from secret_pond.services.public_stack_history import StackHistoryRecord, StackHistoryStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
@@ -97,7 +101,9 @@ class PublicVoiceStackService:
             sample_rate=active.audio.sample_rate,
             channels=active.audio.channels,
         )
-        duration_seconds = canonical.frames / canonical.sample_rate if canonical.sample_rate else 0.0
+        duration_seconds = (
+            canonical.frames / canonical.sample_rate if canonical.sample_rate else 0.0
+        )
         if duration_seconds < self._settings.minimum_duration_seconds:
             raise PublicVoiceStackError("too_short")
         if duration_seconds > self._settings.maximum_duration_seconds:

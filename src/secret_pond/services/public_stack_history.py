@@ -195,7 +195,9 @@ def _record_from_row(row: sqlite3.Row) -> StackHistoryRecord:
         peak_before_guard=None
         if row["peak_before_guard"] is None
         else float(row["peak_before_guard"]),
-        peak_after_guard=None if row["peak_after_guard"] is None else float(row["peak_after_guard"]),
+        peak_after_guard=None
+        if row["peak_after_guard"] is None
+        else float(row["peak_after_guard"]),
         gain_reduction_db=None
         if row["gain_reduction_db"] is None
         else float(row["gain_reduction_db"]),

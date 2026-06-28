@@ -16,8 +16,8 @@ from secret_pond.cli import (
     check_write_access,
     doctor_readiness_failures,
     doctor_report_to_payload,
-    run_public_recorder_init_seed,
     run_doctor,
+    run_public_recorder_init_seed,
 )
 from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings, VoiceStackSettings
 from secret_pond.paths import ProjectPaths

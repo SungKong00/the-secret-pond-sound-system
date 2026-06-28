@@ -73,10 +73,14 @@ def create_public_app(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     detail="file_too_large",
                 )
-            upload_path = paths.recordings_temp_dir / f"public-upload-{uuid4().hex}{_extension_for_upload(file)}"
+            upload_path = (
+                paths.recordings_temp_dir
+                / f"public-upload-{uuid4().hex}{_extension_for_upload(file)}"
+            )
             upload_path.write_bytes(content)
             try:
-                result = PublicVoiceStackService(paths, public_settings).add_upload_file(upload_path)
+                stack_service = PublicVoiceStackService(paths, public_settings)
+                result = stack_service.add_upload_file(upload_path)
             except PublicVoiceStackError as exc:
                 raise HTTPException(
                     status_code=_status_for_public_error(exc.code),
@@ -194,7 +198,10 @@ def _stack_path_for_record(paths: ProjectPaths, record: StackHistoryRecord) -> P
     try:
         resolved.relative_to(paths.root.resolve())
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="version_not_found",
+        ) from exc
     if not resolved.exists() or not resolved.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
     return resolved

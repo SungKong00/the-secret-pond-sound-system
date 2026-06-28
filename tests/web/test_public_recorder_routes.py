@@ -47,7 +47,10 @@ def write_take(path: Path, *, seconds: float = 3.0) -> None:
     frames = int(sample_rate * seconds)
     t = np.arange(frames, dtype=np.float32) / sample_rate
     tone = np.sin(2 * np.pi * 440.0 * t).astype(np.float32) * 0.04
-    write_wav_atomic(path, AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate))
+    write_wav_atomic(
+        path,
+        AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate),
+    )
 
 
 def prepare_settings(root: Path) -> None:
@@ -227,7 +230,10 @@ def test_public_recording_upload_maps_processing_exception_and_cleans_temp_file(
     monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
-    monkeypatch.setattr("secret_pond.public_app.PublicVoiceStackService", BrokenPublicVoiceStackService)
+    monkeypatch.setattr(
+        "secret_pond.public_app.PublicVoiceStackService",
+        BrokenPublicVoiceStackService,
+    )
     client = TestClient(create_public_app(root=tmp_path), raise_server_exceptions=False)
 
     response = client.post(

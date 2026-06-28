@@ -63,7 +63,10 @@ def write_take(path: Path, *, seconds: float = 3.0, amplitude: float = 0.04) -> 
     frames = int(sample_rate * seconds)
     t = np.arange(frames, dtype=np.float32) / sample_rate
     tone = np.sin(2 * np.pi * 440.0 * t).astype(np.float32) * amplitude
-    write_wav_atomic(path, AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate))
+    write_wav_atomic(
+        path,
+        AudioBuffer(samples=np.column_stack([tone, tone]), sample_rate=sample_rate),
+    )
 
 
 def service(tmp_path: Path, **settings_overrides) -> PublicVoiceStackService:
