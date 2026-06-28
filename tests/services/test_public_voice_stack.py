@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -118,6 +119,35 @@ def test_public_recording_deletes_upload_file_when_processing_fails(tmp_path: Pa
 
     assert not upload.exists()
     assert list(ProjectPaths(tmp_path).recordings_temp_dir.glob("public-upload-*")) == []
+
+
+def test_public_recording_rejects_too_long_take(tmp_path: Path) -> None:
+    upload = tmp_path / "too-long.wav"
+    write_take(upload, seconds=4.0)
+
+    with pytest.raises(PublicVoiceStackError, match="too_long"):
+        service(tmp_path, maximum_duration_seconds=3.0).add_decoded_wav(upload)
+
+
+def test_public_recording_maps_ffmpeg_decode_error_and_cleans_temp_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    paths.ensure_directories()
+    upload = paths.recordings_temp_dir / "public-upload-bad.webm"
+    upload.write_bytes(b"not audio")
+
+    def fail_ffmpeg(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr("secret_pond.services.public_voice_stack.subprocess.run", fail_ffmpeg)
+
+    with pytest.raises(PublicVoiceStackError, match="decode_failed"):
+        service(tmp_path).add_upload_file(upload)
+
+    assert not upload.exists()
+    assert list(paths.recordings_temp_dir.glob("public-upload-*")) == []
 
 
 def test_public_recording_times_out_when_stack_lock_is_held(tmp_path: Path) -> None:

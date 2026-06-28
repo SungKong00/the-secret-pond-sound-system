@@ -81,6 +81,12 @@ def create_public_app(
                     status_code=_status_for_public_error(exc.code),
                     detail=exc.code,
                 ) from exc
+            except Exception as exc:
+                upload_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="processing_failed",
+                ) from exc
             return {
                 "version_id": result.history_record.id,
                 "stack_path": result.history_record.stack_path,

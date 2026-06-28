@@ -72,7 +72,11 @@ class PublicVoiceStackService:
             "pcm_s16le",
             str(wav_path),
         ]
-        subprocess.run(command, check=True, capture_output=True)
+        try:
+            subprocess.run(command, check=True, capture_output=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            wav_path.unlink(missing_ok=True)
+            raise PublicVoiceStackError("decode_failed") from exc
         return wav_path
 
     def add_decoded_wav(self, wav_path: Path) -> PublicVoiceStackResult:

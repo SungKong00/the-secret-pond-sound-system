@@ -16,6 +16,7 @@ from secret_pond.config import (
 )
 from secret_pond.paths import ProjectPaths
 from secret_pond.public_app import create_public_app
+from secret_pond.services.public_settings import PublicRecorderSettings
 from secret_pond.services.public_stack_history import StackHistoryRecord, StackHistoryStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
@@ -177,6 +178,67 @@ def test_public_recording_upload_maps_too_short_to_specific_reason(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "too_short"
+
+
+def test_public_recording_upload_maps_too_long_to_specific_reason(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    prepare_settings(tmp_path)
+    upload = tmp_path / "too-long.wav"
+    write_take(upload, seconds=4.0)
+    client = TestClient(
+        create_public_app(
+            root=tmp_path,
+            settings=PublicRecorderSettings(
+                public_recording_token="record-token",
+                admin_username="admin",
+                admin_password="secret-password",
+                maximum_duration_seconds=3.0,
+            ),
+        )
+    )
+
+    with upload.open("rb") as handle:
+        response = client.post(
+            "/api/public/recordings",
+            headers={"X-Public-Recording-Token": "record-token"},
+            files={"file": ("too-long.wav", handle, "audio/wav")},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "too_long"
+
+
+def test_public_recording_upload_maps_processing_exception_and_cleans_temp_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class BrokenPublicVoiceStackService:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def add_upload_file(self, upload_path: Path):
+            raise RuntimeError("processing unavailable")
+
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    monkeypatch.setattr("secret_pond.public_app.PublicVoiceStackService", BrokenPublicVoiceStackService)
+    client = TestClient(create_public_app(root=tmp_path), raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/public/recordings",
+        headers={"X-Public-Recording-Token": "record-token"},
+        files={"file": ("take.wav", b"not used", "audio/wav")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "processing_failed"
+    assert list(ProjectPaths(tmp_path).recordings_temp_dir.glob("public-upload-*")) == []
 
 
 def test_admin_version_list_requires_basic_auth(tmp_path: Path, monkeypatch) -> None:
