@@ -16,6 +16,7 @@ from secret_pond.config import (
 )
 from secret_pond.paths import ProjectPaths
 from secret_pond.public_app import create_public_app
+from secret_pond.services.public_stack_history import StackHistoryRecord, StackHistoryStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
@@ -51,6 +52,34 @@ def write_take(path: Path, *, seconds: float = 3.0) -> None:
 def prepare_settings(root: Path) -> None:
     settings = app_settings()
     SettingsStore(ProjectPaths(root)).save(SettingsState(active=settings, draft=settings))
+
+
+def prepare_stack_history(root: Path) -> tuple[StackHistoryRecord, StackHistoryRecord]:
+    paths = ProjectPaths(root)
+    paths.ensure_directories()
+    seed_path = paths.voice_stack_sources_dir / "seed.wav"
+    commit_path = paths.voice_stack_sources_dir / "commit.wav"
+    seed_path.write_bytes(b"seed-stack")
+    commit_path.write_bytes(b"commit-stack")
+    store = StackHistoryStore(paths.public_history_file)
+    seed = store.record_seed(
+        stack_path=str(seed_path.relative_to(root)),
+        duration_seconds=10.0,
+        file_size=seed_path.stat().st_size,
+        sha256="a" * 64,
+    )
+    commit = store.record_commit(
+        parent_version_id=seed.id,
+        stack_path=str(commit_path.relative_to(root)),
+        duration_seconds=13.0,
+        file_size=commit_path.stat().st_size,
+        sha256="b" * 64,
+        added_chunks=1,
+        peak_before_guard=0.2,
+        peak_after_guard=0.2,
+        gain_reduction_db=0.0,
+    )
+    return seed, commit
 
 
 def test_public_recorder_renders_for_valid_token(tmp_path: Path, monkeypatch) -> None:
@@ -148,3 +177,66 @@ def test_public_recording_upload_maps_too_short_to_specific_reason(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "too_short"
+
+
+def test_admin_version_list_requires_basic_auth(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    prepare_stack_history(tmp_path)
+    client = TestClient(create_public_app(root=tmp_path))
+
+    missing = client.get("/admin/versions")
+    wrong = client.get("/admin/versions", auth=("admin", "wrong-password"))
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Basic"
+    assert wrong.status_code == 401
+
+
+def test_admin_version_list_returns_seed_and_commit_versions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    seed, commit = prepare_stack_history(tmp_path)
+    client = TestClient(create_public_app(root=tmp_path))
+
+    response = client.get("/admin/versions", auth=("admin", "secret-password"))
+
+    assert response.status_code == 200
+    versions = response.json()["versions"]
+    assert [version["id"] for version in versions] == [commit.id, seed.id]
+    assert versions[0]["parent_version_id"] == seed.id
+    assert versions[0]["kind"] == "commit"
+    assert versions[1]["kind"] == "seed"
+
+
+def test_admin_can_download_latest_and_historical_stack_versions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    seed, commit = prepare_stack_history(tmp_path)
+    client = TestClient(create_public_app(root=tmp_path))
+
+    latest = client.get("/admin/versions/latest/download", auth=("admin", "secret-password"))
+    seed_download = client.get(
+        f"/admin/versions/{seed.id}/download",
+        auth=("admin", "secret-password"),
+    )
+    commit_download = client.get(
+        f"/admin/versions/{commit.id}/download",
+        auth=("admin", "secret-password"),
+    )
+
+    assert latest.status_code == 200
+    assert latest.content == b"commit-stack"
+    assert seed_download.status_code == 200
+    assert seed_download.content == b"seed-stack"
+    assert commit_download.status_code == 200
+    assert commit_download.content == b"commit-stack"
