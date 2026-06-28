@@ -18,6 +18,9 @@ def test_project_paths_are_rooted_under_data_directory(tmp_path: Path) -> None:
     assert paths.voice_stack_sources_dir == tmp_path / "data" / "sources" / "voice" / "stack"
     assert paths.voice_manifest == tmp_path / "data" / "voice" / "voice_stack_manifest.json"
     assert paths.participant_count_file == tmp_path / "data" / "logs" / "participants.json"
+    assert paths.public_dir == tmp_path / "data" / "public"
+    assert paths.public_history_file == tmp_path / "data" / "public" / "stack_history.sqlite3"
+    assert paths.public_stack_lock_file == tmp_path / "data" / "public" / "voice_stack.lock"
 
 
 def test_ensure_directories_creates_runtime_directories(tmp_path: Path) -> None:
@@ -33,3 +36,4 @@ def test_ensure_directories_creates_runtime_directories(tmp_path: Path) -> None:
     assert paths.accepted_dir.is_dir()
     assert paths.rendered_layers_dir.is_dir()
     assert paths.config_dir.is_dir()
+    assert paths.public_dir.is_dir()

@@ -84,6 +84,18 @@ class ProjectPaths:
         return self.data_dir / "recordings_temp"
 
     @property
+    def public_dir(self) -> Path:
+        return self.data_dir / "public"
+
+    @property
+    def public_history_file(self) -> Path:
+        return self.public_dir / "stack_history.sqlite3"
+
+    @property
+    def public_stack_lock_file(self) -> Path:
+        return self.public_dir / "voice_stack.lock"
+
+    @property
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
 
@@ -118,6 +130,7 @@ class ProjectPaths:
             self.voice_dir,
             self.rendered_layers_dir,
             self.recordings_temp_dir,
+            self.public_dir,
             self.logs_dir,
             self.config_dir,
         ):

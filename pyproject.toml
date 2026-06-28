@@ -13,6 +13,8 @@ dependencies = [
   "sounddevice>=0.4.7",
   "soundfile>=0.12",
   "pedalboard>=0.9",
+  "filelock>=3.16",
+  "python-multipart>=0.0.12",
   "platformdirs>=4.2",
   "tzdata>=2025.2; sys_platform == 'win32'",
 ]
@@ -34,6 +36,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+secret_pond = ["web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
