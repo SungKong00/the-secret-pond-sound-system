@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import platform
+import shutil
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,13 +13,15 @@ from pathlib import Path
 
 from secret_pond.audio.device_readiness import build_device_warnings as shared_device_warnings
 from secret_pond.audio.devices import AudioDeviceInfo, AudioDeviceRegistry, SoundDeviceRegistry
+from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.renderer import LayerRenderer
 from secret_pond.audio.source_library import selected_source_path
 from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.device_inventory import device_payload
-from secret_pond.services.settings_store import SettingsStore
+from secret_pond.services.public_stack_history import StackHistoryStore
+from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 REQUIRED_NATIVE_DEPENDENCIES = ("numpy", "sounddevice", "soundfile", "scipy", "pedalboard")
 DOCTOR_SCHEMA_VERSION = 1
@@ -66,6 +70,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8000)
 
+    public_serve_parser = subparsers.add_parser(
+        "public-recorder-serve",
+        help="Run the public Voice Stack recorder web server.",
+    )
+    public_serve_parser.add_argument("--host", default="0.0.0.0")
+    public_serve_parser.add_argument("--port", type=int, default=8000)
+    public_serve_parser.add_argument("--root", type=Path, default=Path.cwd())
+
+    public_seed_parser = subparsers.add_parser(
+        "public-recorder-init-seed",
+        help="Install an initial Voice Stack WAV for the public recorder.",
+    )
+    public_seed_parser.add_argument("seed_stack", type=Path)
+    public_seed_parser.add_argument("--root", type=Path, default=Path.cwd())
+
     rebuild_parser = subparsers.add_parser(
         "rebuild-test-library",
         help="Rebuild the voice stack from test_library accepted clips.",
@@ -78,6 +97,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_doctor(args.root, output_json=args.output_json, strict=args.strict)
     if args.command == "serve":
         return run_serve(args.host, args.port)
+    if args.command == "public-recorder-serve":
+        return run_public_recorder_serve(args.host, args.port, args.root)
+    if args.command == "public-recorder-init-seed":
+        return run_public_recorder_init_seed(args.root, args.seed_stack)
     if args.command == "rebuild-test-library":
         return run_rebuild_test_library(args.root)
 
@@ -378,6 +401,50 @@ def run_serve(host: str, port: int) -> int:
     return 0
 
 
+def run_public_recorder_serve(host: str, port: int, root: Path) -> int:
+    import uvicorn
+
+    from secret_pond.public_app import create_public_app
+
+    uvicorn.run(create_public_app(root=root), host=host, port=port)
+    return 0
+
+
+def run_public_recorder_init_seed(root: Path, seed_stack: Path) -> int:
+    paths = ProjectPaths(root)
+    paths.ensure_directories()
+    if not seed_stack.exists() or not seed_stack.is_file():
+        print(f"Seed stack does not exist: {seed_stack}", file=sys.stderr)
+        return 1
+    if seed_stack.suffix.lower() != ".wav":
+        print("Seed stack must be a .wav file.", file=sys.stderr)
+        return 1
+
+    destination = _next_seed_stack_path(paths, seed_stack.name)
+    shutil.copyfile(seed_stack, destination)
+    shutil.copyfile(destination, paths.voice_stack_raw)
+
+    relative_stack_path = destination.relative_to(paths.root).as_posix()
+    settings_store = SettingsStore(paths)
+    state = settings_store.load()
+    active = _settings_with_public_seed_stack(state.active, relative_stack_path)
+    draft = _settings_with_public_seed_stack(state.draft, relative_stack_path)
+    settings_store.save(SettingsState(active=active, draft=draft))
+
+    loaded = read_wav(destination)
+    record = StackHistoryStore(paths.public_history_file).record_seed(
+        stack_path=relative_stack_path,
+        duration_seconds=loaded.frames / loaded.sample_rate if loaded.sample_rate else 0.0,
+        file_size=destination.stat().st_size,
+        sha256=_sha256_file(destination),
+    )
+
+    print("Seeded public Voice Stack")
+    print(f"  version_id={record.id}")
+    print(f"  stack_path={record.stack_path}")
+    return 0
+
+
 def run_rebuild_test_library(root: Path) -> int:
     paths = ProjectPaths(root)
     paths.ensure_directories()
@@ -410,6 +477,36 @@ def run_rebuild_test_library(root: Path) -> int:
     print(f"  peak_after_guard={stack_result.peak_after_guard:.6f}")
     print(f"  gain_reduction_db={stack_result.gain_reduction_db:.3f}")
     return 0
+
+
+def _settings_with_public_seed_stack(settings: AppSettings, stack_path: str) -> AppSettings:
+    return settings.model_copy(
+        update={
+            "voice_stack": settings.voice_stack.model_copy(update={"mode": "live_ephemeral"}),
+            "sources": settings.sources.model_copy(
+                update={"voice_raw_path": None, "voice_stack_path": stack_path}
+            ),
+        },
+        deep=True,
+    )
+
+
+def _next_seed_stack_path(paths: ProjectPaths, filename: str) -> Path:
+    stem = Path(filename).stem or "seed-stack"
+    candidate = paths.voice_stack_sources_dir / f"{stem}.wav"
+    counter = 2
+    while candidate.exists():
+        candidate = paths.voice_stack_sources_dir / f"{stem}-{counter}.wav"
+        counter += 1
+    return candidate
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 if __name__ == "__main__":

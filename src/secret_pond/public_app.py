@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 import secrets
 from pathlib import Path
 from typing import Annotated
@@ -24,7 +25,7 @@ def create_public_app(
     root: Path | None = None,
     settings: PublicRecorderSettings | None = None,
 ) -> FastAPI:
-    paths = ProjectPaths(Path.cwd() if root is None else root)
+    paths = ProjectPaths(_default_root() if root is None else root)
     paths.ensure_directories()
     public_settings = settings or PublicRecorderSettings.from_env()
 
@@ -122,6 +123,10 @@ def _extension_for_upload(file: UploadFile) -> str:
     if suffix and len(suffix) <= 16:
         return suffix
     return ".webm"
+
+
+def _default_root() -> Path:
+    return Path(os.environ.get("APP_DATA_DIR", Path.cwd()))
 
 
 def _status_for_public_error(code: str) -> int:

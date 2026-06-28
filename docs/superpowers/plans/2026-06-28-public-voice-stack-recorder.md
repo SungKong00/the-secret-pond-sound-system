@@ -62,7 +62,7 @@ User opens /r/{public_token}
   -> server waits on stack lock
   -> server reloads latest active settings/stack inside the lock
   -> server decodes upload to WAV with FFmpeg
-  -> server rejects too short, empty, or silent input
+  -> server rejects oversized, too short, too long, undecodable, or processing-failed input
   -> server runs existing recording processing
   -> server adds processed audio to latest Voice Stack
   -> server saves stack version metadata
@@ -118,7 +118,7 @@ Rules:
 Use a single Render instance and a process/file lock.
 
 ```text
-max_wait_seconds = 60
+lock_timeout_seconds = 30
 lock_path = data/public/voice_stack.lock
 ```
 
@@ -133,7 +133,7 @@ Inside the lock:
 
 If the lock times out:
 
-- Return HTTP 503 with a Korean message asking the user to retry.
+- Return a `lock_timeout` response and ask the user to retry.
 - Delete upload temp files before returning.
 - Do not create a stack history row.
 
@@ -708,7 +708,7 @@ from secret_pond.services.settings_store import SettingsState, SettingsStore
 def public_settings() -> AppSettings:
     return AppSettings(
         audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
-        input_control=InputControlSettings(minimum_recording_seconds=0.1, maximum_recording_seconds=20.0),
+        input_control=InputControlSettings(minimum_recording_seconds=3.0, maximum_recording_seconds=600.0),
         recording=RecordingProcessingSettings(
             gain_db=0.0,
             normalize_peak=0.2,
@@ -786,12 +786,12 @@ def test_public_recording_second_commit_uses_first_commit_as_parent(tmp_path: Pa
     assert first.history_record.stack_path != second.history_record.stack_path
 
 
-def test_public_recording_deletes_temp_files_when_processing_fails(tmp_path: Path) -> None:
+def test_public_recording_deletes_temp_files_when_validation_fails(tmp_path: Path) -> None:
     paths = ProjectPaths(tmp_path)
-    upload = tmp_path / "silent.wav"
-    write_take(upload, amplitude=0.0)
+    upload = tmp_path / "too-short.wav"
+    write_take(upload, seconds=1.0)
 
-    with pytest.raises(ValueError, match="silent"):
+    with pytest.raises(PublicVoiceStackError, match="too_short"):
         service(tmp_path).add_decoded_wav(upload)
 
     assert upload.exists()
@@ -807,7 +807,7 @@ def test_public_recording_times_out_when_stack_lock_is_held(tmp_path: Path) -> N
     stack_service = service(tmp_path, lock_timeout=0.01)
 
     with FileLock(paths.public_stack_lock_file, timeout=0):
-        with pytest.raises(RuntimeError, match="voice stack is busy"):
+        with pytest.raises(PublicVoiceStackError, match="lock_timeout"):
             stack_service.add_decoded_wav(upload)
 
     assert StackHistoryStore(paths.public_history_file).list_versions() == []
@@ -873,7 +873,6 @@ from filelock import FileLock, Timeout
 
 from secret_pond.audio.effects import apply_recording_processing
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
-from secret_pond.audio.level_analysis import analyze_audio_levels, is_effectively_silent
 from secret_pond.audio.voice_stack import VoiceStackAddResult, VoiceStackStore
 from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
@@ -948,8 +947,7 @@ class PublicVoiceStackService:
             ):
                 return self._add_decoded_wav_inside_lock(wav_path)
         except Timeout as exc:
-            msg = "voice stack is busy; retry after a moment"
-            raise RuntimeError(msg) from exc
+            raise PublicVoiceStackError("lock_timeout") from exc
 
     def _add_decoded_wav_inside_lock(self, wav_path: Path) -> PublicVoiceStackResult:
         current = self._settings_store.load()
@@ -963,13 +961,8 @@ class PublicVoiceStackService:
         if duration_seconds < active.input_control.minimum_recording_seconds:
             msg = "recording is too short"
             raise ValueError(msg)
-        if canonical.frames == 0:
-            msg = "recording is empty"
-            raise ValueError(msg)
-        levels = analyze_audio_levels(canonical)
-        if is_effectively_silent(levels):
-            msg = "recording is silent"
-            raise ValueError(msg)
+        if duration_seconds > self._public_settings.maximum_duration_seconds:
+            raise PublicVoiceStackError("too_long")
 
         snapshot = _capture_public_side_effects(self._paths, self._settings_store)
         try:
@@ -1154,7 +1147,7 @@ def public_settings() -> PublicRecorderSettings:
 def client(tmp_path: Path) -> TestClient:
     settings = AppSettings(
         audio=AudioFormatSettings(sample_rate=8_000, channels=2, loop_seconds=1),
-        input_control=InputControlSettings(minimum_recording_seconds=0.0, maximum_recording_seconds=20.0),
+        input_control=InputControlSettings(minimum_recording_seconds=3.0, maximum_recording_seconds=600.0),
         voice_stack=VoiceStackSettings(mode="live_ephemeral", loop_seconds=1, insert_gain_db=0.0),
     )
     SettingsStore(ProjectPaths(tmp_path)).save(SettingsState(active=settings, draft=settings))

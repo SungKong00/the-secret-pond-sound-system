@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: secret-pond-public-recorder
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile.public-recorder
+    autoDeploy: false
+    disk:
+      name: secret-pond-public-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_DATA_DIR
+        value: /var/data
+      - key: PUBLIC_RECORDING_TOKEN
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PUBLIC_MAX_UPLOAD_BYTES
+        value: "26214400"
+      - key: PUBLIC_STACK_LOCK_TIMEOUT_SECONDS
+        value: "30"

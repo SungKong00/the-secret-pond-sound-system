@@ -16,10 +16,12 @@ from secret_pond.cli import (
     check_write_access,
     doctor_readiness_failures,
     doctor_report_to_payload,
+    run_public_recorder_init_seed,
     run_doctor,
 )
 from secret_pond.config import AppSettings, AudioFormatSettings, DeviceSettings, VoiceStackSettings
 from secret_pond.paths import ProjectPaths
+from secret_pond.services.public_stack_history import StackHistoryStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 
@@ -498,6 +500,36 @@ def test_run_rebuild_test_library_rejects_manifest_without_test_library_entries(
     assert "test_library manifest has no accepted clips" in f"{captured.out}{captured.err}"
     assert paths.voice_stack_raw.read_bytes() == before_raw
     assert paths.voice_playback.read_bytes() == before_rendered
+
+
+def test_run_public_recorder_init_seed_copies_stack_and_records_history(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = rebuild_settings(mode="live_ephemeral")
+    save_settings(paths, settings)
+    seed_source = tmp_path / "seed-stack.wav"
+    write_wav_atomic(
+        seed_source,
+        AudioBuffer(samples=np.full((8_000, 2), 0.2, dtype=np.float32), sample_rate=8_000),
+    )
+
+    result = run_public_recorder_init_seed(tmp_path, seed_source)
+
+    output = capsys.readouterr().out
+    records = StackHistoryStore(paths.public_history_file).list_versions()
+    stored = SettingsStore(paths).load()
+    seeded_path = tmp_path / records[0].stack_path
+    assert result == 0
+    assert "Seeded public Voice Stack" in output
+    assert records[0].kind == "seed"
+    assert records[0].parent_version_id is None
+    assert records[0].stack_path == "data/sources/voice/stack/seed-stack.wav"
+    assert seeded_path.read_bytes() == seed_source.read_bytes()
+    assert paths.voice_stack_raw.read_bytes() == seed_source.read_bytes()
+    assert stored.active.sources.voice_stack_path == records[0].stack_path
+    assert stored.draft.sources.voice_stack_path == records[0].stack_path
 
 
 def rebuild_settings(*, mode: str) -> AppSettings:
