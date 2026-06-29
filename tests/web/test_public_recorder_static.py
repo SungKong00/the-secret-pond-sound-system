@@ -11,7 +11,7 @@ def public_recorder_script() -> str:
     return (STATIC_DIR / "public_recorder.js").read_text(encoding="utf-8")
 
 
-def test_public_recorder_html_links_assets_and_states_limits() -> None:
+def test_public_recorder_html_uses_confessional_copy_without_extra_notice_blocks() -> None:
     html = (STATIC_DIR / "public_recorder.html").read_text(encoding="utf-8")
 
     assert "public_recorder.css" in html
@@ -24,9 +24,20 @@ def test_public_recorder_html_links_assets_and_states_limits() -> None:
     assert "그만두기" in html
     assert "다시하기" in html
     assert "두고가기" in html
-    assert "3초" in html
-    assert "10분" in html
-    assert "25MB" in html
+    assert "limit-grid" not in html
+    assert "privacy-note" not in html
+    assert "rollback-note" not in html
+    assert "녹음 원본" not in html
+    assert "두고 간 뒤" not in html
+
+
+def test_public_recorder_css_is_dark_and_places_primary_actions_side_by_side() -> None:
+    css = (STATIC_DIR / "public_recorder.css").read_text(encoding="utf-8")
+
+    assert "color-scheme: dark" in css
+    assert "background: #050706" in css
+    assert ".actions" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
 
 
 def test_public_recorder_uses_confessional_status_copy() -> None:
