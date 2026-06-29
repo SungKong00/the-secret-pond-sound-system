@@ -185,8 +185,8 @@
 
   function mapUploadError(error) {
     const message = String(error?.message || "");
-    if (message.includes("recording_too_short")) return "녹음이 3초보다 짧습니다.";
-    if (message.includes("recording_too_long")) return "녹음이 10분보다 깁니다.";
+    if (message.includes("too_short")) return "녹음이 3초보다 짧습니다.";
+    if (message.includes("too_long")) return "녹음이 10분보다 깁니다.";
     if (message.includes("file_too_large")) return "파일이 너무 큽니다. 최대 25MB까지 업로드할 수 있습니다.";
     if (message.includes("invalid_token")) return "링크가 유효하지 않습니다.";
     if (message.includes("decode_failed")) return "녹음 파일을 처리하지 못했습니다. 다시 녹음해 주세요.";

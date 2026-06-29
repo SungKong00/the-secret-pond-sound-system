@@ -58,6 +58,39 @@ def test_public_recorder_blocks_large_blob_before_upload() -> None:
     )
 
 
+def test_public_recorder_maps_duration_rejection_codes_to_specific_messages() -> None:
+    script = public_recorder_script()
+
+    run_node_harness(
+        script,
+        dom_setup=PUBLIC_RECORDER_DOM_SETUP,
+        body="""
+        (async () => {
+          const api = window.SecretPondPublicRecorder._test;
+          const responses = [
+            { detail: "too_short", pattern: /녹음이 3초보다 짧습니다/ },
+            { detail: "too_long", pattern: /녹음이 10분보다 깁니다/ },
+          ];
+          for (const responseBody of responses) {
+            globalThis.fetch = async () => ({
+              ok: false,
+              json: async () => ({ detail: responseBody.detail }),
+            });
+            api.setRecordedBlob({ size: 1024, type: "audio/webm" });
+            await api.submitRecording();
+            assert.match(
+              document.getElementById("statusMessage").textContent,
+              responseBody.pattern,
+            );
+          }
+        })().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        """,
+    )
+
+
 PUBLIC_RECORDER_DOM_SETUP = """
 const elements = {};
 const makeElement = (id = "") => ({
