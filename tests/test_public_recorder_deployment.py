@@ -53,8 +53,14 @@ def test_operator_doc_covers_public_recorder_manual_steps() -> None:
     assert "ADMIN_USERNAME" in doc
     assert "ADMIN_PASSWORD" in doc
     assert "Basic Auth" in doc
+    assert "/admin" in doc
     assert "/admin/versions" in doc
     assert "/admin/versions/latest/download" in doc
+    assert "미리듣기" in doc
+    assert "삭제" in doc
+    assert "삭제되지 않은 최신" in doc
+    assert "러프 음량 보정" in doc
+    assert "RMS" in doc
     assert "3초" in doc
     assert "10분" in doc
     assert "25MB" in doc

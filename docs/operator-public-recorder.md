@@ -20,6 +20,9 @@ Privacy boundary:
 - 녹음 원본 파일은 저장하지 않습니다.
 - Uploaded originals and decoded temporary WAV files are processing inputs only.
 - Admin downloads contain accumulated Voice Stack versions and SQLite metadata, not individual voice files.
+- Public uploads pass through 러프 음량 보정 before they are added to the stack. The
+  guard uses RMS to leave normal recordings unchanged, boost only very quiet takes, attenuate
+  very loud takes, and keep the final peak under the safety ceiling.
 
 ## Render 배포 체크리스트
 
@@ -104,6 +107,16 @@ there is no participant rollback.
 
 Use Basic Auth with `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
 
+Open the admin page:
+
+```text
+GET /admin
+```
+
+The `/admin` page lists accumulated Voice Stack versions. It shows submission metadata,
+created time, duration, file size, added chunk count, level guard gain, 미리듣기 controls,
+download buttons, and a simple 삭제 button.
+
 List all stack versions:
 
 ```text
@@ -122,6 +135,37 @@ Download a historical stack:
 GET /admin/versions/<version_id>/download
 ```
 
+Preview a historical stack:
+
+```text
+GET /admin/versions/<version_id>/preview
+```
+
+Delete a stack version:
+
+```text
+DELETE /admin/versions/<version_id>
+```
+
+Deletion behavior:
+
+- The accumulated stack WAV file for that version is deleted.
+- The SQLite history row remains with `deleted_at` so the admin can still see that it existed.
+- Deleted versions cannot be used for 미리듣기 or download.
+- If the latest version is deleted, the next public recording stacks onto the 삭제되지 않은 최신
+  version.
+- If every version is deleted, seed the initial stack again before reopening collection.
+
+Rough level guard:
+
+- The guard checks RMS after normal recording processing and before adding to Voice Stack.
+- RMS below `-32 dBFS` is treated as too quiet and is boosted toward `-28 dBFS`, capped at
+  `+9 dB`.
+- RMS from `-32 dBFS` through `-18 dBFS` is treated as normal and is not changed.
+- RMS above `-18 dBFS` is treated as too loud and is attenuated toward `-21 dBFS`.
+- Final peak is capped at `0.80` to avoid unexpectedly hot uploads.
+- This is intentionally coarse normalization, not exact LUFS matching.
+
 Admin download verification:
 
 1. Visit `https://<render-service-host>/admin/versions`.
@@ -130,6 +174,8 @@ Admin download verification:
 4. Visit `https://<render-service-host>/admin/versions/latest/download`.
 5. Confirm the downloaded WAV is the latest accumulated Voice Stack, not an individual
    participant recording.
+6. Visit `https://<render-service-host>/admin` and confirm preview, download, and delete
+   controls render.
 
 ## Post-Deploy Mobile Checklist
 
