@@ -25,6 +25,12 @@ from secret_pond.services.public_settings import PublicRecorderSettings
 from secret_pond.services.public_stack_history import StackHistoryRecord, StackHistoryStore
 from secret_pond.services.settings_store import SettingsState, SettingsStore
 
+_EDGE_TRIM_FRAME_MS = 20.0
+_EDGE_TRIM_PADDING_MS = 250.0
+_EDGE_TRIM_ABSOLUTE_FLOOR = 0.0015
+_EDGE_TRIM_RELATIVE_PEAK = 0.03
+_EDGE_TRIM_MIN_RETAIN_SECONDS = 0.5
+
 
 class PublicVoiceStackError(ValueError):
     def __init__(self, code: str) -> None:
@@ -125,7 +131,10 @@ class PublicVoiceStackService:
 
         snapshot = self._capture_snapshot()
         try:
-            processed = apply_recording_processing(canonical, active.recording)
+            if parent_record is None:
+                _reset_empty_public_stack_base(self._paths, active)
+            trimmed = _trim_edge_waiting(canonical)
+            processed = apply_recording_processing(trimmed, active.recording)
             level_guard = _apply_public_level_guard(processed, self._settings)
             add_result = self._voice_stack.add_processed_voice(
                 level_guard.buffer,
@@ -190,6 +199,50 @@ def _public_active_settings(settings: AppSettings) -> AppSettings:
     )
 
 
+def _reset_empty_public_stack_base(paths: ProjectPaths, settings: AppSettings) -> None:
+    settings.sources.voice_stack_path = None
+    paths.voice_stack_raw.unlink(missing_ok=True)
+    paths.voice_manifest.unlink(missing_ok=True)
+
+
+def _trim_edge_waiting(buffer: AudioBuffer) -> AudioBuffer:
+    samples = buffer.samples
+    if samples.shape[0] == 0:
+        return buffer
+
+    peak = _peak(samples)
+    if peak <= 0.0:
+        return buffer
+
+    frame_size = max(1, int(round(buffer.sample_rate * (_EDGE_TRIM_FRAME_MS / 1000.0))))
+    threshold = max(_EDGE_TRIM_ABSOLUTE_FLOOR, peak * _EDGE_TRIM_RELATIVE_PEAK)
+    active_windows: list[int] = []
+    for window_index, start in enumerate(range(0, samples.shape[0], frame_size)):
+        window = samples[start : start + frame_size]
+        if _rms(window) >= threshold:
+            active_windows.append(window_index)
+
+    if not active_windows:
+        return buffer
+
+    padding = int(round(buffer.sample_rate * (_EDGE_TRIM_PADDING_MS / 1000.0)))
+    start_frame = max(0, active_windows[0] * frame_size - padding)
+    end_frame = min(samples.shape[0], (active_windows[-1] + 1) * frame_size + padding)
+    min_retain_frames = min(
+        samples.shape[0],
+        int(round(buffer.sample_rate * _EDGE_TRIM_MIN_RETAIN_SECONDS)),
+    )
+    if end_frame - start_frame < min_retain_frames:
+        return buffer
+    if start_frame == 0 and end_frame == samples.shape[0]:
+        return buffer
+
+    return AudioBuffer(
+        samples=samples[start_frame:end_frame].copy(),
+        sample_rate=buffer.sample_rate,
+    )
+
+
 def _apply_public_level_guard(
     buffer: AudioBuffer,
     settings: PublicRecorderSettings,
@@ -233,10 +286,16 @@ def _apply_gain_db(samples: np.ndarray, gain_db: float) -> np.ndarray:
 def _rms_dbfs(samples: np.ndarray) -> float:
     if samples.shape[0] == 0:
         return -120.0
-    rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32, copy=False)))))
+    rms = _rms(samples)
     if rms <= 0.0 or not np.isfinite(rms):
         return -120.0
     return 20.0 * log10(rms)
+
+
+def _rms(samples: np.ndarray) -> float:
+    if samples.shape[0] == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(samples.astype(np.float32, copy=False)))))
 
 
 def _peak(samples: np.ndarray) -> float:

@@ -76,6 +76,59 @@ def service(tmp_path: Path, **settings_overrides) -> PublicVoiceStackService:
     return PublicVoiceStackService(paths, public_settings(**settings_overrides))
 
 
+def test_public_recording_trims_edge_waiting_before_offset_mix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = app_settings()
+    settings.voice_stack.loop_seconds = 10
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    sample_rate = settings.audio.sample_rate
+    upload = tmp_path / "leading-wait.wav"
+    frames = 6 * sample_rate
+    samples = np.zeros((frames, 2), dtype=np.float32)
+    t = np.arange(3 * sample_rate, dtype=np.float32) / sample_rate
+    tone = np.sin(2 * np.pi * 440.0 * t).astype(np.float32) * 0.08
+    samples[2 * sample_rate : 5 * sample_rate] = np.column_stack([tone, tone])
+    write_wav_atomic(upload, AudioBuffer(samples=samples, sample_rate=sample_rate))
+
+    monkeypatch.setattr(
+        "secret_pond.audio.voice_stack._deterministic_offset",
+        lambda **_kwargs: 3 * sample_rate,
+    )
+
+    service = PublicVoiceStackService(paths, public_settings())
+    service.add_decoded_wav(upload)
+    stack = read_wav(paths.voice_stack_raw)
+    offset_window = stack.samples[int(3.5 * sample_rate) : int(4.5 * sample_rate)]
+
+    assert float(np.sqrt(np.mean(offset_window * offset_window))) > 0.01
+
+
+def test_public_recording_without_history_ignores_stale_raw_stack(
+    tmp_path: Path,
+) -> None:
+    paths = ProjectPaths(tmp_path)
+    settings = app_settings()
+    settings.voice_stack.loop_seconds = 3
+    SettingsStore(paths).save(SettingsState(active=settings, draft=settings))
+    paths.ensure_directories()
+    stale = np.ones((3 * settings.audio.sample_rate, 2), dtype=np.float32) * 0.3
+    write_wav_atomic(paths.voice_stack_raw, AudioBuffer(samples=stale, sample_rate=8_000))
+    paths.voice_manifest.write_text(
+        '{"schema_version": 1, "revision": 7, "entries": [{"id": "stale"}]}',
+        encoding="utf-8",
+    )
+    upload = tmp_path / "upload.wav"
+    write_take(upload, seconds=3.0, amplitude=0.04)
+
+    PublicVoiceStackService(paths, public_settings()).add_decoded_wav(upload)
+    stack = read_wav(paths.voice_stack_raw)
+
+    assert abs(float(np.mean(stack.samples))) < 0.05
+
+
 def test_public_recording_adds_latest_stack_without_voice_raw(tmp_path: Path) -> None:
     upload = tmp_path / "upload.wav"
     write_take(upload)
