@@ -304,6 +304,71 @@ def test_admin_version_list_returns_seed_and_commit_versions(
     assert versions[1]["kind"] == "seed"
 
 
+def test_admin_can_upload_stack_version_as_latest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    seed, _commit = prepare_stack_history(tmp_path)
+    prepare_settings(tmp_path)
+    upload = tmp_path / "uploaded-stack.wav"
+    write_take(upload, seconds=4.0)
+    upload_bytes = upload.read_bytes()
+    client = TestClient(create_public_app(root=tmp_path))
+
+    with upload.open("rb") as handle:
+        response = client.post(
+            "/admin/versions/upload",
+            auth=("admin", "secret-password"),
+            files={"file": ("uploaded-stack.wav", handle, "audio/wav")},
+        )
+    latest = client.get("/admin/versions/latest/download", auth=("admin", "secret-password"))
+    versions = client.get("/admin/versions", auth=("admin", "secret-password")).json()[
+        "versions"
+    ]
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+
+    assert response.status_code == 201
+    payload = response.json()["version"]
+    assert payload["kind"] == "upload"
+    assert payload["parent_version_id"] == versions[1]["id"]
+    assert payload["stack_path"].startswith("data/sources/voice/stack/")
+    assert versions[0]["id"] == payload["id"]
+    assert latest.status_code == 200
+    assert latest.content == upload_bytes
+    assert (tmp_path / payload["stack_path"]).read_bytes() == upload_bytes
+    assert ProjectPaths(tmp_path).voice_stack_raw.read_bytes() == upload_bytes
+    assert stored.active.sources.voice_stack_path == payload["stack_path"]
+    assert stored.draft.sources.voice_stack_path == payload["stack_path"]
+    assert seed.id in [version["id"] for version in versions]
+
+
+def test_admin_stack_upload_requires_auth_and_valid_wav(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    client = TestClient(create_public_app(root=tmp_path))
+
+    missing_auth = client.post(
+        "/admin/versions/upload",
+        files={"file": ("stack.wav", b"not-a-wav", "audio/wav")},
+    )
+    invalid_wav = client.post(
+        "/admin/versions/upload",
+        auth=("admin", "secret-password"),
+        files={"file": ("stack.wav", b"not-a-wav", "audio/wav")},
+    )
+
+    assert missing_auth.status_code == 401
+    assert invalid_wav.status_code == 422
+    assert invalid_wav.json()["detail"] == "invalid_stack_upload"
+
+
 def test_admin_can_preview_and_download_latest_and_historical_stack_versions(
     tmp_path: Path,
     monkeypatch,

@@ -17,6 +17,8 @@ def test_public_admin_html_links_assets_and_admin_shell() -> None:
     assert "Voice Stack Admin" in html
     assert "public_admin.css" in html
     assert "public_admin.js" in html
+    assert "stackUploadInput" in html
+    assert "uploadStackButton" in html
     assert "versionsList" in html
 
 
@@ -111,6 +113,47 @@ def test_public_admin_confirms_before_delete() -> None:
     )
 
 
+def test_public_admin_uploads_selected_stack_file() -> None:
+    script = public_admin_script()
+
+    run_node_harness(
+        script,
+        dom_setup=PUBLIC_ADMIN_DOM_SETUP,
+        body="""
+        (async () => {
+          const api = window.SecretPondPublicAdmin._test;
+          const selectedFile = { name: "stack.wav", size: 1234 };
+          document.getElementById("stackUploadInput").files = [selectedFile];
+          let uploadRequest = null;
+          let loadCount = 0;
+          globalThis.FormData = function FormData() {
+            this.items = [];
+            this.append = (name, value) => this.items.push({ name, value });
+          };
+          globalThis.fetch = async (url, options = {}) => {
+            if (url === "/admin/versions") {
+              loadCount += 1;
+              return { ok: true, json: async () => ({ versions: [] }) };
+            }
+            uploadRequest = { url, method: options.method, body: options.body };
+            return { ok: true, json: async () => ({ version: { id: "uploaded" } }) };
+          };
+
+          await api.uploadStack();
+
+          assert.strictEqual(uploadRequest.url, "/admin/versions/upload");
+          assert.strictEqual(uploadRequest.method, "POST");
+          assert.deepStrictEqual(uploadRequest.body.items, [{ name: "file", value: selectedFile }]);
+          assert.strictEqual(loadCount, 1);
+          assert.match(document.getElementById("statusMessage").textContent, /업로드했습니다/);
+        })().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        """,
+    )
+
+
 PUBLIC_ADMIN_DOM_SETUP = """
 const elements = {};
 function makeElement(tagName = "div", id = "") {
@@ -124,6 +167,7 @@ function makeElement(tagName = "div", id = "") {
     src: "",
     preload: "",
     controls: false,
+    files: [],
     children: [],
     dataset: {},
     attributes: {},

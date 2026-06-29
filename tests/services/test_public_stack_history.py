@@ -36,6 +36,31 @@ def test_stack_history_records_seed_and_commits(tmp_path: Path) -> None:
     assert store.latest().id == commit.id
 
 
+def test_stack_history_records_admin_upload_as_latest_version(tmp_path: Path) -> None:
+    store = StackHistoryStore(tmp_path / "history.sqlite3")
+    seed = store.record_seed(
+        stack_path="data/sources/voice/stack/seed.wav",
+        duration_seconds=60.0,
+        file_size=100,
+        sha256="seed-sha",
+    )
+
+    upload = store.record_upload(
+        parent_version_id=seed.id,
+        stack_path="data/sources/voice/stack/upload.wav",
+        duration_seconds=60.0,
+        file_size=300,
+        sha256="upload-sha",
+    )
+
+    records = store.list_versions()
+    assert [record.id for record in records] == [upload.id, seed.id]
+    assert upload.kind == "upload"
+    assert upload.parent_version_id == seed.id
+    assert upload.added_chunks == 0
+    assert store.latest().id == upload.id
+
+
 def test_stack_history_gets_version_by_id(tmp_path: Path) -> None:
     store = StackHistoryStore(tmp_path / "history.sqlite3")
     record = store.record_seed(

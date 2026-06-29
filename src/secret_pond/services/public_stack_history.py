@@ -84,6 +84,28 @@ class StackHistoryStore:
             level_guard_peak_after=level_guard_peak_after,
         )
 
+    def record_upload(
+        self,
+        *,
+        parent_version_id: str | None,
+        stack_path: str,
+        duration_seconds: float,
+        file_size: int,
+        sha256: str,
+    ) -> StackHistoryRecord:
+        return self._insert(
+            kind="upload",
+            parent_version_id=parent_version_id,
+            stack_path=stack_path,
+            duration_seconds=duration_seconds,
+            file_size=file_size,
+            sha256=sha256,
+            added_chunks=0,
+            peak_before_guard=None,
+            peak_after_guard=None,
+            gain_reduction_db=None,
+        )
+
     def latest(self) -> StackHistoryRecord | None:
         with self._connect() as connection:
             row = connection.execute(

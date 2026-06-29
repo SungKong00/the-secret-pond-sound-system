@@ -55,7 +55,10 @@ def test_operator_doc_covers_public_recorder_manual_steps() -> None:
     assert "Basic Auth" in doc
     assert "/admin" in doc
     assert "/admin/versions" in doc
+    assert "/admin/versions/upload" in doc
     assert "/admin/versions/latest/download" in doc
+    assert "Upload Voice Stack" in doc
+    assert "새 최신 누적 스택" in doc
     assert "미리듣기" in doc
     assert "삭제" in doc
     assert "삭제되지 않은 최신" in doc

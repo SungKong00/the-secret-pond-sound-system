@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
 import secrets
 from pathlib import Path
@@ -12,10 +13,14 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, s
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from secret_pond.audio.file_io import read_wav
+from secret_pond.audio.voice_stack_naming import next_voice_stack_path
+from secret_pond.config import AppSettings
 from secret_pond.paths import ProjectPaths
 from secret_pond.services.public_settings import PublicRecorderSettings
 from secret_pond.services.public_stack_history import StackHistoryRecord, StackHistoryStore
 from secret_pond.services.public_voice_stack import PublicVoiceStackError, PublicVoiceStackService
+from secret_pond.services.settings_store import SettingsState, SettingsStore
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -114,6 +119,26 @@ def create_public_app(
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
         return _download_response_for_record(paths, record)
+
+    @app.post(
+        "/admin/versions/upload",
+        dependencies=[Depends(require_admin)],
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_admin_stack_version(
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, dict[str, str | int | float | None]]:
+        try:
+            content = await file.read(public_settings.max_upload_bytes + 1)
+            if len(content) > public_settings.max_upload_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail="file_too_large",
+                )
+            record = _store_admin_uploaded_stack(paths, content)
+            return {"version": _history_record_to_dict(record)}
+        finally:
+            await file.close()
 
     @app.get("/admin/versions/{version_id}/preview", dependencies=[Depends(require_admin)])
     def preview_stack_version(version_id: str) -> FileResponse:
@@ -215,6 +240,55 @@ def _history_record_to_dict(
     }
 
 
+def _store_admin_uploaded_stack(paths: ProjectPaths, content: bytes) -> StackHistoryRecord:
+    paths.ensure_directories()
+    temp_path = paths.recordings_temp_dir / f"admin-stack-upload-{uuid4().hex}.wav"
+    temp_path.write_bytes(content)
+    try:
+        try:
+            loaded = read_wav(temp_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="invalid_stack_upload",
+            ) from exc
+
+        stack_path = next_voice_stack_path(paths)
+        stack_path.write_bytes(content)
+        paths.voice_stack_raw.write_bytes(content)
+        relative_stack_path = stack_path.relative_to(paths.root).as_posix()
+
+        settings_store = SettingsStore(paths)
+        state = settings_store.load()
+        active = _settings_with_admin_uploaded_stack(state.active, relative_stack_path)
+        draft = _settings_with_admin_uploaded_stack(state.draft, relative_stack_path)
+        settings_store.save(SettingsState(active=active, draft=draft))
+
+        history = StackHistoryStore(paths.public_history_file)
+        parent = history.latest()
+        return history.record_upload(
+            parent_version_id=None if parent is None else parent.id,
+            stack_path=relative_stack_path,
+            duration_seconds=loaded.frames / loaded.sample_rate if loaded.sample_rate else 0.0,
+            file_size=stack_path.stat().st_size,
+            sha256=_sha256_file(stack_path),
+        )
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _settings_with_admin_uploaded_stack(settings: AppSettings, stack_path: str) -> AppSettings:
+    return settings.model_copy(
+        update={
+            "voice_stack": settings.voice_stack.model_copy(update={"mode": "live_ephemeral"}),
+            "sources": settings.sources.model_copy(
+                update={"voice_raw_path": None, "voice_stack_path": stack_path}
+            ),
+        },
+        deep=True,
+    )
+
+
 def _download_response_for_record(paths: ProjectPaths, record: StackHistoryRecord) -> FileResponse:
     stack_path = _stack_path_for_record(paths, record)
     return FileResponse(
@@ -254,3 +328,11 @@ def _stack_path_for_record(
     if require_exists and (not resolved.exists() or not resolved.is_file()):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
     return resolved
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

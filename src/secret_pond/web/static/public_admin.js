@@ -5,7 +5,9 @@
 
   function init() {
     const refreshButton = document.getElementById("refreshButton");
+    const uploadButton = document.getElementById("uploadStackButton");
     if (refreshButton) refreshButton.addEventListener("click", loadVersions);
+    if (uploadButton) uploadButton.addEventListener("click", uploadStack);
     loadVersions();
   }
 
@@ -111,12 +113,42 @@
     setStatus("삭제했습니다.");
   }
 
+  async function uploadStack() {
+    const input = document.getElementById("stackUploadInput");
+    const uploadButton = document.getElementById("uploadStackButton");
+    const file = input?.files?.[0];
+    if (!file) {
+      setStatus("업로드할 WAV 파일을 선택해 주세요.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (uploadButton) uploadButton.disabled = true;
+    setStatus("Uploading stack...");
+    try {
+      const response = await fetch("/admin/versions/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("upload_failed");
+      if (input) input.value = "";
+      await loadVersions();
+      setStatus("업로드했습니다.");
+    } catch (error) {
+      setStatus("스택을 업로드하지 못했습니다. WAV 파일인지 확인해 주세요.");
+    } finally {
+      if (uploadButton) uploadButton.disabled = false;
+    }
+  }
+
   function setStatus(message) {
     const element = document.getElementById("statusMessage");
     if (element) element.textContent = message;
   }
 
   function labelKind(kind) {
+    if (kind === "upload") return "Upload";
     return kind === "seed" ? "Seed" : "Submission";
   }
 
@@ -148,6 +180,7 @@
       deleteVersion,
       loadVersions,
       renderVersions,
+      uploadStack,
       state,
     },
   };

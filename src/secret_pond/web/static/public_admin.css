@@ -49,6 +49,7 @@ a[aria-disabled="true"] {
 
 .admin-header,
 .summary-bar,
+.upload-panel,
 .version-card {
   border: 1px solid #454545;
 }
@@ -86,6 +87,37 @@ h1 {
   display: flex;
   justify-content: space-between;
   gap: 16px;
+  color: #d8d8d8;
+}
+
+.upload-panel {
+  margin-top: 16px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.upload-panel h2 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.upload-panel p {
+  color: #bdbdbd;
+}
+
+.upload-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+input[type="file"] {
+  max-width: min(360px, 100%);
   color: #d8d8d8;
 }
 
@@ -141,8 +173,13 @@ audio {
 
   .admin-header,
   .summary-bar,
+  .upload-panel,
   .version-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .upload-controls {
+    justify-content: stretch;
   }
 }

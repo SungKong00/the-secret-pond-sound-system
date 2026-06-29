@@ -117,6 +117,23 @@ The `/admin` page lists accumulated Voice Stack versions. It shows submission me
 created time, duration, file size, added chunk count, level guard gain, 미리듣기 controls,
 download buttons, and a simple 삭제 button.
 
+Admin stack upload:
+
+- Use the `Upload Voice Stack` control on `/admin` to upload a WAV stack.
+- Uploaded admin stacks are stored as accumulated Voice Stack versions, not participant
+  source recordings.
+- The uploaded WAV becomes the 새 최신 누적 스택 immediately.
+- The server mirrors the uploaded WAV to `data/voice/voice_stack_raw.wav`, updates active
+  and draft `voice_stack_path`, and records the history row as `kind=upload`.
+- The next public recording stacks onto that uploaded version.
+- Only Basic Auth admins can upload or download stack versions.
+
+Upload a stack version through the API:
+
+```text
+POST /admin/versions/upload
+```
+
 List all stack versions:
 
 ```text
