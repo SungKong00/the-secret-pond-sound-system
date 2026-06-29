@@ -51,7 +51,7 @@ button:disabled {
 .eyebrow {
   margin: 0 0 8px;
   color: #c4a36c;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -66,13 +66,12 @@ h1 {
 
 .intro-copy {
   margin: 16px 0 0;
-  color: #c8d0c7;
-  line-height: 1.6;
-}
-
-.intro-copy {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  color: #aeb9b0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.72;
 }
 
 .intro-copy p {
@@ -81,13 +80,21 @@ h1 {
 
 .intro-copy .assurance {
   color: #fff7e9;
-  font-size: 1.06rem;
+  font-size: 1.05rem;
   font-weight: 800;
   line-height: 1.55;
 }
 
-.status {
+.intro-copy .confession-line {
   font-size: 0.94rem;
+  font-weight: 600;
+  line-height: 1.58;
+  color: #d9ded5;
+}
+
+.intro-copy .stack-line,
+.intro-copy .invitation-line {
+  color: #aeb9b0;
 }
 
 .record-meter {
@@ -99,6 +106,7 @@ h1 {
   border-radius: 8px;
   background: #151d18;
   color: #e7f2ea;
+  font-size: 1rem;
   font-weight: 800;
 }
 
@@ -133,6 +141,8 @@ h1 {
   min-height: 1.6em;
   margin: 14px 0 0;
   color: #aebbb2;
+  font-size: 0.875rem;
+  font-weight: 400;
   line-height: 1.5;
 }
 

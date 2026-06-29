@@ -24,6 +24,9 @@ def test_public_recorder_html_uses_confessional_copy_without_extra_notice_blocks
     assert "그만두기" in html
     assert "다시하기" in html
     assert "두고가기" in html
+    assert 'class="stack-line"' in html
+    assert 'class="confession-line"' in html
+    assert 'class="invitation-line"' in html
     assert "limit-grid" not in html
     assert "privacy-note" not in html
     assert "rollback-note" not in html
@@ -38,6 +41,19 @@ def test_public_recorder_css_is_dark_and_places_primary_actions_side_by_side() -
     assert "background: #050706" in css
     assert ".actions" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
+
+
+def test_public_recorder_css_sets_typographic_hierarchy() -> None:
+    css = (STATIC_DIR / "public_recorder.css").read_text(encoding="utf-8")
+
+    assert ".intro-copy {" in css
+    assert "font-size: 0.875rem;" in css
+    assert ".intro-copy .assurance" in css
+    assert "font-size: 1.05rem;" in css
+    assert ".intro-copy .confession-line" in css
+    assert "font-size: 0.94rem;" in css
+    assert ".status {" in css
+    assert "font-size: 0.875rem;" in css
 
 
 def test_public_recorder_uses_confessional_status_copy() -> None:
