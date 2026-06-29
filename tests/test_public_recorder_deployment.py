@@ -41,16 +41,29 @@ def test_public_recorder_deployment_files_define_render_runtime() -> None:
 def test_operator_doc_covers_public_recorder_manual_steps() -> None:
     doc = Path("docs/operator-public-recorder.md").read_text(encoding="utf-8")
 
+    assert "Render 배포 체크리스트" in doc
+    assert "Dockerfile.public-recorder" in doc
+    assert "render.yaml" in doc
+    assert "Persistent Disk" in doc
+    assert "APP_DATA_DIR=/var/data" in doc
+    assert "PUBLIC_MAX_UPLOAD_BYTES=26214400" in doc
+    assert "PUBLIC_STACK_LOCK_TIMEOUT_SECONDS=30" in doc
     assert "public-recorder-init-seed" in doc
     assert "PUBLIC_RECORDING_TOKEN" in doc
     assert "ADMIN_USERNAME" in doc
     assert "ADMIN_PASSWORD" in doc
+    assert "Basic Auth" in doc
     assert "/admin/versions" in doc
     assert "/admin/versions/latest/download" in doc
     assert "3초" in doc
     assert "10분" in doc
     assert "25MB" in doc
     assert "녹음 원본 파일은 저장하지 않습니다" in doc
+    assert "iOS Safari" in doc
+    assert "Android Chrome" in doc
+    assert "마이크 권한" in doc
+    assert "3초 전에는 녹음 중지" in doc
+    assert "Voice Stack에 추가" in doc
     assert "수집 종료" in doc
 
 

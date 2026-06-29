@@ -21,16 +21,44 @@ Privacy boundary:
 - Uploaded originals and decoded temporary WAV files are processing inputs only.
 - Admin downloads contain accumulated Voice Stack versions and SQLite metadata, not individual voice files.
 
-## Required Environment
+## Render 배포 체크리스트
+
+Deploy this service as a short-lived Render Web Service.
+
+1. Create the service from the repository Blueprint using `render.yaml`, or create a
+   Docker Web Service manually with `Dockerfile.public-recorder`.
+2. Confirm the service uses Docker runtime, exposes port `${PORT:-8000}`, and starts with
+   `uvicorn secret_pond.public_app:create_public_app --factory --host 0.0.0.0`.
+3. Keep `autoDeploy: false` for the collection window so production changes are intentional.
+4. Attach a Persistent Disk named `secret-pond-public-data` at `/var/data` with `sizeGB: 1`.
+   This disk stores the accumulated Voice Stack versions and `stack_history.sqlite3`.
+5. Set `APP_DATA_DIR=/var/data` so all public-recorder data is written to the Persistent Disk.
+6. Enter all secret values in Render environment variables. Do not commit real
+   `PUBLIC_RECORDING_TOKEN`, `ADMIN_USERNAME`, or `ADMIN_PASSWORD` values.
+7. After the service is live, run the seed initialization command before sending the
+   participant link.
+8. Verify the admin list and latest download endpoints with Basic Auth.
+
+## Render Environment Values
 
 Set these on Render:
 
-- `APP_DATA_DIR=/var/data`
-- `PUBLIC_RECORDING_TOKEN=<private-link-token>`
-- `ADMIN_USERNAME=<admin-user>`
-- `ADMIN_PASSWORD=<admin-password>`
-- `PUBLIC_MAX_UPLOAD_BYTES=26214400`
-- `PUBLIC_STACK_LOCK_TIMEOUT_SECONDS=30`
+| Key | Render value | Note |
+| --- | --- | --- |
+| `APP_DATA_DIR` | `/var/data` | Public recorder data root on the Persistent Disk. |
+| `PUBLIC_RECORDING_TOKEN` | `<32+ char URL-safe random token>` | Private participant link token used in `/r/<PUBLIC_RECORDING_TOKEN>`. |
+| `ADMIN_USERNAME` | `<admin-only username>` | Basic Auth username for stack history and downloads. |
+| `ADMIN_PASSWORD` | `<long random password>` | Basic Auth password. Use a generated password, not a reused one. |
+| `PUBLIC_MAX_UPLOAD_BYTES` | `26214400` | 25MB upload limit. |
+| `PUBLIC_STACK_LOCK_TIMEOUT_SECONDS` | `30` | Wait up to 30 seconds for the stack update lock. |
+
+Copyable non-secret defaults:
+
+```bash
+APP_DATA_DIR=/var/data
+PUBLIC_MAX_UPLOAD_BYTES=26214400
+PUBLIC_STACK_LOCK_TIMEOUT_SECONDS=30
+```
 
 Render disk:
 
@@ -50,6 +78,16 @@ uv run secret-pond public-recorder-init-seed /path/to/initial-stack.wav --root /
 This copies the seed WAV into `data/sources/voice/stack/`, mirrors it to
 `data/voice/voice_stack_raw.wav`, updates `data/config/settings.json`, and records a seed
 version in `data/public/stack_history.sqlite3`.
+
+Step-by-step:
+
+1. Deploy the Render service and confirm it reaches the public health path or recorder page.
+2. Open a Render shell for the service, or otherwise place the initial stack WAV where the
+   service can read it.
+3. Run `uv run secret-pond public-recorder-init-seed /path/to/initial-stack.wav --root /var/data`.
+4. Confirm `/admin/versions` shows the seed version when requested with Basic Auth.
+5. Download `/admin/versions/latest/download` and confirm the file plays as the initial stack.
+6. Only then send the participant link.
 
 ## Participant Link
 
@@ -83,6 +121,33 @@ Download a historical stack:
 ```text
 GET /admin/versions/<version_id>/download
 ```
+
+Admin download verification:
+
+1. Visit `https://<render-service-host>/admin/versions`.
+2. Enter `ADMIN_USERNAME` and `ADMIN_PASSWORD` in the Basic Auth prompt.
+3. Confirm the JSON includes the seed version and any later participant versions.
+4. Visit `https://<render-service-host>/admin/versions/latest/download`.
+5. Confirm the downloaded WAV is the latest accumulated Voice Stack, not an individual
+   participant recording.
+
+## Post-Deploy Mobile Checklist
+
+Run this checklist once on iOS Safari and once on Android Chrome before sharing the link
+widely.
+
+1. Open `https://<render-service-host>/r/<PUBLIC_RECORDING_TOKEN>`.
+2. Confirm the page explains the 3초 minimum, 10분 maximum, 25MB limit, and that
+   녹음 원본 파일은 저장하지 않습니다.
+3. Start recording and approve the 마이크 권한 prompt.
+4. Confirm 3초 전에는 녹음 중지 button stays disabled.
+5. After 3초, stop recording and confirm the page allows re-record or Voice Stack에 추가.
+6. Re-record once and discard the previous attempt.
+7. Submit once with Voice Stack에 추가 and confirm the success state appears.
+8. Confirm a second browser or device can submit after the first one without losing the
+   latest stack version.
+9. Download `/admin/versions/latest/download` and confirm the latest accumulated stack changed.
+10. Confirm no route or admin screen exposes the participant's standalone source recording.
 
 ## 수집 종료
 
