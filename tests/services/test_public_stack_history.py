@@ -31,6 +31,7 @@ def test_stack_history_records_seed_and_commits(tmp_path: Path) -> None:
     assert [record.id for record in records] == [commit.id, seed.id]
     assert records[0].kind == "commit"
     assert records[0].parent_version_id == seed.id
+    assert records[0].level_guard_gain_db is None
     assert records[1].kind == "seed"
     assert store.latest().id == commit.id
 

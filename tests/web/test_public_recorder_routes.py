@@ -298,6 +298,9 @@ def test_admin_version_list_returns_seed_and_commit_versions(
     assert versions[0]["parent_version_id"] == seed.id
     assert versions[0]["kind"] == "commit"
     assert versions[0]["deleted_at"] is None
+    assert "level_guard_rms_dbfs" in versions[0]
+    assert "level_guard_gain_db" in versions[0]
+    assert "level_guard_peak_after" in versions[0]
     assert versions[1]["kind"] == "seed"
 
 

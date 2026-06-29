@@ -13,6 +13,12 @@ class PublicRecorderSettings:
     stack_lock_timeout_seconds: float = 30.0
     minimum_duration_seconds: float = 3.0
     maximum_duration_seconds: float = 600.0
+    level_guard_quiet_rms_dbfs: float = -32.0
+    level_guard_quiet_target_dbfs: float = -28.0
+    level_guard_loud_rms_dbfs: float = -18.0
+    level_guard_loud_target_dbfs: float = -21.0
+    level_guard_max_boost_db: float = 9.0
+    level_guard_peak_ceiling: float = 0.8
 
     @classmethod
     def from_env(cls) -> PublicRecorderSettings:

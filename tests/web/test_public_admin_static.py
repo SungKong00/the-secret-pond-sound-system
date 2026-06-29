@@ -37,6 +37,9 @@ def test_public_admin_renders_active_and_deleted_version_actions() -> None:
             file_size: 2048,
             added_chunks: 1,
             gain_reduction_db: 0,
+            level_guard_gain_db: -3.2,
+            level_guard_rms_dbfs: -15.4,
+            level_guard_peak_after: 0.42,
             deleted_at: null,
           },
           {
@@ -47,6 +50,9 @@ def test_public_admin_renders_active_and_deleted_version_actions() -> None:
             file_size: 1024,
             added_chunks: 0,
             gain_reduction_db: null,
+            level_guard_gain_db: null,
+            level_guard_rms_dbfs: null,
+            level_guard_peak_after: null,
             deleted_at: "2026-06-29T12:10:00Z",
           },
         ];
@@ -56,6 +62,8 @@ def test_public_admin_renders_active_and_deleted_version_actions() -> None:
         assert.strictEqual(list.children.length, 2);
         assert.match(document.getElementById("summaryText").textContent, /2 versions, 1 active/);
         assert.strictEqual(list.children[0].dataset.versionId, "active-version");
+        assert.match(list.children[0].innerHTML, /Level guard/);
+        assert.match(list.children[0].innerHTML, /-3.2 dB/);
         assert.match(list.children[0].children[0].src, /active-version\\/preview/);
         assert.match(list.children[0].children[1].href, /active-version\\/download/);
         assert.strictEqual(list.children[0].children[2].disabled, false);

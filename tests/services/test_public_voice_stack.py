@@ -146,6 +146,39 @@ def test_public_recording_commit_uses_latest_non_deleted_version_as_parent(
     assert stored.active.sources.voice_stack_path == third.history_record.stack_path
 
 
+def test_public_recording_level_guard_boosts_only_very_quiet_takes(
+    tmp_path: Path,
+) -> None:
+    quiet_upload = tmp_path / "quiet.wav"
+    normal_upload = tmp_path / "normal.wav"
+    write_take(quiet_upload, amplitude=0.001)
+    write_take(normal_upload, amplitude=0.04)
+    stack_service = service(tmp_path)
+
+    quiet = stack_service.add_decoded_wav(quiet_upload)
+    normal = stack_service.add_decoded_wav(normal_upload)
+
+    assert quiet.history_record.level_guard_rms_dbfs < -32.0
+    assert quiet.history_record.level_guard_gain_db == pytest.approx(9.0)
+    assert quiet.history_record.level_guard_peak_after <= 0.8
+    assert -32.0 <= normal.history_record.level_guard_rms_dbfs <= -18.0
+    assert normal.history_record.level_guard_gain_db == pytest.approx(0.0)
+    assert normal.history_record.level_guard_peak_after <= 0.8
+
+
+def test_public_recording_level_guard_attenuates_only_very_loud_takes(
+    tmp_path: Path,
+) -> None:
+    loud_upload = tmp_path / "loud.wav"
+    write_take(loud_upload, amplitude=0.8)
+
+    result = service(tmp_path).add_decoded_wav(loud_upload)
+
+    assert result.history_record.level_guard_rms_dbfs > -18.0
+    assert result.history_record.level_guard_gain_db < 0.0
+    assert result.history_record.level_guard_peak_after <= 0.8
+
+
 def test_public_recording_deletes_upload_file_when_processing_fails(tmp_path: Path) -> None:
     upload = tmp_path / "too-short.wav"
     write_take(upload, seconds=1.0)

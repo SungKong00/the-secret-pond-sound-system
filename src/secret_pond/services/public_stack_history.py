@@ -22,6 +22,9 @@ class StackHistoryRecord:
     peak_after_guard: float | None = None
     gain_reduction_db: float | None = None
     deleted_at: str | None = None
+    level_guard_rms_dbfs: float | None = None
+    level_guard_gain_db: float | None = None
+    level_guard_peak_after: float | None = None
 
 
 class StackHistoryStore:
@@ -61,6 +64,9 @@ class StackHistoryStore:
         peak_before_guard: float,
         peak_after_guard: float,
         gain_reduction_db: float,
+        level_guard_rms_dbfs: float | None = None,
+        level_guard_gain_db: float | None = None,
+        level_guard_peak_after: float | None = None,
     ) -> StackHistoryRecord:
         return self._insert(
             kind="commit",
@@ -73,6 +79,9 @@ class StackHistoryStore:
             peak_before_guard=peak_before_guard,
             peak_after_guard=peak_after_guard,
             gain_reduction_db=gain_reduction_db,
+            level_guard_rms_dbfs=level_guard_rms_dbfs,
+            level_guard_gain_db=level_guard_gain_db,
+            level_guard_peak_after=level_guard_peak_after,
         )
 
     def latest(self) -> StackHistoryRecord | None:
@@ -132,6 +141,9 @@ class StackHistoryStore:
         peak_before_guard: float | None,
         peak_after_guard: float | None,
         gain_reduction_db: float | None,
+        level_guard_rms_dbfs: float | None = None,
+        level_guard_gain_db: float | None = None,
+        level_guard_peak_after: float | None = None,
     ) -> StackHistoryRecord:
         record = StackHistoryRecord(
             id=f"stack_{uuid4().hex}",
@@ -146,6 +158,9 @@ class StackHistoryStore:
             peak_before_guard=peak_before_guard,
             peak_after_guard=peak_after_guard,
             gain_reduction_db=gain_reduction_db,
+            level_guard_rms_dbfs=level_guard_rms_dbfs,
+            level_guard_gain_db=level_guard_gain_db,
+            level_guard_peak_after=level_guard_peak_after,
         )
         with self._connect() as connection:
             connection.execute(
@@ -153,8 +168,9 @@ class StackHistoryStore:
                 insert into stack_versions (
                   id, kind, created_at, parent_version_id, stack_path,
                   duration_seconds, file_size, sha256, added_chunks,
-                  peak_before_guard, peak_after_guard, gain_reduction_db
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  peak_before_guard, peak_after_guard, gain_reduction_db,
+                  level_guard_rms_dbfs, level_guard_gain_db, level_guard_peak_after
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -169,6 +185,9 @@ class StackHistoryStore:
                     record.peak_before_guard,
                     record.peak_after_guard,
                     record.gain_reduction_db,
+                    record.level_guard_rms_dbfs,
+                    record.level_guard_gain_db,
+                    record.level_guard_peak_after,
                 ),
             )
         return record
@@ -197,11 +216,17 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
           peak_before_guard real,
           peak_after_guard real,
           gain_reduction_db real,
-          deleted_at text
+          deleted_at text,
+          level_guard_rms_dbfs real,
+          level_guard_gain_db real,
+          level_guard_peak_after real
         )
         """
     )
     _ensure_column(connection, "deleted_at", "text")
+    _ensure_column(connection, "level_guard_rms_dbfs", "real")
+    _ensure_column(connection, "level_guard_gain_db", "real")
+    _ensure_column(connection, "level_guard_peak_after", "real")
 
 
 def _ensure_column(connection: sqlite3.Connection, column: str, definition: str) -> None:
@@ -236,4 +261,13 @@ def _record_from_row(row: sqlite3.Row) -> StackHistoryRecord:
         if row["gain_reduction_db"] is None
         else float(row["gain_reduction_db"]),
         deleted_at=None if row["deleted_at"] is None else str(row["deleted_at"]),
+        level_guard_rms_dbfs=None
+        if row["level_guard_rms_dbfs"] is None
+        else float(row["level_guard_rms_dbfs"]),
+        level_guard_gain_db=None
+        if row["level_guard_gain_db"] is None
+        else float(row["level_guard_gain_db"]),
+        level_guard_peak_after=None
+        if row["level_guard_peak_after"] is None
+        else float(row["level_guard_peak_after"]),
     )

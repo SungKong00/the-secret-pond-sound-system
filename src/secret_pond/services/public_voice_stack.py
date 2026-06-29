@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import subprocess
 from dataclasses import dataclass
+from math import log10
 from pathlib import Path
 from uuid import uuid4
 
+import numpy as np
 from filelock import FileLock, Timeout
 
+from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.effects import apply_recording_processing
 from secret_pond.audio.file_io import read_wav
 from secret_pond.audio.voice_stack import VoiceStackAddResult, VoiceStackStore
@@ -33,6 +36,14 @@ class PublicVoiceStackError(ValueError):
 class PublicVoiceStackResult:
     history_record: StackHistoryRecord
     add_result: VoiceStackAddResult
+
+
+@dataclass(frozen=True)
+class _LevelGuardResult:
+    buffer: AudioBuffer
+    rms_dbfs: float
+    gain_db: float
+    peak_after: float
 
 
 @dataclass(frozen=True)
@@ -115,8 +126,9 @@ class PublicVoiceStackService:
         snapshot = self._capture_snapshot()
         try:
             processed = apply_recording_processing(canonical, active.recording)
+            level_guard = _apply_public_level_guard(processed, self._settings)
             add_result = self._voice_stack.add_processed_voice(
-                processed,
+                level_guard.buffer,
                 active,
                 processing_settings_snapshot=active.recording.model_dump(mode="json"),
             )
@@ -136,6 +148,9 @@ class PublicVoiceStackService:
                 peak_before_guard=add_result.peak_before_guard,
                 peak_after_guard=add_result.peak_after_guard,
                 gain_reduction_db=add_result.gain_reduction_db,
+                level_guard_rms_dbfs=level_guard.rms_dbfs,
+                level_guard_gain_db=level_guard.gain_db,
+                level_guard_peak_after=level_guard.peak_after,
             )
         except Exception:
             self._restore_snapshot(snapshot)
@@ -173,6 +188,61 @@ def _public_active_settings(settings: AppSettings) -> AppSettings:
         },
         deep=True,
     )
+
+
+def _apply_public_level_guard(
+    buffer: AudioBuffer,
+    settings: PublicRecorderSettings,
+) -> _LevelGuardResult:
+    rms_dbfs = _rms_dbfs(buffer.samples)
+    gain_db = _coarse_level_gain_db(rms_dbfs, settings)
+    guarded = _apply_gain_db(buffer.samples, gain_db)
+    peak_after = _peak(guarded)
+    if peak_after > settings.level_guard_peak_ceiling:
+        peak_gain_db = 20.0 * log10(settings.level_guard_peak_ceiling / peak_after)
+        guarded = _apply_gain_db(guarded, peak_gain_db)
+        gain_db += peak_gain_db
+        peak_after = _peak(guarded)
+    return _LevelGuardResult(
+        buffer=AudioBuffer(samples=guarded, sample_rate=buffer.sample_rate),
+        rms_dbfs=rms_dbfs,
+        gain_db=gain_db,
+        peak_after=peak_after,
+    )
+
+
+def _coarse_level_gain_db(rms_dbfs: float, settings: PublicRecorderSettings) -> float:
+    if rms_dbfs < settings.level_guard_quiet_rms_dbfs:
+        return min(
+            settings.level_guard_quiet_target_dbfs - rms_dbfs,
+            settings.level_guard_max_boost_db,
+        )
+    if rms_dbfs > settings.level_guard_loud_rms_dbfs:
+        return settings.level_guard_loud_target_dbfs - rms_dbfs
+    return 0.0
+
+
+def _apply_gain_db(samples: np.ndarray, gain_db: float) -> np.ndarray:
+    if gain_db == 0.0:
+        return samples.astype(np.float32, copy=True)
+    return (samples.astype(np.float32, copy=True) * (10.0 ** (gain_db / 20.0))).astype(
+        np.float32
+    )
+
+
+def _rms_dbfs(samples: np.ndarray) -> float:
+    if samples.shape[0] == 0:
+        return -120.0
+    rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32, copy=False)))))
+    if rms <= 0.0 or not np.isfinite(rms):
+        return -120.0
+    return 20.0 * log10(rms)
+
+
+def _peak(samples: np.ndarray) -> float:
+    if samples.shape[0] == 0:
+        return 0.0
+    return float(np.max(np.abs(samples)))
 
 
 def _sha256(path: Path) -> str:

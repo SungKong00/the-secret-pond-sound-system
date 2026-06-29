@@ -209,6 +209,9 @@ def _history_record_to_dict(
         "peak_after_guard": record.peak_after_guard,
         "gain_reduction_db": record.gain_reduction_db,
         "deleted_at": record.deleted_at,
+        "level_guard_rms_dbfs": record.level_guard_rms_dbfs,
+        "level_guard_gain_db": record.level_guard_gain_db,
+        "level_guard_peak_after": record.level_guard_peak_after,
     }
 
 

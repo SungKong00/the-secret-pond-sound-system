@@ -61,6 +61,7 @@
         <span><span class="meta-label">Size</span>${formatBytes(version.file_size)}</span>
         <span><span class="meta-label">Added chunks</span>${version.added_chunks ?? 0}</span>
         <span><span class="meta-label">Gain reduction</span>${formatDb(version.gain_reduction_db)}</span>
+        <span><span class="meta-label">Level guard</span>${formatDb(version.level_guard_gain_db)}</span>
       </div>
       <div class="version-actions"></div>
     `;
