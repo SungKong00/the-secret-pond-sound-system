@@ -262,6 +262,24 @@ def test_admin_version_list_requires_basic_auth(tmp_path: Path, monkeypatch) -> 
     assert wrong.status_code == 401
 
 
+def test_admin_history_page_requires_basic_auth_and_renders_shell(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    client = TestClient(create_public_app(root=tmp_path))
+
+    missing = client.get("/admin")
+    response = client.get("/admin", auth=("admin", "secret-password"))
+
+    assert missing.status_code == 401
+    assert response.status_code == 200
+    assert "Voice Stack Admin" in response.text
+    assert "public_admin.js" in response.text
+
+
 def test_admin_version_list_returns_seed_and_commit_versions(
     tmp_path: Path,
     monkeypatch,
@@ -279,10 +297,11 @@ def test_admin_version_list_returns_seed_and_commit_versions(
     assert [version["id"] for version in versions] == [commit.id, seed.id]
     assert versions[0]["parent_version_id"] == seed.id
     assert versions[0]["kind"] == "commit"
+    assert versions[0]["deleted_at"] is None
     assert versions[1]["kind"] == "seed"
 
 
-def test_admin_can_download_latest_and_historical_stack_versions(
+def test_admin_can_preview_and_download_latest_and_historical_stack_versions(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -293,6 +312,10 @@ def test_admin_can_download_latest_and_historical_stack_versions(
     client = TestClient(create_public_app(root=tmp_path))
 
     latest = client.get("/admin/versions/latest/download", auth=("admin", "secret-password"))
+    latest_preview = client.get(
+        f"/admin/versions/{commit.id}/preview",
+        auth=("admin", "secret-password"),
+    )
     seed_download = client.get(
         f"/admin/versions/{seed.id}/download",
         auth=("admin", "secret-password"),
@@ -304,7 +327,50 @@ def test_admin_can_download_latest_and_historical_stack_versions(
 
     assert latest.status_code == 200
     assert latest.content == b"commit-stack"
+    assert latest_preview.status_code == 200
+    assert latest_preview.headers["content-type"].startswith("audio/wav")
+    assert latest_preview.content == b"commit-stack"
     assert seed_download.status_code == 200
     assert seed_download.content == b"seed-stack"
     assert commit_download.status_code == 200
     assert commit_download.content == b"commit-stack"
+
+
+def test_admin_delete_marks_version_deleted_removes_file_and_skips_latest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_RECORDING_TOKEN", "record-token")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret-password")
+    seed, commit = prepare_stack_history(tmp_path)
+    commit_file = tmp_path / commit.stack_path
+    client = TestClient(create_public_app(root=tmp_path))
+
+    delete_response = client.delete(
+        f"/admin/versions/{commit.id}",
+        auth=("admin", "secret-password"),
+    )
+    versions_response = client.get("/admin/versions", auth=("admin", "secret-password"))
+    deleted_preview = client.get(
+        f"/admin/versions/{commit.id}/preview",
+        auth=("admin", "secret-password"),
+    )
+    deleted_download = client.get(
+        f"/admin/versions/{commit.id}/download",
+        auth=("admin", "secret-password"),
+    )
+    latest_download = client.get(
+        "/admin/versions/latest/download",
+        auth=("admin", "secret-password"),
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["version"]["id"] == commit.id
+    assert delete_response.json()["version"]["deleted_at"] is not None
+    assert not commit_file.exists()
+    assert versions_response.json()["versions"][0]["deleted_at"] is not None
+    assert deleted_preview.status_code == 404
+    assert deleted_download.status_code == 404
+    assert latest_download.status_code == 200
+    assert latest_download.content == b"seed-stack"

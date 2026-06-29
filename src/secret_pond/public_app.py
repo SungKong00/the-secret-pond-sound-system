@@ -58,6 +58,10 @@ def create_public_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         return FileResponse(STATIC_DIR / "public_recorder.html")
 
+    @app.get("/admin", dependencies=[Depends(require_admin)])
+    def admin_history() -> FileResponse:
+        return FileResponse(STATIC_DIR / "public_admin.html")
+
     @app.post("/api/public/recordings", status_code=status.HTTP_201_CREATED)
     async def upload_public_recording(
         file: Annotated[UploadFile, File()],
@@ -111,12 +115,37 @@ def create_public_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
         return _download_response_for_record(paths, record)
 
+    @app.get("/admin/versions/{version_id}/preview", dependencies=[Depends(require_admin)])
+    def preview_stack_version(version_id: str) -> FileResponse:
+        record = StackHistoryStore(paths.public_history_file).get(version_id)
+        if record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
+        return _preview_response_for_record(paths, record)
+
     @app.get("/admin/versions/{version_id}/download", dependencies=[Depends(require_admin)])
     def download_stack_version(version_id: str) -> FileResponse:
         record = StackHistoryStore(paths.public_history_file).get(version_id)
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
         return _download_response_for_record(paths, record)
+
+    @app.delete("/admin/versions/{version_id}", dependencies=[Depends(require_admin)])
+    def delete_stack_version(version_id: str) -> dict[str, dict[str, str | int | float | None]]:
+        history = StackHistoryStore(paths.public_history_file)
+        record = history.get(version_id)
+        if record is None or record.deleted_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
+        stack_path = _stack_path_for_record(
+            paths,
+            record,
+            include_deleted=True,
+            require_exists=False,
+        )
+        stack_path.unlink(missing_ok=True)
+        deleted = history.mark_deleted(version_id)
+        if deleted is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
+        return {"version": _history_record_to_dict(deleted)}
 
     return app
 
@@ -179,6 +208,7 @@ def _history_record_to_dict(
         "peak_before_guard": record.peak_before_guard,
         "peak_after_guard": record.peak_after_guard,
         "gain_reduction_db": record.gain_reduction_db,
+        "deleted_at": record.deleted_at,
     }
 
 
@@ -191,7 +221,23 @@ def _download_response_for_record(paths: ProjectPaths, record: StackHistoryRecor
     )
 
 
-def _stack_path_for_record(paths: ProjectPaths, record: StackHistoryRecord) -> Path:
+def _preview_response_for_record(paths: ProjectPaths, record: StackHistoryRecord) -> FileResponse:
+    stack_path = _stack_path_for_record(paths, record)
+    return FileResponse(
+        stack_path,
+        media_type="audio/wav",
+    )
+
+
+def _stack_path_for_record(
+    paths: ProjectPaths,
+    record: StackHistoryRecord,
+    *,
+    include_deleted: bool = False,
+    require_exists: bool = True,
+) -> Path:
+    if record.deleted_at is not None and not include_deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
     raw_path = Path(record.stack_path)
     stack_path = raw_path if raw_path.is_absolute() else paths.root / raw_path
     resolved = stack_path.resolve()
@@ -202,6 +248,6 @@ def _stack_path_for_record(paths: ProjectPaths, record: StackHistoryRecord) -> P
             status_code=status.HTTP_404_NOT_FOUND,
             detail="version_not_found",
         ) from exc
-    if not resolved.exists() or not resolved.is_file():
+    if require_exists and (not resolved.exists() or not resolved.is_file()):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version_not_found")
     return resolved

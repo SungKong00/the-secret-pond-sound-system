@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice Stack Admin</title>
+    <link rel="stylesheet" href="/static/public_admin.css" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p class="eyebrow">The Secret Pond</p>
+          <h1>Voice Stack Admin</h1>
+        </div>
+        <button id="refreshButton" type="button">Refresh</button>
+      </header>
+
+      <section class="summary-bar" aria-live="polite">
+        <span id="summaryText">Loading versions...</span>
+        <span id="statusMessage"></span>
+      </section>
+
+      <section class="version-list" aria-label="Voice Stack versions">
+        <div id="versionsList" class="versions-list"></div>
+      </section>
+    </main>
+    <script src="/static/public_admin.js"></script>
+  </body>
+</html>
