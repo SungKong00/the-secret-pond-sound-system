@@ -96,6 +96,9 @@ class PublicVoiceStackService:
         self._paths.ensure_directories()
         state = self._settings_store.load()
         active = _public_active_settings(state.active)
+        parent_record = self._history_store.latest()
+        if parent_record is not None:
+            active.sources.voice_stack_path = parent_record.stack_path
         loaded = read_wav(wav_path)
         canonical = loaded.to_canonical(
             sample_rate=active.audio.sample_rate,
@@ -124,9 +127,7 @@ class PublicVoiceStackService:
             self._settings_store.save(SettingsState(active=active, draft=active))
             stack_path = self._paths.root / add_result.voice_stack_path
             record = self._history_store.record_commit(
-                parent_version_id=None
-                if self._history_store.latest() is None
-                else self._history_store.latest().id,
+                parent_version_id=None if parent_record is None else parent_record.id,
                 stack_path=add_result.voice_stack_path,
                 duration_seconds=duration_seconds,
                 file_size=stack_path.stat().st_size,

@@ -9,6 +9,7 @@ from filelock import FileLock
 
 from secret_pond.audio.buffers import AudioBuffer
 from secret_pond.audio.file_io import read_wav, write_wav_atomic
+from secret_pond.audio.voice_stack import VoiceStackStore
 from secret_pond.config import (
     AppSettings,
     AudioFormatSettings,
@@ -111,6 +112,38 @@ def test_public_recording_second_commit_uses_first_commit_as_parent(tmp_path: Pa
         first.history_record.id,
     ]
     assert first.history_record.stack_path != second.history_record.stack_path
+
+
+def test_public_recording_commit_uses_latest_non_deleted_version_as_parent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    first_upload = tmp_path / "first.wav"
+    second_upload = tmp_path / "second.wav"
+    third_upload = tmp_path / "third.wav"
+    write_take(first_upload, amplitude=0.04)
+    write_take(second_upload, amplitude=0.06)
+    write_take(third_upload, amplitude=0.05)
+    stack_service = service(tmp_path)
+    history = StackHistoryStore(ProjectPaths(tmp_path).public_history_file)
+
+    first = stack_service.add_decoded_wav(first_upload)
+    second = stack_service.add_decoded_wav(second_upload)
+    history.mark_deleted(second.history_record.id)
+    observed_stack_paths: list[str | None] = []
+    original_add_processed_voice = VoiceStackStore.add_processed_voice
+
+    def capture_add_processed_voice(self, buffer, settings, **kwargs):
+        observed_stack_paths.append(settings.sources.voice_stack_path)
+        return original_add_processed_voice(self, buffer, settings, **kwargs)
+
+    monkeypatch.setattr(VoiceStackStore, "add_processed_voice", capture_add_processed_voice)
+    third = stack_service.add_decoded_wav(third_upload)
+
+    stored = SettingsStore(ProjectPaths(tmp_path)).load()
+    assert observed_stack_paths == [first.history_record.stack_path]
+    assert third.history_record.parent_version_id == first.history_record.id
+    assert stored.active.sources.voice_stack_path == third.history_record.stack_path
 
 
 def test_public_recording_deletes_upload_file_when_processing_fails(tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ class StackHistoryRecord:
     peak_before_guard: float | None = None
     peak_after_guard: float | None = None
     gain_reduction_db: float | None = None
+    deleted_at: str | None = None
 
 
 class StackHistoryStore:
@@ -77,7 +78,12 @@ class StackHistoryStore:
     def latest(self) -> StackHistoryRecord | None:
         with self._connect() as connection:
             row = connection.execute(
-                "select * from stack_versions order by created_at desc, rowid desc limit 1",
+                """
+                select * from stack_versions
+                where deleted_at is null
+                order by created_at desc, rowid desc
+                limit 1
+                """,
             ).fetchone()
         return None if row is None else _record_from_row(row)
 
@@ -95,6 +101,23 @@ class StackHistoryStore:
                 "select * from stack_versions order by created_at desc, rowid desc",
             ).fetchall()
         return [_record_from_row(row) for row in rows]
+
+    def mark_deleted(self, record_id: str) -> StackHistoryRecord | None:
+        deleted_at = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                update stack_versions
+                set deleted_at = coalesce(deleted_at, ?)
+                where id = ?
+                """,
+                (deleted_at, record_id),
+            )
+            row = connection.execute(
+                "select * from stack_versions where id = ?",
+                (record_id,),
+            ).fetchone()
+        return None if row is None else _record_from_row(row)
 
     def _insert(
         self,
@@ -173,10 +196,21 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
           added_chunks integer not null,
           peak_before_guard real,
           peak_after_guard real,
-          gain_reduction_db real
+          gain_reduction_db real,
+          deleted_at text
         )
         """
     )
+    _ensure_column(connection, "deleted_at", "text")
+
+
+def _ensure_column(connection: sqlite3.Connection, column: str, definition: str) -> None:
+    existing = {
+        str(row["name"])
+        for row in connection.execute("pragma table_info(stack_versions)").fetchall()
+    }
+    if column not in existing:
+        connection.execute(f"alter table stack_versions add column {column} {definition}")
 
 
 def _record_from_row(row: sqlite3.Row) -> StackHistoryRecord:
@@ -201,4 +235,5 @@ def _record_from_row(row: sqlite3.Row) -> StackHistoryRecord:
         gain_reduction_db=None
         if row["gain_reduction_db"] is None
         else float(row["gain_reduction_db"]),
+        deleted_at=None if row["deleted_at"] is None else str(row["deleted_at"]),
     )
