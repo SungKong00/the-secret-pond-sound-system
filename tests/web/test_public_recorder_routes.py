@@ -96,7 +96,7 @@ def test_public_recorder_renders_for_valid_token(tmp_path: Path, monkeypatch) ->
     response = client.get("/r/record-token")
 
     assert response.status_code == 200
-    assert "Voice Stack" in response.text
+    assert "비밀 고해소" in response.text
     assert "operator" not in response.text.lower()
 
 

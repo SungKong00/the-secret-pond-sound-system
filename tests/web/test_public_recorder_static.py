@@ -16,9 +16,47 @@ def test_public_recorder_html_links_assets_and_states_limits() -> None:
 
     assert "public_recorder.css" in html
     assert "public_recorder.js" in html
+    assert "비밀의 연못" in html
+    assert "비밀 고해소" in html
+    assert "누구에게도 전달되거나 들려지지 않습니다" in html
+    assert "비밀의 연못에 고입니다" in html
+    assert "말하기" in html
+    assert "그만두기" in html
+    assert "다시하기" in html
+    assert "두고가기" in html
     assert "3초" in html
     assert "10분" in html
     assert "25MB" in html
+
+
+def test_public_recorder_uses_confessional_status_copy() -> None:
+    script = public_recorder_script()
+
+    run_node_harness(
+        script,
+        dom_setup=PUBLIC_RECORDER_DOM_SETUP,
+        body="""
+        (async () => {
+          const api = window.SecretPondPublicRecorder._test;
+          globalThis.fetch = async () => ({
+            ok: true,
+            json: async () => ({ version_id: "stack-1" }),
+          });
+          api.setRecordedBlob({ size: 1024, type: "audio/webm" });
+          const result = await api.submitRecording();
+
+          assert.deepStrictEqual(result, { version_id: "stack-1" });
+          assert.strictEqual(document.getElementById("recordState").textContent, "두고 감");
+          assert.match(
+            document.getElementById("statusMessage").textContent,
+            /두고 갔습니다/,
+          );
+        })().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        """,
+    )
 
 
 def test_public_recorder_disables_stop_before_three_seconds() -> None:

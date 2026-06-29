@@ -118,10 +118,10 @@
       chunks = [];
       recordedBlob = null;
       state = "recording";
-      setRecordState("녹음 중");
+      setRecordState("말하는 중");
       updateButtons();
       updateElapsedSeconds(0);
-      setStatus("녹음 중입니다. 3초 뒤부터 멈출 수 있고 최대 10분까지 녹음됩니다.");
+      setStatus("말하는 중입니다. 3초 뒤부터 그만둘 수 있고 최대 10분까지 녹음됩니다.");
 
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = chooseMimeType();
@@ -137,10 +137,10 @@
         const type = mediaRecorder.mimeType || mimeType || "audio/webm";
         recordedBlob = new Blob(chunks, { type });
         state = "ready";
-        setRecordState("확인 대기");
+        setRecordState("두고가기 전");
         updateElapsedSeconds((Date.now() - startedAt) / 1000);
         updateButtons();
-        setStatus("녹음이 준비됐습니다. 추가하거나 다시 녹음할 수 있습니다.", "success");
+        setStatus("말이 준비됐습니다. 두고 가거나 다시 할 수 있습니다.", "success");
       };
       startedAt = Date.now();
       mediaRecorder.start();
@@ -152,7 +152,7 @@
       stopStream();
       recordedBlob = null;
       state = "idle";
-      setRecordState("대기");
+      setRecordState("기다림");
       updateButtons();
       updateElapsedSeconds(0);
       setStatus("마이크 권한을 확인한 뒤 다시 시도해 주세요.", "error");
@@ -164,7 +164,7 @@
     const elapsed = (Date.now() - startedAt) / 1000;
     if (elapsed < MIN_SECONDS) {
       updateElapsedSeconds(elapsed);
-      setStatus("최소 3초가 지나야 녹음을 멈출 수 있습니다.", "error");
+      setStatus("최소 3초가 지나야 그만둘 수 있습니다.", "error");
       return;
     }
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
@@ -177,10 +177,10 @@
     chunks = [];
     recordedBlob = null;
     state = "idle";
-    setRecordState("대기");
+    setRecordState("기다림");
     updateElapsedSeconds(0);
     updateButtons();
-    setStatus("다시 녹음할 수 있습니다.");
+    setStatus("다시 말할 수 있습니다.");
   }
 
   function mapUploadError(error) {
@@ -195,7 +195,7 @@
 
   function submitRecording() {
     if (!recordedBlob) {
-      setStatus("추가할 녹음이 없습니다.", "error");
+      setStatus("두고 갈 녹음이 없습니다.", "error");
       return Promise.resolve(false);
     }
     if (recordedBlob.size > MAX_UPLOAD_BYTES) {
@@ -205,7 +205,7 @@
 
     state = "submitting";
     updateButtons();
-    setStatus("Voice Stack에 추가하는 중입니다.");
+    setStatus("비밀의 연못에 두고 가는 중입니다.");
 
     const formData = new FormData();
     formData.append(
@@ -232,10 +232,10 @@
         chunks = [];
         recordedBlob = null;
         state = "committed";
-        setRecordState("추가 완료");
+        setRecordState("두고 감");
         updateButtons();
         setStatus(
-          "Voice Stack에 추가되었습니다. 이후 다른 녹음이 추가되면 되돌릴 수 없습니다.",
+          "두고 갔습니다. 이후 다른 목소리가 더해지면 되돌릴 수 없습니다.",
           "success",
         );
         return payload;
@@ -263,7 +263,8 @@
       return;
     }
 
-    setStatus("녹음을 시작할 수 있습니다.");
+    setRecordState("기다림");
+    setStatus("말할 준비가 되면 시작하세요. 최소 3초, 최대 10분까지 남길 수 있습니다.");
   }
 
   document.addEventListener("DOMContentLoaded", bind);

@@ -3,19 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>The Secret Pond Voice Stack</title>
+    <title>비밀 고해소 - 비밀의 연못</title>
     <link rel="stylesheet" href="/static/public_recorder.css" />
     <script src="/static/public_recorder.js" defer></script>
   </head>
   <body>
     <main class="recorder-shell">
       <section class="recorder" aria-labelledby="recorderTitle">
-        <p class="eyebrow">The Secret Pond</p>
-        <h1 id="recorderTitle">Voice Stack</h1>
-        <p class="summary">
-          녹음 원본 파일은 Voice Stack에 추가하는 처리에만 쓰이며, 단독 파일로 보관하거나
-          관리자에게 노출하지 않습니다.
-        </p>
+        <p class="eyebrow">비밀의 연못</p>
+        <h1 id="recorderTitle">비밀 고해소</h1>
+
+        <div class="intro-copy">
+          <p class="assurance">
+            이곳에 남긴 말은<br />
+            누구에게도 전달되거나 들려지지 않습니다.
+          </p>
+          <p>
+            당신의 목소리는 다른 목소리들과 겹쳐져<br />
+            비밀의 연못에 고입니다.
+          </p>
+          <p>정말로 말 못 할 비밀이던, 후회하는 말이던, 끝내 전하지 못하는 진심.</p>
+          <p>
+            어쩌면 누군가 알아줬으면 하지만 동시에 아무도 알지 않았으면 하는 속마음을
+            두고 가세요.
+          </p>
+        </div>
 
         <div class="limit-grid" aria-label="녹음 제한">
           <div>
@@ -32,20 +44,25 @@
           </div>
         </div>
 
+        <p class="privacy-note">
+          녹음 원본은 목소리를 겹치는 처리에만 쓰이며, 단독 파일로 저장하거나 관리자에게
+          노출하지 않습니다.
+        </p>
+
         <div class="record-meter" aria-live="polite">
           <span id="elapsedTime">0:00</span>
-          <span id="recordState">대기</span>
+          <span id="recordState">기다림</span>
         </div>
 
         <div class="actions" aria-label="녹음 작업">
-          <button id="startButton" type="button" class="primary">녹음 시작</button>
-          <button id="stopButton" type="button" class="danger" disabled>녹음 중지</button>
-          <button id="rerecordButton" type="button" class="secondary" hidden>다시 녹음</button>
-          <button id="addButton" type="button" class="primary" hidden>Voice Stack에 추가</button>
+          <button id="startButton" type="button" class="primary">말하기</button>
+          <button id="stopButton" type="button" class="danger" disabled>그만두기</button>
+          <button id="rerecordButton" type="button" class="secondary" hidden>다시하기</button>
+          <button id="addButton" type="button" class="primary" hidden>두고가기</button>
         </div>
 
         <p class="rollback-note">
-          추가 후 다른 사람이 녹음하면 방금 추가한 내용도 되돌릴 수 없습니다.
+          두고 간 뒤 다른 목소리가 더해지면 방금 남긴 말도 되돌릴 수 없습니다.
         </p>
         <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
       </section>
