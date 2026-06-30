@@ -20,6 +20,8 @@ def test_public_recorder_html_uses_confessional_copy_without_extra_notice_blocks
     assert "비밀 고해소" in html
     assert "누구에게도 전달되거나 들려지지 않습니다" in html
     assert "비밀의 연못에 고입니다" in html
+    assert "정말로 말 못할 비밀이든, 후회하는 말이든, 끝내 전하지 못하는 진심이든," in html
+    assert "혹은 누군가 알아줬으면 하지만 동시에 아무도 알지 않았으면 하는 속마음" in html
     assert "말하기" in html
     assert "그만두기" in html
     assert "다시하기" in html
@@ -73,15 +75,30 @@ def test_public_recorder_uses_confessional_status_copy() -> None:
           const result = await api.submitRecording();
 
           assert.deepStrictEqual(result, { version_id: "stack-1" });
-          assert.strictEqual(document.getElementById("recordState").textContent, "두고 감");
-          assert.match(
-            document.getElementById("statusMessage").textContent,
-            /두고 갔습니다/,
-          );
+          assert.strictEqual(document.getElementById("recordState").textContent, "완료");
+          assert.strictEqual(document.getElementById("statusMessage").textContent, "");
         })().catch((error) => {
           console.error(error);
           process.exitCode = 1;
         });
+        """,
+    )
+
+
+def test_public_recorder_ready_state_keeps_start_and_stop_buttons_muted() -> None:
+    script = public_recorder_script()
+
+    run_node_harness(
+        script,
+        dom_setup=PUBLIC_RECORDER_DOM_SETUP,
+        body="""
+        const api = window.SecretPondPublicRecorder._test;
+        api.setRecordedBlob({ size: 1024, type: "audio/webm" });
+
+        assert.strictEqual(document.getElementById("startButton").disabled, true);
+        assert.strictEqual(document.getElementById("stopButton").disabled, true);
+        assert.strictEqual(document.getElementById("rerecordButton").hidden, false);
+        assert.strictEqual(document.getElementById("addButton").hidden, false);
         """,
     )
 

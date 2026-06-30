@@ -57,7 +57,7 @@
     const isSubmitting = state === "submitting";
     const hasRecording = Boolean(recordedBlob);
 
-    if (startButton) startButton.disabled = isRecording || isSubmitting;
+    if (startButton) startButton.disabled = isRecording || isSubmitting || hasRecording;
     if (stopButton) stopButton.disabled = !isRecording;
     if (rerecordButton) {
       rerecordButton.hidden = !hasRecording || isSubmitting;
@@ -140,7 +140,7 @@
         setRecordState("두고가기 전");
         updateElapsedSeconds((Date.now() - startedAt) / 1000);
         updateButtons();
-        setStatus("말이 준비됐습니다. 두고 가거나 다시 할 수 있습니다.", "success");
+        setStatus("");
       };
       startedAt = Date.now();
       mediaRecorder.start();
@@ -152,7 +152,7 @@
       stopStream();
       recordedBlob = null;
       state = "idle";
-      setRecordState("기다림");
+      setRecordState("대기중");
       updateButtons();
       updateElapsedSeconds(0);
       setStatus("마이크 권한을 확인한 뒤 다시 시도해 주세요.", "error");
@@ -177,7 +177,7 @@
     chunks = [];
     recordedBlob = null;
     state = "idle";
-    setRecordState("기다림");
+    setRecordState("대기중");
     updateElapsedSeconds(0);
     updateButtons();
     setStatus("다시 말할 수 있습니다.");
@@ -232,12 +232,9 @@
         chunks = [];
         recordedBlob = null;
         state = "committed";
-        setRecordState("두고 감");
+        setRecordState("완료");
         updateButtons();
-        setStatus(
-          "두고 갔습니다. 이후 다른 목소리가 더해지면 되돌릴 수 없습니다.",
-          "success",
-        );
+        setStatus("");
         return payload;
       })
       .catch((error) => {
@@ -263,7 +260,7 @@
       return;
     }
 
-    setRecordState("기다림");
+    setRecordState("대기중");
     setStatus("말할 준비가 되면 시작하세요. 최소 3초, 최대 10분까지 남길 수 있습니다.");
   }
 
