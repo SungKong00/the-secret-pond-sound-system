@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph host["Local operator computer"]
+    direction TB
+    UI["Browser dashboard<br/>System · Record · Graph EQ"]
+    API["FastAPI · Runtime<br/>Operations · State sync"]
+    Mic(["Microphone / audio input"])
+    Capture["Capture and voice processing"]
+    Sources[("Local WAV sources<br/>Low · Mid · Voice Stack")]
+    DSP["Layer renderer<br/>Filter · Graph EQ"]
+    Mixer["3-layer loop mixer<br/>sounddevice output"]
+    Speaker(["Audio interface / speakers"])
+    UI <-->|HTTP commands · WebSocket state| API
+    Mic --> Capture --> Sources --> DSP --> Mixer --> Speaker
+    API -.->|Recording commands| Capture
+    API -.->|Stable apply or Live layer update| DSP
+  end
+  classDef ui fill:#eeeafc,stroke:#665098,color:#281c44;
+  classDef process fill:#e8f4ed,stroke:#327b64,color:#133d31;
+  classDef hardware fill:#fdf0df,stroke:#9a653b,color:#4d331d;
+  class UI,API ui;
+  class Capture,Sources,DSP,Mixer process;
+  class Mic,Speaker hardware;

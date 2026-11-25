@@ -1,0 +1,92 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="secret-pond-workflow" name="The Secret Pond | Stable EQ 적용" alt="The Secret Pond | Stable EQ 적용 · 운영자 리허설 · Mid 배경음의 1 kHz 벨 밴드만 조절">
+    <mxGraphModel page="1" pageScale="1" pageWidth="1230" pageHeight="475" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas" parent="1" vertex="1" value="" style="fillColor=#FFFFFF;strokeColor=none;movable=0;resizable=0;editable=0;selectable=0;html=0;">
+          <mxGeometry x="0" y="0" width="1230" height="475" as="geometry" />
+        </mxCell>
+        <mxCell id="title" parent="1" vertex="1" value="The Secret Pond | Stable EQ 적용" style="text;html=0;strokeColor=none;fillColor=none;whiteSpace=wrap;align=left;verticalAlign=middle;spacing=0;fontColor=#15283D;fontSize=35;fontStyle=1;fontFamily=Arial;">
+          <mxGeometry x="43" y="24" width="1145" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" vertex="1" value="운영자 리허설 · Mid 배경음의 1 kHz 벨 밴드만 조절" style="text;html=0;strokeColor=none;fillColor=none;whiteSpace=wrap;align=left;verticalAlign=middle;spacing=0;fontColor=#485D72;fontSize=21;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="45" y="74" width="1140" height="39" as="geometry" />
+        </mxCell>
+        <mxCell id="edit" parent="1" vertex="1" value="" style="rounded=0;fillColor=none;strokeColor=none;whiteSpace=wrap;html=0;">
+          <mxGeometry x="55" y="223" width="204" height="73" as="geometry" />
+        </mxCell>
+        <mxCell id="edit_tile" parent="edit" vertex="1" value="" style="rounded=1;arcSize=16;fillColor=#FFFFFF;strokeColor=#B9ADD4;strokeWidth=1.2;html=0;">
+          <mxGeometry x="2" y="16" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="edit_icon" parent="edit" vertex="1" value="" style="shape=image;imageAspect=1;image=data:image/svg+xml,PHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9IiM1NDNFODMiCiAgc3Ryb2tlLXdpZHRoPSIyIgogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICBzdHJva2UtbGluZWpvaW49InJvdW5kIgo+CiAgPHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjE0IiB4PSIyIiB5PSIzIiByeD0iMiIgLz4KICA8bGluZSB4MT0iOCIgeDI9IjE2IiB5MT0iMjEiIHkyPSIyMSIgLz4KICA8bGluZSB4MT0iMTIiIHgyPSIxMiIgeTE9IjE3IiB5Mj0iMjEiIC8+Cjwvc3ZnPgo=;">
+          <mxGeometry x="10" y="24" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="edit_label" parent="edit" vertex="1" value="Mid EQ 편집" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=21;fontColor=#543E83;fontStyle=1;fontFamily=Arial;">
+          <mxGeometry x="49" y="9" width="150" height="29" as="geometry" />
+        </mxCell>
+        <mxCell id="edit_desc" parent="edit" vertex="1" value="1 kHz · 0 → −4 dB" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=17;fontColor=#425E70;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="49" y="37" width="150" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="wait" parent="1" vertex="1" value="" style="rounded=0;fillColor=none;strokeColor=none;whiteSpace=wrap;html=0;">
+          <mxGeometry x="361" y="223" width="199" height="73" as="geometry" />
+        </mxCell>
+        <mxCell id="wait_tile" parent="wait" vertex="1" value="" style="rounded=1;arcSize=16;fillColor=#FFFFFF;strokeColor=#CFB879;strokeWidth=1.2;html=0;">
+          <mxGeometry x="2" y="16" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="wait_icon" parent="wait" vertex="1" value="" style="shape=image;imageAspect=1;image=data:image/svg+xml,PHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9IiM3NjUwMDgiCiAgc3Ryb2tlLXdpZHRoPSIyIgogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICBzdHJva2UtbGluZWpvaW49InJvdW5kIgo+CiAgPHBhdGggZD0iTTkgNWg4LjVhMSAxIDAgMDEwIDdoLTExYTEgMSAwIDAwMCA3SDE1IiAvPgogIDxjaXJjbGUgY3g9IjE4IiBjeT0iMTkiIHI9IjMiIC8+CiAgPGNpcmNsZSBjeD0iNiIgY3k9IjUiIHI9IjMiIC8+Cjwvc3ZnPgo=;">
+          <mxGeometry x="10" y="24" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="wait_label" parent="wait" vertex="1" value="적용 대기" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=21;fontColor=#765008;fontStyle=1;fontFamily=Arial;">
+          <mxGeometry x="49" y="9" width="145" height="29" as="geometry" />
+        </mxCell>
+        <mxCell id="wait_desc" parent="wait" vertex="1" value="활성 설정은 그대로" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=16;fontColor=#425E70;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="49" y="37" width="145" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="render" parent="1" vertex="1" value="" style="rounded=0;fillColor=none;strokeColor=none;whiteSpace=wrap;html=0;">
+          <mxGeometry x="668" y="223" width="206" height="73" as="geometry" />
+        </mxCell>
+        <mxCell id="render_tile" parent="render" vertex="1" value="" style="rounded=1;arcSize=16;fillColor=#FFFFFF;strokeColor=#A7BBD8;strokeWidth=1.2;html=0;">
+          <mxGeometry x="2" y="16" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="render_icon" parent="render" vertex="1" value="" style="shape=image;imageAspect=1;image=data:image/svg+xml,PHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9IiMyMTRGODciCiAgc3Ryb2tlLXdpZHRoPSIyIgogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICBzdHJva2UtbGluZWpvaW49InJvdW5kIgo+CiAgPHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjE0IiB4PSIyIiB5PSIzIiByeD0iMiIgLz4KICA8bGluZSB4MT0iOCIgeDI9IjE2IiB5MT0iMjEiIHkyPSIyMSIgLz4KICA8bGluZSB4MT0iMTIiIHgyPSIxMiIgeTE9IjE3IiB5Mj0iMjEiIC8+Cjwvc3ZnPgo=;">
+          <mxGeometry x="10" y="24" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="render_label" parent="render" vertex="1" value="새 렌더 준비" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=21;fontColor=#214F87;fontStyle=1;fontFamily=Arial;">
+          <mxGeometry x="49" y="9" width="152" height="29" as="geometry" />
+        </mxCell>
+        <mxCell id="render_desc" parent="render" vertex="1" value="변경사항 적용 후 재생" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=14;fontColor=#425E70;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="49" y="37" width="152" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="done" parent="1" vertex="1" value="" style="rounded=0;fillColor=none;strokeColor=none;whiteSpace=wrap;html=0;">
+          <mxGeometry x="981" y="223" width="199" height="73" as="geometry" />
+        </mxCell>
+        <mxCell id="done_tile" parent="done" vertex="1" value="" style="rounded=1;arcSize=16;fillColor=#FFFFFF;strokeColor=#9FBEB1;strokeWidth=1.2;html=0;">
+          <mxGeometry x="2" y="16" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="done_icon" parent="done" vertex="1" value="" style="shape=image;imageAspect=1;image=data:image/svg+xml,PHN2ZwogIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICB3aWR0aD0iMjQiCiAgaGVpZ2h0PSIyNCIKICB2aWV3Qm94PSIwIDAgMjQgMjQiCiAgZmlsbD0ibm9uZSIKICBzdHJva2U9IiMxMjYxNEYiCiAgc3Ryb2tlLXdpZHRoPSIyIgogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICBzdHJva2UtbGluZWpvaW49InJvdW5kIgo+CiAgPHJlY3Qgd2lkdGg9IjgiIGhlaWdodD0iNCIgeD0iOCIgeT0iMiIgcng9IjEiIHJ5PSIxIiAvPgogIDxwYXRoIGQ9Ik0xNiA0aDJhMiAyIDAgMCAxIDIgMnYxNGEyIDIgMCAwIDEtMiAySDZhMiAyIDAgMCAxLTItMlY2YTIgMiAwIDAgMSAyLTJoMiIgLz4KICA8cGF0aCBkPSJNMTIgMTFoNCIgLz4KICA8cGF0aCBkPSJNMTIgMTZoNCIgLz4KICA8cGF0aCBkPSJNOCAxMWguMDEiIC8+CiAgPHBhdGggZD0iTTggMTZoLjAxIiAvPgo8L3N2Zz4K;">
+          <mxGeometry x="10" y="24" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="done_label" parent="done" vertex="1" value="활성값 확인" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=21;fontColor=#12614F;fontStyle=1;fontFamily=Arial;">
+          <mxGeometry x="49" y="9" width="145" height="29" as="geometry" />
+        </mxCell>
+        <mxCell id="done_desc" parent="done" vertex="1" value="대기 해제 · −4 dB 유지" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;spacing=0;fontSize=13;fontColor=#425E70;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="49" y="37" width="145" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="값 편집" edge="1" parent="1" source="edit" target="wait" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#415C70;strokeWidth=2.2;fontColor=#24435A;fontSize=16;labelBackgroundColor=#FFFFFF;labelPadding=2;fontFamily=Arial;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="운영자 확정" edge="1" parent="1" source="wait" target="render" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#415C70;strokeWidth=2.2;fontColor=#24435A;fontSize=16;labelBackgroundColor=#FFFFFF;labelPadding=2;fontFamily=Arial;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="준비 완료" edge="1" parent="1" source="render" target="done" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#415C70;strokeWidth=2.2;fontColor=#24435A;fontSize=16;labelBackgroundColor=#FFFFFF;labelPadding=2;fontFamily=Arial;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="note" parent="1" vertex="1" value="이 시연은 물리 출력 없이 로컬 WAV를 렌더한다. Live는 별도 경로로 EQ 이전 소스에서 해당 레이어만 교체한다." style="text;html=0;strokeColor=none;fillColor=none;whiteSpace=wrap;align=left;verticalAlign=middle;spacing=0;fontColor=#43586D;fontSize=17;fontStyle=0;fontFamily=Arial;">
+          <mxGeometry x="45" y="423" width="1140" height="38" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
