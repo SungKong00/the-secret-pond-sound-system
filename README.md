@@ -2,6 +2,7 @@
 
 〈비밀의 연못〉 전시에서 관객의 목소리를 녹음해 반복 음원으로 쌓고, 두 배경음과 섞어 현장 스피커로 재생하는 로컬 사운드 시스템이다.
 
+| | |
 | --- | --- |
 | 용도 | 전시의 녹음·음원 준비·믹싱을 현장 PC 한 대에서 운영 |
 | 담당 범위 | 운영자 대시보드, 녹음 및 WAV 처리, 3레이어 재생, 오디오 장치 점검과 실행 런처 |
@@ -17,14 +18,13 @@
 
 ![Stable 모드에서 Mid EQ 변경이 대기 상태를 거쳐 적용되는 실제 화면](docs/portfolio-readme/assets/readme/secret-pond-stable-eq-demo.gif)
 
-
 [시연 단계와 확인 조건](docs/portfolio-readme/docs/demo-scenario.md) · [운영 대시보드 정지 화면](docs/portfolio-readme/assets/readme/secret-pond-workspace.png)
 
 ## 운영자 시연 · 관객 목소리를 Voice Stack에 추가하기
 
-운영자가 **전시 모드에서 녹음 준비 → 스페이스바를 누르는 동안 녹음 → 손을 떼어 완료**한다. 녹음이 반영되면 화면에 ‘녹음 추가됨’이 표시되고 참여자 수가 1로 바뀐다.
+운영자가 녹음 준비를 켜고 스페이스바를 누른 뒤 놓는다. 녹음 처리 표시가 사라지고 다음 녹음을 받을 준비 상태로 돌아온다.
 
-![녹음 준비에서 3초 이상 입력을 받은 뒤 새 목소리를 Voice Stack에 합치는 운영 화면](docs/portfolio-readme/assets/readme/secret-pond-voice-stack-demo.gif)
+![운영 화면의 녹음 준비, 3초 이상 캡처, 처리 후 준비 복귀](docs/portfolio-readme/assets/readme/secret-pond-voice-stack-demo.gif)
 
 [운영자 작업 흐름](docs/portfolio-readme/docs/role-flows.md)
 
@@ -98,7 +98,6 @@ secret-pond serve
 ```
 
 운영 화면과 음원 준비 과정은 저장소의 `docs/operator-guide.md`에 정리했다.
-
 
 <details>
 <summary>기존 설치·개발 안내</summary>
