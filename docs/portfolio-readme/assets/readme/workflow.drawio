@@ -23,7 +23,7 @@
         <mxCell id="rightlane" value="" style="rounded=1;arcSize=6;strokeWidth=1.4;strokeColor=#A7C4D7;fillColor=#F2F8FC;dashed=0;" vertex="1" parent="1">
           <mxGeometry x="396" y="94" width="342" height="409" as="geometry" />
         </mxCell>
-        <mxCell id="decor4" value="Python · 물리 출력 없음" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=18;fontColor=#14679D;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+        <mxCell id="decor4" value="Python · 레이어 렌더링" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=18;fontColor=#14679D;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
           <mxGeometry x="408" y="101" width="318" height="28" as="geometry" />
         </mxCell>
         <mxCell id="s0" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
